@@ -47,19 +47,39 @@ jobs:
           key: libtorrent-cmake-${{ runner.os }}-${{ steps.libsha.outputs.sha }}
 
       # Boost is required by libtorrent's CMakeLists.txt (header search + link).
-      # Install unconditionally — it's also needed when Xcode compiles the C++ sources.
+      # Install unconditionally — needed both for cmake and for the C++ compile step.
       - name: Install Boost
         run: brew install boost
 
       # Generate the libtorrent Xcode project via cmake (skip on cache hit).
       # BOOST_ROOT tells cmake's FindBoost where Homebrew put the headers/libs.
+      # cmake bakes the Boost include paths into the generated .xcodeproj.
       - name: Generate libtorrent Xcode project (cmake)
         if: steps.cache-libtorrent.outputs.cache-hit != 'true'
         working-directory: Component/LibTorrent-Swift
         run: BOOST_ROOT=$(brew --prefix boost) ./make.sh
 
-      # Xcode resolves the LibTorrent cross-project reference and builds it as a
-      # dependency automatically — no separate xcodebuild call needed.
+      # Compile libtorrent-rasterbar.a for iOS arm64.
+      # make.sh only generates the cmake Xcode project — it does NOT compile the library.
+      # LibTorrent.xcodeproj's linker resolves the PBXReferenceProxy BUILT_PRODUCTS_DIR
+      # to libtorrent-build/Release/ (no platform suffix) so we force the output there
+      # via CONFIGURATION_BUILD_DIR.  This file is included in the cache above.
+      - name: Compile libtorrent-rasterbar static library (iOS arm64)
+        if: steps.cache-libtorrent.outputs.cache-hit != 'true'
+        working-directory: Component/LibTorrent-Swift
+        run: |
+          xcodebuild \
+            -project libtorrent-build/libtorrent.xcodeproj \
+            -target libtorrent-rasterbar \
+            -configuration Release \
+            -sdk iphoneos \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CONFIGURATION_BUILD_DIR="$PWD/libtorrent-build/Release" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build TheAnimeTool (Release, no signing)
         run: |
           xcodebuild \
