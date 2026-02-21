@@ -130,6 +130,7 @@ class VideoListViewController: UIViewController {
     private var videoService: VideoService?
     private var tableView: UITableView!
     private var loadingIndicator: UIActivityIndicatorView!
+    private var emptyLabel: UILabel!
     private var stopUpdating = false
     private var updateTimer: Timer?
 
@@ -199,9 +200,23 @@ class VideoListViewController: UIViewController {
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
         view.addSubview(loadingIndicator)
+
+        emptyLabel = UILabel()
+        emptyLabel.text = "No video files found"
+        emptyLabel.textColor = .secondaryLabel
+        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.textAlignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyLabel.isHidden = true
+        view.addSubview(emptyLabel)
+
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
+            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
         ])
     }
 
@@ -209,6 +224,11 @@ class VideoListViewController: UIViewController {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let req = NSFetchRequest<Videos>(entityName: Videos.entityName)
         req.sortDescriptors = [NSSortDescriptor(key: "videoName", ascending: true)]
+        // Only show videos belonging to this specific torrent entity so stale
+        // rows from other torrents (or previous sessions) never appear.
+        if let entity = torrentEntity {
+            req.predicate = NSPredicate(format: "torrents == %@", entity)
+        }
         videoResultsController = NSFetchedResultsController(fetchRequest: req,
                                                             managedObjectContext: context,
                                                             sectionNameKeyPath: nil,
@@ -230,7 +250,12 @@ class VideoListViewController: UIViewController {
         updateTimer?.invalidate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.stopUpdating else { return }
+            // Only reload cells to refresh live progress from handle.snapshot.
+            // performFetch() is called in handleVideosDidUpdate when the dataset changes;
+            // doing it on every timer tick would be redundant.
             self.tableView.reloadData()
+            let count = self.videoResultsController?.sections?.first?.objects?.count ?? 0
+            self.emptyLabel.isHidden = self.loadingIndicator.isAnimating || count > 0
         }
     }
 
@@ -238,8 +263,24 @@ class VideoListViewController: UIViewController {
         loadingTimeout?.cancel()
         loadingTimeout = nil
         loadingIndicator.stopAnimating()
+
+        // Show error alert if the torrent download or session-add failed.
+        if let error = videoService?.lastError {
+            videoService?.lastError = nil
+            let alert = UIAlertController(
+                title: "Failed to Load Torrent",
+                message: error.localizedDescription,
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            emptyLabel.isHidden = false
+            return
+        }
+
         performFetch()
         tableView.reloadData()
+        let count = videoResultsController?.sections?.first?.objects?.count ?? 0
+        emptyLabel.isHidden = count > 0
     }
 
     private func startLoadingTimeout() {

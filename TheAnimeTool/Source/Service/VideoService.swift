@@ -15,6 +15,15 @@ public class VideoService: NSObject {
 
     let torrentEntity: Torrents
     var torrentHandle: TorrentHandle? = nil
+    /// Forwarded to VideoListViewController so it can display an error alert.
+    var lastError: Error? = nil
+
+    /// Guards against `HandleTorrentInControllerDidUpdate` stopping the spinner
+    /// before `UpdateLocalVideosWithHandle` has finished populating CoreData.
+    /// Persisted TorrentHashes in CoreData from previous sessions would otherwise
+    /// match the ongoing background update stream and fire LocalVideosDidUpdateNotification
+    /// before any video rows exist — resulting in a blank table with no spinner.
+    private var coreDataIsReady = false
 
     init(torrentEntity: Torrents) {
         self.torrentEntity = torrentEntity
@@ -24,6 +33,10 @@ public class VideoService: NSObject {
     }
 
     func UpdateLocalVideo() {
+        // Mark CoreData as not ready so background update notifications do not
+        // stop the spinner before we have data to show.
+        coreDataIsReady = false
+        lastError = nil
         TorrentService.sharedTorrentService.UpdateTorrentEntityInController(torrentEntity) { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -32,6 +45,7 @@ public class VideoService: NSObject {
                 self.UpdateLocalVideosWithHandle(handle, torrentFile: torrentFile)
             case .failure(let error):
                 print("VideoService: torrent update failed: \(error.localizedDescription)")
+                self.lastError = error
                 NotificationCenter.default.post(
                     name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
                     object: nil)
@@ -40,6 +54,7 @@ public class VideoService: NSObject {
     }
 
     func ClearCurrentTorrentEntityAndVideos() {
+        coreDataIsReady = false
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
         if let count = try? context.count(for: request), count > 0 {
@@ -55,21 +70,20 @@ public class VideoService: NSObject {
     }
 
     func UpdateLocalVideosWithHandle(_ handle: TorrentHandle, torrentFile: TorrentFile) {
-        // Store handle + hash immediately so the notification filter can match future updates.
+        // Store handle + hash so the notification filter can match future progress updates.
         self.torrentHandle = handle
         self.torrentEntity.torrentHashString = handle.infoHashes.best.hex
         try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-        // Use torrentFile.files for immediate CoreData population.
-        // These entries (isPrototype=true) are parsed directly from the .torrent binary data
-        // and are ALWAYS available — unlike snapshot.files which requires torrent_file() to be
-        // non-null in libtorrent, which only happens after add_torrent_alert is processed
-        // (~500 ms later on the alerts thread).
-        // This matches iTorrent's approach: TorrentFile.files is used for pre-add display;
-        // snapshot.files (with real download progress) arrives via didReceiveUpdateForTorrent.
+        // Use torrentFile.files (isPrototype=true entries parsed directly from .torrent binary)
+        // for immediate CoreData population.  snapshot.files requires torrent_file() to be
+        // non-null in libtorrent, which only happens after add_torrent_alert is processed on
+        // the alerts thread (~500 ms after addTorrent() returns).  This matches iTorrent's
+        // approach: TorrentFile.files for initial display; snapshot.files for live progress.
         let files = torrentFile.files
         guard !files.isEmpty else {
             print("VideoService: torrent file has no entries")
+            coreDataIsReady = true
             NotificationCenter.default.post(
                 name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
             return
@@ -84,16 +98,19 @@ public class VideoService: NSObject {
             v.videoSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
             v.videoIndex = NSNumber(value: entry.index)
             v.torrents = torrentEntity
-            // videoPath resolved later by UpdateFilePathForFileIndex once snapshot is populated.
         }
         do {
             try context.save()
         } catch {
             print("VideoService: CoreData save error: \(error)")
+            coreDataIsReady = true
             NotificationCenter.default.post(
                 name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
             return
         }
+        // Mark ready BEFORE posting so that any re-entrant notification handler
+        // sees the correct state.
+        coreDataIsReady = true
         NotificationCenter.default.post(
             name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
@@ -150,9 +167,12 @@ public class VideoService: NSObject {
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
+        // CRITICAL: do not stop the spinner until CoreData has been populated.
+        // Without this guard, a background update for a torrent whose hash was
+        // persisted in CoreData from a previous session fires immediately after
+        // VideoService is created — stopping the spinner before any video rows exist.
+        guard coreDataIsReady else { return }
         guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else { return }
-        // snapshot was already updated on global background queue in TorrentService
-        // before this notification was posted.
         let handleHex = handle.infoHashes.best.hex
         guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
         self.torrentHandle = handle
@@ -163,10 +183,11 @@ public class VideoService: NSObject {
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {
-        // Session-level error: make sure spinner stops
-        guard torrentHandle == nil else { return } // already initialized
+        guard torrentHandle == nil else { return } // already initialized — ignore session errors
         let msg = (notification.userInfo?["error"] as? NSError)?.localizedDescription ?? "Unknown error"
         print("VideoService: session error: \(msg)")
+        // Only stop the spinner if we were still loading (coreDataIsReady == false)
+        guard !coreDataIsReady else { return }
         NotificationCenter.default.post(
             name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
