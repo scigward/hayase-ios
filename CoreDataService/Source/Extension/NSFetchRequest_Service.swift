@@ -10,8 +10,7 @@ import CoreData
 import Foundation
 
 
-public extension NSFetchRequest where ResultType == NSFetchRequestResult {
-	convenience init<T: NSManagedObject & NamedEntity>(namedEntity: T.Type) {
-		self.init(entityName: T.entityName)
-	}
+/// Returns a typed NSFetchRequest for the given NamedEntity subclass.
+public func makeFetchRequest<T: NSManagedObject & NamedEntity>(for entityType: T.Type) -> NSFetchRequest<T> {
+	return NSFetchRequest<T>(entityName: T.entityName)
 }
