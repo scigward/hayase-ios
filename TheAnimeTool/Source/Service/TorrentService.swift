@@ -197,7 +197,7 @@ public class TorrentService: NSObject {
         let torrentController = TorrentService.sharedTorrentService.torrentController
 
         if let hashString = torrentEntity.torrentHashString {
-            if let torrent = torrentController.torrentFromHash(hashString) as? Torrent {
+            if let torrent = torrentController.torrent(fromHash: hashString) as? Torrent {
                 NotificationCenter.default.post(name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: self, userInfo: ["torrent": torrent])
                 return
             } else {
@@ -207,7 +207,7 @@ public class TorrentService: NSObject {
         }
 
         guard let url = torrentEntity.torrentDownloadURL else { return }
-        torrentController.addTorrentFromURL(url)
+        torrentController.addTorrent(fromURL: url)
     }
 
     @objc private func HandleNewTorrentAdded(_ notification: Notification) {

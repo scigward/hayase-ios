@@ -44,7 +44,7 @@ public class VideoService: NSObject {
 
         if let hashString = self.torrentEntity.torrentHashString {
             if self.torrentEntity.torrentFlagTemp?.boolValue == true {
-                TorrentService.sharedTorrentService.torrentController.removeTorrentsWithHashs([hashString], trashData: true)
+                TorrentService.sharedTorrentService.torrentController.removeTorrents(withHashs: [hashString], trashData: true)
                 torrentEntity.torrentHashString = nil
                 do { try context.save() } catch let error { print("Error clearing torrent data: \(error)") }
             }
@@ -122,7 +122,7 @@ public class VideoService: NSObject {
         guard let error = notification.userInfo?["error"] as? NSError else { print("Error no error in userinfo"); return }
         if error.code == 1 {
             guard let hashString = error.userInfo["hashString"] as? String else { print("Error no hash in userinfo"); return }
-            guard let torrent = TorrentService.sharedTorrentService.torrentController.torrentFromHash(hashString) as? Torrent else { return }
+            guard let torrent = TorrentService.sharedTorrentService.torrentController.torrent(fromHash: hashString) as? Torrent else { return }
             self.ClearCurrentTorrentEntityAndVideos()
             self.UpdateLocalVideosWithTorrent(torrent)
         }

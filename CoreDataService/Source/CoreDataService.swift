@@ -73,7 +73,7 @@ rootContext.persistentStoreCoordinator = persistentStoreCoordinator
 rootContext.undoManager = nil
 
 mainQueueContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
-mainQueueContext.parentContext = rootContext
+mainQueueContext.parent = rootContext
 mainQueueContext.undoManager = nil
 }
 
