@@ -80,20 +80,12 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     // MARK: - SessionDelegate
-    // didAddTorrent fires synchronously from addTorrent() on the calling thread.
-    // Call updateSnapshot() on a *user-initiated background queue* — never on the
-    // calling thread — matching iTorrent's .receive(on: DispatchQueue.global(qos:))
-    // pattern in prepareToAdd.  Calling it on the alerts thread (or main thread while
-    // add_torrent_alert is being processed) can cause torrent_file() to return nullptr
-    // because libtorrent holds internal locks during alert processing.
+    // didAddTorrent fires synchronously from addTorrent() on the calling thread (main).
+    // Call updateSnapshot() synchronously here — this matches iTorrent's prepareToAdd()
+    // which calls updateSnapshot() synchronously before returning.
     public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
-        let hex = torrent.infoHashes.best.hex
-        DispatchQueue.global(qos: .userInitiated).async {
-            torrent.updateSnapshot()
-            DispatchQueue.main.async {
-                self.handles[hex] = torrent
-            }
-        }
+        torrent.updateSnapshot()
+        handles[torrent.infoHashes.best.hex] = torrent
     }
 
     public func torrentManager(_ manager: Session, didRemoveTorrentWithHash hashesData: TorrentHashes) {
@@ -280,11 +272,10 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
-    /// Calls `completion` on the main thread with the resulting TorrentHandle or an error.
-    /// This avoids the fragile async-notification chain: session.addTorrent() returns the
-    /// handle directly on success, so we use it immediately rather than waiting for delegates.
+    /// Calls `completion` on the main thread with the TorrentHandle AND TorrentFile (always
+    /// has its file list populated from the parsed .torrent data) or an error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
-                                        completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
+                                        completion: @escaping (Result<(handle: TorrentHandle, torrentFile: TorrentFile), Error>) -> Void) {
         guard let urlString = torrentEntity.torrentDownloadURL,
               let url = URL(string: urlString) else {
             DispatchQueue.main.async {
@@ -336,31 +327,30 @@ public class TorrentService: NSObject, SessionDelegate {
                 // 1. Already tracked in our handles dict?
                 if let existingHandle = self.handles[hexHash] {
                     print("TorrentService: already tracked, using cached handle")
-                    completion(.success(existingHandle))
+                    completion(.success((handle: existingHandle, torrentFile: torrentFile)))
                     return
                 }
 
                 // 2. Add to session — addTorrent() returns the TorrentHandle directly on success.
-                //    (notifyDelegatesWithAdd is also called synchronously inside addTorrent, but
-                //     we use the return value directly rather than waiting for the delegate.)
+                //    notifyDelegatesWithAdd is also called synchronously inside addTorrent (which
+                //    triggers didAddTorrent → synchronous updateSnapshot). We also store the return
+                //    value directly for immediate use.
                 if let newHandle = self.session.addTorrent(torrentFile) {
                     print("TorrentService: addTorrent succeeded")
                     self.handles[hexHash] = newHandle
-                    completion(.success(newHandle))
+                    completion(.success((handle: newHandle, torrentFile: torrentFile)))
                     return
                 }
 
                 // 3. addTorrent returned nil — the torrent already exists in the libtorrent session
-                //    (duplicate, throws std::exception internally). Search session.torrents directly
-                //    by hex string since TorrentHashes doesn't override isEqual:/hash so
-                //    NSDictionary subscript is pointer-equality only.
+                //    (duplicate, throws std::exception internally). Search session.torrents directly.
                 print("TorrentService: addTorrent returned nil (duplicate), searching session.torrents")
                 if let restoredHandle = self.session.torrents.first(where: {
                     $0.infoHashes.best.hex == hexHash
                 }) {
                     print("TorrentService: found restored handle in session.torrents")
                     self.handles[hexHash] = restoredHandle
-                    completion(.success(restoredHandle))
+                    completion(.success((handle: restoredHandle, torrentFile: torrentFile)))
                     return
                 }
 
