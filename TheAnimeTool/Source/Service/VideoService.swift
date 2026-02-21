@@ -116,20 +116,31 @@ public class VideoService: NSObject {
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
         guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else {
-            print("Error: no torrentHandle in userinfo")
+            print("VideoService: TorrentInControllerDidUpdateNotification missing torrentHandle")
             return
         }
-        // Only process the handle that belongs to this torrentEntity (matched by hash)
+
+        let handleHex = handle.infoHashes.best.hex
+
+        // Filter: only process the handle for OUR torrent entity.
+        // If we don't have a hash yet, accept any handle (first-time add path sets it above).
         if let expectedHex = torrentEntity.torrentHashString {
-            guard handle.infoHashes.best.hex == expectedHex else { return }
+            guard handleHex == expectedHex else { return }
+        } else {
+            // No hash persisted yet — accept this handle and persist the hash now
+            torrentEntity.torrentHashString = handleHex
+            if (try? CoreDataService.sharedCoreDataService.mainQueueContext.save()) == nil {
+                print("VideoService: warning — failed to persist torrentHashString for '\(handleHex)'")
+            }
         }
+
         if torrentHandle == nil {
-            // First time we see this handle: populate CoreData videos
+            // First time we see this handle: rebuild CoreData video rows
+            print("VideoService: first update for hex=\(handleHex), building video list")
             self.ClearCurrentTorrentEntityAndVideos()
             self.UpdateLocalVideosWithHandle(handle)
         } else {
-            // Subsequent updates (progress pings): just refresh the snapshot so
-            // UpdateProgressForFileIndex returns current values; notify UI to reload.
+            // Subsequent progress update: refresh snapshot, notify UI to reload cells
             handle.updateSnapshot()
             self.torrentHandle = handle
             NotificationCenter.default.post(
@@ -138,10 +149,13 @@ public class VideoService: NSObject {
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {
-        guard let error = notification.userInfo?["error"] as? NSError else { return }
-        print("Torrent update failed: \(error.localizedDescription)")
-        // Post LocalVideosDidUpdateNotification so the UI dismisses the spinner
-        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        // Always stop the spinner regardless of whether error details are present
+        let msg = (notification.userInfo?["error"] as? NSError)?.localizedDescription ?? "Unknown error"
+        print("VideoService: torrent update failed: \(msg)")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        }
     }
 
     // MARK: - Private helpers
