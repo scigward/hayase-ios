@@ -104,11 +104,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				A961071C1D733004006D39D0 /* NDHpple.framework in Embed Frameworks */,
-				A96107191D732FFF006D39D0 /* Clibxml2.framework in Embed Frameworks */,
-				A961071E1D733007006D39D0 /* OMGHTTPURLRQ.framework in Embed Frameworks */,
-				A96107201D733009006D39D0 /* PromiseKit.framework in Embed Frameworks */,
-				A96107221D73300C006D39D0 /* SwiftyJSON.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -213,8 +208,6 @@
 				A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */,
 				A96107081D732586006D39D0 /* libb64.a in Frameworks */,
 				A96107121D732587006D39D0 /* libnatpmp.a in Frameworks */,
-				A961071B1D733004006D39D0 /* NDHpple.framework in Frameworks */,
-				A96107211D73300C006D39D0 /* SwiftyJSON.framework in Frameworks */,
 				A961070F1D732587006D39D0 /* libevent_openssl.a in Frameworks */,
 				A961070E1D732587006D39D0 /* libevent_extra.a in Frameworks */,
 				A96107111D732587006D39D0 /* libminiupnp.a in Frameworks */,
@@ -223,13 +216,10 @@
 				A96107131D732587006D39D0 /* libssl.a in Frameworks */,
 				A96107101D732587006D39D0 /* libevent_pthreads.a in Frameworks */,
 				A961070C1D732587006D39D0 /* libevent.a in Frameworks */,
-				A96107181D732FFF006D39D0 /* Clibxml2.framework in Frameworks */,
 				A96107151D732587006D39D0 /* libutp.a in Frameworks */,
 				A961070A1D732587006D39D0 /* libcurl.a in Frameworks */,
-				A961071F1D733009006D39D0 /* PromiseKit.framework in Frameworks */,
 				A96107141D732587006D39D0 /* libtransmission.a in Frameworks */,
 				A96107091D732587006D39D0 /* libcrypto.a in Frameworks */,
-				A961071D1D733007006D39D0 /* OMGHTTPURLRQ.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -705,7 +695,6 @@
 				A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */,
 				A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */,
 				A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */,
-				A96106731D72FB6B006D39D0 /* SwiftyJSON+NSDate.swift in Sources */,
 				A96106971D72FB6C006D39D0 /* Torrent.m in Sources */,
 				A96106DA1D731B43006D39D0 /* Users.swift in Sources */,
 				A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */,
@@ -884,8 +873,9 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/Component/TorrentController/lib_x86_64",
+					"$(PROJECT_DIR)/Component/TorrentController/lib_arm64",
 				);
+				OTHER_LDFLAGS = "-lxml2";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";
@@ -915,8 +905,9 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/Component/TorrentController/lib_x86_64",
+					"$(PROJECT_DIR)/Component/TorrentController/lib_arm64",
 				);
+				OTHER_LDFLAGS = "-lxml2";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";

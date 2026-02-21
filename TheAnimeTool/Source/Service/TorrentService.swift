@@ -7,13 +7,9 @@
 
 import Foundation
 import CoreData
-import NDHpple
 
 public class TorrentService: NSObject {
     enum TorrentError: Error {
-        case invalidId
-        case invalidPageData
-        case invalidTorrentCount
         case errorSavingCoreData
     }
 
@@ -34,15 +30,6 @@ public class TorrentService: NSObject {
     static let TorrentInControllerDidUpdateNotification = "TorrentInControllerDidUpdateNotification"
     static let TorrentInControllerUpdateFailedNotification = "TorrentInControllerUpdateFailedNotification"
 
-    // XPath queries for nyaa.si table structure
-    let TorrentEntriesXpath = "//table[contains(@class,'torrent-list')]//tbody/tr"
-    let TorrentNameXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[2]/a[1]"
-    let TorrentSXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[6]"
-    let TorrentLXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[7]"
-    let TorrentDXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[8]"
-    let TorrentSizeXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[4]"
-    let TorrentDownloadXpath = "//table[contains(@class,'torrent-list')]//tbody/tr/td[3]/a[contains(@href,'.torrent')]"
-
     //torrent engine
     let torrentController: Controller
 
@@ -56,6 +43,81 @@ public class TorrentService: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(HandleNewTorrentAdded), name: NSNotification.Name(rawValue: NotificationNewTorrentAdded), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(HandleAddTorrentFailed), name: NSNotification.Name(rawValue: NotificationAddNewTorrentFailed), object: nil)
     }
+
+    // MARK: - RSS parser for nyaa.si
+
+    private class NyaaRSSParser: NSObject, XMLParserDelegate {
+        struct TorrentItem {
+            var name: String = ""
+            var downloadURL: String?
+            var seeders: Int = 0
+            var leechers: Int = 0
+            var downloads: Int = 0
+            var sizeMB: Float = 0
+            var nyaaId: Int?
+        }
+
+        var items: [TorrentItem] = []
+        private var currentItem: TorrentItem?
+        private var currentText = ""
+        private var inItem = false
+
+        func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+            currentText = ""
+            if elementName == "item" {
+                currentItem = TorrentItem()
+                inItem = true
+            } else if elementName == "enclosure", inItem, let url = attributeDict["url"] {
+                currentItem?.downloadURL = url
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            currentText += string
+        }
+
+        func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+            let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard inItem else { return }
+            switch elementName {
+            case "title":
+                currentItem?.name = text
+            case "nyaa:seeders":
+                currentItem?.seeders = Int(text) ?? 0
+            case "nyaa:leechers":
+                currentItem?.leechers = Int(text) ?? 0
+            case "nyaa:downloads":
+                currentItem?.downloads = Int(text) ?? 0
+            case "nyaa:size":
+                let parts = text.components(separatedBy: " ")
+                if let val = Float(parts.first ?? "0") {
+                    let unit = (parts.last ?? "MiB").lowercased()
+                    if unit.hasPrefix("gib") {
+                        currentItem?.sizeMB = val * 1024
+                    } else if unit.hasPrefix("tib") {
+                        currentItem?.sizeMB = val * 1024 * 1024
+                    } else {
+                        currentItem?.sizeMB = val
+                    }
+                }
+            case "item":
+                if var item = currentItem {
+                    if let url = item.downloadURL,
+                       let range = url.range(of: #"/download/(\d+)\.torrent"#, options: .regularExpression) {
+                        let digits = String(url[range]).components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                        item.nyaaId = Int(digits)
+                    }
+                    items.append(item)
+                }
+                currentItem = nil
+                inItem = false
+            default:
+                break
+            }
+        }
+    }
+
+    // MARK: - Public API
 
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
         let fetchRequest = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
@@ -82,7 +144,7 @@ public class TorrentService: NSObject {
         }
         let orderParam = isDesc ? "desc" : "asc"
         let encodedSearch = searchStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? searchStr
-        let urlString = "https://nyaa.si/?f=0&c=1_0&q=\(encodedSearch)&s=\(sortParam)&o=\(orderParam)&p=\(page)"
+        let urlString = "https://nyaa.si/?page=rss&q=\(encodedSearch)&c=1_0&f=0&s=\(sortParam)&o=\(orderParam)"
         guard let url = URL(string: urlString) else { return }
 
         URLSession.shared.dataTask(with: url) { data, _, error in
@@ -91,53 +153,31 @@ public class TorrentService: NSObject {
                 return
             }
             guard let data = data else { return }
+            let rssParser = NyaaRSSParser()
+            let xmlParser = XMLParser(data: data)
+            xmlParser.delegate = rssParser
+            xmlParser.parse()
             do {
-                try self.UpdateLocalTorrents(data, isTemp: true)
+                try self.UpdateLocalTorrents(rssParser.items, isTemp: true)
             } catch let error {
                 print("Error updating local torrents: \(error)")
             }
         }.resume()
     }
 
-    private func UpdateLocalTorrents(_ data: Data, isTemp: Bool) throws {
-        guard let html = String(data: data, encoding: .utf8) else { return }
-        let doc = NDHpple(HTMLData: html)
-        let torrentNames = doc.searchWithXPathQuery(self.TorrentNameXpath).map { $0.firstChild?.content }
-        let torrentS = doc.searchWithXPathQuery(self.TorrentSXpath).map { Int($0.firstChild?.content ?? "0") ?? 0 }
-        let torrentL = doc.searchWithXPathQuery(self.TorrentLXpath).map { Int($0.firstChild?.content ?? "0") ?? 0 }
-        let torrentD = doc.searchWithXPathQuery(self.TorrentDXpath).map { Int($0.firstChild?.content ?? "0") ?? 0 }
-        let torrentSize = doc.searchWithXPathQuery(self.TorrentSizeXpath).map { item -> Float in
-            let sizeStr = item.firstChild?.content ?? "0 MiB"
-            let parts = sizeStr.components(separatedBy: " ")
-            return Float(parts.first ?? "0") ?? 0
-        }
-        let torrentURL = doc.searchWithXPathQuery(self.TorrentDownloadXpath).map { item -> String? in
-            guard let path = item.attributes["href"] as? String else { return nil }
-            if path.hasPrefix("http") { return path }
-            return "https://nyaa.si\(path)"
-        }
-        let torrentIds = torrentURL.map { item -> Int? in
-            guard let url = item else { return nil }
-            // Extract numeric ID from URL path like /download/1234567.torrent
-            guard let range = url.range(of: #"/download/(\d+)\.torrent"#, options: .regularExpression) else { return nil }
-            let match = String(url[range])
-            let digits = match.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-            return Int(digits)
-        }
-
+    private func UpdateLocalTorrents(_ items: [NyaaRSSParser.TorrentItem], isTemp: Bool) throws {
         NotificationCenter.default.post(name: NSNotification.Name(TorrentService.LocalTorrentsWillUpdateNotification), object: self)
 
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let torrentCount = torrentNames.count
-        for i in 0..<torrentCount {
+        for item in items {
             let newTorrent = NSEntityDescription.insertNewObject(forEntityName: Torrents.entityName, into: context) as! Torrents
-            newTorrent.torrentName = torrentNames[i]
-            newTorrent.torrentNyaaId = torrentIds[i].map { NSNumber(value: $0) }
-            newTorrent.torrentSeeders = NSNumber(value: torrentS[i])
-            newTorrent.torrentLeechers = NSNumber(value: torrentL[i])
-            newTorrent.torrentDownloads = NSNumber(value: torrentD[i])
-            newTorrent.torrentSize = NSNumber(value: torrentSize[i])
-            newTorrent.torrentDownloadURL = torrentURL[i]
+            newTorrent.torrentName = item.name
+            newTorrent.torrentNyaaId = item.nyaaId.map { NSNumber(value: $0) }
+            newTorrent.torrentSeeders = NSNumber(value: item.seeders)
+            newTorrent.torrentLeechers = NSNumber(value: item.leechers)
+            newTorrent.torrentDownloads = NSNumber(value: item.downloads)
+            newTorrent.torrentSize = NSNumber(value: item.sizeMB)
+            newTorrent.torrentDownloadURL = item.downloadURL
             newTorrent.torrentFlagTemp = NSNumber(value: isTemp)
             newTorrent.torrentOrder = NSNumber(value: self.insertIndexForTempEntries)
             self.insertIndexForTempEntries += 1

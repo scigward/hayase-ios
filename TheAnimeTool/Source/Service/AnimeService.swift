@@ -6,12 +6,10 @@
 //
 
 import UIKit
-import SwiftyJSON
 import CoreData
 
 public class AnimeService: NSObject {
     enum AnimeError: Error {
-        case invalidServerJSONArray
         case errorSavingCoreData
         case emptyResult
     }
@@ -23,6 +21,44 @@ public class AnimeService: NSObject {
     var insertIndexForTempEntries = 0
 
     private let graphQLEndpoint = "https://graphql.anilist.co"
+
+    // MARK: - Codable models for AniList v2 GraphQL response
+
+    private struct AniListResponse: Codable {
+        let data: AniListData?
+        struct AniListData: Codable {
+            let Page: AniListPage?
+            struct AniListPage: Codable {
+                let media: [AniListMedia]?
+            }
+        }
+    }
+
+    private struct AniListMedia: Codable {
+        let id: Int?
+        let title: Title?
+        let coverImage: CoverImage?
+        let averageScore: Float?
+        let popularity: Int?
+        let episodes: Int?
+        let nextAiringEpisode: NextAiringEpisode?
+        let status: String?
+
+        struct Title: Codable {
+            let english: String?
+            let romaji: String?
+        }
+        struct CoverImage: Codable {
+            let large: String?
+            let medium: String?
+        }
+        struct NextAiringEpisode: Codable {
+            let episode: Int?
+            let timeUntilAiring: Int?
+        }
+    }
+
+    // MARK: - GraphQL queries
 
     private let airingAnimeQuery = """
     query {
@@ -58,34 +94,42 @@ public class AnimeService: NSObject {
     }
     """
 
-    private func makeGraphQLRequest(query: String, variables: [String: Any]? = nil, completion: @escaping (Data?, Error?) -> Void) {
+    // MARK: - Networking
+
+    private func makeGraphQLRequest(query: String, variables: [String: Any]? = nil, completion: @escaping ([AniListMedia]) -> Void) {
         guard let url = URL(string: graphQLEndpoint) else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         var body: [String: Any] = ["query": query]
-        if let variables = variables {
-            body["variables"] = variables
-        }
+        if let variables = variables { body["variables"] = variables }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { data, _, error in
-            completion(data, error)
-        }.resume()
-    }
 
-    func UpdateTempWithAiringAnimes() {
-        self.ClearTempAnimes()
-        makeGraphQLRequest(query: airingAnimeQuery) { data, error in
+        URLSession.shared.dataTask(with: request) { data, _, error in
             if let error = error {
                 NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
                 print("Error getting anime data: \(error)")
                 return
             }
-            guard let data = data else { return }
-            let animeJSON = JSON(data: data)
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media, !mediaList.isEmpty else {
+                let err = NSError(domain: "AnimeService", code: 4, userInfo: nil)
+                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: err)
+                return
+            }
+            completion(mediaList)
+        }.resume()
+    }
+
+    // MARK: - Public API
+
+    func UpdateTempWithAiringAnimes() {
+        self.ClearTempAnimes()
+        makeGraphQLRequest(query: airingAnimeQuery) { mediaList in
             do {
-                try self.UpdateLocalAnimes(animeJSON["data"]["Page"]["media"], isTemp: true)
+                try self.UpdateLocalAnimes(mediaList, isTemp: true)
             } catch let error {
                 NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
             }
@@ -94,27 +138,18 @@ public class AnimeService: NSObject {
 
     func UpdateTempAnimesWithSearchString(_ searchStr: String) {
         self.ClearTempAnimes()
-        makeGraphQLRequest(query: searchAnimeQuery, variables: ["search": searchStr]) { data, error in
-            if let error = error {
-                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
-                print("Error getting anime data: \(error)")
-                return
-            }
-            guard let data = data else { return }
-            let animeJSON = JSON(data: data)
+        makeGraphQLRequest(query: searchAnimeQuery, variables: ["search": searchStr]) { mediaList in
             do {
-                try self.UpdateLocalAnimes(animeJSON["data"]["Page"]["media"], isTemp: true)
+                try self.UpdateLocalAnimes(mediaList, isTemp: true)
             } catch let error {
                 NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
             }
         }
     }
 
-    private func UpdateLocalAnimes(_ animesJSON: JSON, isTemp: Bool) throws {
-        guard let animesJSONArray = animesJSON.array, !animesJSONArray.isEmpty else {
-            throw AnimeError.emptyResult
-        }
+    // MARK: - Core Data
 
+    private func UpdateLocalAnimes(_ mediaList: [AniListMedia], isTemp: Bool) throws {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Animes>(entityName: Animes.entityName)
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "animeAnilistId", ascending: true)]
@@ -123,29 +158,28 @@ public class AnimeService: NSObject {
 
         NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeWillUpdateNotification), object: self)
 
-        for animeJSON in animesJSONArray {
-            print(animeJSON.description)
+        for media in mediaList {
+            guard let anilistId = media.id else { continue }
+            print("Processing anime id: \(anilistId)")
 
             var targetAnime: Animes
-            let animeId = animeJSON["id"].intValue
-            if let foundIndex = fetchedAnimes.firstIndex(where: { $0.animeAnilistId?.intValue == animeId }) {
+            if let foundIndex = fetchedAnimes.firstIndex(where: { $0.animeAnilistId?.intValue == anilistId }) {
                 targetAnime = fetchedAnimes[foundIndex]
             } else {
                 targetAnime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as! Animes
-                guard let anilistId = animeJSON["id"].int else { continue }
                 targetAnime.animeAnilistId = NSNumber(value: anilistId)
             }
-            targetAnime.animeImgL = animeJSON["coverImage"]["large"].string
-            targetAnime.animeImgM = animeJSON["coverImage"]["medium"].string
-            targetAnime.animeImgS = animeJSON["coverImage"]["medium"].string
-            targetAnime.animePopularity = animeJSON["popularity"].int.map { NSNumber(value: $0) }
-            targetAnime.animeScore = animeJSON["averageScore"].float.map { NSNumber(value: $0) }
-            targetAnime.animeStatus = animeJSON["status"].string
-            targetAnime.animeTitleEnglish = animeJSON["title"]["english"].string ?? animeJSON["title"]["romaji"].string
-            targetAnime.animeTitleJapanese = animeJSON["title"]["romaji"].string
-            targetAnime.animeTotalEps = animeJSON["episodes"].int.map { NSNumber(value: $0) }
-            targetAnime.animeNextEps = animeJSON["nextAiringEpisode"]["episode"].int.map { NSNumber(value: $0) }
-            if let timeUntilAiring = animeJSON["nextAiringEpisode"]["timeUntilAiring"].int {
+            targetAnime.animeImgL = media.coverImage?.large
+            targetAnime.animeImgM = media.coverImage?.medium
+            targetAnime.animeImgS = media.coverImage?.medium
+            targetAnime.animePopularity = media.popularity.map { NSNumber(value: $0) }
+            targetAnime.animeScore = media.averageScore.map { NSNumber(value: $0) }
+            targetAnime.animeStatus = media.status
+            targetAnime.animeTitleEnglish = media.title?.english ?? media.title?.romaji
+            targetAnime.animeTitleJapanese = media.title?.romaji
+            targetAnime.animeTotalEps = media.episodes.map { NSNumber(value: $0) }
+            targetAnime.animeNextEps = media.nextAiringEpisode?.episode.map { NSNumber(value: $0) }
+            if let timeUntilAiring = media.nextAiringEpisode?.timeUntilAiring {
                 targetAnime.animeNextEpsTime = Date(timeIntervalSinceNow: Double(timeUntilAiring))
             }
             targetAnime.animeFlagTemp = NSNumber(value: isTemp)
