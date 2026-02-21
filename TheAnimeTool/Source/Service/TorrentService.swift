@@ -49,14 +49,14 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.isUpnpEnabled = true
         settings.isNatEnabled  = true
 
-        session = Session(with: downloadsURL,
+        session = Session(downloadsURL,
                          torrentsPath: torrentsURL,
                          fastResumePath: fastResumeURL,
                          settings: settings,
                          storages: [:])
         super.init()
-        session.addDelegate(self)
-        session.restoreSession()
+        session.add(self)
+        session.restore()
     }
 
     // MARK: - SessionDelegate
@@ -272,8 +272,7 @@ public class TorrentService: NSObject, SessionDelegate {
                 return
             }
 
-            let torrentFile = TorrentFile(initUnsafeWithFileWithData: data)
-            guard torrentFile.isValid else {
+            guard let torrentFile = TorrentFile(with: data) else {
                 let err = NSError(domain: "TorrentService", code: 2,
                                   userInfo: [NSLocalizedDescriptionKey: "Invalid torrent file"])
                 DispatchQueue.main.async {
