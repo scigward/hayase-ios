@@ -324,8 +324,10 @@ public class TorrentService: NSObject, SessionDelegate {
                 torrentEntity.torrentHashString = hexHash
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-                // 1. Already tracked in our handles dict and still valid?
-                if let existingHandle = self.handles[hexHash], existingHandle.isValid {
+                // 1. Already tracked in our handles dict?
+                // handles is maintained by didAddTorrent/didRemoveTorrentWithHash, so any
+                // entry present here belongs to an active torrent in the session.
+                if let existingHandle = self.handles[hexHash] {
                     print("TorrentService: already tracked, using cached handle")
                     completion(.success((handle: existingHandle, torrentFile: torrentFile)))
                     return

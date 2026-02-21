@@ -57,6 +57,8 @@ public class VideoService: NSObject {
         coreDataIsReady = false
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
+        // Only delete videos for THIS torrent entity — preserve rows from other torrents.
+        request.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
         if let count = try? context.count(for: request), count > 0 {
             context.deleteAllData(request)
         }
