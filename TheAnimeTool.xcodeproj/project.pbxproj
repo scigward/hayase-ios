@@ -659,7 +659,6 @@
 				A96105BD1D71ED71006D39D0 /* LaunchScreen.storyboard in Resources */,
 				A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */,
 				A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */,
-				A96106CF1D731B43006D39D0 /* Info.plist in Resources */,
 				A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
