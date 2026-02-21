@@ -57,25 +57,29 @@ public class VideoService: NSObject {
     }
 
     func UpdateLocalVideosWithHandle(_ handle: TorrentHandle) {
-        handle.updateSnapshot()
-        let snap = handle.snapshot
+        // Store handle + hash immediately so notification filter can match
         self.torrentHandle = handle
         self.torrentEntity.torrentHashString = handle.infoHashes.best.hex
         try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-        // isPrototype entries are libtorrent padding files — skip them.
-        // If the files list is empty the torrent metadata isn't ready yet
-        // (torrent_file() returned nullptr inside updateSnapshot). Keep the
-        // spinner running; HandleTorrentInControllerDidUpdate will retry when
-        // libtorrent delivers the first real update for this handle.
-        if !populateCoreDataIfReady(snap) {
-            print("VideoService: snapshot has no files yet — waiting for libtorrent metadata")
+        // Call updateSnapshot() on a global background queue — exactly as iTorrent's
+        // prepareToAdd does via .receive(on: DispatchQueue.global(qos: .userInitiated)).
+        // Calling it on main while libtorrent is still processing add_torrent_alert
+        // causes torrent_file() to return nullptr → empty files list.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            handle.updateSnapshot()
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !self.populateCoreDataIfReady(handle.snapshot) {
+                    print("VideoService: metadata not ready yet — waiting for first libtorrent update")
+                }
+            }
         }
     }
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
         guard let handle = torrentHandle else { return 0 }
-        handle.updateSnapshot()
+        // Use the already-updated snapshot (set by background queue in TorrentService)
         let files = handle.snapshot.files
         guard let entry = files.first(where: { $0.index == Int(index) }) else { return 0 }
         let progress = entry.size > 0 ? Float(entry.downloaded) / Float(entry.size) : 0
@@ -92,7 +96,7 @@ public class VideoService: NSObject {
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
         guard let handle = torrentHandle else { return "" }
-        handle.updateSnapshot()
+        // Use the already-updated snapshot (set by background queue in TorrentService)
         let snap = handle.snapshot
         guard let entry = snap.files.first(where: { $0.index == Int(index) }) else { return "" }
         let filePath = resolvedPath(for: entry, in: snap)
@@ -109,6 +113,7 @@ public class VideoService: NSObject {
 
     func CheckIsDoNotDownloadForFileIndex(_ index: UInt) -> Bool? {
         guard let handle = torrentHandle else { return nil }
+        // Use the snapshot already updated by TorrentService's background queue
         guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return nil }
         return entry.priority == FileEntry.Priority.dontDownload
     }
@@ -120,28 +125,30 @@ public class VideoService: NSObject {
     }
 
     func UpdateTorrentFileInfos() {
-        torrentHandle?.updateSnapshot()
+        // No-op: snapshot is kept current by TorrentService's background-queue updateSnapshot()
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
         guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else { return }
+        // snapshot was already updated on global background queue in TorrentService
+        // before this notification was posted — do NOT call handle.updateSnapshot()
+        // here or we risk overwriting valid files with nullptr on the main thread.
         let handleHex = handle.infoHashes.best.hex
         guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
-        handle.updateSnapshot()
         self.torrentHandle = handle
 
-        // Check whether CoreData still has no video rows for this torrent.
-        // This happens when the initial addTorrent() call returned a handle
-        // whose torrent_file() was not yet ready (empty files list).  The first
-        // real libtorrent update delivers the metadata — try to populate now.
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let countReq = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
         let existing = (try? context.count(for: countReq)) ?? 0
         if existing == 0 {
-            if !populateCoreDataIfReady(handle.snapshot) { return } // still pending
+            // CoreData not yet populated — try now with the fresh background snapshot.
+            // populateCoreDataIfReady posts LocalVideosDidUpdateNotification on success.
+            if !populateCoreDataIfReady(handle.snapshot) { return } // metadata not ready yet
+        } else {
+            // Already populated — post notification so the table refreshes progress/paths.
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
         }
-        NotificationCenter.default.post(
-            name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {
