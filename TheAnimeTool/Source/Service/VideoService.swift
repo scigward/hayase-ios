@@ -63,19 +63,19 @@ public class VideoService: NSObject {
             let newVideoEntity = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as! Videos
             newVideoEntity.videoName = video.name()
             newVideoEntity.videoPath = video.path()
-            newVideoEntity.videoSize = Float(video.size() / 1024 / 1024)
-            newVideoEntity.videoIndex = NSNumber(value: Int(video.indexes().firstIndex))
+            newVideoEntity.videoSize = NSNumber(value: Double(video.size()) / 1024.0 / 1024.0)
+            newVideoEntity.videoIndex = NSNumber(value: (video.indexes() as IndexSet).first ?? 0)
             newVideoEntity.torrents = torrentEntity
             indexes.add(video.indexes() as IndexSet)
         }
-        self.torrent?.setFileCheckState(FileCheckState.Off.rawValue, forIndexes: indexes)
+        self.torrent?.setFileCheckState(FileCheckState.Off.rawValue, forIndexes: indexes as IndexSet)
         do { try context.save() } catch let error { print("Error updating local videos: \(error)"); return }
         NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
         self.UpdateTorrentFileInfos()
-        let progress = Float(torrent?.fileProgressFromIndex(index) ?? 0)
+        let progress = Float(torrent?.fileProgress(from: index) ?? 0)
         guard let hashString = torrent?.hashString() else { return progress }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
@@ -88,7 +88,7 @@ public class VideoService: NSObject {
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
         self.UpdateTorrentFileInfos()
-        guard let filePath = torrent?.fileLocationForFileIndex(index) else { return "" }
+        guard let filePath = torrent?.fileLocation(forFileIndex: index) else { return "" }
         guard let hashString = torrent?.hashString() else { return filePath }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
@@ -104,7 +104,7 @@ public class VideoService: NSObject {
     }
 
     func SetDoNotDownloadForFileIndex(_ index: UInt, flag: Bool) {
-        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, forIndexes: NSIndexSet(index: Int(index)))
+        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, forIndexes: IndexSet(integer: Int(index)))
     }
 
     func UpdateTorrentFileInfos() {
