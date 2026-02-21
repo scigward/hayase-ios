@@ -43,6 +43,9 @@ public class TorrentService: NSObject, SessionDelegate {
         }
 
         let settings = Session.Settings()
+        settings.agentName        = "TheAnimeTool"
+        settings.outgoingInterfaces = ""
+        settings.listenInterfaces   = "0.0.0.0:0,[::]:0"
         settings.isDhtEnabled  = true
         settings.isLsdEnabled  = true
         settings.isUtpEnabled  = true
@@ -56,7 +59,6 @@ public class TorrentService: NSObject, SessionDelegate {
                          storages: [:])
         super.init()
         session.add(self)
-        session.restore()
     }
 
     // MARK: - SessionDelegate
