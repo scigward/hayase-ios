@@ -59,22 +59,18 @@ public class VideoService: NSObject {
     func UpdateLocalVideosWithHandle(_ handle: TorrentHandle) {
         handle.updateSnapshot()
         let snap = handle.snapshot
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
         self.torrentHandle = handle
         self.torrentEntity.torrentHashString = handle.infoHashes.best.hex
+        try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosWillUpdateNotification), object: nil)
-        // isPrototype entries are libtorrent padding files used for piece alignment — skip them
-        for entry in snap.files where !entry.isPrototype {
-            let newVideoEntity = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as! Videos
-            newVideoEntity.videoName = entry.name
-            newVideoEntity.videoPath = resolvedPath(for: entry, in: snap)
-            newVideoEntity.videoSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
-            newVideoEntity.videoIndex = NSNumber(value: entry.index)
-            newVideoEntity.torrents = torrentEntity
+        // isPrototype entries are libtorrent padding files — skip them.
+        // If the files list is empty the torrent metadata isn't ready yet
+        // (torrent_file() returned nullptr inside updateSnapshot). Keep the
+        // spinner running; HandleTorrentInControllerDidUpdate will retry when
+        // libtorrent delivers the first real update for this handle.
+        if !populateCoreDataIfReady(snap) {
+            print("VideoService: snapshot has no files yet — waiting for libtorrent metadata")
         }
-        do { try context.save() } catch let error { print("Error updating local videos: \(error)"); return }
-        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
@@ -131,10 +127,19 @@ public class VideoService: NSObject {
         guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else { return }
         let handleHex = handle.infoHashes.best.hex
         guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
-        // Only handle background progress updates — initial add is handled by completion closure.
-        guard torrentHandle != nil else { return }
         handle.updateSnapshot()
         self.torrentHandle = handle
+
+        // Check whether CoreData still has no video rows for this torrent.
+        // This happens when the initial addTorrent() call returned a handle
+        // whose torrent_file() was not yet ready (empty files list).  The first
+        // real libtorrent update delivers the metadata — try to populate now.
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let countReq = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
+        let existing = (try? context.count(for: countReq)) ?? 0
+        if existing == 0 {
+            if !populateCoreDataIfReady(handle.snapshot) { return } // still pending
+        }
         NotificationCenter.default.post(
             name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
@@ -149,6 +154,28 @@ public class VideoService: NSObject {
     }
 
     // MARK: - Private helpers
+
+    /// Inserts video entities from `snapshot.files` into CoreData and posts
+    /// LocalVideosDidUpdateNotification.  Returns `false` (and posts nothing)
+    /// when the files list is still empty (metadata not ready yet).
+    @discardableResult
+    private func populateCoreDataIfReady(_ snapshot: TorrentHandle.Snapshot) -> Bool {
+        let files = snapshot.files.filter { !$0.isPrototype }
+        guard !files.isEmpty else { return false }
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosWillUpdateNotification), object: nil)
+        for entry in files {
+            let v = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as! Videos
+            v.videoName = entry.name
+            v.videoPath = resolvedPath(for: entry, in: snapshot)
+            v.videoSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
+            v.videoIndex = NSNumber(value: entry.index)
+            v.torrents = torrentEntity
+        }
+        do { try context.save() } catch { print("VideoService: CoreData save error: \(error)"); return false }
+        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        return true
+    }
 
     /// Returns the absolute path for a `FileEntry` within the torrent's download directory.
     /// Logs a warning when `downloadPath` is not yet set (download hasn't started).

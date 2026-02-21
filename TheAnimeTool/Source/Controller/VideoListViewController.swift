@@ -177,6 +177,7 @@ class VideoListViewController: UIViewController {
     }
 
     private func setupTableView() {
+        view.backgroundColor = .systemBackground
         tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.delegate = self
