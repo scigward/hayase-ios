@@ -108,7 +108,9 @@ public class AnimeService: NSObject {
 
         URLSession.shared.dataTask(with: request) { data, _, error in
             if let error = error {
-                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
                 print("Error getting anime data: \(error)")
                 return
             }
@@ -116,7 +118,9 @@ public class AnimeService: NSObject {
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let mediaList = response.data?.Page?.media, !mediaList.isEmpty else {
                 let err = NSError(domain: "AnimeService", code: 4, userInfo: nil)
-                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: err)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: err)
+                }
                 return
             }
             completion(mediaList)
@@ -128,10 +132,12 @@ public class AnimeService: NSObject {
     func UpdateTempWithAiringAnimes() {
         self.ClearTempAnimes()
         makeGraphQLRequest(query: airingAnimeQuery) { mediaList in
-            do {
-                try self.UpdateLocalAnimes(mediaList, isTemp: true)
-            } catch let error {
-                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+            DispatchQueue.main.async {
+                do {
+                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                } catch let error {
+                    NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
             }
         }
     }
@@ -139,10 +145,12 @@ public class AnimeService: NSObject {
     func UpdateTempAnimesWithSearchString(_ searchStr: String) {
         self.ClearTempAnimes()
         makeGraphQLRequest(query: searchAnimeQuery, variables: ["search": searchStr]) { mediaList in
-            do {
-                try self.UpdateLocalAnimes(mediaList, isTemp: true)
-            } catch let error {
-                NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+            DispatchQueue.main.async {
+                do {
+                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                } catch let error {
+                    NotificationCenter.default.post(name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
             }
         }
     }

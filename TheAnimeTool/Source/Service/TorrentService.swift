@@ -157,10 +157,12 @@ public class TorrentService: NSObject {
             let xmlParser = XMLParser(data: data)
             xmlParser.delegate = rssParser
             xmlParser.parse()
-            do {
-                try self.UpdateLocalTorrents(rssParser.items, isTemp: true)
-            } catch let error {
-                print("Error updating local torrents: \(error)")
+            DispatchQueue.main.async {
+                do {
+                    try self.UpdateLocalTorrents(rssParser.items, isTemp: true)
+                } catch let error {
+                    print("Error updating local torrents: \(error)")
+                }
             }
         }.resume()
     }

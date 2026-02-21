@@ -1,147 +1,284 @@
 //
 //  TorrentListViewControllerTableViewController.swift
-//  Fin
-//
-//  Created by Tieria C.Monk on 8/1/16.
-//  Copyright © 2016 Tieria C.Monk. All rights reserved.
+//  TheAnimeTool
 //
 
 import UIKit
 import CoreData
 
-class TorrentListViewController: UIViewController, UISearchBarDelegate, UITableViewDelegate, UITableViewDataSource {
-    let defaultPredicate = NSPredicate(format: "torrentFlagTemp == YES")
-    let defaultSortDescriptor = NSSortDescriptor(key: "torrentOrder", ascending: true)
+// MARK: - TorrentTableViewCell
 
-    var animeEntity: Animes? = nil
-    var torrentResultsController: NSFetchedResultsController<Torrents>? = nil
-    @IBOutlet weak var torrentTableView: UITableView!
-    @IBOutlet weak var torrentSearchBar: UISearchBar!
+final class TorrentTableViewCell: UITableViewCell {
+    static let reuseID = "TorrentCell"
+
+    private let nameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14, weight: .medium)
+        l.textColor = .label
+        l.numberOfLines = 2
+        return l
+    }()
+
+    private let seedersLabel = TorrentTableViewCell.makeBadge(color: .systemGreen)
+    private let leechersLabel = TorrentTableViewCell.makeBadge(color: .systemRed)
+
+    private let sizeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12)
+        l.textColor = .secondaryLabel
+        return l
+    }()
+
+    private static func makeBadge(color: UIColor) -> UILabel {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 11, weight: .semibold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.backgroundColor = color
+        l.layer.cornerRadius = 8
+        l.clipsToBounds = true
+        return l
+    }
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        accessoryType = .disclosureIndicator
+        [nameLabel, seedersLabel, leechersLabel, sizeLabel].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+
+            seedersLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            seedersLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            seedersLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            seedersLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            seedersLabel.heightAnchor.constraint(equalToConstant: 20),
+
+            leechersLabel.leadingAnchor.constraint(equalTo: seedersLabel.trailingAnchor, constant: 6),
+            leechersLabel.centerYAnchor.constraint(equalTo: seedersLabel.centerYAnchor),
+            leechersLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            leechersLabel.heightAnchor.constraint(equalToConstant: 20),
+
+            sizeLabel.leadingAnchor.constraint(equalTo: leechersLabel.trailingAnchor, constant: 10),
+            sizeLabel.centerYAnchor.constraint(equalTo: seedersLabel.centerYAnchor),
+        ])
+    }
+
+    func configure(with torrent: Torrents) {
+        nameLabel.text = torrent.torrentName
+        let s = torrent.torrentSeeders?.intValue ?? 0
+        let l = torrent.torrentLeechers?.intValue ?? 0
+        let mb = torrent.torrentSize?.floatValue ?? 0
+        seedersLabel.text = "  ▲ \(s)  "
+        leechersLabel.text = "  ▼ \(l)  "
+        sizeLabel.text = mb >= 1024 ? String(format: "%.1f GB", mb / 1024) : String(format: "%.0f MB", mb)
+    }
+}
+
+// MARK: - TorrentListViewController
+
+class TorrentListViewController: UIViewController {
+
+    // MARK: - Properties
+
+    var animeEntity: Animes?
+
+    private let defaultPredicate = NSPredicate(format: "torrentFlagTemp == YES")
+    private let defaultSort = NSSortDescriptor(key: "torrentOrder", ascending: true)
+    private var torrentResultsController: NSFetchedResultsController<Torrents>?
+    private var tableView: UITableView!
+    private var searchController: UISearchController!
+    private var loadingIndicator: UIActivityIndicatorView!
+    private var emptyLabel: UILabel!
+
+    // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        print(self.animeEntity as Any)
-
-        torrentSearchBar.enablesReturnKeyAutomatically = false
-
-        let fetchRequest = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
-        fetchRequest.predicate = self.defaultPredicate
-        fetchRequest.sortDescriptors = [self.defaultSortDescriptor]
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        self.torrentResultsController = NSFetchedResultsController(fetchRequest: fetchRequest, managedObjectContext: context, sectionNameKeyPath: nil, cacheName: nil)
-
-        NotificationCenter.default.addObserver(self, selector: #selector(HandleLocalTorrentDidUpdate), name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(HandleKeyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(HandleKeyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(TapHandler))
-        tap.cancelsTouchesInView = false
-        self.view.addGestureRecognizer(tap)
-
-        let searchString = TorrentService.UtilMakeShortSearchString(self.animeEntity?.animeTitleEnglish ?? "")
-        print(searchString)
-        TorrentService.sharedTorrentService.UpdateTempTorrentsWith(searchString, sortBy: TorrentService.SortBy.Seeders)
+        setupNavigationBar()
+        setupTableView()
+        setupSearchController()
+        setupOverlays()
+        setupFetchedResultsController()
+        setupNotifications()
+        startSearch()
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        if let idxs = self.torrentTableView.indexPathsForSelectedRows {
-            for idx in idxs {
-                self.torrentTableView.deselectRow(at: idx, animated: true)
-            }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        tableView.indexPathsForSelectedRows?.forEach {
+            tableView.deselectRow(at: $0, animated: animated)
         }
     }
+
+    // MARK: - Setup
+
+    private func setupNavigationBar() {
+        title = animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? "Torrents"
+        navigationItem.largeTitleDisplayMode = .never
+    }
+
+    private func setupTableView() {
+        tableView = UITableView(frame: .zero, style: .insetGrouped)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.register(TorrentTableViewCell.self, forCellReuseIdentifier: TorrentTableViewCell.reuseID)
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 80
+        view.addSubview(tableView)
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    private func setupSearchController() {
+        searchController = UISearchController(searchResultsController: nil)
+        searchController.searchResultsUpdater = self
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchBar.placeholder = "Filter torrents…"
+        navigationItem.searchController = searchController
+        navigationItem.hidesSearchBarWhenScrolling = true
+        definesPresentationContext = true
+    }
+
+    private func setupOverlays() {
+        loadingIndicator = UIActivityIndicatorView(style: .large)
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        loadingIndicator.hidesWhenStopped = true
+        view.addSubview(loadingIndicator)
+
+        emptyLabel = UILabel()
+        emptyLabel.text = "No torrents found"
+        emptyLabel.textColor = .secondaryLabel
+        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.textAlignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyLabel.isHidden = true
+        view.addSubview(emptyLabel)
+
+        NSLayoutConstraint.activate([
+            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+    }
+
+    private func setupFetchedResultsController() {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let req = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+        req.predicate = defaultPredicate
+        req.sortDescriptors = [defaultSort]
+        torrentResultsController = NSFetchedResultsController(fetchRequest: req,
+                                                              managedObjectContext: context,
+                                                              sectionNameKeyPath: nil,
+                                                              cacheName: nil)
+        performFetch()
+    }
+
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(self,
+            selector: #selector(handleDidUpdate),
+            name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: nil)
+    }
+
+    private func startSearch() {
+        loadingIndicator.startAnimating()
+        emptyLabel.isHidden = true
+        let name = animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? ""
+        TorrentService.sharedTorrentService.UpdateTempTorrentsWith(
+            TorrentService.UtilMakeShortSearchString(name), sortBy: .Seeders)
+    }
+
+    private func performFetch() {
+        try? torrentResultsController?.performFetch()
+    }
+
+    private func reloadUI() {
+        performFetch()
+        tableView.reloadData()
+        let count = torrentResultsController?.sections?.first?.objects?.count ?? 0
+        emptyLabel.isHidden = count > 0
+    }
+
+    // MARK: - Notifications
+
+    @objc private func handleDidUpdate() {
+        loadingIndicator.stopAnimating()
+        reloadUI()
+    }
+
+    // MARK: - Navigation
 
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         super.prepare(for: segue, sender: sender)
-
-        let destination = segue.destination as! VideoListViewController
-        let indexPath = torrentTableView.indexPathsForSelectedRows?[0]
-
-        guard let targetIndex = indexPath else { return }
-        destination.torrentEntity = torrentResultsController?.object(at: targetIndex)
+        guard segue.identifier == "showVideoList",
+              let cell = sender as? TorrentTableViewCell,
+              let indexPath = tableView.indexPath(for: cell),
+              let destination = segue.destination as? VideoListViewController else { return }
+        destination.torrentEntity = torrentResultsController?.object(at: indexPath)
     }
+}
 
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-    }
+// MARK: - UITableViewDataSource
 
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        self.FilterResultsWithString(searchText)
-        self.torrentTableView.reloadData()
-    }
-
-    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        searchBar.resignFirstResponder()
-    }
-
-    // MARK: - Table view data source
-
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return torrentResultsController?.sections?.count ?? 0
-    }
-
+extension TorrentListViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return torrentResultsController?.sections?[section].objects?.count ?? 0
+        return torrentResultsController?.sections?.first?.objects?.count ?? 0
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "TorrentProtoCell1", for: indexPath)
-
-        let torrent = torrentResultsController?.object(at: indexPath)
-        cell.textLabel?.text = torrent?.torrentName
-        cell.detailTextLabel?.text = String(format: "S:%@ L:%@ D:%@ Size:%@MB",
-                                            torrent?.torrentSeeders ?? 0,
-                                            torrent?.torrentLeechers ?? 0,
-                                            torrent?.torrentDownloads ?? 0,
-                                            torrent?.torrentSize ?? 0)
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: TorrentTableViewCell.reuseID, for: indexPath) as! TorrentTableViewCell
+        if let torrent = torrentResultsController?.object(at: indexPath) {
+            cell.configure(with: torrent)
+        }
         return cell
     }
+}
 
-    private func UpdateFetchedResults() {
-        do {
-            try torrentResultsController?.performFetch()
-        } catch {
-            print("Error fetching torrents from core data")
-        }
+// MARK: - UITableViewDelegate
+
+extension TorrentListViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard let cell = tableView.cellForRow(at: indexPath) as? TorrentTableViewCell else { return }
+        performSegue(withIdentifier: "showVideoList", sender: cell)
     }
+}
 
-    private func FilterResultsWithString(_ searchString: String) {
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let fetchRequest = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
-        if searchString == "" {
-            fetchRequest.predicate = self.defaultPredicate
-            fetchRequest.sortDescriptors = [self.defaultSortDescriptor]
+// MARK: - UISearchResultsUpdating
+
+extension TorrentListViewController: UISearchResultsUpdating {
+    func updateSearchResults(for searchController: UISearchController) {
+        let text = (searchController.searchBar.text ?? "").trimmingCharacters(in: .whitespaces)
+        if text.isEmpty {
+            torrentResultsController?.fetchRequest.predicate = defaultPredicate
         } else {
-            let separatedString = searchString.components(separatedBy: CharacterSet.whitespaces)
-            var subPredicates = [NSPredicate]()
-            for subString in separatedString {
-                guard subString.count > 0 else { continue }
-                subPredicates.append(NSPredicate(format: "torrentName CONTAINS[cd] \"\(subString)\" && torrentFlagTemp == YES"))
+            let terms = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            let subs = terms.map {
+                NSPredicate(format: "torrentName CONTAINS[cd] %@ AND torrentFlagTemp == YES", $0)
             }
-            let filterPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: subPredicates)
-            fetchRequest.predicate = filterPredicate
-            fetchRequest.sortDescriptors = [self.defaultSortDescriptor]
+            torrentResultsController?.fetchRequest.predicate =
+                NSCompoundPredicate(andPredicateWithSubpredicates: subs)
         }
-        self.torrentResultsController = NSFetchedResultsController(fetchRequest: fetchRequest, managedObjectContext: context, sectionNameKeyPath: nil, cacheName: nil)
-        UpdateFetchedResults()
-    }
-
-    @objc private func HandleLocalTorrentDidUpdate(_ notification: Notification) {
-        UpdateFetchedResults()
-        self.torrentTableView.reloadData()
-    }
-
-    @objc private func HandleKeyboardWillShow(_ notification: Notification) {
-        self.torrentTableView.adjustInsetsForWillShowKeyboardNotification(notification)
-    }
-
-    @objc private func HandleKeyboardWillHide(_ notification: Notification) {
-        self.torrentTableView.adjustInsetsForWillHideKeyboardNotification(notification)
-    }
-
-    @objc private func TapHandler() {
-        self.torrentSearchBar.resignFirstResponder()
+        performFetch()
+        tableView.reloadData()
     }
 }
