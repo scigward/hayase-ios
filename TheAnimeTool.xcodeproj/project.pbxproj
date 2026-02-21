@@ -80,6 +80,7 @@
 		A96107201D733009006D39D0 /* PromiseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A96105EF1D72FB6B006D39D0 /* PromiseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A96107211D73300C006D39D0 /* SwiftyJSON.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; };
 		A96107221D73300C006D39D0 /* SwiftyJSON.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DEAD0003DEAD0003DEAD0003 /* OpenSSL in Embed Frameworks */ = {isa = PBXBuildFile; productRef = DEAD0002DEAD0002DEAD0002 /* OpenSSL */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -121,6 +122,7 @@
 			dstSubfolderSpec = 10;
 			files = (
 				FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */,
+				DEAD0003DEAD0003DEAD0003 /* OpenSSL in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -573,6 +575,9 @@
 				FF0001081D71ED72006D39D0 /* PBXTargetDependency */,
 			);
 			name = TheAnimeTool;
+			packageProductDependencies = (
+				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
+			);
 			productName = TheAnimeTool;
 			productReference = A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */;
 			productType = "com.apple.product-type.application";
@@ -654,6 +659,9 @@
 				},
 			);
 			projectRoot = "";
+			packageReferences = (
+				DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */,
+			);
 			targets = (
 				A96105AB1D71ED71006D39D0 /* TheAnimeTool */,
 				A96105C21D71ED71006D39D0 /* TheAnimeToolTests */,
@@ -1009,6 +1017,25 @@
 			defaultConfigurationIsVisible = 0;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/OpenSSL.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.5004;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DEAD0002DEAD0002DEAD0002 /* OpenSSL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */;
+			productName = OpenSSL;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCVersionGroup section */
 		A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */ = {
