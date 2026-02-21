@@ -80,19 +80,14 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     // MARK: - SessionDelegate
-    // These callbacks fire on the LibTorrent alerts background thread.
-    // We snapshot immediately (thread-safe read), then dispatch to main for handles mutation.
-
+    // didAddTorrent fires synchronously from addTorrent() on the calling thread.
+    // We only update our handles dict here; the completion closure in
+    // UpdateTorrentEntityInController handles the initial UI update directly.
     public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
         torrent.updateSnapshot()
         let hex = torrent.infoHashes.best.hex
-        print("TorrentService: didAddTorrent hex=\(hex) name='\(torrent.snapshot.name)'")
         DispatchQueue.main.async {
             self.handles[hex] = torrent
-            NotificationCenter.default.post(
-                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                object: self,
-                userInfo: ["torrentHandle": torrent])
         }
     }
 
@@ -101,6 +96,8 @@ public class TorrentService: NSObject, SessionDelegate {
         DispatchQueue.main.async { self.handles.removeValue(forKey: hex) }
     }
 
+    // didReceiveUpdateForTorrent fires on the LibTorrent alerts background thread.
+    // Post the progress-update notification so VideoService can refresh its UI.
     public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {
         torrent.updateSnapshot()
         let hex = torrent.infoHashes.best.hex
@@ -275,11 +272,19 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
-    /// Uses our own hex-keyed `handles` dict instead of session.torrentsMap (which has
-    /// TorrentHashes pointer-identity equality issues).
-    func UpdateTorrentEntityInController(_ torrentEntity: Torrents) {
+    /// Calls `completion` on the main thread with the resulting TorrentHandle or an error.
+    /// This avoids the fragile async-notification chain: session.addTorrent() returns the
+    /// handle directly on success, so we use it immediately rather than waiting for delegates.
+    func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
+                                        completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
         guard let urlString = torrentEntity.torrentDownloadURL,
-              let url = URL(string: urlString) else { return }
+              let url = URL(string: urlString) else {
+            DispatchQueue.main.async {
+                completion(.failure(NSError(domain: "TorrentService", code: 0,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid or missing download URL"])))
+            }
+            return
+        }
 
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("Mozilla/5.0 TheAnimeTool/1.0", forHTTPHeaderField: "User-Agent")
@@ -289,83 +294,72 @@ public class TorrentService: NSObject, SessionDelegate {
 
             if let error = error {
                 print("TorrentService: download error: \(error)")
-                let err = error as NSError
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
-                        object: self, userInfo: ["error": err])
-                }
+                DispatchQueue.main.async { completion(.failure(error)) }
                 return
             }
 
             guard let data = data, !data.isEmpty else {
                 print("TorrentService: empty response from \(urlString)")
-                let err = NSError(domain: "TorrentService", code: 1,
-                                  userInfo: [NSLocalizedDescriptionKey: "Empty response from server"])
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
-                        object: self, userInfo: ["error": err])
+                    completion(.failure(NSError(domain: "TorrentService", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Empty response from server"])))
                 }
                 return
             }
 
             guard let torrentFile = TorrentFile(with: data) else {
                 let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-                print("TorrentService: invalid torrent data (HTTP \(httpStatus), \(data.count) bytes) from \(urlString)")
-                let err = NSError(domain: "TorrentService", code: 2,
-                                  userInfo: [NSLocalizedDescriptionKey: "Server returned invalid torrent data (HTTP \(httpStatus))"])
+                print("TorrentService: invalid torrent data (HTTP \(httpStatus), \(data.count) bytes)")
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
-                        object: self, userInfo: ["error": err])
+                    completion(.failure(NSError(domain: "TorrentService", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "Server returned invalid torrent data (HTTP \(httpStatus))"])))
                 }
                 return
             }
 
             let hexHash = torrentFile.infoHashes.best.hex
-            print("TorrentService: torrent file parsed, hex=\(hexHash)")
+            print("TorrentService: torrent parsed, hex=\(hexHash)")
 
             DispatchQueue.main.async {
-                // Persist the hash so VideoService can filter by hash
+                // Persist the hash
                 torrentEntity.torrentHashString = hexHash
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-                // If already tracked in our handles dict, notify immediately without re-adding
+                // 1. Already tracked in our handles dict?
                 if let existingHandle = self.handles[hexHash] {
-                    print("TorrentService: torrent already tracked, notifying directly")
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                        object: self, userInfo: ["torrentHandle": existingHandle])
+                    print("TorrentService: already tracked, using cached handle")
+                    completion(.success(existingHandle))
                     return
                 }
 
-                // New torrent: addTorrent → didAddTorrent fires on alerts thread →
-                // dispatches to main → updates handles + posts TorrentInControllerDidUpdateNotification
-                print("TorrentService: calling session.addTorrent")
-                if self.session.addTorrent(torrentFile) == nil {
-                    // addTorrent failed (e.g. libtorrent threw std::exception for duplicate).
-                    // The torrent is in the session but may not be in handles yet if it was
-                    // restored before we registered as delegate. Wait one main-queue turn to
-                    // allow any in-flight didAddTorrent DispatchQueue.main.async to complete.
-                    print("TorrentService: addTorrent returned nil, waiting for handles to update")
-                    let delaySeconds = 0.3   // one main-queue turn is enough; 0.3s gives headroom
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delaySeconds) {
-                        if let handle = self.handles[hexHash] {
-                            print("TorrentService: found handle in delayed lookup, notifying")
-                            NotificationCenter.default.post(
-                                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                                object: self, userInfo: ["torrentHandle": handle])
-                        } else {
-                            print("TorrentService: handle not found after delay, reporting error")
-                            let err = NSError(domain: "TorrentService", code: 3,
-                                              userInfo: [NSLocalizedDescriptionKey: "Failed to add torrent to session"])
-                            NotificationCenter.default.post(
-                                name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
-                                object: self, userInfo: ["error": err])
-                        }
-                    }
+                // 2. Add to session — addTorrent() returns the TorrentHandle directly on success.
+                //    (notifyDelegatesWithAdd is also called synchronously inside addTorrent, but
+                //     we use the return value directly rather than waiting for the delegate.)
+                if let newHandle = self.session.addTorrent(torrentFile) {
+                    print("TorrentService: addTorrent succeeded")
+                    self.handles[hexHash] = newHandle
+                    completion(.success(newHandle))
+                    return
                 }
+
+                // 3. addTorrent returned nil — the torrent already exists in the libtorrent session
+                //    (duplicate, throws std::exception internally). Search session.torrents directly
+                //    by hex string since TorrentHashes doesn't override isEqual:/hash so
+                //    NSDictionary subscript is pointer-equality only.
+                print("TorrentService: addTorrent returned nil (duplicate), searching session.torrents")
+                if let restoredHandle = self.session.torrents.first(where: {
+                    $0.infoHashes.best.hex == hexHash
+                }) {
+                    print("TorrentService: found restored handle in session.torrents")
+                    self.handles[hexHash] = restoredHandle
+                    completion(.success(restoredHandle))
+                    return
+                }
+
+                // 4. Truly not found — report failure
+                print("TorrentService: handle not found in session")
+                completion(.failure(NSError(domain: "TorrentService", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to add torrent to session"])))
             }
         }.resume()
     }

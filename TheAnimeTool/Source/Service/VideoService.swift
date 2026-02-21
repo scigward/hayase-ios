@@ -25,7 +25,20 @@ public class VideoService: NSObject {
     }
 
     func UpdateLocalVideo() {
-        TorrentService.sharedTorrentService.UpdateTorrentEntityInController(torrentEntity)
+        TorrentService.sharedTorrentService.UpdateTorrentEntityInController(torrentEntity) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let handle):
+                self.ClearCurrentTorrentEntityAndVideos()
+                self.UpdateLocalVideosWithHandle(handle)
+                // LocalVideosDidUpdateNotification is posted inside UpdateLocalVideosWithHandle
+            case .failure(let error):
+                print("VideoService: torrent update failed: \(error.localizedDescription)")
+                NotificationCenter.default.post(
+                    name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
+                    object: nil)
+            }
+        }
     }
 
     func ClearCurrentTorrentEntityAndVideos() {
@@ -115,47 +128,24 @@ public class VideoService: NSObject {
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
-        guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else {
-            print("VideoService: TorrentInControllerDidUpdateNotification missing torrentHandle")
-            return
-        }
-
+        guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else { return }
         let handleHex = handle.infoHashes.best.hex
-
-        // Filter: only process the handle for OUR torrent entity.
-        // If we don't have a hash yet, accept any handle (first-time add path sets it above).
-        if let expectedHex = torrentEntity.torrentHashString {
-            guard handleHex == expectedHex else { return }
-        } else {
-            // No hash persisted yet — accept this handle and persist the hash now
-            torrentEntity.torrentHashString = handleHex
-            if (try? CoreDataService.sharedCoreDataService.mainQueueContext.save()) == nil {
-                print("VideoService: warning — failed to persist torrentHashString for '\(handleHex)'")
-            }
-        }
-
-        if torrentHandle == nil {
-            // First time we see this handle: rebuild CoreData video rows
-            print("VideoService: first update for hex=\(handleHex), building video list")
-            self.ClearCurrentTorrentEntityAndVideos()
-            self.UpdateLocalVideosWithHandle(handle)
-        } else {
-            // Subsequent progress update: refresh snapshot, notify UI to reload cells
-            handle.updateSnapshot()
-            self.torrentHandle = handle
-            NotificationCenter.default.post(
-                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
-        }
+        guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
+        // Only handle background progress updates — initial add is handled by completion closure.
+        guard torrentHandle != nil else { return }
+        handle.updateSnapshot()
+        self.torrentHandle = handle
+        NotificationCenter.default.post(
+            name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {
-        // Always stop the spinner regardless of whether error details are present
+        // Session-level error: make sure spinner stops
+        guard torrentHandle == nil else { return } // already initialized
         let msg = (notification.userInfo?["error"] as? NSError)?.localizedDescription ?? "Unknown error"
-        print("VideoService: torrent update failed: \(msg)")
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
-        }
+        print("VideoService: session error: \(msg)")
+        NotificationCenter.default.post(
+            name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     // MARK: - Private helpers

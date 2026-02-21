@@ -133,6 +133,8 @@ class VideoListViewController: UIViewController {
     private var stopUpdating = false
     private var updateTimer: Timer?
 
+    private var loadingTimeout: DispatchWorkItem?
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -146,6 +148,7 @@ class VideoListViewController: UIViewController {
         if let entity = torrentEntity {
             videoService = VideoService(torrentEntity: entity)
             loadingIndicator.startAnimating()
+            startLoadingTimeout()
             videoService?.UpdateLocalVideo()
         }
     }
@@ -231,9 +234,26 @@ class VideoListViewController: UIViewController {
     }
 
     @objc private func handleVideosDidUpdate() {
+        loadingTimeout?.cancel()
+        loadingTimeout = nil
         loadingIndicator.stopAnimating()
         performFetch()
         tableView.reloadData()
+    }
+
+    private func startLoadingTimeout() {
+        loadingTimeout?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.loadingIndicator.stopAnimating()
+            let alert = UIAlertController(title: "Error",
+                message: "Could not load torrent. Check your connection or try a different torrent.",
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            self.present(alert, animated: true)
+        }
+        loadingTimeout = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
     }
 
     // MARK: - Navigation
