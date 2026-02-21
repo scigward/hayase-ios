@@ -2,9 +2,9 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "self:TheAnimeTool.xcodeproj">
+      location = "group:TheAnimeTool.xcodeproj">
    </FileRef>
    <FileRef
-      location = "container:Component/LibTorrent-Swift/LibTorrent.xcodeproj">
+      location = "group:Component/LibTorrent-Swift/LibTorrent.xcodeproj">
    </FileRef>
 </Workspace>
