@@ -1,27 +1,21 @@
 //
 //  VideoService.swift
-//  FinalProject
-//
-//  Created by Tieria C.Monk on 8/17/16.
+//  TheAnimeTool
 //
 
 import Foundation
 import CoreData
+import LibTorrent
 
 public class VideoService: NSObject {
     enum VideoError: Error {
         case invalidIndex
     }
-    enum FileCheckState: Int {
-        case On = 1
-        case Off = 0
-        case Mixed = -1
-    }
-    static let LocalVideosDidUpdateNotification = "LocalVideosDidUpdateNotification"
+    static let LocalVideosDidUpdateNotification  = "LocalVideosDidUpdateNotification"
     static let LocalVideosWillUpdateNotification = "LocalVideosWillUpdateNotification"
 
     let torrentEntity: Torrents
-    var torrent: Torrent? = nil
+    var torrentHandle: TorrentHandle? = nil
 
     init(torrentEntity: Torrents) {
         self.torrentEntity = torrentEntity
@@ -37,94 +31,119 @@ public class VideoService: NSObject {
     func ClearCurrentTorrentEntityAndVideos() {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
-        let videoCount = (try? context.count(for: request)) ?? 0
-        if videoCount > 0 {
+        if let count = try? context.count(for: request), count > 0 {
             context.deleteAllData(request)
         }
-
-        if let hashString = self.torrentEntity.torrentHashString {
-            if self.torrentEntity.torrentFlagTemp?.boolValue == true {
-                TorrentService.sharedTorrentService.torrentController.removeTorrents(withHashs: [hashString], trashData: true)
-                torrentEntity.torrentHashString = nil
-                do { try context.save() } catch let error { print("Error clearing torrent data: \(error)") }
-            }
+        if let handle = self.torrentHandle,
+           self.torrentEntity.torrentFlagTemp?.boolValue == true {
+            TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: true)
+            torrentEntity.torrentHashString = nil
+            try? context.save()
         }
+        self.torrentHandle = nil
     }
 
-    func UpdateLocalVideosWithTorrent(_ torrent: Torrent) {
+    func UpdateLocalVideosWithHandle(_ handle: TorrentHandle) {
+        handle.updateSnapshot()
+        let snap = handle.snapshot
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        self.torrentEntity.torrentHashString = torrent.hashString()
-        self.torrent = torrent
+        self.torrentHandle = handle
+        self.torrentEntity.torrentHashString = handle.infoHashes.best.hex
 
         NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosWillUpdateNotification), object: nil)
-        let indexes = NSMutableIndexSet()
-        let videoList = torrent.flatFileList() as! [FileListNode]
-        for video in videoList {
+        // isPrototype entries are libtorrent padding files used for piece alignment — skip them
+        for entry in snap.files where !entry.isPrototype {
             let newVideoEntity = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as! Videos
-            newVideoEntity.videoName = video.name()
-            newVideoEntity.videoPath = video.path()
-            newVideoEntity.videoSize = NSNumber(value: Double(video.size()) / 1024.0 / 1024.0)
-            newVideoEntity.videoIndex = NSNumber(value: (video.indexes() as IndexSet).first ?? 0)
+            newVideoEntity.videoName = entry.name
+            newVideoEntity.videoPath = resolvedPath(for: entry, in: snap)
+            newVideoEntity.videoSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
+            newVideoEntity.videoIndex = NSNumber(value: entry.index)
             newVideoEntity.torrents = torrentEntity
-            indexes.add(video.indexes() as IndexSet)
         }
-        self.torrent?.setFileCheckState(FileCheckState.Off.rawValue, for: indexes as IndexSet)
         do { try context.save() } catch let error { print("Error updating local videos: \(error)"); return }
         NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
-        self.UpdateTorrentFileInfos()
-        let progress = Float(torrent?.fileProgress(from: index) ?? 0)
-        guard let hashString = torrent?.hashString() else { return progress }
+        guard let handle = torrentHandle else { return 0 }
+        handle.updateSnapshot()
+        let files = handle.snapshot.files
+        guard let entry = files.first(where: { $0.index == Int(index) }) else { return 0 }
+        let progress = entry.size > 0 ? Float(entry.downloaded) / Float(entry.size) : 0
+        guard let hashHex = torrentEntity.torrentHashString else { return progress }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        fetchRequest.predicate = NSPredicate(format: "torrents.torrentHashString == %@ AND videoIndex == %d", hashString, index)
-        guard let videos = try? context.fetch(fetchRequest), videos.count > 0 else { return progress }
-        videos[0].videoDownloadPercent = NSNumber(value: progress)
-        do { try context.save() } catch let error { print("Error saving video progress:\(error)") }
+        fetchRequest.predicate = NSPredicate(format: "torrents.torrentHashString == %@ AND videoIndex == %d", hashHex, index)
+        if let videos = try? context.fetch(fetchRequest), !videos.isEmpty {
+            videos[0].videoDownloadPercent = NSNumber(value: progress)
+            try? context.save()
+        }
         return progress
     }
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
-        self.UpdateTorrentFileInfos()
-        guard let filePath = torrent?.fileLocation(forFileIndex: index) else { return "" }
-        guard let hashString = torrent?.hashString() else { return filePath }
+        guard let handle = torrentHandle else { return "" }
+        handle.updateSnapshot()
+        let snap = handle.snapshot
+        guard let entry = snap.files.first(where: { $0.index == Int(index) }) else { return "" }
+        let filePath = resolvedPath(for: entry, in: snap)
+        guard let hashHex = torrentEntity.torrentHashString else { return filePath }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        fetchRequest.predicate = NSPredicate(format: "torrents.torrentHashString == %@ AND videoIndex == %d", hashString, index)
-        guard let videos = try? context.fetch(fetchRequest), videos.count > 0 else { return filePath }
-        videos[0].videoPath = filePath
-        do { try context.save() } catch let error { print("Error saving video path:\(error)") }
+        fetchRequest.predicate = NSPredicate(format: "torrents.torrentHashString == %@ AND videoIndex == %d", hashHex, index)
+        if let videos = try? context.fetch(fetchRequest), !videos.isEmpty {
+            videos[0].videoPath = filePath
+            try? context.save()
+        }
         return filePath
     }
 
     func CheckIsDoNotDownloadForFileIndex(_ index: UInt) -> Bool? {
-        return self.torrent?.isFileDoNotDownload(index) ?? nil
+        guard let handle = torrentHandle else { return nil }
+        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return nil }
+        return entry.priority == FileEntry.Priority.dontDownload
     }
 
     func SetDoNotDownloadForFileIndex(_ index: UInt, flag: Bool) {
-        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, for: IndexSet(integer: Int(index)))
+        guard let handle = torrentHandle else { return }
+        let priority: FileEntry.Priority = flag ? .dontDownload : .defaultPriority
+        handle.setFilePriority(priority, at: Int(index))
     }
 
     func UpdateTorrentFileInfos() {
-        torrent?.update()
-        torrent?.updateFileStat()
+        torrentHandle?.updateSnapshot()
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
-        guard let torrent = notification.userInfo?["torrent"] as? Torrent else { print("Error no torrent in userinfo"); return }
+        guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else {
+            print("Error: no torrentHandle in userinfo")
+            return
+        }
+        // Only process the handle that belongs to this torrentEntity (matched by hash)
+        if let expectedHex = torrentEntity.torrentHashString {
+            guard handle.infoHashes.best.hex == expectedHex else { return }
+        }
         self.ClearCurrentTorrentEntityAndVideos()
-        self.UpdateLocalVideosWithTorrent(torrent)
+        self.UpdateLocalVideosWithHandle(handle)
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {
-        guard let error = notification.userInfo?["error"] as? NSError else { print("Error no error in userinfo"); return }
-        if error.code == 1 {
-            guard let hashString = error.userInfo["hashString"] as? String else { print("Error no hash in userinfo"); return }
-            guard let torrent = TorrentService.sharedTorrentService.torrentController.torrent(fromHash: hashString) as? Torrent else { return }
-            self.ClearCurrentTorrentEntityAndVideos()
-            self.UpdateLocalVideosWithTorrent(torrent)
+        guard let error = notification.userInfo?["error"] as? NSError else { return }
+        print("Torrent update failed: \(error.localizedDescription)")
+        // Post LocalVideosDidUpdateNotification so the UI dismisses the spinner
+        NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+    }
+
+    // MARK: - Private helpers
+
+    /// Returns the absolute path for a `FileEntry` within the torrent's download directory.
+    /// Logs a warning when `downloadPath` is not yet set (download hasn't started).
+    private func resolvedPath(for entry: FileEntry, in snapshot: TorrentHandle.Snapshot) -> String {
+        guard let base = snapshot.downloadPath else {
+            print("VideoService: downloadPath not yet available for entry '\(entry.name)' — download may not have started")
+            return ""
         }
+        return base.appendingPathComponent(entry.path).path
     }
 }
+

@@ -1,18 +1,17 @@
 //
 //  TorrentService.swift
-//  FinalProject
-//
-//  Created by Tieria C.Monk on 8/13/16.
+//  TheAnimeTool
 //
 
 import Foundation
 import CoreData
+import LibTorrent
 
-public class TorrentService: NSObject {
+public class TorrentService: NSObject, SessionDelegate {
+    // MARK: - Types
     enum TorrentError: Error {
         case errorSavingCoreData
     }
-
     enum SortBy: Int {
         case Date = 1
         case Seeders
@@ -22,26 +21,68 @@ public class TorrentService: NSObject {
         case Name
     }
 
-    //singleton object
+    // MARK: - Singleton & notifications
     static let sharedTorrentService = TorrentService()
-    //notifications
-    static let LocalTorrentsWillUpdateNotification = "LocalTorrentsWillUpdateNotification"
-    static let LocalTorrentsDidUpdateNotification = "LocalTorrentsDidUpdateNotification"
-    static let TorrentInControllerDidUpdateNotification = "TorrentInControllerDidUpdateNotification"
+    static let LocalTorrentsWillUpdateNotification       = "LocalTorrentsWillUpdateNotification"
+    static let LocalTorrentsDidUpdateNotification        = "LocalTorrentsDidUpdateNotification"
+    static let TorrentInControllerDidUpdateNotification  = "TorrentInControllerDidUpdateNotification"
     static let TorrentInControllerUpdateFailedNotification = "TorrentInControllerUpdateFailedNotification"
 
-    //torrent engine
-    let torrentController: Controller
-
+    // MARK: - LibTorrent session
+    let session: Session
     var insertIndexForTempEntries = 0
 
     override init() {
-        torrentController = Controller.sharedController() as! Controller
-        torrentController.fixDocumentsDirectory()
-        torrentController.transmissionInitialize()
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let downloadsURL  = docs.appendingPathComponent("downloads")
+        let torrentsURL   = docs.appendingPathComponent("torrents")
+        let fastResumeURL = docs.appendingPathComponent("fastResume")
+
+        [downloadsURL, torrentsURL, fastResumeURL].forEach {
+            try? FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
+        }
+
+        let settings = Session.Settings()
+        settings.isDhtEnabled  = true
+        settings.isLsdEnabled  = true
+        settings.isUtpEnabled  = true
+        settings.isUpnpEnabled = true
+        settings.isNatEnabled  = true
+
+        session = Session(with: downloadsURL,
+                         torrentsPath: torrentsURL,
+                         fastResumePath: fastResumeURL,
+                         settings: settings,
+                         storages: [:])
         super.init()
-        NotificationCenter.default.addObserver(self, selector: #selector(HandleNewTorrentAdded), name: NSNotification.Name(rawValue: NotificationNewTorrentAdded), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(HandleAddTorrentFailed), name: NSNotification.Name(rawValue: NotificationAddNewTorrentFailed), object: nil)
+        session.addDelegate(self)
+        session.restoreSession()
+    }
+
+    // MARK: - SessionDelegate
+
+    public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
+                object: self,
+                userInfo: ["torrentHandle": torrent]
+            )
+        }
+    }
+
+    public func torrentManager(_ manager: Session, didRemoveTorrentWithHash hashesData: TorrentHashes) {}
+
+    public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {}
+
+    public func torrentManager(_ manager: Session, didErrorOccur error: Error) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
+                object: self,
+                userInfo: ["error": error as NSError]
+            )
+        }
     }
 
     // MARK: - RSS parser for nyaa.si
@@ -195,31 +236,64 @@ public class TorrentService: NSObject {
         NotificationCenter.default.post(name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: self)
     }
 
+    /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
+    /// If the torrent is already in the session (by stored hash), reuse it immediately.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents) {
-        let torrentController = TorrentService.sharedTorrentService.torrentController
-
-        if let hashString = torrentEntity.torrentHashString {
-            if let torrent = torrentController.torrent(fromHash: hashString) as? Torrent {
-                NotificationCenter.default.post(name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: self, userInfo: ["torrent": torrent])
+        // If we already have a hash, try to find an active handle in the session
+        if let hashHex = torrentEntity.torrentHashString {
+            if let handle = session.torrents.first(where: { $0.infoHashes.best.hex == hashHex }) {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
+                        object: self,
+                        userInfo: ["torrentHandle": handle]
+                    )
+                }
                 return
-            } else {
-                torrentEntity.torrentHashString = nil
-                do { try CoreDataService.sharedCoreDataService.mainQueueContext.save() } catch { print("Error reset hash failed") }
             }
+            // Stale hash — clear it and re-add
+            torrentEntity.torrentHashString = nil
+            try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
         }
 
-        guard let url = torrentEntity.torrentDownloadURL else { return }
-        torrentController.addTorrent(fromURL: url)
-    }
+        guard let urlString = torrentEntity.torrentDownloadURL,
+              let url = URL(string: urlString) else { return }
 
-    @objc private func HandleNewTorrentAdded(_ notification: Notification) {
-        guard let torrent = notification.userInfo?["torrent"] as? Torrent else { print("Error no torrent in userinfo"); return }
-        NotificationCenter.default.post(name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: self, userInfo: ["torrent": torrent])
-    }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            guard let self = self else { return }
+            guard let data = data, error == nil else {
+                let err = NSError(domain: "TorrentService", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: error?.localizedDescription ?? "Network error"])
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
+                        object: self, userInfo: ["error": err])
+                }
+                return
+            }
 
-    @objc private func HandleAddTorrentFailed(_ notification: Notification) {
-        guard let error = notification.userInfo?["error"] as? NSError else { print("Error no error in userinfo"); return }
-        NotificationCenter.default.post(name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification), object: self, userInfo: ["error": error])
+            let torrentFile = TorrentFile(initUnsafeWithFileWithData: data)
+            guard torrentFile.isValid else {
+                let err = NSError(domain: "TorrentService", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: "Invalid torrent file"])
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
+                        object: self, userInfo: ["error": err])
+                }
+                return
+            }
+
+            let hashHex = torrentFile.infoHashes.best.hex
+            DispatchQueue.main.async {
+                // Save hash so VideoService can match the incoming didAddTorrent notification
+                torrentEntity.torrentHashString = hashHex
+                try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
+                // addTorrent returns a handle and also fires the SessionDelegate callback;
+                // the delegate dispatch posts TorrentInControllerDidUpdateNotification.
+                _ = self.session.addTorrent(torrentFile)
+            }
+        }.resume()
     }
 
     func ClearTempTorrents() {
@@ -239,3 +313,4 @@ public class TorrentService: NSObject {
         return shortStr
     }
 }
+

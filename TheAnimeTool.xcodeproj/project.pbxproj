@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; };
+		FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A96105B31D71ED71006D39D0 /* Main.storyboard */; };
 		A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96105B91D71ED71006D39D0 /* Assets.xcassets */; };
 		A96105BD1D71ED71006D39D0 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */; };
@@ -81,6 +83,20 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		FF0001041D71ED72006D39D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = D15147652AE6AE9C000407AE;
+			remoteInfo = LibTorrent;
+		};
+		FF0001051D71ED72006D39D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = D15147642AE6AE9C000407AE;
+			remoteInfo = LibTorrent;
+		};
 		A96105C41D71ED71006D39D0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A96105A41D71ED71006D39D0 /* Project object */;
@@ -104,6 +120,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -111,6 +128,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = LibTorrent.xcodeproj; path = Component/LibTorrent-Swift/LibTorrent.xcodeproj; sourceTree = "<group>"; };
 		A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TheAnimeTool.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A96105B41D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		A96105B91D71ED71006D39D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
@@ -206,20 +224,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */,
-				A96107081D732586006D39D0 /* libb64.a in Frameworks */,
-				A96107121D732587006D39D0 /* libnatpmp.a in Frameworks */,
-				A961070F1D732587006D39D0 /* libevent_openssl.a in Frameworks */,
-				A961070E1D732587006D39D0 /* libevent_extra.a in Frameworks */,
-				A96107111D732587006D39D0 /* libminiupnp.a in Frameworks */,
-				A961070B1D732587006D39D0 /* libdht.a in Frameworks */,
-				A961070D1D732587006D39D0 /* libevent_core.a in Frameworks */,
-				A96107131D732587006D39D0 /* libssl.a in Frameworks */,
-				A96107101D732587006D39D0 /* libevent_pthreads.a in Frameworks */,
-				A961070C1D732587006D39D0 /* libevent.a in Frameworks */,
-				A96107151D732587006D39D0 /* libutp.a in Frameworks */,
-				A961070A1D732587006D39D0 /* libcurl.a in Frameworks */,
-				A96107141D732587006D39D0 /* libtransmission.a in Frameworks */,
-				A96107091D732587006D39D0 /* libcrypto.a in Frameworks */,
+				FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -243,6 +248,7 @@
 		A96105A31D71ED71006D39D0 = {
 			isa = PBXGroup;
 			children = (
+				FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */,
 				A96107161D7325D3006D39D0 /* libz.tbd */,
 				A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */,
 				A96105E31D72FB6B006D39D0 /* Component */,
@@ -260,6 +266,14 @@
 				A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */,
 				A96105C31D71ED71006D39D0 /* TheAnimeToolTests.xctest */,
 				A96105CE1D71ED72006D39D0 /* TheAnimeToolUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF0001071D71ED72006D39D0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FF0001061D71ED72006D39D0 /* LibTorrent.framework */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -556,6 +570,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				FF0001081D71ED72006D39D0 /* PBXTargetDependency */,
 			);
 			name = TheAnimeTool;
 			productName = TheAnimeTool;
@@ -632,6 +647,12 @@
 			mainGroup = A96105A31D71ED71006D39D0;
 			productRefGroup = A96105AD1D71ED71006D39D0 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = FF0001071D71ED72006D39D0 /* Products */;
+					ProjectRef = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				A96105AB1D71ED71006D39D0 /* TheAnimeTool */,
@@ -676,8 +697,6 @@
 			files = (
 				A96106B31D72FC2F006D39D0 /* VideoPlayerController.swift in Sources */,
 				A96106D51D731B43006D39D0 /* NSManagedObjectContext_Clear.swift in Sources */,
-				A96106961D72FB6C006D39D0 /* PortChecker.m in Sources */,
-				A96106791D72FB6B006D39D0 /* NSStringAdditions.m in Sources */,
 				A96106B41D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift in Sources */,
 				A96106D11D731B43006D39D0 /* Animes.swift in Sources */,
 				A96106D81D731B43006D39D0 /* Torrents.swift in Sources */,
@@ -685,25 +704,17 @@
 				A96106D31D731B43006D39D0 /* NSEntityDescription_Service.swift in Sources */,
 				A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */,
 				A96106D91D731B43006D39D0 /* Users+CoreDataProperties.swift in Sources */,
-				A96106991D72FB6C006D39D0 /* FileListNode.m in Sources */,
 				A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */,
 				A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */,
 				A96106D41D731B43006D39D0 /* NSFetchRequest_Service.swift in Sources */,
 				A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */,
-				A96106751D72FB6B006D39D0 /* Controller.m in Sources */,
-				A96106771D72FB6B006D39D0 /* NSDictionaryAdditions.m in Sources */,
 				A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */,
 				A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */,
 				A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */,
-				A96106971D72FB6C006D39D0 /* Torrent.m in Sources */,
 				A96106DA1D731B43006D39D0 /* Users.swift in Sources */,
 				A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */,
 				A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */,
-				A96106981D72FB6C006D39D0 /* TorrentFetcher.m in Sources */,
 				A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */,
-				A961069A1D72FB6C006D39D0 /* TrackerNode.m in Sources */,
-				A96106761D72FB6B006D39D0 /* NSDate+Helper.m in Sources */,
-				A96106781D72FB6B006D39D0 /* NSString+RelativePath.m in Sources */,
 				A961069E1D72FBE0006D39D0 /* Model.xcdatamodeld in Sources */,
 				A96106AF1D72FC2F006D39D0 /* AppDelegate.swift in Sources */,
 				A96106DC1D731B43006D39D0 /* Videos.swift in Sources */,
@@ -729,7 +740,22 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXReferenceProxy section */
+		FF0001061D71ED72006D39D0 /* LibTorrent.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = LibTorrent.framework;
+			remoteRef = FF0001041D71ED72006D39D0 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+/* End PBXReferenceProxy section */
+
 /* Begin PBXTargetDependency section */
+		FF0001081D71ED72006D39D0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = LibTorrent;
+			targetProxy = FF0001051D71ED72006D39D0 /* PBXContainerItemProxy */;
+		};
 		A96105C51D71ED71006D39D0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A96105AB1D71ED71006D39D0 /* TheAnimeTool */;
@@ -866,16 +892,9 @@
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(SDKROOT)/usr/include/libxml2",
-					"$(SRCROOT)/Component/TorrentController/include",
-					"$(SRCROOT)/Component/TorrentController",
 				);
 				INFOPLIST_FILE = TheAnimeTool/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Component/TorrentController/lib_arm64",
-				);
-				OTHER_LDFLAGS = "-lxml2";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";
@@ -898,16 +917,9 @@
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(SDKROOT)/usr/include/libxml2",
-					"$(SRCROOT)/Component/TorrentController/include",
-					"$(SRCROOT)/Component/TorrentController",
 				);
 				INFOPLIST_FILE = TheAnimeTool/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Component/TorrentController/lib_arm64",
-				);
-				OTHER_LDFLAGS = "-lxml2";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";
