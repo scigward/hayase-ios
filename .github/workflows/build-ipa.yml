@@ -28,45 +28,70 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      # Use the pinned LibTorrent-Swift commit SHA as the cmake cache key so the
-      # cmake step is skipped when nothing in LibTorrent-Swift has changed.
-      - name: Get pinned LibTorrent-Swift SHA
+      # Use the pinned LibTorrent-Swift commit SHA + Xcode version as the cache key.
+      # The compiled .a is Xcode-version-specific, so include it to avoid stale hits.
+      - name: Get cache key inputs
         id: libsha
         run: |
           SHA=$(git rev-parse HEAD:Component/LibTorrent-Swift)
+          XCODE=$(xcodebuild -version | head -1 | tr ' ' '-')
           echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "LibTorrent-Swift pinned SHA: $SHA"
+          echo "xcode=$XCODE" >> $GITHUB_OUTPUT
+          echo "LibTorrent-Swift SHA: $SHA  Xcode: $XCODE"
 
-      # Cache the cmake-generated libtorrent Xcode project.  cmake itself is fast
-      # (<30 s) but this avoids any drift between runs.
-      - name: Cache libtorrent CMake project
+      # Cache both the cmake-generated project AND the compiled libtorrent-rasterbar.a.
+      # Both live under libtorrent-build/ so a single cache entry covers both.
+      - name: Cache libtorrent build
         id: cache-libtorrent
         uses: actions/cache@v4
         with:
           path: Component/LibTorrent-Swift/libtorrent-build
-          key: libtorrent-cmake-${{ runner.os }}-${{ steps.libsha.outputs.sha }}
+          key: libtorrent-${{ runner.os }}-${{ steps.libsha.outputs.xcode }}-${{ steps.libsha.outputs.sha }}
 
-      # Boost is required by libtorrent's CMakeLists.txt (header search + link).
+      # Boost headers are needed to compile libtorrent (only on a cache miss).
       - name: Install Boost
+        if: steps.cache-libtorrent.outputs.cache-hit != 'true'
         run: brew install boost
 
       # Generate the libtorrent Xcode project via cmake (skip on cache hit).
-      # BOOST_ROOT tells cmake's FindBoost where Homebrew put the headers/libs.
-      # cmake bakes the Boost include paths into the generated .xcodeproj which
-      # LibTorrent.xcodeproj references via a PBXContainerItemProxy.
+      # BOOST_ROOT tells cmake's FindBoost where Homebrew installed the headers.
+      # cmake bakes those paths into the generated .xcodeproj.
       - name: Generate libtorrent Xcode project (cmake)
         if: steps.cache-libtorrent.outputs.cache-hit != 'true'
         working-directory: Component/LibTorrent-Swift
         run: BOOST_ROOT=$(brew --prefix boost) ./make.sh
 
-      # Build TheAnimeTool in a single xcodebuild invocation.
-      # Xcode automatically resolves the full cross-project dependency chain:
-      #   TheAnimeTool → LibTorrent.xcodeproj (LibTorrent)
-      #               → libtorrent-build/libtorrent.xcodeproj (torrent-rasterbar)
-      # All targets share the same BUILT_PRODUCTS_DIR (via SYMROOT) so
-      # cross-project reference lookups resolve correctly without a separate
-      # pre-compile step (which had the wrong target name 'libtorrent-rasterbar';
-      # the cmake-generated target is actually named 'torrent-rasterbar').
+      # Compile libtorrent-rasterbar.a for iphoneos arm64 in Release config.
+      #
+      # WHY this step is needed:
+      #   make.sh only generates the cmake Xcode project — it does NOT compile
+      #   the C++ static library.  LibTorrent.xcodeproj references the .a as a
+      #   direct file path (not a cross-project dependency), so Xcode will NOT
+      #   auto-build it when building TheAnimeTool.  We must pre-build it.
+      #
+      # OUTPUT PATH:
+      #   LibTorrent.xcodeproj's linker expects the file at:
+      #     Component/LibTorrent-Swift/libtorrent-build/Release/libtorrent-rasterbar.a
+      #   We force that exact location via CONFIGURATION_BUILD_DIR.
+      #
+      # TARGET NAME:
+      #   cmake's add_library(torrent-rasterbar ...) creates a target named
+      #   'torrent-rasterbar'; cmake prepends 'lib' for the output filename.
+      - name: Compile libtorrent-rasterbar.a (iphoneos arm64)
+        if: steps.cache-libtorrent.outputs.cache-hit != 'true'
+        working-directory: Component/LibTorrent-Swift
+        run: |
+          PROJECT=$(find libtorrent-build -maxdepth 1 -name "*.xcodeproj" | head -1)
+          echo "cmake-generated project: $PROJECT"
+          xcodebuild \
+            -project "$PROJECT" \
+            -target torrent-rasterbar \
+            -configuration Release \
+            -sdk iphoneos \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CONFIGURATION_BUILD_DIR="$(pwd)/libtorrent-build/Release"
+
       - name: Build TheAnimeTool (Release, no signing)
         run: |
           xcodebuild \
