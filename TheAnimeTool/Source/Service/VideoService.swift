@@ -104,7 +104,7 @@ public class VideoService: NSObject {
     }
 
     func SetDoNotDownloadForFileIndex(_ index: UInt, flag: Bool) {
-        self.torrent?.setFileCheckState(Int(!flag), forIndexes: NSIndexSet(index: Int(index)))
+        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, forIndexes: NSIndexSet(index: Int(index)))
     }
 
     func UpdateTorrentFileInfos() {
