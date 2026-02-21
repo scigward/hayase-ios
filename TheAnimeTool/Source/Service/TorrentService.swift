@@ -81,13 +81,18 @@ public class TorrentService: NSObject, SessionDelegate {
 
     // MARK: - SessionDelegate
     // didAddTorrent fires synchronously from addTorrent() on the calling thread.
-    // We only update our handles dict here; the completion closure in
-    // UpdateTorrentEntityInController handles the initial UI update directly.
+    // Call updateSnapshot() on a *user-initiated background queue* — never on the
+    // calling thread — matching iTorrent's .receive(on: DispatchQueue.global(qos:))
+    // pattern in prepareToAdd.  Calling it on the alerts thread (or main thread while
+    // add_torrent_alert is being processed) can cause torrent_file() to return nullptr
+    // because libtorrent holds internal locks during alert processing.
     public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
-        torrent.updateSnapshot()
         let hex = torrent.infoHashes.best.hex
-        DispatchQueue.main.async {
-            self.handles[hex] = torrent
+        DispatchQueue.global(qos: .userInitiated).async {
+            torrent.updateSnapshot()
+            DispatchQueue.main.async {
+                self.handles[hex] = torrent
+            }
         }
     }
 
@@ -97,16 +102,19 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     // didReceiveUpdateForTorrent fires on the LibTorrent alerts background thread.
-    // Post the progress-update notification so VideoService can refresh its UI.
+    // updateSnapshot() is called on a separate user-initiated background queue so
+    // torrent_file() is accessed after libtorrent finishes processing the current alert.
     public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {
-        torrent.updateSnapshot()
         let hex = torrent.infoHashes.best.hex
-        DispatchQueue.main.async {
-            self.handles[hex] = torrent
-            NotificationCenter.default.post(
-                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                object: self,
-                userInfo: ["torrentHandle": torrent])
+        DispatchQueue.global(qos: .userInitiated).async {
+            torrent.updateSnapshot()
+            DispatchQueue.main.async {
+                self.handles[hex] = torrent
+                NotificationCenter.default.post(
+                    name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
+                    object: self,
+                    userInfo: ["torrentHandle": torrent])
+            }
         }
     }
 
