@@ -80,7 +80,7 @@
 		A96107201D733009006D39D0 /* PromiseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A96105EF1D72FB6B006D39D0 /* PromiseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A96107211D73300C006D39D0 /* SwiftyJSON.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; };
 		A96107221D73300C006D39D0 /* SwiftyJSON.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		DEAD0003DEAD0003DEAD0003 /* OpenSSL in Embed Frameworks */ = {isa = PBXBuildFile; productRef = DEAD0002DEAD0002DEAD0002 /* OpenSSL */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DEAD0002DEAD0002DEAD0002 /* OpenSSL */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,7 +122,6 @@
 			dstSubfolderSpec = 10;
 			files = (
 				FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */,
-				DEAD0003DEAD0003DEAD0003 /* OpenSSL in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -227,6 +226,7 @@
 			files = (
 				A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */,
 				FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */,
+				DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
