@@ -123,8 +123,18 @@ public class VideoService: NSObject {
         if let expectedHex = torrentEntity.torrentHashString {
             guard handle.infoHashes.best.hex == expectedHex else { return }
         }
-        self.ClearCurrentTorrentEntityAndVideos()
-        self.UpdateLocalVideosWithHandle(handle)
+        if torrentHandle == nil {
+            // First time we see this handle: populate CoreData videos
+            self.ClearCurrentTorrentEntityAndVideos()
+            self.UpdateLocalVideosWithHandle(handle)
+        } else {
+            // Subsequent updates (progress pings): just refresh the snapshot so
+            // UpdateProgressForFileIndex returns current values; notify UI to reload.
+            handle.updateSnapshot()
+            self.torrentHandle = handle
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        }
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {

@@ -64,18 +64,15 @@ public class TorrentService: NSObject, SessionDelegate {
     // MARK: - SessionDelegate
 
     public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                object: self,
-                userInfo: ["torrentHandle": torrent]
-            )
-        }
+        postHandleNotification(torrent)
     }
 
     public func torrentManager(_ manager: Session, didRemoveTorrentWithHash hashesData: TorrentHashes) {}
 
-    public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {}
+    public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {
+        // Fire progress update so VideoService / VideoListVC can refresh download state
+        postHandleNotification(torrent)
+    }
 
     public func torrentManager(_ manager: Session, didErrorOccur error: Error) {
         DispatchQueue.main.async {
@@ -83,6 +80,16 @@ public class TorrentService: NSObject, SessionDelegate {
                 name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
                 object: self,
                 userInfo: ["error": error as NSError]
+            )
+        }
+    }
+
+    private func postHandleNotification(_ torrent: TorrentHandle) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
+                object: self,
+                userInfo: ["torrentHandle": torrent]
             )
         }
     }
@@ -239,25 +246,8 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
-    /// If the torrent is already in the session (by stored hash), reuse it immediately.
+    /// Checks session.torrentsMap first (O(1)) to avoid duplicate-add failures.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents) {
-        // If we already have a hash, try to find an active handle in the session
-        if let hashHex = torrentEntity.torrentHashString {
-            if let handle = session.torrents.first(where: { $0.infoHashes.best.hex == hashHex }) {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
-                        object: self,
-                        userInfo: ["torrentHandle": handle]
-                    )
-                }
-                return
-            }
-            // Stale hash — clear it and re-add
-            torrentEntity.torrentHashString = nil
-            try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
-        }
-
         guard let urlString = torrentEntity.torrentDownloadURL,
               let url = URL(string: urlString) else { return }
 
@@ -285,14 +275,32 @@ public class TorrentService: NSObject, SessionDelegate {
                 return
             }
 
-            let hashHex = torrentFile.infoHashes.best.hex
+            let infoHashes = torrentFile.infoHashes
+
             DispatchQueue.main.async {
-                // Save hash so VideoService can match the incoming didAddTorrent notification
-                torrentEntity.torrentHashString = hashHex
+                // Persist the hash so VideoService can filter notifications by hash
+                torrentEntity.torrentHashString = infoHashes.best.hex
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
-                // addTorrent returns a handle and also fires the SessionDelegate callback;
-                // the delegate dispatch posts TorrentInControllerDidUpdateNotification.
-                _ = self.session.addTorrent(torrentFile)
+
+                // If already in session (e.g. restored from disk on app relaunch), notify immediately
+                if let existingHandle = self.session.torrentsMap[infoHashes] {
+                    self.postHandleNotification(existingHandle)
+                    return
+                }
+
+                // addTorrent fires didAddTorrent delegate -> postHandleNotification.
+                // If it returns nil (duplicate or libtorrent error), fall back to direct lookup.
+                if self.session.addTorrent(torrentFile) == nil {
+                    if let handle = self.session.torrentsMap[infoHashes] {
+                        self.postHandleNotification(handle)
+                    } else {
+                        let err = NSError(domain: "TorrentService", code: 3,
+                                          userInfo: [NSLocalizedDescriptionKey: "Failed to add torrent to session"])
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification),
+                            object: self, userInfo: ["error": err])
+                    }
+                }
             }
         }.resume()
     }
