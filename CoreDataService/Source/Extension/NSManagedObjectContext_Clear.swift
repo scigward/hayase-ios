@@ -4,39 +4,34 @@
 //
 //  Created by Tieria C.Monk on 8/9/16.
 //
-//
 
 import Foundation
 import CoreData
 
-extension NSManagedObjectContext
-{
-    func deleteAllData()
-    {
+extension NSManagedObjectContext {
+    func deleteAllData() {
         guard let persistentStore = persistentStoreCoordinator?.persistentStores.last else { return }
-        guard let url = persistentStoreCoordinator?.URLForPersistentStore(persistentStore) else { return }
-        
-        performBlockAndWait { () -> Void in
+        guard let url = persistentStoreCoordinator?.url(for: persistentStore) else { return }
+
+        performAndWait {
             self.reset()
-            do
-            {
-                try self.persistentStoreCoordinator?.removePersistentStore(persistentStore)
-                try NSFileManager.defaultManager().removeItemAtURL(url)
-                try self.persistentStoreCoordinator?.addPersistentStoreWithType(NSSQLiteStoreType, configuration: nil, URL: url, options: nil)
-            }
-            catch {
+            do {
+                try self.persistentStoreCoordinator?.remove(persistentStore)
+                try FileManager.default.removeItem(at: url)
+                try self.persistentStoreCoordinator?.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: url, options: nil)
+            } catch {
                 print("Error clearing core data.")
             }
         }
     }
-    
-    func deleteAllData(request: NSFetchRequest){
-        do{
-            let objs = try self.executeFetchRequest(request) as! [NSManagedObject]
-            for obj in objs{
-                self.deleteObject(obj)
+
+    func deleteAllData(_ request: NSFetchRequest<NSFetchRequestResult>) {
+        do {
+            let objs = try self.fetch(request) as! [NSManagedObject]
+            for obj in objs {
+                self.delete(obj)
             }
-        }catch{
+        } catch {
             print("Error batch deleting request")
         }
     }

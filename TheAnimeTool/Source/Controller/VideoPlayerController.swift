@@ -10,14 +10,16 @@ import AVKit
 
 class VideoPlayerController: AVPlayerViewController {
     var videoEntity: Videos? = nil
-    
+
     override func viewDidLoad() {
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)){
-            guard let video = self.videoEntity else { return }
-            guard let videoPath = video.videoPath else { return }
-            let url = NSURL(fileURLWithPath: videoPath)
-            self.player = AVPlayer(URL: url)
-            self.player?.play()
+        guard let videoPath = videoEntity?.videoPath else { return }
+        let url = URL(fileURLWithPath: videoPath)
+        DispatchQueue.global(qos: .default).async {
+            let player = AVPlayer(url: url)
+            DispatchQueue.main.async {
+                self.player = player
+                player.play()
+            }
         }
     }
 }

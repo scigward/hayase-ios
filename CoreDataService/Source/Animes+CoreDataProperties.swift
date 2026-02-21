@@ -21,7 +21,7 @@ extension Animes {
     @NSManaged var animeImgM: String?
     @NSManaged var animeImgS: String?
     @NSManaged var animeNextEps: NSNumber?
-    @NSManaged var animeNextEpsTime: NSDate?
+    @NSManaged var animeNextEpsTime: Date?
     @NSManaged var animePopularity: NSNumber?
     @NSManaged var animeScore: NSNumber?
     @NSManaged var animeStatus: String?

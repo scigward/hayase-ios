@@ -14,81 +14,79 @@ public typealias SaveCompletionHandler = () -> Void
 
 
 public class CoreDataService {
-	public func saveRootContext(completionHandler: SaveCompletionHandler) {
-		self.rootContext.performBlock() {
-			do {
-				try self.rootContext.save()
+public func saveRootContext(completionHandler: @escaping SaveCompletionHandler) {
+self.rootContext.perform {
+do {
+try self.rootContext.save()
+DispatchQueue.main.async {
+completionHandler()
+}
+} catch let error {
+fatalError("Failed to save root context: \(error as NSError)")
+}
+}
+}
 
-				dispatch_async(dispatch_get_main_queue(), { () -> Void in
-					completionHandler()
-				})
-			}
-			catch let error {
-				fatalError("Failed to save root context: \(error as NSError)")
-			}
-		}
-	}
+// MARK: Initialization
+private init() {
+let bundle = Bundle.main
 
-	// MARK: Initialization
-	private init() {
-		let bundle = NSBundle.mainBundle()
+guard let modelURL = bundle.url(forResource: CoreDataService.modelName, withExtension: "momd") else {
+fatalError("Could not find model file with name \"\(CoreDataService.modelName)\", please set CoreDataService.modelName to the name of the model file (without the file extension)")
+}
 
-		guard let modelPath = bundle.URLForResource(CoreDataService.modelName, withExtension: "momd") else {
-			fatalError("Could not find model file with name \"\(CoreDataService.modelName)\", please set CoreDataService.modelName to the name of the model file (without the file extension)")
-		}
+guard let someManagedObjectModel = NSManagedObjectModel(contentsOf: modelURL) else {
+fatalError("Could not load model at URL \(modelURL)")
+}
 
-		guard let someManagedObjectModel = NSManagedObjectModel(contentsOfURL: modelPath) else {
-			fatalError("Could not load model at URL \(modelPath)")
-		}
+guard let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+fatalError("Could not find documents directory")
+}
 
-		guard let documentsDirectoryPath = NSSearchPathForDirectoriesInDomains(.DocumentDirectory, .UserDomainMask, true).first as NSString? else {
-			fatalError("Could not find documents directory")
-		}
+managedObjectModel = someManagedObjectModel
+persistentStoreCoordinator = NSPersistentStoreCoordinator(managedObjectModel: managedObjectModel)
 
-		managedObjectModel = someManagedObjectModel
-		persistentStoreCoordinator = NSPersistentStoreCoordinator(managedObjectModel: managedObjectModel)
+let storeRootURL = documentsDirectoryURL.appendingPathComponent("DataStore")
 
-		let storeRootPath = documentsDirectoryPath.stringByAppendingPathComponent("DataStore") as NSString
+if !FileManager.default.fileExists(atPath: storeRootURL.path) {
+do {
+try FileManager.default.createDirectory(at: storeRootURL, withIntermediateDirectories: true, attributes: nil)
+} catch let error {
+fatalError("Error creating data store directory \(error as NSError)")
+}
+}
 
-		let fileManager = NSFileManager.defaultManager()
-		if !fileManager.fileExistsAtPath(storeRootPath as String) {
-			do {
-				try fileManager.createDirectoryAtPath(storeRootPath as String, withIntermediateDirectories: true, attributes: nil)
-			}
-			catch let error {
-				fatalError("Error creating data store directory \(error as NSError)")
-			}
-		}
+let persistentStoreURL = storeRootURL.appendingPathComponent("\(CoreDataService.storeName).sqlite")
+let persistentStoreOptions: [String: Any] = [
+NSMigratePersistentStoresAutomaticallyOption: true,
+NSInferMappingModelAutomaticallyOption: true
+]
 
-		let persistentStorePath = storeRootPath.stringByAppendingPathComponent("\(CoreDataService.storeName).sqlite")
-		let persistentStoreOptions = [NSMigratePersistentStoresAutomaticallyOption: true, NSInferMappingModelAutomaticallyOption: true]
+do {
+try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
+} catch let error {
+fatalError("Error creating persistent store \(error as NSError)")
+}
 
-		do {
-			try persistentStoreCoordinator.addPersistentStoreWithType(NSSQLiteStoreType, configuration: nil, URL: NSURL.fileURLWithPath(persistentStorePath), options: persistentStoreOptions)
-		}
-		catch let error {
-			fatalError("Error creating persistent store \(error as NSError)")
-		}
+rootContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+rootContext.persistentStoreCoordinator = persistentStoreCoordinator
+rootContext.undoManager = nil
 
-		rootContext = NSManagedObjectContext(concurrencyType: NSManagedObjectContextConcurrencyType.PrivateQueueConcurrencyType)
-		rootContext.persistentStoreCoordinator = persistentStoreCoordinator
-		rootContext.undoManager = nil
+mainQueueContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
+mainQueueContext.parentContext = rootContext
+mainQueueContext.undoManager = nil
+}
 
-		mainQueueContext = NSManagedObjectContext(concurrencyType: NSManagedObjectContextConcurrencyType.MainQueueConcurrencyType)
-		mainQueueContext.parentContext = rootContext
-		mainQueueContext.undoManager = nil
-	}
+// MARK: Properties
+public let mainQueueContext: NSManagedObjectContext
 
-	// MARK: Properties
-	public let mainQueueContext: NSManagedObjectContext
+// MARK: Properties (Private)
+private let managedObjectModel: NSManagedObjectModel
+private let persistentStoreCoordinator: NSPersistentStoreCoordinator
+private let rootContext: NSManagedObjectContext
 
-	// MARK: Properties (Private)
-	private let managedObjectModel: NSManagedObjectModel
-	private let persistentStoreCoordinator: NSPersistentStoreCoordinator
-	private let rootContext: NSManagedObjectContext
-
-	// MARK: Properties (Static)
-	public static var modelName = "Model"
-	public static var storeName = "Model"
-	public static let sharedCoreDataService = CoreDataService()
+// MARK: Properties (Static)
+public static var modelName = "Model"
+public static var storeName = "Model"
+public static let sharedCoreDataService = CoreDataService()
 }
