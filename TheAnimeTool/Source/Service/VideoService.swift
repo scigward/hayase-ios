@@ -68,7 +68,7 @@ public class VideoService: NSObject {
             newVideoEntity.torrents = torrentEntity
             indexes.add(video.indexes() as IndexSet)
         }
-        self.torrent?.setFileCheckState(FileCheckState.Off.rawValue, forIndexes: indexes as IndexSet)
+        self.torrent?.setFileCheckState(FileCheckState.Off.rawValue, for: indexes as IndexSet)
         do { try context.save() } catch let error { print("Error updating local videos: \(error)"); return }
         NotificationCenter.default.post(name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
@@ -104,7 +104,7 @@ public class VideoService: NSObject {
     }
 
     func SetDoNotDownloadForFileIndex(_ index: UInt, flag: Bool) {
-        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, forIndexes: IndexSet(integer: Int(index)))
+        self.torrent?.setFileCheckState(flag ? FileCheckState.Off.rawValue : FileCheckState.On.rawValue, for: IndexSet(integer: Int(index)))
     }
 
     func UpdateTorrentFileInfos() {
