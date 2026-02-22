@@ -341,7 +341,7 @@ class VideoListViewController: UIViewController {
         destination.torrentHandle = videoService?.torrentHandle
         destination.fileIndex = UInt(indexNum.intValue)
         // Pass AniList ID + episode number for watch-progress tracking (Hayase watchProgress.ts)
-        destination.anilistID = Int(videoService?.torrentEntity?.animes?.animeAnilistId ?? 0)
+        destination.anilistID = Int(videoService?.torrentEntity.animes?.animeAnilistId ?? 0)
         destination.episodeNumber = Int(indexNum.intValue) + 1
     }
 }
