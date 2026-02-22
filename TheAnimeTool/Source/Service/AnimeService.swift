@@ -472,10 +472,10 @@ public class AnimeService: NSObject {
     // MARK: - AniList anime search (used by SearchViewController)
 
     private let anilistSearchQuery = """
-    query ($search: String, $genre: String, $format: MediaFormat, $status: MediaStatus, $sort: [MediaSort], $page: Int) {
+    query ($search: String, $genre: String, $format: MediaFormat, $status: MediaStatus, $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
       Page(page: $page, perPage: 20) {
         pageInfo { hasNextPage }
-        media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort) {
+        media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort, seasonYear: $seasonYear, season: $season) {
           id
           title { english romaji }
           coverImage { large medium }
@@ -495,13 +495,15 @@ public class AnimeService: NSObject {
     }
     """
 
-    /// Search AniList with optional title, genre, format, status and sort.
+    /// Search AniList with optional title, genre, format, status, sort, seasonYear and season.
     /// Calls completion on the main queue with ([AnimeItem], hasNextPage).
     func searchAnimeItems(title: String?,
                           genre: String?,
                           format: String?,
                           status: String?,
                           sort: String,
+                          seasonYear: Int? = nil,
+                          season: String? = nil,
                           page: Int,
                           completion: @escaping ([AnimeItem], Bool) -> Void) {
         guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
@@ -515,6 +517,8 @@ public class AnimeService: NSObject {
         if let g = genre { variables["genre"] = g }
         if let f = format { variables["format"] = f }
         if let s = status { variables["status"] = s }
+        if let y = seasonYear { variables["seasonYear"] = y }
+        if let s = season { variables["season"] = s }
 
         let body: [String: Any] = ["query": anilistSearchQuery, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)

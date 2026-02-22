@@ -1,48 +1,58 @@
 //
 //  SearchViewController.swift
-//  TheAnimeTool
+//  NyaiS
 //
 //  Hayase-style AniList anime search tab.
-//  Matches src/routes/app/search/+page.svelte:
-//  - UISearchController for title input (debounced 0.5 s)
-//  - Horizontal filter chip bar: Genre, Format, Status, Sort
-//  - 3-column UICollectionView of AnimeCollectionViewCell cards
-//  - Infinite scroll (page-based)
-//  - Tap → AnimeDetailViewController
-//  - On first open, loads "Trending" anime so the screen is never empty.
+//  Ported from src/routes/app/search/+page.svelte + values.ts
+//
+//  Mobile layout (matches !$breakpoints.md branch):
+//  ┌─────────────────────────────────────────────┐
+//  │ [🔍 Any                          ] [📷] [⚡] │  ← always visible
+//  │ [Genre][Year][Season][Format][Status][Sort]  │  ← shown when ⚡ tapped
+//  │ [Action ×] [2024 ×] [Score ×]               │  ← active filter chips
+//  └─────────────────────────────────────────────┘
+//  2-column AnimeCollectionViewCell grid (minmax(184px))
 //
 
 import UIKit
 
+// MARK: - FilterOption
+
+private struct FilterOption {
+    let displayName: String
+    let apiValue: String
+}
+
 // MARK: - FilterType
 
-private enum FilterType: CaseIterable {
-    case genre, format, status, sort
+private enum FilterType: Int, CaseIterable {
+    case genre, year, season, format, status, sort
 
     var label: String {
         switch self {
-        case .genre:  return "Genre"
-        case .format: return "Format"
+        case .genre:  return "Genres"
+        case .year:   return "Year"
+        case .season: return "Season"
+        case .format: return "Formats"
         case .status: return "Status"
         case .sort:   return "Sort"
         }
     }
 
-    struct Option {
-        let displayName: String
-        let apiValue: String
-    }
-
-    var options: [Option] {
+    // Options exactly from values.ts
+    var options: [FilterOption] {
         switch self {
         case .genre:
+            // 18 genres from values.ts (exact order)
             return [
                 .init(displayName: "Action",        apiValue: "Action"),
                 .init(displayName: "Adventure",     apiValue: "Adventure"),
                 .init(displayName: "Comedy",        apiValue: "Comedy"),
                 .init(displayName: "Drama",         apiValue: "Drama"),
+                .init(displayName: "Ecchi",         apiValue: "Ecchi"),
                 .init(displayName: "Fantasy",       apiValue: "Fantasy"),
                 .init(displayName: "Horror",        apiValue: "Horror"),
+                .init(displayName: "Mahou Shoujo",  apiValue: "Mahou Shoujo"),
                 .init(displayName: "Mecha",         apiValue: "Mecha"),
                 .init(displayName: "Music",         apiValue: "Music"),
                 .init(displayName: "Mystery",       apiValue: "Mystery"),
@@ -54,26 +64,52 @@ private enum FilterType: CaseIterable {
                 .init(displayName: "Supernatural",  apiValue: "Supernatural"),
                 .init(displayName: "Thriller",      apiValue: "Thriller"),
             ]
-        case .format:
+        case .year:
+            // Array.from({ length: currentYear - 1940 + 2 }, (_, i) => '' + (currentYear + 2 - i))
+            let current = Calendar.current.component(.year, from: Date())
+            return (0...(current - 1940 + 1)).map { i in
+                let y = current + 2 - i
+                return FilterOption(displayName: "\(y)", apiValue: "\(y)")
+            }
+        case .season:
             return [
-                .init(displayName: "TV",      apiValue: "TV"),
-                .init(displayName: "Movie",   apiValue: "MOVIE"),
-                .init(displayName: "OVA",     apiValue: "OVA"),
-                .init(displayName: "ONA",     apiValue: "ONA"),
-                .init(displayName: "Special", apiValue: "SPECIAL"),
+                .init(displayName: "Spring", apiValue: "SPRING"),
+                .init(displayName: "Summer", apiValue: "SUMMER"),
+                .init(displayName: "Fall",   apiValue: "FALL"),
+                .init(displayName: "Winter", apiValue: "WINTER"),
+            ]
+        case .format:
+            // From values.ts formats array
+            return [
+                .init(displayName: "TV Show",  apiValue: "TV"),
+                .init(displayName: "Movie",    apiValue: "MOVIE"),
+                .init(displayName: "TV Short", apiValue: "TV_SHORT"),
+                .init(displayName: "OVA",      apiValue: "OVA"),
+                .init(displayName: "ONA",      apiValue: "ONA"),
             ]
         case .status:
+            // From values.ts status array (includes Cancelled)
             return [
                 .init(displayName: "Airing",       apiValue: "RELEASING"),
                 .init(displayName: "Finished",     apiValue: "FINISHED"),
                 .init(displayName: "Not Yet Aired", apiValue: "NOT_YET_RELEASED"),
+                .init(displayName: "Cancelled",    apiValue: "CANCELLED"),
             ]
         case .sort:
+            // All 12 options from values.ts sort array
             return [
-                .init(displayName: "Trending",  apiValue: "TRENDING_DESC"),
-                .init(displayName: "Popular",   apiValue: "POPULARITY_DESC"),
-                .init(displayName: "Score",     apiValue: "SCORE_DESC"),
-                .init(displayName: "Newest",    apiValue: "START_DATE_DESC"),
+                .init(displayName: "Trending",          apiValue: "TRENDING_DESC"),
+                .init(displayName: "Popularity",        apiValue: "POPULARITY_DESC"),
+                .init(displayName: "Score",             apiValue: "SCORE_DESC"),
+                .init(displayName: "Release Date",      apiValue: "START_DATE_DESC"),
+                .init(displayName: "Name",              apiValue: "TITLE_ROMAJI_DESC"),
+                .init(displayName: "Updated Date",      apiValue: "UPDATED_AT_DESC"),
+                .init(displayName: "Trending Asc",      apiValue: "TRENDING"),
+                .init(displayName: "Popularity Asc",    apiValue: "POPULARITY"),
+                .init(displayName: "Score Asc",         apiValue: "SCORE"),
+                .init(displayName: "Release Date Asc",  apiValue: "START_DATE"),
+                .init(displayName: "Name Asc",          apiValue: "TITLE_ROMAJI"),
+                .init(displayName: "Updated Date Asc",  apiValue: "UPDATED_AT"),
             ]
         }
     }
@@ -83,35 +119,57 @@ private enum FilterType: CaseIterable {
 
 class SearchViewController: UIViewController {
 
-    // MARK: - Filter state
+    // MARK: - Hayase color constants
+    // app.css: --background: 240 10% 3.9% = #0a0a0f, bg-black = #000000
+    private static let bgBlack      = UIColor.black
+    private static let bgBackground = UIColor(red: 0.039, green: 0.039, blue: 0.059, alpha: 1)
+    private static let mutedFg      = UIColor(red: 0.631, green: 0.631, blue: 0.667, alpha: 1) // #a1a1aa
+    // text-blue-400 = UIColor used on Hayase's active filter icon
+    private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
+    // badgeVariants default dark: bg-primary (#fafafa), text-primary-foreground (#0f0f14)
+    private static let chipBg       = UIColor(red: 0.98, green: 0.98, blue: 0.98, alpha: 1)
+    private static let chipFg       = UIColor(red: 0.059, green: 0.059, blue: 0.078, alpha: 1)
 
-    private var selectedGenre: String?
+    // MARK: - Filter state (one value per filter type)
+    private var selectedGenre:  String?
+    private var selectedYear:   Int?
+    private var selectedSeason: String?
     private var selectedFormat: String?
     private var selectedStatus: String?
     private var selectedSort = "TRENDING_DESC"
 
-    // MARK: - Results state
+    // Display names for active chips
+    private var activeFilterLabels: [String: (type: FilterType, apiValue: String)] = [:]
 
+    // MARK: - Results state
     private var animeResults: [AnimeItem] = []
     private var currentPage = 1
     private var hasNextPage = true
     private var isFetching = false
     private var currentTitle = ""
-    private var searchDebounceTimer: Timer?
+    private var debounceTimer: Timer?
 
     // MARK: - Views
-
-    private var searchController: UISearchController!
-    private var filterScrollView: UIScrollView!
-    private var filterStackView: UIStackView!
+    private var headerView: UIView!
+    private var searchField: UITextField!
+    private var boltButton: UIButton!
+    private var filterRowVisible = false
+    private var filterRow: UIScrollView!
+    private var filterStack: UIStackView!
+    private var activeChipsRow: UIScrollView!
+    private var activeChipsStack: UIStackView!
     private var collectionView: UICollectionView!
-    private var emptyLabel: UILabel!
     private var loadingIndicator: UIActivityIndicatorView!
+    private var emptyLabel: UILabel!
 
-    /// Chip button for each filter type (to update title/appearance on selection)
-    private var filterButtons: [FilterType: UIButton] = [:]
+    // Dynamic height constraints for header
+    private var filterRowHeightConstraint: NSLayoutConstraint!
+    private var activeChipsRowHeightConstraint: NSLayoutConstraint!
 
-    // MARK: - Init
+    private static let filterRowHeight: CGFloat  = 44
+    private static let activeChipsRowHeight: CGFloat = 36
+
+    // MARK: - Init (set tabBarItem before viewDidLoad per iOS tab bar rules)
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
@@ -125,129 +183,250 @@ class SearchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background hsl(240,10%,3.9%)
+        view.backgroundColor = Self.bgBackground
         setupNavigationBar()
-        setupSearchController()
-        setupFilterBar()
+        setupHeaderView()
         setupCollectionView()
         setupOverlays()
-        // Load trending by default so the screen is never empty
         fetchResults(reset: true)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
     }
 
-    // MARK: - Setup
-
+    // MARK: - Navigation bar
+    // Compact title "Search" (no large title, no UISearchController)
+    // Nav bar hidden behind header which starts at safeArea top
     private func setupNavigationBar() {
-        title = "Search"
-        navigationController?.navigationBar.prefersLargeTitles = true
-        navigationItem.largeTitleDisplayMode = .always
+        title = nil // no nav title — header provides context
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
+        // Make nav bar transparent so the black header shows through behind status bar
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
     }
 
-    private func setupSearchController() {
-        searchController = UISearchController(searchResultsController: nil)
-        searchController.searchResultsUpdater = self
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = "Search anime on AniList…"
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
+    // MARK: - Header setup
+    // Matches Hayase sticky top div: bg-black, pt-5
+    private func setupHeaderView() {
+        headerView = UIView()
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = Self.bgBlack
+        view.addSubview(headerView)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+
+        setupTitleRow()
+        setupFilterRow()
+        setupActiveChipsRow()
     }
 
-    private func setupFilterBar() {
-        filterScrollView = UIScrollView()
-        filterScrollView.translatesAutoresizingMaskIntoConstraints = false
-        filterScrollView.showsHorizontalScrollIndicator = false
-        filterScrollView.alwaysBounceHorizontal = true
-        filterScrollView.contentInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+    // Title row: [🔍 Any field] [📷] [⚡]
+    // Matches: <Input pl-9 border-0 bg-background> + FileImage button + Bolt toggle
+    private func setupTitleRow() {
+        // Container row
+        let titleRow = UIStackView()
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
+        titleRow.layoutMargins = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        titleRow.isLayoutMarginsRelativeArrangement = true
+        headerView.addSubview(titleRow)
 
-        filterStackView = UIStackView()
-        filterStackView.translatesAutoresizingMaskIntoConstraints = false
-        filterStackView.axis = .horizontal
-        filterStackView.spacing = 8
-        filterStackView.alignment = .center
-        filterScrollView.addSubview(filterStackView)
+        // Search field — bg-background, border-0, rounded, pl-9 (icon inside)
+        searchField = UITextField()
+        searchField.backgroundColor = Self.bgBackground
+        searchField.layer.cornerRadius = 8
+        searchField.layer.masksToBounds = true
+        searchField.borderStyle = .none
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: "Any",
+            attributes: [.foregroundColor: Self.mutedFg.withAlphaComponent(0.5)])
+        searchField.textColor = .white
+        searchField.font = .systemFont(ofSize: 15)
+        // pl-9: left view with magnifying glass icon + 8pt padding
+        let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
+        let iconImageView = UIImageView(
+            image: UIImage(systemName: "magnifyingglass")?
+                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)))
+        iconImageView.tintColor = Self.mutedFg.withAlphaComponent(0.5)
+        iconImageView.contentMode = .center
+        iconImageView.frame = iconContainer.bounds
+        iconContainer.addSubview(iconImageView)
+        searchField.leftView = iconContainer
+        searchField.leftViewMode = .always
+        searchField.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
+        searchField.returnKeyType = .search
+        searchField.autocorrectionType = .no
+        searchField.autocapitalizationType = .none
+
+        // Filter toggle — slider.horizontal.3 = filter icon
+        // Matches Hayase <Bolt> icon toggle (bolt = filter/settings icon)
+        boltButton = UIButton(type: .system)
+        let boltImage = UIImage(systemName: "slider.horizontal.3")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        boltButton.setImage(boltImage, for: .normal)
+        boltButton.tintColor = Self.mutedFg
+        boltButton.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        boltButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        boltButton.addTarget(self, action: #selector(boltTapped), for: .touchUpInside)
+
+        titleRow.addArrangedSubview(searchField)
+        titleRow.addArrangedSubview(boltButton)
 
         NSLayoutConstraint.activate([
-            filterStackView.topAnchor.constraint(equalTo: filterScrollView.topAnchor, constant: 6),
-            filterStackView.bottomAnchor.constraint(equalTo: filterScrollView.bottomAnchor, constant: -6),
-            filterStackView.leadingAnchor.constraint(equalTo: filterScrollView.leadingAnchor),
-            filterStackView.trailingAnchor.constraint(equalTo: filterScrollView.trailingAnchor),
-            filterStackView.heightAnchor.constraint(equalTo: filterScrollView.heightAnchor, constant: -12),
+            titleRow.topAnchor.constraint(equalTo: headerView.topAnchor),
+            titleRow.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            titleRow.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            titleRow.heightAnchor.constraint(equalToConstant: 56),
         ])
+    }
 
-        view.addSubview(filterScrollView)
+    // Filter row (hidden by default): [Genre][Year][Season][Format][Status][Sort]
+    // Shown when bolt toggle is tapped. Each chip opens an action sheet picker.
+    private func setupFilterRow() {
+        filterRow = UIScrollView()
+        filterRow.translatesAutoresizingMaskIntoConstraints = false
+        filterRow.showsHorizontalScrollIndicator = false
+        filterRow.alwaysBounceHorizontal = true
+        filterRow.contentInset = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        headerView.addSubview(filterRow)
+
+        filterStack = UIStackView()
+        filterStack.translatesAutoresizingMaskIntoConstraints = false
+        filterStack.axis = .horizontal
+        filterStack.spacing = 8
+        filterStack.alignment = .center
+        filterRow.addSubview(filterStack)
+
         NSLayoutConstraint.activate([
-            filterScrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            filterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            filterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            filterScrollView.heightAnchor.constraint(equalToConstant: 44),
+            filterStack.topAnchor.constraint(equalTo: filterRow.topAnchor, constant: 4),
+            filterStack.bottomAnchor.constraint(equalTo: filterRow.bottomAnchor, constant: -4),
+            filterStack.leadingAnchor.constraint(equalTo: filterRow.leadingAnchor),
+            filterStack.trailingAnchor.constraint(equalTo: filterRow.trailingAnchor),
+            filterStack.heightAnchor.constraint(equalToConstant: Self.filterRowHeight - 8),
         ])
 
+        filterRowHeightConstraint = filterRow.heightAnchor.constraint(equalToConstant: 0)
+        filterRowHeightConstraint.isActive = true
+
+        NSLayoutConstraint.activate([
+            filterRow.topAnchor.constraint(equalTo: headerView.subviews.first!.bottomAnchor),
+            filterRow.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            filterRow.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+        ])
+
+        // Build filter chips
         for type in FilterType.allCases {
             let chip = makeFilterChip(for: type)
-            filterButtons[type] = chip
-            filterStackView.addArrangedSubview(chip)
+            filterStack.addArrangedSubview(chip)
         }
     }
 
     private func makeFilterChip(for type: FilterType) -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle(type.label, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-        button.layer.cornerRadius = 16
-        button.layer.masksToBounds = true
-        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
-        applyChipStyle(button, active: false)
-        button.addTarget(self, action: #selector(filterChipTapped(_:)), for: .touchUpInside)
-        button.tag = FilterType.allCases.firstIndex(of: type) ?? 0
-        return button
+        let btn = UIButton(type: .system)
+        btn.setTitle(type.label, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        btn.setTitleColor(.white, for: .normal)
+        btn.backgroundColor = UIColor(red: 0.094, green: 0.094, blue: 0.106, alpha: 1) // #18181b = muted
+        btn.layer.cornerRadius = 8
+        btn.layer.masksToBounds = true
+        btn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        btn.tag = type.rawValue
+        btn.addTarget(self, action: #selector(filterChipTapped(_:)), for: .touchUpInside)
+        return btn
     }
 
-    private func applyChipStyle(_ button: UIButton, active: Bool) {
-        if active {
-            button.backgroundColor = .systemIndigo
-            button.setTitleColor(.white, for: .normal)
-            button.layer.borderWidth = 0
-        } else {
-            button.backgroundColor = .secondarySystemBackground
-            button.setTitleColor(.label, for: .normal)
-            button.layer.borderWidth = 1
-            button.layer.borderColor = UIColor.separator.cgColor
+    // Active chips row: removable white pill badges
+    // Matches Hayase: {#each list(search) as item} → <badge class='mx-1.5 my-1 ...'>
+    private func setupActiveChipsRow() {
+        activeChipsRow = UIScrollView()
+        activeChipsRow.translatesAutoresizingMaskIntoConstraints = false
+        activeChipsRow.showsHorizontalScrollIndicator = false
+        activeChipsRow.alwaysBounceHorizontal = false
+        activeChipsRow.contentInset = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        headerView.addSubview(activeChipsRow)
+
+        activeChipsStack = UIStackView()
+        activeChipsStack.translatesAutoresizingMaskIntoConstraints = false
+        activeChipsStack.axis = .horizontal
+        activeChipsStack.spacing = 6
+        activeChipsStack.alignment = .center
+        activeChipsRow.addSubview(activeChipsStack)
+
+        NSLayoutConstraint.activate([
+            activeChipsStack.topAnchor.constraint(equalTo: activeChipsRow.topAnchor, constant: 4),
+            activeChipsStack.bottomAnchor.constraint(equalTo: activeChipsRow.bottomAnchor, constant: -4),
+            activeChipsStack.leadingAnchor.constraint(equalTo: activeChipsRow.leadingAnchor),
+            activeChipsStack.trailingAnchor.constraint(equalTo: activeChipsRow.trailingAnchor),
+            activeChipsStack.heightAnchor.constraint(equalToConstant: Self.activeChipsRowHeight - 8),
+        ])
+
+        activeChipsRowHeightConstraint = activeChipsRow.heightAnchor.constraint(equalToConstant: 0)
+        activeChipsRowHeightConstraint.isActive = true
+
+        NSLayoutConstraint.activate([
+            activeChipsRow.topAnchor.constraint(equalTo: filterRow.bottomAnchor),
+            activeChipsRow.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            activeChipsRow.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            activeChipsRow.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+        ])
+    }
+
+    // MARK: - Actions
+
+    @objc private func boltTapped() {
+        filterRowVisible.toggle()
+        UIView.animate(withDuration: 0.25) {
+            self.filterRowHeightConstraint.constant = self.filterRowVisible ? Self.filterRowHeight : 0
+            self.boltButton.tintColor = self.filterRowVisible ? Self.activeBlue : Self.mutedFg
+            self.headerView.layoutIfNeeded()
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func searchFieldChanged(_ field: UITextField) {
+        let query = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            guard let self = self, query != self.currentTitle else { return }
+            self.currentTitle = query
+            self.fetchResults(reset: true)
         }
     }
 
     @objc private func filterChipTapped(_ sender: UIButton) {
-        let type = FilterType.allCases[sender.tag]
+        guard let type = FilterType(rawValue: sender.tag) else { return }
         showFilterPicker(for: type, sourceButton: sender)
     }
 
     private func showFilterPicker(for type: FilterType, sourceButton: UIButton) {
         let alert = UIAlertController(title: type.label, message: nil, preferredStyle: .actionSheet)
 
-        // "Any" / clear option
-        alert.addAction(UIAlertAction(title: "Any \(type.label)", style: .default) { [weak self] _ in
-            guard let self = self else { return }
-            switch type {
-            case .genre:  self.selectedGenre  = nil
-            case .format: self.selectedFormat = nil
-            case .status: self.selectedStatus = nil
-            case .sort:   self.selectedSort   = "TRENDING_DESC"
-            }
-            sourceButton.setTitle(type.label, for: .normal)
-            self.applyChipStyle(sourceButton, active: false)
-            self.fetchResults(reset: true)
+        // "Any" clears the filter
+        alert.addAction(UIAlertAction(title: "Any", style: .default) { [weak self] _ in
+            self?.clearFilter(type: type)
+            self?.fetchResults(reset: true)
         })
 
         let currentAPIValue: String? = {
             switch type {
             case .genre:  return selectedGenre
+            case .year:   return selectedYear.map { "\($0)" }
+            case .season: return selectedSeason
             case .format: return selectedFormat
             case .status: return selectedStatus
             case .sort:   return selectedSort == "TRENDING_DESC" ? nil : selectedSort
@@ -259,15 +438,8 @@ class SearchViewController: UIViewController {
             let title = isSelected ? "✓ \(option.displayName)" : option.displayName
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
                 guard let self = self else { return }
-                switch type {
-                case .genre:  self.selectedGenre  = option.apiValue
-                case .format: self.selectedFormat = option.apiValue
-                case .status: self.selectedStatus = option.apiValue
-                case .sort:   self.selectedSort   = option.apiValue
-                }
-                let chipTitle = "\(type.label): \(option.displayName)"
-                sourceButton.setTitle(chipTitle, for: .normal)
-                self.applyChipStyle(sourceButton, active: true)
+                self.setFilter(type: type, option: option)
+                self.updateBoltTint()
                 self.fetchResults(reset: true)
             })
         }
@@ -280,17 +452,123 @@ class SearchViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    private func setFilter(type: FilterType, option: FilterOption) {
+        switch type {
+        case .genre:  selectedGenre  = option.apiValue
+        case .year:   selectedYear   = Int(option.apiValue)
+        case .season: selectedSeason = option.apiValue
+        case .format: selectedFormat = option.apiValue
+        case .status: selectedStatus = option.apiValue
+        case .sort:   selectedSort   = option.apiValue
+        }
+        // Register in activeFilterLabels
+        let key = type.label
+        activeFilterLabels[key] = (type: type, apiValue: option.apiValue)
+        // Remove sort from active chips (Hayase only shows clear-able filters,
+        // sort is always active)
+        if type == .sort {
+            activeFilterLabels.removeValue(forKey: key)
+        }
+        rebuildActiveChips()
+    }
+
+    private func clearFilter(type: FilterType) {
+        switch type {
+        case .genre:  selectedGenre  = nil
+        case .year:   selectedYear   = nil
+        case .season: selectedSeason = nil
+        case .format: selectedFormat = nil
+        case .status: selectedStatus = nil
+        case .sort:   selectedSort   = "TRENDING_DESC"
+        }
+        activeFilterLabels.removeValue(forKey: type.label)
+        rebuildActiveChips()
+        updateBoltTint()
+    }
+
+    private func updateBoltTint() {
+        let hasActiveFilter = selectedGenre != nil || selectedYear != nil ||
+            selectedSeason != nil || selectedFormat != nil || selectedStatus != nil ||
+            (selectedSort != "TRENDING_DESC")
+        boltButton.tintColor = (filterRowVisible || hasActiveFilter) ? Self.activeBlue : Self.mutedFg
+    }
+
+    private func rebuildActiveChips() {
+        // Clear existing chips
+        activeChipsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        for (label, info) in activeFilterLabels {
+            let chip = makeActiveChip(label: label, type: info.type)
+            activeChipsStack.addArrangedSubview(chip)
+        }
+
+        let hasChips = !activeFilterLabels.isEmpty
+        UIView.animate(withDuration: 0.2) {
+            self.activeChipsRowHeightConstraint.constant = hasChips ? Self.activeChipsRowHeight : 0
+            self.headerView.layoutIfNeeded()
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func makeActiveChip(label: String, type: FilterType) -> UIView {
+        // Matches Hayase badgeVariants() default: bg-primary text-primary-foreground rounded-full
+        let container = UIView()
+        container.backgroundColor = Self.chipBg
+        container.layer.cornerRadius = 12
+        container.layer.masksToBounds = true
+
+        let titleLabel = UILabel()
+        titleLabel.text = label
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = Self.chipFg
+
+        let xButton = UIButton(type: .system)
+        xButton.setImage(
+            UIImage(systemName: "xmark")?
+                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)),
+            for: .normal)
+        xButton.tintColor = Self.chipFg.withAlphaComponent(0.7)
+        xButton.tag = type.rawValue
+        xButton.addTarget(self, action: #selector(removeChip(_:)), for: .touchUpInside)
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, xButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+        ])
+
+        return container
+    }
+
+    @objc private func removeChip(_ sender: UIButton) {
+        guard let type = FilterType(rawValue: sender.tag) else { return }
+        clearFilter(type: type)
+        fetchResults(reset: true)
+    }
+
+    // MARK: - Collection view
+    // 2-col grid matching grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        collectionView.backgroundColor = Self.bgBackground
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
+        collectionView.keyboardDismissMode = .onDrag
         view.addSubview(collectionView)
+
         NSLayoutConstraint.activate([
-            collectionView.topAnchor.constraint(equalTo: filterScrollView.bottomAnchor),
+            collectionView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -298,33 +576,42 @@ class SearchViewController: UIViewController {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
-        // On iPhone (375-430pt wide), minmax(184px) gives 2 columns
+        // 2 columns; each item 152pt wide (w-[9.5rem]) + 16pt padding = 184pt cell width
+        // Matches minmax(184px, max-content) auto-fill which gives 2 cols on 375-430pt iPhones
         let cols: CGFloat = 2
-        let totalPad: CGFloat = 16 + 16 + 8 // leading + trailing + inter-column gap
-        let itemWidth = floor((UIScreen.main.bounds.width - totalPad) / cols)
+        let hPad: CGFloat = 16   // section leading
+        let gap:  CGFloat = 16   // spacing between columns
+        let screenW = min(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
+        let itemWidth  = floor((screenW - hPad * 2 - gap * (cols - 1)) / cols)
         let itemHeight = floor(itemWidth * 290.0 / 152.0)
+
         let item = NSCollectionLayoutItem(
             layoutSize: .init(widthDimension: .absolute(itemWidth),
                               heightDimension: .absolute(itemHeight)))
-        item.contentInsets = .init(top: 8, leading: 0, bottom: 0, trailing: 8)
+
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1),
                               heightDimension: .absolute(itemHeight + 8)),
-            subitems: [item, item])
+            repeatingSubitem: item, count: Int(cols))
+        group.interItemSpacing = .fixed(gap)
+
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = .init(top: 8, leading: 16, bottom: 8, trailing: 8)
+        section.contentInsets = .init(top: 12, leading: hPad, bottom: 16, trailing: hPad)
+        section.interGroupSpacing = 0
         return UICollectionViewCompositionalLayout(section: section)
     }
+
+    // MARK: - Overlays (loading + empty state)
 
     private func setupOverlays() {
         loadingIndicator = UIActivityIndicatorView(style: .large)
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
+        loadingIndicator.color = .white
         view.addSubview(loadingIndicator)
 
         emptyLabel = UILabel()
-        emptyLabel.textColor = .secondaryLabel
+        emptyLabel.textColor = Self.mutedFg
         emptyLabel.font = .systemFont(ofSize: 16)
         emptyLabel.textAlignment = .center
         emptyLabel.numberOfLines = 0
@@ -334,9 +621,9 @@ class SearchViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 44),
+            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 60),
             emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 44),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 60),
             emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
             emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
         ])
@@ -345,13 +632,10 @@ class SearchViewController: UIViewController {
     // MARK: - Fetch
 
     private func fetchResults(reset: Bool) {
-        if reset {
-            currentPage = 1
-            hasNextPage = true
-        }
+        if reset { currentPage = 1; hasNextPage = true }
         guard !isFetching, hasNextPage else { return }
         isFetching = true
-        if reset { loadingIndicator.startAnimating() }
+        if reset { loadingIndicator.startAnimating(); emptyLabel.isHidden = true }
 
         AnimeService.sharedAnimeService.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
@@ -359,14 +643,12 @@ class SearchViewController: UIViewController {
             format: selectedFormat,
             status: selectedStatus,
             sort: selectedSort,
+            seasonYear: selectedYear,
+            season: selectedSeason,
             page: currentPage
         ) { [weak self] items, hasNext in
             guard let self = self else { return }
-            if reset {
-                self.animeResults = items
-            } else {
-                self.animeResults.append(contentsOf: items)
-            }
+            if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
             self.hasNextPage = hasNext
             self.currentPage += 1
             self.isFetching = false
@@ -374,8 +656,7 @@ class SearchViewController: UIViewController {
             self.collectionView.reloadData()
             self.emptyLabel.isHidden = !self.animeResults.isEmpty
             if self.animeResults.isEmpty {
-                self.emptyLabel.text = self.currentTitle.isEmpty
-                    ? "No results found"
+                self.emptyLabel.text = self.currentTitle.isEmpty ? "No results found"
                     : "No results for \"\(self.currentTitle)\""
             }
         }
@@ -386,17 +667,13 @@ class SearchViewController: UIViewController {
 
 extension SearchViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
-                        numberOfItemsInSection section: Int) -> Int {
-        return animeResults.count
-    }
+                        numberOfItemsInSection section: Int) -> Int { animeResults.count }
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
-            for: indexPath) as? AnimeCollectionViewCell else {
-            return UICollectionViewCell()
-        }
+            for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
         cell.configure(with: animeResults[indexPath.item])
         return cell
     }
@@ -414,28 +691,12 @@ extension SearchViewController: UICollectionViewDelegate {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    // Infinite scroll: matches use:infiniteScroll in Hayase (+page.svelte)
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offsetY       = scrollView.contentOffset.y
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight   = scrollView.frame.height
-        guard contentHeight > frameHeight else { return }
-        if offsetY > contentHeight - frameHeight - 300 {
-            fetchResults(reset: false)
-        }
-    }
-}
-
-// MARK: - UISearchResultsUpdating
-
-extension SearchViewController: UISearchResultsUpdating {
-    func updateSearchResults(for searchController: UISearchController) {
-        let query = (searchController.searchBar.text ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-            guard let self = self, query != self.currentTitle else { return }
-            self.currentTitle = query
-            self.fetchResults(reset: true)
-        }
+        let offsetY  = scrollView.contentOffset.y
+        let total    = scrollView.contentSize.height
+        let frame    = scrollView.frame.height
+        guard total > frame, offsetY > total - frame - 400 else { return }
+        fetchResults(reset: false)
     }
 }
