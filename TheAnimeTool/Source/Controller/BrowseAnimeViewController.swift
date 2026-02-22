@@ -616,7 +616,15 @@ class BrowseAnimeViewController: UIViewController {
                     layoutSize: .init(widthDimension: .fractionalWidth(1.0),
                                       heightDimension: .absolute(FeaturedBannerCell.bannerHeight)),
                     subitems: [item])
-                return NSCollectionLayoutSection(group: group)
+                let bannerSection = NSCollectionLayoutSection(group: group)
+                // Explicit .zero so no automatic safe-area or margin insets are added.
+                // Without this, iOS 14+ contentInsetsReference defaults can add horizontal
+                // margins that make the banner appear narrower than the screen.
+                bannerSection.contentInsets = .zero
+                if #available(iOS 14.0, *) {
+                    bannerSection.contentInsetsReference = .none
+                }
+                return bannerSection
                 // No header supplementary for section 0
             }
             // Sections 1..n: horizontal-scroll poster rows (Hayase small.svelte card ratio)
@@ -880,7 +888,10 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             header.onViewMore = nil
         } else if !isSearching, rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
-            header.onViewMore = nil
+            // "View More" → switch to Search tab (index 1) so user can browse that category
+            header.onViewMore = { [weak self] in
+                self?.tabBarController?.selectedIndex = 1
+            }
         }
         return header
     }

@@ -115,11 +115,16 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardStack)
 
+        // small.svelte: title has `grow` (flex-grow:1) → always pinned to bottom.
+        // iOS equivalent: low vertical content-hugging on title + stack pinned to bottom.
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .vertical)
+
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: contentView.topAnchor),
             cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            cardStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+            // Pin bottom exactly so metaRow is always at the card bottom regardless of title length
+            cardStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
             // Cover fills top 74.5% of cell width converted to height via aspect ratio
             // (cell height is set by the layout to match 152:290 ratio)
