@@ -285,9 +285,9 @@ public class AnimeService: NSObject {
     // MARK: - Home sections (in-memory, no CoreData)
 
     private let homeSectionQuery = """
-    query ($status: MediaStatus, $sort: [MediaSort], $genre: String) {
+    query ($status: MediaStatus, $sort: [MediaSort], $genre: String, $season: MediaSeason, $seasonYear: Int) {
       Page(page: 1, perPage: 20) {
-        media(type: ANIME, status: $status, sort: $sort, genre: $genre) {
+        media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear) {
           id
           title { english romaji }
           coverImage { large medium }
@@ -301,6 +301,22 @@ public class AnimeService: NSObject {
       }
     }
     """
+
+    /// Returns the current AniList season string.
+    /// AniList season definitions: WINTER = Jan–Mar, SPRING = Apr–Jun, SUMMER = Jul–Sep, FALL = Oct–Dec.
+    private static func currentAniListSeason() -> String {
+        let month = Calendar.current.component(.month, from: Date())
+        switch month {
+        case 1, 2, 3:   return "WINTER"
+        case 4, 5, 6:   return "SPRING"
+        case 7, 8, 9:   return "SUMMER"
+        default:         return "FALL"
+        }
+    }
+
+    private static func currentYear() -> Int {
+        Calendar.current.component(.year, from: Date())
+    }
 
     private func fetchSectionItems(variables: [String: Any],
                                    completion: @escaping ([AnimeItem]) -> Void) {
@@ -412,12 +428,16 @@ public class AnimeService: NSObject {
     }
 
     func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
+        let season = AnimeService.currentAniListSeason()
+        let year   = AnimeService.currentYear()
         let configs: [(title: String, variables: [String: Any])] = [
-            ("Currently Airing", ["sort": ["POPULARITY_DESC"], "status": "RELEASING"]),
-            ("Trending Now",     ["sort": ["TRENDING_DESC"]]),
-            ("All Time Popular", ["sort": ["POPULARITY_DESC"]]),
-            ("Action",           ["sort": ["TRENDING_DESC"], "genre": "Action"]),
-            ("Romance",          ["sort": ["TRENDING_DESC"], "genre": "Romance"]),
+            ("Popular This Season", ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year]),
+            ("Trending Now",        ["sort": ["TRENDING_DESC"]]),
+            ("All Time Popular",    ["sort": ["POPULARITY_DESC"]]),
+            ("Romance",             ["sort": ["TRENDING_DESC"], "genre": "Romance"]),
+            ("Action",              ["sort": ["TRENDING_DESC"], "genre": "Action"]),
+            ("Adventure",           ["sort": ["TRENDING_DESC"], "genre": "Adventure"]),
+            ("Fantasy",             ["sort": ["TRENDING_DESC"], "genre": "Fantasy"]),
         ]
 
         let group = DispatchGroup()

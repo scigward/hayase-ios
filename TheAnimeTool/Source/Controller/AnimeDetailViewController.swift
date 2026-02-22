@@ -410,6 +410,11 @@ private final class CharacterCardCell: UICollectionViewCell {
 
 private final class AnimeInfoHeaderView: UIView {
     var onFindTorrents: (() -> Void)?
+    var onShare: (() -> Void)?
+    var onOpenAniList: (() -> Void)?
+
+    /// AniList media ID — set via configure() and used by the AniList link button.
+    private var anilistId: Int?
 
     // Banner / cover images
     private let bannerImageView: UIImageView = {
@@ -495,8 +500,31 @@ private final class AnimeInfoHeaderView: UIView {
         b.setImage(UIImage(systemName: "arrow.down.circle.fill"), for: .normal)
         b.tintColor = .white
         b.backgroundColor = .systemIndigo
-        b.titleLabel?.font = .boldSystemFont(ofSize: 16)
-        b.contentEdgeInsets = UIEdgeInsets(top: 14, left: 20, bottom: 14, right: 20)
+        b.titleLabel?.font = .boldSystemFont(ofSize: 15)
+        b.contentEdgeInsets = UIEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        b.layer.cornerRadius = 12
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // Matches Hayase's share icon button (TransitionButton with share icon)
+    private let shareButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        b.tintColor = .label
+        b.backgroundColor = .secondarySystemBackground
+        b.layer.cornerRadius = 12
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // Matches Hayase's AniList link button (opens anilist.co/anime/<id>)
+    private let anilistButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("AL", for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.02, green: 0.58, blue: 0.70, alpha: 1.0) // AniList teal
+        b.titleLabel?.font = .boldSystemFont(ofSize: 11)
         b.layer.cornerRadius = 12
         b.layer.masksToBounds = true
         return b
@@ -516,8 +544,6 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     private func setup() {
-        findTorrentsButton.addTarget(self, action: #selector(findTorrentsTapped), for: .touchUpInside)
-
         // Genre scroll view contains genresStack
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
         genresStack.translatesAutoresizingMaskIntoConstraints = false
@@ -530,8 +556,23 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Outer stack: genres + desc + button with margins
-        let bottomStack = UIStackView(arrangedSubviews: [genresScrollView, descriptionLabel, findTorrentsButton])
+        // Action buttons row: [Find Torrents (expanding)] [Share icon] [AniList icon]
+        // Matches Hayase's action button row in anime/[id]/+layout.svelte
+        findTorrentsButton.addTarget(self, action: #selector(findTorrentsTapped), for: .touchUpInside)
+        shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+        anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
+
+        let actionsRow = UIStackView(arrangedSubviews: [findTorrentsButton, shareButton, anilistButton])
+        actionsRow.axis = .horizontal
+        actionsRow.spacing = 8
+        actionsRow.alignment = .fill
+        NSLayoutConstraint.activate([
+            shareButton.widthAnchor.constraint(equalToConstant: 48),
+            anilistButton.widthAnchor.constraint(equalToConstant: 48),
+        ])
+
+        // Outer stack: genres + desc + actionsRow with margins
+        let bottomStack = UIStackView(arrangedSubviews: [genresScrollView, descriptionLabel, actionsRow])
         bottomStack.axis = .vertical
         bottomStack.spacing = 16
         bottomStack.isLayoutMarginsRelativeArrangement = true
@@ -581,7 +622,10 @@ private final class AnimeInfoHeaderView: UIView {
             // Genre scroll view: full-width, fixed 32pt height (chip height)
             genresScrollView.heightAnchor.constraint(equalToConstant: 32),
 
-            // Bottom section (description + button): starts below cover image
+            // Action buttons row: fixed height (48pt)
+            actionsRow.heightAnchor.constraint(equalToConstant: 48),
+
+            // Bottom section (description + actionsRow): starts below cover image
             bottomStack.topAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: 12),
             bottomStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomStack.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -593,8 +637,18 @@ private final class AnimeInfoHeaderView: UIView {
         onFindTorrents?()
     }
 
+    @objc private func shareTapped() {
+        onShare?()
+    }
+
+    @objc private func anilistTapped() {
+        onOpenAniList?()
+    }
+
     func configure(with anime: Animes?) {
         guard let anime = anime else { return }
+
+        anilistId = anime.animeAnilistId?.intValue
 
         let english = anime.animeTitleEnglish
         let romaji = anime.animeTitleJapanese
@@ -645,6 +699,7 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     func configure(with item: AnimeItem) {
+        anilistId = item.id
         titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
 
         if let eng = item.titleEnglish, let rom = item.titleRomaji, eng != rom {
@@ -804,6 +859,26 @@ class AnimeDetailViewController: UIViewController {
         }
         headerView.onFindTorrents = { [weak self] in
             self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
+        }
+        headerView.onShare = { [weak self] in
+            guard let self = self else { return }
+            let title = self.animeItem?.titleEnglish ?? self.animeItem?.titleRomaji
+                ?? self.animeEntity?.animeTitleEnglish ?? self.animeEntity?.animeTitleJapanese
+                ?? "Anime"
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            var items: [Any] = [title]
+            if let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") {
+                items.append(url)
+            }
+            let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            activity.popoverPresentationController?.sourceView = self.view
+            self.present(activity, animated: true)
+        }
+        headerView.onOpenAniList = { [weak self] in
+            guard let self = self else { return }
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            guard let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
+            UIApplication.shared.open(url)
         }
         headerView.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
         tableView.tableHeaderView = headerView

@@ -332,6 +332,78 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 }
 
+// MARK: - SkeletonPosterCell
+// Matches Hayase's cards/skeleton.svelte — a shimmer placeholder shown while home sections load.
+
+private final class SkeletonPosterCell: UICollectionViewCell {
+    static let reuseID = "SkeletonPosterCell"
+
+    private let baseView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .secondarySystemBackground
+        v.layer.cornerRadius = 8
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private let shimmerLayer: CAGradientLayer = {
+        let g = CAGradientLayer()
+        g.startPoint = CGPoint(x: 0, y: 0.5)
+        g.endPoint = CGPoint(x: 1, y: 0.5)
+        g.locations = [0, 0.5, 1]
+        return g
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        baseView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(baseView)
+        NSLayoutConstraint.activate([
+            baseView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            baseView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            baseView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            baseView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+        baseView.layer.addSublayer(shimmerLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        shimmerLayer.frame = baseView.bounds
+        updateShimmerColors()
+        if shimmerLayer.animation(forKey: "shimmer") == nil {
+            startShimmer()
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateShimmerColors()
+    }
+
+    private func updateShimmerColors() {
+        let base  = UIColor.secondarySystemBackground.cgColor
+        let light = UIColor.tertiarySystemBackground.cgColor
+        shimmerLayer.colors = [base, light, base]
+    }
+
+    private func startShimmer() {
+        let anim = CABasicAnimation(keyPath: "locations")
+        anim.fromValue = [-1.0, -0.5, 0.0]
+        anim.toValue   = [1.0, 1.5, 2.0]
+        anim.duration  = 1.4
+        anim.repeatCount = .infinity
+        shimmerLayer.add(anim, forKey: "shimmer")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        shimmerLayer.removeAllAnimations()
+    }
+}
+
 // MARK: - SectionHeaderView
 // Matches Hayase's section title + "View More" inline layout
 
@@ -400,6 +472,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private var sections: [HomeSectionData] = []
     private var isSearching: Bool = false
+    private var isLoadingSections: Bool = false
     private var animeResultsController: NSFetchedResultsController<Animes>?
     private var pendingAnimeItem: AnimeItem?
 
@@ -458,6 +531,9 @@ class BrowseAnimeViewController: UIViewController {
         // Hero banner (section 0 when home)
         collectionView.register(FeaturedBannerCell.self,
                                 forCellWithReuseIdentifier: FeaturedBannerCell.reuseID)
+        // Skeleton shimmer cells (shown while home sections are loading)
+        collectionView.register(SkeletonPosterCell.self,
+                                forCellWithReuseIdentifier: SkeletonPosterCell.reuseID)
         // Section headers (sections 1..n when home)
         collectionView.register(SectionHeaderView.self,
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -582,12 +658,14 @@ class BrowseAnimeViewController: UIViewController {
     private func loadSections() {
         isSearching = false
         sections = []
+        isLoadingSections = true
         collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
         collectionView.reloadData()
-        loadingIndicator.startAnimating()
+        loadingIndicator.isHidden = true
         emptyLabel.isHidden = true
         AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
+            self.isLoadingSections = false
             self.sections = fetchedSections
             self.collectionView.reloadData()
             self.loadingIndicator.stopAnimating()
@@ -641,6 +719,8 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
     func numberOfSections(in collectionView: UICollectionView) -> Int {
         if isSearching { return 1 }
+        // While loading, show 1 banner skeleton + 3 poster row skeletons
+        if isLoadingSections { return 4 }
         // Section 0 = hero banner (only when we have data), sections 1..n = rows
         return sections.isEmpty ? 0 : sections.count + 1
     }
@@ -649,6 +729,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                         numberOfItemsInSection section: Int) -> Int {
         if isSearching {
             return animeResultsController?.sections?.first?.objects?.count ?? 0
+        }
+        if isLoadingSections {
+            return section == 0 ? 1 : 10
         }
         if section == 0 { return sections.isEmpty ? 0 : 1 }      // banner = 1 item
         let rowSection = section - 1
@@ -667,6 +750,12 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 cell.configure(with: anime)
             }
             return cell
+        }
+
+        // Skeleton mode: shimmer placeholders while sections load
+        if isLoadingSections {
+            return collectionView.dequeueReusableCell(
+                withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
         }
 
         // Section 0: hero banner (uses items from the first section as rotation pool)
@@ -701,7 +790,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             for: indexPath) as? SectionHeaderView ?? SectionHeaderView(frame: .zero)
         // indexPath.section here is 1..n → map to sections[section - 1]
         let rowSection = indexPath.section - 1
-        if !isSearching, rowSection >= 0, rowSection < sections.count {
+        if isLoadingSections {
+            header.configure(title: "")
+        } else if !isSearching, rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
         }
         return header
@@ -718,6 +809,8 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
             return
         }
+        // Ignore taps on skeleton placeholder cells
+        if isLoadingSections { return }
         // Tap on hero banner → navigate to the currently-featured anime
         if indexPath.section == 0 {
             guard let cell = collectionView.cellForItem(at: indexPath) as? FeaturedBannerCell,
