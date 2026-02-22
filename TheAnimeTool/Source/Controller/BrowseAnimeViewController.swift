@@ -52,6 +52,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var currentIndex = 0
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
+    /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
+    private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
     // MARK: Views
 
@@ -244,25 +246,27 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     private func rebuildDots() {
         dotsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for _ in items {
+        dotWidthConstraints.removeAll()
+        for i in items.indices {
             let dot = UIView()
             dot.layer.cornerRadius = 2
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
+            // Store width constraint keyed by index for efficient in-place updates
+            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 40 : 20)
+            wc.isActive = true
+            dotWidthConstraints[i] = wc
             dotsStack.addArrangedSubview(dot)
         }
         updateDots()
     }
 
     private func updateDots() {
-        // full-banner.svelte: inactive = bg-white/20, active = width 3rem (48pt) + bg-custom fill
-        // We approximate with width 40pt active / 20pt inactive, white/20% → white/80%
+        // full-banner.svelte: inactive bg-white/20 width 1.5rem (24pt), active bg-custom width 3rem (48pt)
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
             let active = i == currentIndex
-            // Remove old width constraint
-            dot.constraints.filter { $0.firstAttribute == .width }.forEach { dot.removeConstraint($0) }
-            let w = dot.widthAnchor.constraint(equalToConstant: active ? 40 : 20)
-            w.isActive = true
+            // Update stored constraint constant directly — no remove/recreate cycle
+            dotWidthConstraints[i]?.constant = active ? 40 : 20
             UIView.animate(withDuration: 0.3) {
                 dot.backgroundColor = active
                     ? UIColor.white.withAlphaComponent(0.9)
@@ -295,74 +299,133 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 }
 
 // MARK: - SkeletonPosterCell
-// Matches Hayase's cards/skeleton.svelte — a shimmer placeholder shown while home sections load.
+// Matches Hayase's cards/skeleton.svelte exactly:
+// • p-4 outer padding around item
+// • w-[9.5rem] item (same as small.svelte), aspect-ratio 152/290
+// • h-[13.5rem] cover placeholder: bg-black rounded + bg-primary/5 animate-pulse inside
+// • mt-4 h-2 w-28 title bar: bg-black rounded + bg-primary/5 animate-pulse
+// • mt-2 h-2 w-20 meta bar:  bg-black rounded + bg-primary/5 animate-pulse
 
 private final class SkeletonPosterCell: UICollectionViewCell {
     static let reuseID = "SkeletonPosterCell"
 
-    private let baseView: UIView = {
+    // bg-black cover placeholder (h-[13.5rem])
+    private let coverPlaceholder: UIView = {
         let v = UIView()
-        v.backgroundColor = .secondarySystemBackground
-        v.layer.cornerRadius = 8
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 4 // rounded
         v.clipsToBounds = true
         return v
     }()
+    private let coverShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05) // bg-primary/5
+        return v
+    }()
 
-    private let shimmerLayer: CAGradientLayer = {
-        let g = CAGradientLayer()
-        g.startPoint = CGPoint(x: 0, y: 0.5)
-        g.endPoint = CGPoint(x: 1, y: 0.5)
-        g.locations = [0, 0.5, 1]
-        return g
+    // Title bar: bg-black h-2 w-28
+    private let titleBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 2
+        v.clipsToBounds = true
+        return v
+    }()
+    private let titleShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        return v
+    }()
+
+    // Meta bar: bg-black h-2 w-20
+    private let metaBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 2
+        v.clipsToBounds = true
+        return v
+    }()
+    private let metaShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        return v
     }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        baseView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(baseView)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        // Cover shimmer fills cover placeholder
+        coverShimmer.translatesAutoresizingMaskIntoConstraints = false
+        coverPlaceholder.addSubview(coverShimmer)
         NSLayoutConstraint.activate([
-            baseView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            baseView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            baseView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            baseView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            coverShimmer.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
+            coverShimmer.leadingAnchor.constraint(equalTo: coverPlaceholder.leadingAnchor),
+            coverShimmer.trailingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor),
+            coverShimmer.bottomAnchor.constraint(equalTo: coverPlaceholder.bottomAnchor),
         ])
-        baseView.layer.addSublayer(shimmerLayer)
+
+        titleShimmer.translatesAutoresizingMaskIntoConstraints = false
+        titleBar.addSubview(titleShimmer)
+        NSLayoutConstraint.activate([
+            titleShimmer.topAnchor.constraint(equalTo: titleBar.topAnchor),
+            titleShimmer.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor),
+            titleShimmer.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor),
+            titleShimmer.bottomAnchor.constraint(equalTo: titleBar.bottomAnchor),
+        ])
+
+        metaShimmer.translatesAutoresizingMaskIntoConstraints = false
+        metaBar.addSubview(metaShimmer)
+        NSLayoutConstraint.activate([
+            metaShimmer.topAnchor.constraint(equalTo: metaBar.topAnchor),
+            metaShimmer.leadingAnchor.constraint(equalTo: metaBar.leadingAnchor),
+            metaShimmer.trailingAnchor.constraint(equalTo: metaBar.trailingAnchor),
+            metaShimmer.bottomAnchor.constraint(equalTo: metaBar.bottomAnchor),
+        ])
+
+        // Stack: [cover, titleBar, metaBar]
+        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titleBar, metaBar])
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.setCustomSpacing(16, after: coverPlaceholder) // mt-4
+        stack.setCustomSpacing(8, after: titleBar)          // mt-2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            // Cover: h-[13.5rem] relative to card width (matches 216/152 of small.svelte)
+            coverPlaceholder.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
+
+            // Title bar: h-2 (8pt), w-28 (112pt)
+            titleBar.heightAnchor.constraint(equalToConstant: 8),
+            titleBar.widthAnchor.constraint(equalToConstant: 112),
+
+            // Meta bar: h-2 (8pt), w-20 (80pt)
+            metaBar.heightAnchor.constraint(equalToConstant: 8),
+            metaBar.widthAnchor.constraint(equalToConstant: 80),
+        ])
+
+        startPulse()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        shimmerLayer.frame = baseView.bounds
-        updateShimmerColors()
-        if shimmerLayer.animation(forKey: "shimmer") == nil {
-            startShimmer()
-        }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateShimmerColors()
-    }
-
-    private func updateShimmerColors() {
-        let base  = UIColor.secondarySystemBackground.cgColor
-        let light = UIColor.tertiarySystemBackground.cgColor
-        shimmerLayer.colors = [base, light, base]
-    }
-
-    private func startShimmer() {
-        let anim = CABasicAnimation(keyPath: "locations")
-        anim.fromValue = [-1.0, -0.5, 0.0]
-        anim.toValue   = [1.0, 1.5, 2.0]
-        anim.duration  = 1.4
-        anim.repeatCount = .infinity
-        shimmerLayer.add(anim, forKey: "shimmer")
+    private func startPulse() {
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.05
+        pulse.toValue = 0.12
+        pulse.duration = 1.0
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        [coverShimmer, titleShimmer, metaShimmer].forEach { $0.layer.add(pulse, forKey: "pulse") }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        shimmerLayer.removeAllAnimations()
     }
 }
 

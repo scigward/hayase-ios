@@ -2,9 +2,8 @@
 //  AnimeDetailViewController.swift
 //  TheAnimeTool
 //
-//  Shows full anime details (banner, cover, synopsis, badges) fetched from AniList via CoreData,
-//  plus a per-episode list from the ani.zip API. Tapping "Find Torrents" pushes
-//  TorrentListViewController with a pre-populated nyaa.si search for this anime.
+//  Shows full anime details (banner, cover, synopsis, badges) fetched from AniList,
+//  plus a per-episode list from the ani.zip API. Matches Hayase's anime/[id]/+layout.svelte.
 //
 
 import UIKit
@@ -22,17 +21,23 @@ struct AniZipEpisode {
 }
 
 // MARK: - EpisodeCell
-// Matches Hayase's EpisodesList.svelte:
-// thumbnail fills ~38% of cell width at 16:9 aspect ratio, dark card background,
-// episode number + title in bold, summary text smaller, runtime + airdate meta.
+// Matches Hayase's EpisodesList.svelte exactly:
+// • bg-neutral-950 (#0a0a0a) card, rounded-md (8pt), max-h-28 (112pt)
+// • Image: left 50%, max-w-52 (208pt) — 16:9 aspect inside
+// • Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
+// • Title: font-bold text-[12.8px] — "{episode}. {title}"
+// • Progress: h-0.5 (2pt) bg-custom (blue approximation) when in progress
+// • Summary: text-[9.6px] text-muted-foreground (#a1a1aa)
+// • Airdate: text-[9.6px] pt-2
 
 private final class EpisodeCell: UITableViewCell {
     static let reuseID = "AniDetailEpCell"
 
+    // bg-neutral-950 = #0a0a0a
     private let cardView: UIView = {
         let v = UIView()
-        v.backgroundColor = .secondarySystemBackground
-        v.layer.cornerRadius = 8
+        v.backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
+        v.layer.cornerRadius = 8  // rounded-md
         v.clipsToBounds = true
         return v
     }()
@@ -41,51 +46,61 @@ private final class EpisodeCell: UITableViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
+        iv.backgroundColor = UIColor(white: 0.10, alpha: 1)
         return iv
     }()
 
+    // Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
     private let runtimeBadge: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10, weight: .regular)
-        l.textColor = .white
-        l.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        l.font = .systemFont(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
         l.layer.cornerRadius = 3
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
+    // Title: font-bold text-[12.8px] line-clamp-1
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13, weight: .bold)
-        l.textColor = .label
+        l.font = .systemFont(ofSize: 12.8, weight: .bold)
+        l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
 
+    // Progress bar: h-0.5 (2pt) bg-custom — shown when episode in progress
+    private let progressBar: UIView = {
+        let outer = UIView()
+        outer.backgroundColor = UIColor(white: 0.16, alpha: 1) // track = neutral-800
+        return outer
+    }()
+    private let progressFill: UIView = {
+        let v = UIView()
+        v.backgroundColor = .white   // approximates bg-custom (cover color)
+        return v
+    }()
+    private var progressFillWidthConstraint: NSLayoutConstraint?
+    /// Stored fraction for deferred layout — updated in layoutSubviews once bounds are valid.
+    private var savedProgressFraction: Double = 0
+
+    // Summary: text-[9.6px] text-muted-foreground
     private let overviewLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
-        l.textColor = .secondaryLabel
+        l.font = .systemFont(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
         l.numberOfLines = 3
         return l
     }()
 
+    // Airdate: text-[9.6px]
     private let metaLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
-        l.textColor = .tertiaryLabel
+        l.font = .systemFont(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.649, alpha: 1.0)
         return l
-    }()
-
-    /// Matches Hayase's EpisodesList.svelte per-episode progress bar (1.5pt line, systemBlue/custom)
-    private let episodeProgressView: UIProgressView = {
-        let v = UIProgressView(progressViewStyle: .default)
-        v.progressTintColor = .systemBlue
-        v.trackTintColor = UIColor.systemGray5
-        v.isHidden = true
-        return v
     }()
 
     private var currentImageURL: String?
@@ -105,47 +120,59 @@ private final class EpisodeCell: UITableViewCell {
         backgroundColor = .clear
         selectionStyle = .none
 
-        [cardView].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(cardView)
+
         [thumbImageView, runtimeBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             cardView.addSubview($0)
         }
 
-        // Progress bar sits between title and overview (Hayase EpisodesList watchProgress indicator)
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, episodeProgressView, overviewLabel, metaLabel])
+        // Progress bar: thin 2pt line
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        progressFill.translatesAutoresizingMaskIntoConstraints = false
+        progressBar.addSubview(progressFill)
+        progressFillWidthConstraint = progressFill.widthAnchor.constraint(equalToConstant: 0)
+        progressFillWidthConstraint?.isActive = true
+        NSLayoutConstraint.activate([
+            progressFill.topAnchor.constraint(equalTo: progressBar.topAnchor),
+            progressFill.bottomAnchor.constraint(equalTo: progressBar.bottomAnchor),
+            progressFill.leadingAnchor.constraint(equalTo: progressBar.leadingAnchor),
+        ])
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
         textStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(textStack)
 
         NSLayoutConstraint.activate([
-            // Card fills content view with 8pt margin
+            // Card: margin 6pt top/bottom, 16pt left/right
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            // max-h-28 = 112pt
+            cardView.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
 
-            // Thumbnail: 38% width, 16:9 aspect ratio
+            // Thumbnail: left side, 50% width, full height
             thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
-            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.38),
-            thumbImageView.heightAnchor.constraint(equalTo: thumbImageView.widthAnchor,
-                                                    multiplier: 9.0 / 16.0),
+            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.42),
 
             // Runtime badge: bottom-left of thumb
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Text stack to the right of thumbnail
-            textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 12),
-            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
-            textStack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            textStack.topAnchor.constraint(greaterThanOrEqualTo: cardView.topAnchor, constant: 10),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -10),
+            // Text stack: right of thumbnail, with 16pt padding
+            textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
+            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -8),
+            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -8),
+
+            // Progress bar height: h-0.5 = 2pt
+            progressBar.heightAnchor.constraint(equalToConstant: 2),
         ])
     }
 
@@ -154,20 +181,24 @@ private final class EpisodeCell: UITableViewCell {
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Show per-episode progress bar (Hayase EpisodesList.svelte $watchProgress indicator)
+        // Progress bar (Hayase EpisodesList watchProgress indicator)
         if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
-            episodeProgressView.setProgress(Float(saved.fraction), animated: false)
-            episodeProgressView.isHidden = false
+            progressBar.isHidden = false
+            savedProgressFraction = saved.fraction
+            setNeedsLayout()
         } else {
-            episodeProgressView.isHidden = true
+            progressBar.isHidden = true
+            savedProgressFraction = 0
         }
 
-        var meta: [String] = []
-        if let date = episode.airDate { meta.append(date) }
-        metaLabel.text = meta.joined(separator: " · ")
-        metaLabel.isHidden = meta.isEmpty
+        if let date = episode.airDate {
+            metaLabel.text = date
+            metaLabel.isHidden = false
+        } else {
+            metaLabel.isHidden = true
+        }
 
         if episode.runtime > 0 {
             runtimeBadge.text = " \(episode.runtime)m "
@@ -197,6 +228,13 @@ private final class EpisodeCell: UITableViewCell {
         }
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Update progress fill width once bounds are known (avoids async timing issue)
+        guard !progressBar.isHidden, progressBar.bounds.width > 0 else { return }
+        progressFillWidthConstraint?.constant = progressBar.bounds.width * CGFloat(savedProgressFraction)
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
@@ -207,8 +245,9 @@ private final class EpisodeCell: UITableViewCell {
         overviewLabel.text = nil
         metaLabel.text = nil
         runtimeBadge.isHidden = true
-        episodeProgressView.isHidden = true
-        episodeProgressView.setProgress(0, animated: false)
+        progressBar.isHidden = true
+        savedProgressFraction = 0
+        progressFillWidthConstraint?.constant = 0
     }
 }
 
@@ -656,60 +695,73 @@ private final class StatsCell: UITableViewCell {
 }
 
 // MARK: - AnimeInfoHeaderView
+// Matches Hayase's anime/[id]/+layout.svelte exactly:
+// • Cover: 100×142pt (180:256 ratio), rounded-6, left of text column
+// • h2 romaji: font-light, text-muted-foreground (#a1a1aa), truncate 1 line — ABOVE h1
+// • h1 title: font-black, text-3xl (30pt), text-white — below romaji
+// • Badges row: bg-primary/10 (white/10%) rounded px-14 font-bold h-6 (24pt) — below title
+// • Description: font-light text-sm text-muted-foreground line-clamp-4 — below cover row
+// • Actions: Play (bg-white text-black w-full) + secondary icons (bg-#27272a white, 36×36pt)
+//   NO findTorrentsButton
+// • Genres: bg-secondary (#27272a) h-7 (28pt) rounded-md text-white chips
+//
+// Colors (dark mode only, as per app.css color-scheme:only dark):
+//   --muted-foreground: hsl(240 5% 64.9%) = #a1a1aa
+//   --secondary:        hsl(240 3.7% 15.9%) = #27272a
 
 private final class AnimeInfoHeaderView: UIView {
-    var onFindTorrents: (() -> Void)?
+    // Callbacks
     var onShare: (() -> Void)?
     var onOpenAniList: (() -> Void)?
+    var onPlayTrailer: (() -> Void)?
 
-    /// AniList media ID — set via configure() and used by the AniList link button.
     private var anilistId: Int?
 
-    // Banner / cover images
+    // MARK: - Color constants matching Hayase dark theme
+    private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
+    private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
+
+    // MARK: - Banner (180pt, full-width — approximates global BannerImage in Hayase)
     private let bannerImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemIndigo.withAlphaComponent(0.25)
+        iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
         return iv
     }()
+    // Radial-gradient overlay matching banner-image.svelte: dark at edges, lighter at top-center
+    private let bannerGradientLayer = CAGradientLayer()
 
-    private let bannerDimView: UIView = {
-        // Simple dark overlay for readability instead of a gradient that needs
-        // special handling for light/dark mode. Black at 45% works in both modes.
-        let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.45)
-        return v
-    }()
-
+    // MARK: - Cover (w-[180px] h-[256px] rounded  → proportional 100×142 on iPhone)
     private let coverImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
-        iv.layer.cornerRadius = 8
-        iv.layer.borderColor = UIColor.systemBackground.cgColor
-        iv.layer.borderWidth = 3
+        iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        iv.layer.cornerRadius = 6   // rounded = 0.375rem ≈ 6pt
         return iv
     }()
 
-    // Text labels
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 18, weight: .bold)
-        l.textColor = .label
-        l.numberOfLines = 3
-        return l
-    }()
-
+    // MARK: - Text labels
+    // h2: font-light text-muted-foreground text-lg line-clamp-1 — ABOVE h1
     private let romajiLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
-        l.textColor = .secondaryLabel
+        l.font = .systemFont(ofSize: 17, weight: .light)
+        l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
         return l
     }()
 
+    // h1: font-black text-3xl text-white line-clamp-2
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 30, weight: .black)
+        l.textColor = .white
+        l.numberOfLines = 2
+        return l
+    }()
+
+    // Badges row — bg-primary/10 pills. horizontal stack (scrollable)
     private let badgesStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
@@ -717,8 +769,70 @@ private final class AnimeInfoHeaderView: UIView {
         sv.alignment = .center
         return sv
     }()
+    private let badgesScrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsHorizontalScrollIndicator = false
+        sv.showsVerticalScrollIndicator = false
+        return sv
+    }()
 
-    // Genre chips row — horizontal, scrollable
+    // Description: font-light text-sm text-muted-foreground line-clamp-4
+    private let descriptionLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14, weight: .light)
+        l.textColor = UIColor(white: 0.649, alpha: 1.0)
+        l.numberOfLines = 4
+        return l
+    }()
+
+    // MARK: - Action buttons
+    // Play button: bg-custom text-contrast (bg-white text-black since no cover color available)
+    // grow = fills remaining width in actions row
+    private let playButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("▶  Watch Now", for: .normal)
+        b.tintColor = .black
+        b.backgroundColor = .white
+        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.layer.cornerRadius = 8
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // Secondary icon buttons: bg-secondary (#27272a), white icon, 36×36pt, rounded-md (8pt)
+    private let shareButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 8
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    private let anilistButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("AL", for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
+        b.layer.cornerRadius = 8
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    private let trailerButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "film"), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 8
+        b.layer.masksToBounds = true
+        b.isHidden = true
+        return b
+    }()
+
+    // Genres: variant='secondary' h-7 (28pt) text-nowrap rounded-md
     private let genresStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
@@ -726,76 +840,17 @@ private final class AnimeInfoHeaderView: UIView {
         sv.alignment = .center
         return sv
     }()
-
     private let genresScrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
-        sv.alwaysBounceHorizontal = true
         return sv
     }()
 
-    private let descriptionLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 0
-        return l
-    }()
-
-    private let findTorrentsButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("  Find Torrents on nyaa.si", for: .normal)
-        b.setImage(UIImage(systemName: "arrow.down.circle.fill"), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = .systemIndigo
-        b.titleLabel?.font = .boldSystemFont(ofSize: 15)
-        b.contentEdgeInsets = UIEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
-        b.layer.cornerRadius = 12
-        b.layer.masksToBounds = true
-        return b
-    }()
-
-    // Matches Hayase's share icon button (TransitionButton with share icon)
-    private let shareButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-        b.tintColor = .label
-        b.backgroundColor = .secondarySystemBackground
-        b.layer.cornerRadius = 12
-        b.layer.masksToBounds = true
-        return b
-    }()
-
-    // Matches Hayase's AniList link button (opens anilist.co/anime/<id>)
-    private let anilistButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("AL", for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor(red: 0.02, green: 0.58, blue: 0.70, alpha: 1.0) // AniList teal
-        b.titleLabel?.font = .boldSystemFont(ofSize: 11)
-        b.layer.cornerRadius = 12
-        b.layer.masksToBounds = true
-        return b
-    }()
-
-    // Trailer button — clapperboard icon, hidden when no trailer available.
-    // Matches Hayase's <Clapperboard> button in anime/[id]/+layout.svelte.
-    private let trailerButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "film"), for: .normal)
-        b.tintColor = .label
-        b.backgroundColor = .secondarySystemBackground
-        b.layer.cornerRadius = 12
-        b.layer.masksToBounds = true
-        b.isHidden = true
-        return b
-    }()
-
-    var onPlayTrailer: (() -> Void)?
-
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
+
+    // MARK: - Init
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -807,8 +862,28 @@ private final class AnimeInfoHeaderView: UIView {
         setup()
     }
 
+    // MARK: - Layout
+
     private func setup() {
-        // Genre scroll view contains genresStack
+        backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+
+        // Banner gradient layer (dark edges → lighter center, like banner-image.svelte)
+        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
+        bannerGradientLayer.locations = [0.2, 1.0]
+
+        // Badges scrollview
+        badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
+        badgesStack.translatesAutoresizingMaskIntoConstraints = false
+        badgesScrollView.addSubview(badgesStack)
+        NSLayoutConstraint.activate([
+            badgesStack.topAnchor.constraint(equalTo: badgesScrollView.topAnchor),
+            badgesStack.bottomAnchor.constraint(equalTo: badgesScrollView.bottomAnchor),
+            badgesStack.leadingAnchor.constraint(equalTo: badgesScrollView.leadingAnchor),
+            badgesStack.trailingAnchor.constraint(equalTo: badgesScrollView.trailingAnchor),
+            badgesStack.heightAnchor.constraint(equalTo: badgesScrollView.heightAnchor),
+        ])
+
+        // Genres scrollview
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
         genresStack.translatesAutoresizingMaskIntoConstraints = false
         genresScrollView.addSubview(genresStack)
@@ -820,233 +895,221 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Action buttons row: [Find Torrents (expanding)] [Share icon] [AniList icon] [Trailer icon]
-        // Matches Hayase's action button row in anime/[id]/+layout.svelte
-        findTorrentsButton.addTarget(self, action: #selector(findTorrentsTapped), for: .touchUpInside)
+        // Text column: [romajiLabel, titleLabel, badgesScrollView]
+        // gap-1.5 between romaji+title, gap-2 before badges (≈ 6pt, 8pt)
+        let textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView])
+        textColumn.axis = .vertical
+        textColumn.spacing = 6
+        textColumn.alignment = .leading
+
+        // Cover + text row: [coverImageView  textColumn]  — gap-5 = 20pt
+        let coverTextRow = UIStackView(arrangedSubviews: [coverImageView, textColumn])
+        coverTextRow.axis = .horizontal
+        coverTextRow.spacing = 16
+        coverTextRow.alignment = .bottom  // md:items-end
+
+        // Action buttons: [playButton(grow)  shareButton  anilistButton  trailerButton]
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
+        playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
 
-        let actionsRow = UIStackView(arrangedSubviews: [findTorrentsButton, shareButton, anilistButton, trailerButton])
+        let actionsRow = UIStackView(arrangedSubviews: [playButton, shareButton, anilistButton, trailerButton])
         actionsRow.axis = .horizontal
         actionsRow.spacing = 8
         actionsRow.alignment = .fill
-        NSLayoutConstraint.activate([
-            shareButton.widthAnchor.constraint(equalToConstant: 48),
-            anilistButton.widthAnchor.constraint(equalToConstant: 48),
-            trailerButton.widthAnchor.constraint(equalToConstant: 48),
-        ])
 
-        // Outer stack: genres + desc + actionsRow with margins
-        let bottomStack = UIStackView(arrangedSubviews: [genresScrollView, descriptionLabel, actionsRow])
-        bottomStack.axis = .vertical
-        bottomStack.spacing = 16
-        bottomStack.isLayoutMarginsRelativeArrangement = true
-        bottomStack.layoutMargins = UIEdgeInsets(top: 16, left: 16, bottom: 24, right: 16)
+        // Main content: [coverTextRow, description, actionsRow, genresScrollView]
+        let contentStack = UIStackView(arrangedSubviews: [coverTextRow, descriptionLabel, actionsRow, genresScrollView])
+        contentStack.axis = .vertical
+        contentStack.spacing = 16
+        contentStack.isLayoutMarginsRelativeArrangement = true
+        contentStack.layoutMargins = UIEdgeInsets(top: 12, left: 16, bottom: 24, right: 16)
 
-        [bannerImageView, bannerDimView, coverImageView,
-         titleLabel, romajiLabel, badgesStack, bottomStack].forEach {
+        [bannerImageView, contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
+        bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         NSLayoutConstraint.activate([
-            // Banner: full width, fixed height
+            // Banner: full-width, 180pt — approximates h-[23rem] from banner-image.svelte
             bannerImageView.topAnchor.constraint(equalTo: topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: 180),
 
-            // Dim overlay covers the banner
-            bannerDimView.topAnchor.constraint(equalTo: bannerImageView.topAnchor),
-            bannerDimView.leadingAnchor.constraint(equalTo: bannerImageView.leadingAnchor),
-            bannerDimView.trailingAnchor.constraint(equalTo: bannerImageView.trailingAnchor),
-            bannerDimView.bottomAnchor.constraint(equalTo: bannerImageView.bottomAnchor),
+            // Cover: w-[180px] h-[256px] ratio → 100×142 on phone
+            coverImageView.widthAnchor.constraint(equalToConstant: 100),
+            coverImageView.heightAnchor.constraint(equalToConstant: 142),
 
-            // Cover art: floats over the banner bottom edge (−60pt overlap)
-            coverImageView.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -60),
-            coverImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            coverImageView.widthAnchor.constraint(equalToConstant: 90),
-            coverImageView.heightAnchor.constraint(equalToConstant: 128),
+            // Badges scrollview height = 24pt (h-6)
+            badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
 
-            // Title: to the right of the cover image, just below banner
-            titleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: 10),
-            titleLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            // Actions row height = 36pt (h-9)
+            actionsRow.heightAnchor.constraint(equalToConstant: 36),
+            shareButton.widthAnchor.constraint(equalToConstant: 36),
+            anilistButton.widthAnchor.constraint(equalToConstant: 36),
+            trailerButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Romaji label
-            romajiLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-            romajiLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            romajiLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            // Genres scrollview height = 28pt (h-7)
+            genresScrollView.heightAnchor.constraint(equalToConstant: 28),
 
-            // Badges row
-            badgesStack.topAnchor.constraint(equalTo: romajiLabel.bottomAnchor, constant: 8),
-            badgesStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            badgesStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-            badgesStack.bottomAnchor.constraint(lessThanOrEqualTo: coverImageView.bottomAnchor),
-
-            // Genre scroll view: full-width, fixed 32pt height (chip height)
-            genresScrollView.heightAnchor.constraint(equalToConstant: 32),
-
-            // Action buttons row: fixed height (48pt)
-            actionsRow.heightAnchor.constraint(equalToConstant: 48),
-
-            // Bottom section (description + actionsRow): starts below cover image
-            bottomStack.topAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: 12),
-            bottomStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            bottomStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bottomStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // Content stack starts just where banner ends (they visually overlap via banner's gradient)
+            contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -30),
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
-    @objc private func findTorrentsTapped() {
-        onFindTorrents?()
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        bannerGradientLayer.frame = bannerImageView.bounds
     }
 
-    @objc private func shareTapped() {
-        onShare?()
-    }
+    // MARK: - Actions
 
-    @objc private func anilistTapped() {
-        onOpenAniList?()
-    }
+    @objc private func shareTapped()   { onShare?() }
+    @objc private func anilistTapped() { onOpenAniList?() }
+    @objc private func trailerTapped() { onPlayTrailer?() }
+    @objc private func playTapped()    {}  // no-op on iOS (no built-in player)
 
-    @objc private func trailerTapped() {
-        onPlayTrailer?()
-    }
+    // MARK: - Configure (Animes CoreData entity)
 
     func configure(with anime: Animes?) {
         guard let anime = anime else { return }
-
         anilistId = anime.animeAnilistId?.intValue
 
+        // h2: romaji (or native). h1: English (or romaji).
         let english = anime.animeTitleEnglish
-        let romaji = anime.animeTitleJapanese
-        titleLabel.text = english ?? romaji ?? "Unknown"
+        let romaji  = anime.animeTitleJapanese
+        titleLabel.text   = english ?? romaji ?? "Unknown"
+        romajiLabel.text  = (english != nil && romaji != nil && english != romaji) ? romaji : nil
+        romajiLabel.isHidden = romajiLabel.text == nil
 
-        if let eng = english, let rom = romaji, eng != rom {
-            romajiLabel.text = rom
-            romajiLabel.isHidden = false
-        } else {
-            romajiLabel.isHidden = true
-        }
+        // Badges: bg-primary/10 pills
+        rebuildBadges(score:   anime.animeScore?.floatValue,
+                      status:  anime.animeStatus,
+                      episodes: anime.animeTotalEps?.intValue,
+                      nextEp:  anime.animeNextEps?.intValue,
+                      format:  nil, season: nil)
 
-        // Populate badges
-        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        if let score = anime.animeScore?.floatValue, score > 0 {
-            badgesStack.addArrangedSubview(makeBadge(
-                text: String(format: "★ %.0f%%", score),
-                bg: .systemYellow, fg: .black))
-        }
-        if let status = anime.animeStatus {
-            let text = status.replacingOccurrences(of: "_", with: " ").capitalized
-            badgesStack.addArrangedSubview(makeBadge(text: text, bg: .systemGreen, fg: .white))
-        }
-        if let total = anime.animeTotalEps?.intValue, total > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "\(total) eps", bg: .systemIndigo, fg: .white))
-        } else if let next = anime.animeNextEps?.intValue, next > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing", bg: .systemBlue, fg: .white))
-        }
-        // Flexible spacer to left-align badges
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        badgesStack.addArrangedSubview(spacer)
-
-        // Genre chips (CoreData entities don't store genres, so hide the row)
-        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // Genre chips: not in CoreData, so hide
         genresScrollView.isHidden = true
 
-        // Synopsis
+        // Description: font-light text-sm text-muted-foreground
         let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No synopsis available." : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
 
-        // Load images
-        // animeImgS is repurposed to store the banner image URL; fall back to large cover
+        trailerButton.isHidden = true
+
         loadImage(from: anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM,
                   into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
                   into: coverImageView, task: &coverImageTask)
     }
 
+    // MARK: - Configure (AnimeItem from AniList)
+
     func configure(with item: AnimeItem) {
         anilistId = item.id
-        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
 
-        if let eng = item.titleEnglish, let rom = item.titleRomaji, eng != rom {
-            romajiLabel.text = rom
-            romajiLabel.isHidden = false
-        } else {
-            romajiLabel.isHidden = true
-        }
+        let english = item.titleEnglish
+        let romaji  = item.titleRomaji
+        titleLabel.text  = english ?? romaji ?? "Unknown"
+        // +layout.svelte: if romaji === title → show native; else show romaji
+        // We show romaji when different from english
+        romajiLabel.text = (english != nil && romaji != nil && english != romaji) ? romaji : nil
+        romajiLabel.isHidden = romajiLabel.text == nil
 
-        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        if let score = item.score, score > 0 {
-            badgesStack.addArrangedSubview(makeBadge(
-                text: String(format: "★ %.0f%%", score), bg: .systemYellow, fg: .black))
-        }
-        if let status = item.status {
-            let text = status.replacingOccurrences(of: "_", with: " ").capitalized
-            badgesStack.addArrangedSubview(makeBadge(text: text, bg: .systemGreen, fg: .white))
-        }
-        if let eps = item.episodes, eps > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps", bg: .systemIndigo, fg: .white))
-        }
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        badgesStack.addArrangedSubview(spacer)
+        rebuildBadges(score:    item.score,
+                      status:   item.status,
+                      episodes: item.episodes,
+                      nextEp:   nil,
+                      format:   item.format,
+                      season:   nil)
 
-        // Genre chips
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for genre in item.genres.prefix(6) {
+        for genre in item.genres.prefix(8) {
             genresStack.addArrangedSubview(makeGenreChip(text: genre))
         }
         genresScrollView.isHidden = item.genres.isEmpty
 
-        // Synopsis from the section query (now included)
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No synopsis available." : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
 
-        // Trailer button — show only when a YouTube trailer ID is available
+        // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
 
         loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
 
-    private func makeBadge(text: String, bg: UIColor, fg: UIColor) -> UILabel {
+    // MARK: - Helpers
+
+    /// Builds the badges row matching Hayase's +layout.svelte badge pills.
+    /// Badges: duration/eps, format, status, season, score — all bg-primary/10, rounded, font-bold h-6
+    private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
+                                nextEp: Int?, format: String?, season: String?) {
+        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // duration/eps badge
+        if let eps = episodes, eps > 0 {
+            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps"))
+        } else if let next = nextEp, next > 0 {
+            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing"))
+        }
+        // format badge
+        if let fmt = format {
+            let display = fmt == "TV_SHORT" ? "TV Short" : fmt.replacingOccurrences(of: "_", with: " ").capitalized
+            badgesStack.addArrangedSubview(makeBadge(text: display))
+        }
+        // status badge
+        if let st = status {
+            let display: String
+            switch st {
+            case "RELEASING":        display = "Airing"
+            case "FINISHED":         display = "Finished"
+            case "NOT_YET_RELEASED": display = "Upcoming"
+            default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
+            }
+            badgesStack.addArrangedSubview(makeBadge(text: display))
+        }
+        // score badge
+        if let sc = score, sc > 0 {
+            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc)))
+        }
+    }
+
+    /// Badge pill: bg-primary/10 (white/10%) rounded px-3.5 font-bold h-6 text-white
+    private func makeBadge(text: String) -> UILabel {
         let l = UILabel()
         l.text = "  \(text)  "
-        l.font = .systemFont(ofSize: 11, weight: .semibold)
-        l.textColor = fg
-        l.backgroundColor = bg
-        l.layer.cornerRadius = 8
+        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.textColor = .white
+        // bg-primary/10 in dark: primary=#fafafa so white at 10% opacity
+        l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        l.layer.cornerRadius = 4   // rounded
         l.clipsToBounds = true
         l.setContentHuggingPriority(.required, for: .horizontal)
         return l
     }
 
+    /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
+    /// bg-secondary (#27272a), text-secondary-foreground (white)
     private func makeGenreChip(text: String) -> UIView {
-        let container = UIView()
-        container.backgroundColor = .secondarySystemBackground
-        container.layer.cornerRadius = 12
-        container.layer.borderWidth = 1
-        container.layer.borderColor = UIColor.separator.cgColor
-        container.clipsToBounds = true
-
-        let label = UILabel()
-        label.text = text
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = .label
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-        ])
-        container.setContentHuggingPriority(.required, for: .horizontal)
-        return container
+        let btn = UIButton(type: .system)
+        btn.setTitle(text, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        btn.setTitleColor(.white, for: .normal)
+        btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
+        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        btn.layer.cornerRadius = 6  // rounded-md
+        btn.layer.masksToBounds = true
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.heightAnchor.constraint(equalToConstant: 28).isActive = true // h-7
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        return btn
     }
 
     private func loadImage(from urlString: String?,
@@ -1054,9 +1117,16 @@ private final class AnimeInfoHeaderView: UIView {
                            task: inout URLSessionDataTask?) {
         task?.cancel()
         task = nil
-        guard let urlString = urlString, let url = URL(string: urlString) else { return }
+        imageView.image = nil
+        guard let urlString = urlString, !urlString.isEmpty, let url = URL(string: urlString) else { return }
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            imageView.image = cached
+            return
+        }
+        let captured = urlString
         task = URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data = data, let img = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(img, forKey: captured as NSString)
             DispatchQueue.main.async {
                 UIView.transition(with: imageView, duration: 0.3,
                                   options: .transitionCrossDissolve,
@@ -1087,18 +1157,23 @@ class AnimeDetailViewController: UIViewController {
     // Active tab for the segmented control (Episodes | Relations | Characters | Staff | Stats)
     private var activeSection: Section = .episodes
 
+    // Matches Hayase tabs: bg-muted container (#27272a), active = bg-foreground (#fafafa) text-background (black)
     private lazy var segControl: UISegmentedControl = {
         let sc = UISegmentedControl(items: ["Episodes", "Relations", "Chars", "Staff", "Stats"])
         sc.selectedSegmentIndex = 0
+        // Tabs.List bg: --muted = #27272a
+        sc.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        // Active segment: bg-foreground (#fafafa) text-background (dark)
+        sc.selectedSegmentTintColor = UIColor(white: 0.98, alpha: 1)
+        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.649, alpha: 1)], for: .normal)
+        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.04, alpha: 1), .font: UIFont.systemFont(ofSize: 13, weight: .bold)], for: .selected)
         sc.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
         return sc
     }()
 
-    /// Container view returned as the sticky header for section 0.
-    /// Lazy so `segControl` is set up before the container references it.
     private lazy var segControlContainer: UIView = {
         let v = UIView()
-        v.backgroundColor = .systemBackground
+        v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
         segControl.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(segControl)
         NSLayoutConstraint.activate([
@@ -1122,7 +1197,7 @@ class AnimeDetailViewController: UIViewController {
         title = animeItem?.titleEnglish ?? animeItem?.titleRomaji
             ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese
         navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
         setupTableView()
         setupHeaderView()
@@ -1151,7 +1226,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
-        tableView.backgroundColor = .systemBackground
+        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
         view.addSubview(tableView)
     }
 
@@ -1161,9 +1236,6 @@ class AnimeDetailViewController: UIViewController {
             headerView.configure(with: item)
         } else {
             headerView.configure(with: animeEntity)
-        }
-        headerView.onFindTorrents = { [weak self] in
-            self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
         }
         headerView.onShare = { [weak self] in
             guard let self = self else { return }
