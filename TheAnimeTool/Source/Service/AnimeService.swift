@@ -49,7 +49,11 @@ public class AnimeService: NSObject {
         struct AniListData: Codable {
             let Page: AniListPage?
             struct AniListPage: Codable {
+                let pageInfo: PageInfo?
                 let media: [AniListMedia]?
+                struct PageInfo: Codable {
+                    let hasNextPage: Bool?
+                }
             }
         }
     }
@@ -319,6 +323,78 @@ public class AnimeService: NSObject {
                     description: desc)
             }
             completion(items)
+        }.resume()
+    }
+
+    // MARK: - AniList anime search (used by SearchViewController)
+
+    private let anilistSearchQuery = """
+    query ($search: String, $genre: String, $format: MediaFormat, $status: MediaStatus, $sort: [MediaSort], $page: Int) {
+      Page(page: $page, perPage: 20) {
+        pageInfo { hasNextPage }
+        media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort) {
+          id
+          title { english romaji }
+          coverImage { large medium }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          status
+          description(asHtml: false)
+        }
+      }
+    }
+    """
+
+    /// Search AniList with optional title, genre, format, status and sort.
+    /// Calls completion on the main queue with ([AnimeItem], hasNextPage).
+    func searchAnimeItems(title: String?,
+                          genre: String?,
+                          format: String?,
+                          status: String?,
+                          sort: String,
+                          page: Int,
+                          completion: @escaping ([AnimeItem], Bool) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var variables: [String: Any] = ["sort": [sort], "page": page]
+        if let t = title, !t.isEmpty { variables["search"] = t }
+        if let g = genre { variables["genre"] = g }
+        if let f = format { variables["format"] = f }
+        if let s = status { variables["status"] = s }
+
+        let body: [String: Any] = ["query": anilistSearchQuery, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let pageData = response.data?.Page else {
+                DispatchQueue.main.async { completion([], false) }
+                return
+            }
+            let hasNext = pageData.pageInfo?.hasNextPage ?? false
+            let items: [AnimeItem] = (pageData.media ?? []).compactMap { media in
+                guard let id = media.id else { return nil }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc)
+            }
+            DispatchQueue.main.async { completion(items, hasNext) }
         }.resume()
     }
 

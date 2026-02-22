@@ -21,29 +21,43 @@ struct AniZipEpisode {
 }
 
 // MARK: - EpisodeCell
+// Matches Hayase's EpisodesList.svelte:
+// thumbnail fills ~38% of cell width at 16:9 aspect ratio, dark card background,
+// episode number + title in bold, summary text smaller, runtime + airdate meta.
 
 private final class EpisodeCell: UITableViewCell {
     static let reuseID = "AniDetailEpCell"
+
+    private let cardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .secondarySystemBackground
+        v.layer.cornerRadius = 8
+        v.clipsToBounds = true
+        return v
+    }()
 
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = .systemGray5
-        iv.layer.cornerRadius = 6
         return iv
+    }()
+
+    private let runtimeBadge: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10, weight: .regular)
+        l.textColor = .white
+        l.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        l.layer.cornerRadius = 3
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
     }()
 
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .semibold)
-        l.textColor = .secondaryLabel
-        return l
-    }()
-
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .medium)
+        l.font = .systemFont(ofSize: 13, weight: .bold)
         l.textColor = .label
         l.numberOfLines = 1
         return l
@@ -51,15 +65,15 @@ private final class EpisodeCell: UITableViewCell {
 
     private let overviewLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .systemFont(ofSize: 10)
         l.textColor = .secondaryLabel
-        l.numberOfLines = 2
+        l.numberOfLines = 3
         return l
     }()
 
     private let metaLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .systemFont(ofSize: 10)
         l.textColor = .tertiaryLabel
         return l
     }()
@@ -78,40 +92,68 @@ private final class EpisodeCell: UITableViewCell {
     }
 
     private func setup() {
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, titleLabel, overviewLabel, metaLabel])
-        textStack.axis = .vertical
-        textStack.spacing = 2
+        backgroundColor = .clear
+        selectionStyle = .none
 
-        [thumbImageView, textStack].forEach {
+        [cardView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
+        [thumbImageView, runtimeBadge].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            cardView.addSubview($0)
+        }
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, overviewLabel, metaLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 4
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(textStack)
 
         NSLayoutConstraint.activate([
-            thumbImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            thumbImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            thumbImageView.widthAnchor.constraint(equalToConstant: 100),
-            thumbImageView.heightAnchor.constraint(equalToConstant: 60),
-            thumbImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10),
+            // Card fills content view with 8pt margin
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
 
+            // Thumbnail: 38% width, 16:9 aspect ratio
+            thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
+            thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+            thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.38),
+            thumbImageView.heightAnchor.constraint(equalTo: thumbImageView.widthAnchor,
+                                                    multiplier: 9.0 / 16.0),
+
+            // Runtime badge: bottom-left of thumb
+            runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
+            runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
+
+            // Text stack to the right of thumbnail
             textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 12),
-            textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            textStack.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10),
+            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
+            textStack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: cardView.topAnchor, constant: 10),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -10),
         ])
     }
 
     func configure(with episode: AniZipEpisode) {
-        numberLabel.text = "Episode \(episode.number)"
-        titleLabel.text = episode.title.isEmpty ? "Episode \(episode.number)" : episode.title
+        numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
         var meta: [String] = []
         if let date = episode.airDate { meta.append(date) }
-        if episode.runtime > 0 { meta.append("\(episode.runtime) min") }
         metaLabel.text = meta.joined(separator: " · ")
         metaLabel.isHidden = meta.isEmpty
+
+        if episode.runtime > 0 {
+            runtimeBadge.text = " \(episode.runtime)m "
+            runtimeBadge.isHidden = false
+        } else {
+            runtimeBadge.isHidden = true
+        }
 
         currentImageURL = episode.imageURL
         thumbImageView.image = nil
@@ -124,7 +166,9 @@ private final class EpisodeCell: UITableViewCell {
                 guard let data = data, let img = UIImage(data: data) else { return }
                 DispatchQueue.main.async {
                     if self?.currentImageURL == captured {
-                        self?.thumbImageView.image = img
+                        UIView.transition(with: self?.thumbImageView ?? UIImageView(),
+                                          duration: 0.2, options: .transitionCrossDissolve,
+                                          animations: { self?.thumbImageView.image = img })
                     }
                 }
             }
@@ -139,9 +183,9 @@ private final class EpisodeCell: UITableViewCell {
         currentImageURL = nil
         thumbImageView.image = nil
         numberLabel.text = nil
-        titleLabel.text = nil
         overviewLabel.text = nil
         metaLabel.text = nil
+        runtimeBadge.isHidden = true
     }
 }
 
@@ -518,8 +562,9 @@ class AnimeDetailViewController: UIViewController {
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 80
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 128, bottom: 0, right: 0)
+        tableView.estimatedRowHeight = 100
+        tableView.separatorStyle = .none
+        tableView.backgroundColor = .systemBackground
         view.addSubview(tableView)
     }
 
