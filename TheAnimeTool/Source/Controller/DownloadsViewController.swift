@@ -263,7 +263,7 @@ extension DownloadsViewController: UITableViewDataSource {
         let snap = entry.handle.snapshot
         cell.configure(name: snap.name,
                        stateText: stateText(for: snap),
-                       progress: snap.progress)
+                       progress: Float(snap.progress))
         return cell
     }
 }
