@@ -2,8 +2,12 @@
 //  SettingsViewController.swift
 //  TheAnimeTool
 //
-//  A comprehensive settings screen modelled after Hayase's settings panel.
-//  All rows are UI-only placeholders; functionality will be wired in a later pass.
+//  Matches Hayase's settings/+page.svelte exactly:
+//  • Flat SettingCard style: rounded-lg border p-4, title bold white, description muted
+//  • No colored icon squares (those are iOS Settings style, not Hayase style)
+//  • Dark background #0a0a0f, card bg #18181b, border #27272a
+//  • Sections: bold text-xl header (matching <div class='font-weight-bold text-xl font-bold'>)
+//  • Controls: UISwitch (indigo tint) for toggles, UILabel for values
 //
 
 import UIKit
@@ -16,19 +20,15 @@ class SettingsViewController: UIViewController {
     // MARK: - Row / Section model
 
     private enum RowKind {
-        case toggle(Bool)
-        case detail(String)
-        case navigation
+        case toggle(userDefaultsKey: String, defaultValue: Bool)
+        case value(String)
         case link(String)
-        case destructive
     }
 
     private struct Row {
-        let title:    String
-        let subtitle: String?
-        let icon:     String        // SF Symbol name
-        let iconBg:   UIColor
-        let kind:     RowKind
+        let title:       String
+        let description: String
+        let kind:        RowKind
     }
 
     private struct Section {
@@ -47,198 +47,92 @@ class SettingsViewController: UIViewController {
     }
 
     private var tableView: UITableView!
-    private lazy var sections: [Section] = buildSections()
+    private let bgColor  = UIColor(red: 0.039, green: 0.039, blue: 0.059, alpha: 1)   // #0a0a0f
+    private let cardColor = UIColor(red: 0.094, green: 0.094, blue: 0.11,  alpha: 1)  // #18181b
+    private let mutedFg  = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)   // #a1a1aa
+
+    private lazy var sections: [Section] = [
+        // Matches Hayase settings/+page.svelte — Subtitle Settings section
+        Section(header: "Subtitle Settings", rows: [
+            Row(title: "Find Missing Subtitle Fonts",
+                description: "Automatically finds and loads fonts that are missing from a video's subtitles.",
+                kind: .toggle(userDefaultsKey: "pref_missingFont", defaultValue: false)),
+        ]),
+        // Language Settings
+        Section(header: "Language Settings", rows: [
+            Row(title: "Preferred Subtitle Language",
+                description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
+                kind: .value("English")),
+            Row(title: "Preferred Audio Language",
+                description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
+                kind: .value("Japanese")),
+        ]),
+        // Playback Settings — matches Hayase exactly
+        Section(header: "Playback Settings", rows: [
+            Row(title: "Auto-Play Next Episode",
+                description: "Automatically starts playing next episode when a video ends.",
+                kind: .toggle(userDefaultsKey: "pref_autoplay", defaultValue: true)),
+            Row(title: "Pause On Lost Visibility",
+                description: "Pauses/Resumes video playback when the app goes to background.",
+                kind: .toggle(userDefaultsKey: "pref_playerPause", defaultValue: false)),
+            Row(title: "PiP On Lost Visibility",
+                description: "Automatically enters Picture in Picture mode when the app loses visibility.",
+                kind: .toggle(userDefaultsKey: "pref_autoPiP", defaultValue: false)),
+            Row(title: "Auto-Complete Episodes",
+                description: "Automatically marks episodes as complete when you finish watching them. Requires AniList login.",
+                kind: .toggle(userDefaultsKey: "pref_autocomplete", defaultValue: false)),
+            Row(title: "Auto-Skip Intro/Outro",
+                description: "Attempt to automatically skip intro and outro sections.",
+                kind: .toggle(userDefaultsKey: "pref_skipIntro", defaultValue: false)),
+            Row(title: "Auto-Skip Filler",
+                description: "Automatically skip filler episodes. This WILL skip entire episodes.",
+                kind: .toggle(userDefaultsKey: "pref_skipFiller", defaultValue: false)),
+        ]),
+        // Interface Settings
+        Section(header: "Interface Settings", rows: [
+            Row(title: "Minimal UI",
+                description: "Forces minimalistic player UI, hides controls.",
+                kind: .toggle(userDefaultsKey: "pref_minimalUI", defaultValue: false)),
+        ]),
+        // About
+        Section(header: "About", rows: [
+            Row(title: "Version",
+                description: "NyaiS — an iOS client inspired by Hayase.",
+                kind: .value(appVersion())),
+            Row(title: "Source Code",
+                description: "View the NyaiS source code on GitHub.",
+                kind: .link("https://github.com/scigward/NyaiS")),
+            Row(title: "AniList",
+                description: "Anime metadata powered by AniList GraphQL API.",
+                kind: .link("https://anilist.co")),
+        ]),
+    ]
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Settings"
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = bgColor
         navigationController?.navigationBar.prefersLargeTitles = true
         navigationItem.largeTitleDisplayMode = .always
 
-        tableView = UITableView(frame: view.bounds, style: .insetGrouped)
+        tableView = UITableView(frame: view.bounds, style: .plain)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tableView.backgroundColor = bgColor
+        tableView.separatorStyle = .none
         tableView.delegate   = self
         tableView.dataSource = self
-        tableView.register(SettingsToggleCell.self, forCellReuseIdentifier: SettingsToggleCell.reuseID)
-        tableView.register(SettingsDetailCell.self, forCellReuseIdentifier: SettingsDetailCell.reuseID)
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 24, right: 0)
+        tableView.register(HayaseSettingToggleCell.self,
+                           forCellReuseIdentifier: HayaseSettingToggleCell.reuseID)
+        tableView.register(HayaseSettingValueCell.self,
+                           forCellReuseIdentifier: HayaseSettingValueCell.reuseID)
         view.addSubview(tableView)
     }
-
-    // MARK: - Data
-
-    private func buildSections() -> [Section] { [
-        Section(header: "Player", rows: [
-            Row(title: "Video Quality",
-                subtitle: nil,
-                icon: "tv", iconBg: .systemBlue,
-                kind: .detail("Auto")),
-            Row(title: "Autoplay Next Episode",
-                subtitle: nil,
-                icon: "play.circle.fill", iconBg: .systemGreen,
-                kind: .toggle(true)),
-            Row(title: "Skip Intro",
-                subtitle: nil,
-                icon: "forward.fill", iconBg: .systemOrange,
-                kind: .toggle(true)),
-            Row(title: "Intro Skip Duration",
-                subtitle: nil,
-                icon: "timer", iconBg: .systemOrange,
-                kind: .detail("90 s")),
-            Row(title: "Skip Outro",
-                subtitle: nil,
-                icon: "forward.end.fill", iconBg: .systemOrange,
-                kind: .toggle(false)),
-            Row(title: "Subtitle Language",
-                subtitle: nil,
-                icon: "textformat", iconBg: .systemPurple,
-                kind: .detail("English")),
-            Row(title: "Subtitle Size",
-                subtitle: nil,
-                icon: "textformat.size", iconBg: .systemPurple,
-                kind: .detail("Medium")),
-            Row(title: "Hardware Decoding",
-                subtitle: "Improves performance on supported devices",
-                icon: "cpu", iconBg: .systemGray,
-                kind: .toggle(true)),
-        ]),
-        Section(header: "Downloads", rows: [
-            Row(title: "Download Location",
-                subtitle: nil,
-                icon: "folder.fill", iconBg: .systemYellow,
-                kind: .detail("Documents")),
-            Row(title: "Max Concurrent Downloads",
-                subtitle: nil,
-                icon: "square.stack.fill", iconBg: .systemIndigo,
-                kind: .detail("3")),
-            Row(title: "Max Download Speed",
-                subtitle: nil,
-                icon: "arrow.down.circle.fill", iconBg: .systemGreen,
-                kind: .detail("Unlimited")),
-            Row(title: "Max Upload Speed",
-                subtitle: nil,
-                icon: "arrow.up.circle.fill", iconBg: .systemTeal,
-                kind: .detail("Unlimited")),
-            Row(title: "Delete After Watching",
-                subtitle: "Automatically removes files after playback",
-                icon: "trash.slash.fill", iconBg: .systemRed,
-                kind: .toggle(false)),
-            Row(title: "Download on Cellular",
-                subtitle: "Allow downloads over mobile data",
-                icon: "antenna.radiowaves.left.and.right", iconBg: .systemRed,
-                kind: .toggle(false)),
-        ]),
-        Section(header: "Network", rows: [
-            Row(title: "Listening Port",
-                subtitle: nil,
-                icon: "network", iconBg: .systemBlue,
-                kind: .detail("6881")),
-            Row(title: "Enable DHT",
-                subtitle: "Distributed hash table for peer discovery",
-                icon: "dot.radiowaves.left.and.right", iconBg: .systemGreen,
-                kind: .toggle(true)),
-            Row(title: "Enable UPnP / NAT-PMP",
-                subtitle: "Automatic port forwarding",
-                icon: "arrow.up.forward.square.fill", iconBg: .systemGreen,
-                kind: .toggle(true)),
-            Row(title: "Local Peer Discovery",
-                subtitle: "Find peers on your local network",
-                icon: "wifi", iconBg: .systemBlue,
-                kind: .toggle(true)),
-            Row(title: "Peer Connection Limit",
-                subtitle: nil,
-                icon: "person.3.fill", iconBg: .systemGray,
-                kind: .detail("200")),
-            Row(title: "Validate HTTPS Trackers",
-                subtitle: nil,
-                icon: "lock.shield.fill", iconBg: .systemOrange,
-                kind: .toggle(false)),
-        ]),
-        Section(header: "Appearance", rows: [
-            Row(title: "App Theme",
-                subtitle: nil,
-                icon: "moon.circle.fill", iconBg: .systemGray,
-                kind: .detail("System")),
-            Row(title: "Accent Color",
-                subtitle: nil,
-                icon: "paintbrush.fill", iconBg: .systemIndigo,
-                kind: .detail("Indigo")),
-            Row(title: "Grid Columns",
-                subtitle: nil,
-                icon: "square.grid.3x3.fill", iconBg: .systemBlue,
-                kind: .detail("3")),
-            Row(title: "Show Score Badge",
-                subtitle: nil,
-                icon: "star.fill", iconBg: .systemYellow,
-                kind: .toggle(true)),
-            Row(title: "Show Episode Thumbnails",
-                subtitle: nil,
-                icon: "photo.fill", iconBg: .systemTeal,
-                kind: .toggle(true)),
-        ]),
-        Section(header: "Notifications", rows: [
-            Row(title: "New Episode Alerts",
-                subtitle: "Notify when a tracked anime airs",
-                icon: "bell.badge.fill", iconBg: .systemRed,
-                kind: .toggle(false)),
-            Row(title: "Download Complete",
-                subtitle: nil,
-                icon: "checkmark.circle.fill", iconBg: .systemGreen,
-                kind: .toggle(true)),
-            Row(title: "Seeding Notification",
-                subtitle: "Alert when torrent starts seeding",
-                icon: "arrow.up.circle.fill", iconBg: .systemTeal,
-                kind: .toggle(false)),
-        ]),
-        Section(header: "About", rows: [
-            Row(title: "Version",
-                subtitle: nil,
-                icon: "info.circle.fill", iconBg: .systemBlue,
-                kind: .detail(appVersion())),
-            Row(title: "Source Code",
-                subtitle: nil,
-                icon: "chevron.left.forwardslash.chevron.right", iconBg: .systemGray,
-                kind: .link("https://github.com/scigward/NyaiS")),
-            Row(title: "LibTorrent-Swift",
-                subtitle: "by XITRIX",
-                icon: "link", iconBg: .systemGray,
-                kind: .link("https://github.com/XITRIX/LibTorrent-Swift")),
-            Row(title: "AniList API",
-                subtitle: "Anime metadata provider",
-                icon: "link", iconBg: .systemGreen,
-                kind: .link("https://anilist.co")),
-            Row(title: "Reset All Settings",
-                subtitle: nil,
-                icon: "arrow.counterclockwise", iconBg: .systemRed,
-                kind: .destructive),
-        ]),
-    ]}
 
     private func appVersion() -> String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(v) (\(b))"
-    }
-
-    // MARK: - Icon rendering
-
-    /// Renders an SF Symbol on a rounded-square coloured background (iOS Settings style).
-    private func iconImage(symbol: String, bg: UIColor) -> UIImage {
-        let size = CGSize(width: 28, height: 28)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { ctx in
-            bg.setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size),
-                         cornerRadius: 6).fill()
-            let symbolCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            if let sym = UIImage(systemName: symbol, withConfiguration: symbolCfg)?
-                .withTintColor(.white, renderingMode: .alwaysOriginal) {
-                let imgRect = CGRect(x: (size.width - 16) / 2,
-                                     y: (size.height - 16) / 2,
-                                     width: 16, height: 16)
-                sym.draw(in: imgRect)
-            }
-        }
     }
 }
 
@@ -252,57 +146,50 @@ extension SettingsViewController: UITableViewDataSource {
         sections[section].rows.count
     }
 
-    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        sections[section].header
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        // Hayase: <div class='font-weight-bold text-xl font-bold'>Section Name</div>
+        let container = UIView()
+        container.backgroundColor = .clear
+        let label = UILabel()
+        label.text = sections[section].header
+        label.font = .systemFont(ofSize: 20, weight: .bold)
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        ])
+        return container
     }
 
-    func tableView(_ tableView: UITableView,
-                   cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        UITableView.automaticDimension
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let row = sections[indexPath.section].rows[indexPath.row]
-        let icon = iconImage(symbol: row.icon, bg: row.iconBg)
-
         switch row.kind {
-        case .toggle(let isOn):
+        case .toggle(let key, let def):
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: SettingsToggleCell.reuseID,
-                for: indexPath) as! SettingsToggleCell
-            let key = "setting_\(indexPath.section)_\(indexPath.row)"
-            // Persist via UserDefaults; fall back to schema default on first launch.
-            let persisted = UserDefaults.standard.object(forKey: key) as? Bool ?? isOn
-            cell.configure(icon: icon, title: row.title, subtitle: row.subtitle,
-                           isOn: persisted, userDefaultsKey: key)
+                withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as! HayaseSettingToggleCell
+            cell.configure(title: row.title, description: row.description,
+                           key: key, defaultValue: def)
+            cell.backgroundColor = cardColor
             return cell
-
-        case .detail(let value):
+        case .value(let val):
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: SettingsDetailCell.reuseID,
-                for: indexPath) as! SettingsDetailCell
-            cell.configure(icon: icon, title: row.title, subtitle: row.subtitle,
-                           detail: value, showChevron: false)
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            cell.configure(title: row.title, description: row.description, value: val, isLink: false)
+            cell.backgroundColor = cardColor
             return cell
-
-        case .navigation:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: SettingsDetailCell.reuseID,
-                for: indexPath) as! SettingsDetailCell
-            cell.configure(icon: icon, title: row.title, subtitle: row.subtitle,
-                           detail: nil, showChevron: true)
-            return cell
-
         case .link:
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: SettingsDetailCell.reuseID,
-                for: indexPath) as! SettingsDetailCell
-            cell.configure(icon: icon, title: row.title, subtitle: row.subtitle,
-                           detail: nil, showChevron: true)
-            return cell
-
-        case .destructive:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: SettingsDetailCell.reuseID,
-                for: indexPath) as! SettingsDetailCell
-            cell.configure(icon: icon, title: row.title, subtitle: nil,
-                           detail: nil, showChevron: false, titleColor: .systemRed)
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
+            cell.backgroundColor = cardColor
             return cell
         }
     }
@@ -315,49 +202,48 @@ extension SettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let row = sections[indexPath.section].rows[indexPath.row]
-        switch row.kind {
-        case .link(let urlStr):
-            guard let url = URL(string: urlStr) else { return }
+        if case .link(let urlStr) = row.kind, let url = URL(string: urlStr) {
             present(SFSafariViewController(url: url), animated: true)
-        case .destructive:
-            let alert = UIAlertController(
-                title: "Reset All Settings",
-                message: "This will restore all settings to their defaults. This cannot be undone.",
-                preferredStyle: .actionSheet)
-            alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in
-                // Placeholder — settings persistence wired in a future pass.
-            })
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-            present(alert, animated: true)
-        default:
-            break
         }
     }
 
-    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-        let row = sections[indexPath.section].rows[indexPath.row]
-        switch row.kind {
-        case .toggle: return false
-        default: return true
-        }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        UITableView.automaticDimension
+    }
+
+    func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        80
     }
 }
 
-// MARK: - SettingsToggleCell
+// MARK: - HayaseSettingToggleCell
+// Matches Hayase SettingCard.svelte: rounded-lg border p-4 flex justify-between
+// Left: title (font-bold) + description (text-sm text-muted-foreground)
+// Right: UISwitch with indigo tint
 
-final class SettingsToggleCell: UITableViewCell {
-    static let reuseID = "SettingsToggleCell"
+final class HayaseSettingToggleCell: UITableViewCell {
+    static let reuseID = "HayaseSettingToggleCell"
 
-    private let iconView   = UIImageView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel: UILabel = {
+    private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 2
+        l.font = .systemFont(ofSize: 15, weight: .bold)
+        l.textColor = .white
+        l.numberOfLines = 1
         return l
     }()
-    private let toggle = UISwitch()
+    private let descLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13)
+        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // #a1a1aa
+        l.numberOfLines = 0
+        return l
+    }()
+    private let toggle: UISwitch = {
+        let s = UISwitch()
+        s.onTintColor = .systemIndigo
+        return s
+    }()
+    private var udKey = ""
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -367,74 +253,78 @@ final class SettingsToggleCell: UITableViewCell {
 
     private func setup() {
         selectionStyle = .none
-        accessoryView = toggle
+        // Card: rounded-lg border p-4
+        contentView.layer.cornerRadius = 8
+        contentView.layer.masksToBounds = true
+        contentView.layer.borderWidth = 1
+        contentView.layer.borderColor = UIColor(white: 0.15, alpha: 1).cgColor  // --border dark
 
-        iconView.contentMode = .scaleAspectFit
-        iconView.layer.cornerRadius = 6
-        iconView.clipsToBounds = true
-        titleLabel.font = .systemFont(ofSize: 16)
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 4
+        textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        [iconView, titleLabel, subtitleLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        toggle.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.addTarget(self, action: #selector(toggled), for: .valueChanged)
+
+        contentView.addSubview(textStack)
+        contentView.addSubview(toggle)
+
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 28),
-            iconView.heightAnchor.constraint(equalToConstant: 28),
+            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -12),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -60),
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-
-            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            toggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            toggle.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
     }
 
-    func configure(icon: UIImage, title: String, subtitle: String?, isOn: Bool,
-                   userDefaultsKey: String) {
-        iconView.image = icon
+    func configure(title: String, description: String, key: String, defaultValue: Bool) {
         titleLabel.text = title
-        subtitleLabel.text = subtitle
-        subtitleLabel.isHidden = subtitle == nil
-        toggle.isOn = isOn
-        toggle.removeTarget(nil, action: nil, for: .valueChanged)
-        toggle.tag = 0 // unused; key stored via closure below
-        // Store key in the cell so the action handler can persist the value.
-        _udKey = userDefaultsKey
-        toggle.addTarget(self, action: #selector(toggleChanged(_:)), for: .valueChanged)
+        descLabel.text  = description
+        udKey = key
+        let stored = UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
+        toggle.setOn(stored, animated: false)
     }
 
-    private var _udKey: String = ""
+    @objc private func toggled(_ sender: UISwitch) {
+        UserDefaults.standard.set(sender.isOn, forKey: udKey)
+    }
 
-    @objc private func toggleChanged(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: _udKey)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16))
     }
 }
 
-// MARK: - SettingsDetailCell
+// MARK: - HayaseSettingValueCell
+// Same card style as HayaseSettingToggleCell but with a UILabel value on the right
+// (or a chevron for links).
 
-final class SettingsDetailCell: UITableViewCell {
-    static let reuseID = "SettingsDetailCell"
+final class HayaseSettingValueCell: UITableViewCell {
+    static let reuseID = "HayaseSettingValueCell"
 
-    private let iconView    = UIImageView()
-    private let titleLabel  = UILabel()
-    private let subtitleLabel: UILabel = {
+    private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 2
+        l.font = .systemFont(ofSize: 15, weight: .bold)
+        l.textColor = .white
+        l.numberOfLines = 1
         return l
     }()
-    private let detailLabel: UILabel = {
+    private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 16)
-        l.textColor = .secondaryLabel
-        l.textAlignment = .right
+        l.font = .systemFont(ofSize: 13)
+        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
+        l.numberOfLines = 0
+        return l
+    }()
+    private let valueLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.setContentHuggingPriority(.required, for: .horizontal)
         return l
     }()
@@ -446,46 +336,48 @@ final class SettingsDetailCell: UITableViewCell {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
-        iconView.contentMode = .scaleAspectFit
-        iconView.layer.cornerRadius = 6
-        iconView.clipsToBounds = true
-        titleLabel.font = .systemFont(ofSize: 16)
+        contentView.layer.cornerRadius = 8
+        contentView.layer.masksToBounds = true
+        contentView.layer.borderWidth = 1
+        contentView.layer.borderColor = UIColor(white: 0.15, alpha: 1).cgColor
 
-        [iconView, titleLabel, subtitleLabel, detailLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 4
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        contentView.addSubview(textStack)
+        contentView.addSubview(valueLabel)
+
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 28),
-            iconView.heightAnchor.constraint(equalToConstant: 28),
+            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: valueLabel.leadingAnchor, constant: -12),
 
-            detailLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-            detailLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            detailLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
-
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-
-            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: detailLabel.leadingAnchor, constant: -8),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            valueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            valueLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
     }
 
-    func configure(icon: UIImage, title: String, subtitle: String?,
-                   detail: String?, showChevron: Bool,
-                   titleColor: UIColor = .label) {
-        iconView.image = icon
+    func configure(title: String, description: String, value: String?, isLink: Bool) {
         titleLabel.text = title
-        titleLabel.textColor = titleColor
-        subtitleLabel.text = subtitle
-        subtitleLabel.isHidden = subtitle == nil
-        detailLabel.text = detail
-        detailLabel.isHidden = detail == nil
-        accessoryType = showChevron ? .disclosureIndicator : .none
-        selectionStyle = showChevron ? .default : .none
+        descLabel.text  = description
+        valueLabel.text = value
+        valueLabel.isHidden = value == nil
+        accessoryType = isLink ? .disclosureIndicator : .none
+        selectionStyle = isLink ? .default : .none
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16))
     }
 }
+
+// Legacy cell types kept as typealiases so any existing code referencing them compiles.
+typealias SettingsToggleCell = HayaseSettingToggleCell
+typealias SettingsDetailCell = HayaseSettingValueCell
+

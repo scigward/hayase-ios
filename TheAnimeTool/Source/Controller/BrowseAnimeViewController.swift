@@ -492,8 +492,8 @@ class BrowseAnimeViewController: UIViewController {
 
     private enum PosterLayout {
         // Matches Hayase small.svelte: w-[9.5rem] = 152px wide, aspect-ratio 152:290
-        static let width: CGFloat = 110
-        static let height: CGFloat = floor(110 * 290.0 / 152.0)  // ≈ 210
+        static let width: CGFloat = 152
+        static let height: CGFloat = 290
     }
 
     // MARK: - Properties
@@ -614,19 +614,21 @@ class BrowseAnimeViewController: UIViewController {
 
     private func makeSearchLayout() -> UICollectionViewLayout {
         // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
-        // On mobile 3-column with 152:290 aspect ratio from small.svelte
-        let itemWidth = (UIScreen.main.bounds.width - 48) / 3
+        // On iPhone (375-430pt wide), minmax(184px) fits 2 columns
+        let cols: CGFloat = 2
+        let totalPad: CGFloat = 16 + 16 + 8 // leading + trailing + inter-column gap
+        let itemWidth = floor((UIScreen.main.bounds.width - totalPad) / cols)
         let itemHeight = floor(itemWidth * 290.0 / 152.0)
         let item = NSCollectionLayoutItem(
             layoutSize: .init(widthDimension: .absolute(itemWidth),
                               heightDimension: .absolute(itemHeight)))
-        item.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 8)
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                              heightDimension: .absolute(itemHeight + 12)),
-            subitems: [item, item, item])
+                              heightDimension: .absolute(itemHeight + 8)),
+            subitems: [item, item])
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 8)
         return UICollectionViewCompositionalLayout(section: section)
     }
 
@@ -845,16 +847,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             header.onViewMore = nil
         } else if !isSearching, rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
-            // "Airing Today" is always sections[0]; "View More" pushes ScheduleViewController
-            if rowSection == 0 {
-                header.onViewMore = { [weak self] in
-                    let vc = ScheduleViewController()
-                    vc.title = "Schedule"
-                    self?.navigationController?.pushViewController(vc, animated: true)
-                }
-            } else {
-                header.onViewMore = nil
-            }
+            header.onViewMore = nil
         }
         return header
     }

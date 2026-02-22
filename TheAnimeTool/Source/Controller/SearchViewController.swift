@@ -125,7 +125,7 @@ class SearchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background hsl(240,10%,3.9%)
         setupNavigationBar()
         setupSearchController()
         setupFilterBar()
@@ -283,7 +283,7 @@ class SearchViewController: UIViewController {
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = UIColor(white: 0.04, alpha: 1)
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.register(AnimeCollectionViewCell.self,
@@ -298,18 +298,22 @@ class SearchViewController: UIViewController {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
+        // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
+        // On iPhone (375-430pt wide), minmax(184px) gives 2 columns
+        let cols: CGFloat = 2
+        let totalPad: CGFloat = 16 + 16 + 8 // leading + trailing + inter-column gap
+        let itemWidth = floor((UIScreen.main.bounds.width - totalPad) / cols)
+        let itemHeight = floor(itemWidth * 290.0 / 152.0)
         let item = NSCollectionLayoutItem(
-            layoutSize: .init(widthDimension: .fractionalWidth(1/3),
-                              heightDimension: .fractionalHeight(1)))
-        item.contentInsets = .init(top: 4, leading: 4, bottom: 4, trailing: 4)
-
+            layoutSize: .init(widthDimension: .absolute(itemWidth),
+                              heightDimension: .absolute(itemHeight)))
+        item.contentInsets = .init(top: 8, leading: 0, bottom: 0, trailing: 8)
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1),
-                              heightDimension: .fractionalWidth(1.0/3.0 * 1.65)),
-            subitems: [item])
-
+                              heightDimension: .absolute(itemHeight + 8)),
+            subitems: [item, item])
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+        section.contentInsets = .init(top: 8, leading: 16, bottom: 8, trailing: 8)
         return UICollectionViewCompositionalLayout(section: section)
     }
 

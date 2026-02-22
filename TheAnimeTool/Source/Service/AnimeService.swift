@@ -540,6 +540,7 @@ public class AnimeService: NSObject {
     }
 
     func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
+        // Matches Hayase home/+page.svelte exactly — no "Airing Today" (that's only in schedule)
         let season = AnimeService.currentAniListSeason()
         let year   = AnimeService.currentYear()
         let configs: [(title: String, variables: [String: Any])] = [
@@ -554,23 +555,13 @@ public class AnimeService: NSObject {
 
         let group = DispatchGroup()
         let syncQueue = DispatchQueue(label: "com.theAnimetool.homeSections")
-        // Slot 0 = Airing Today; slots 1..n = configs
-        var results = [HomeSectionData?](repeating: nil, count: 1 + configs.count)
+        var results = [HomeSectionData?](repeating: nil, count: configs.count)
 
-        // Airing Today (slot 0) — uses airingSchedules query for today's weekday
-        let todayWeekday = Calendar.current.component(.weekday, from: Date()) - 1  // 0=Sun
-        group.enter()
-        fetchAiringForWeekday(todayWeekday) { items in
-            syncQueue.sync { results[0] = HomeSectionData(title: "Airing Today", items: items) }
-            group.leave()
-        }
-
-        // Content sections (slots 1..n)
         for (index, config) in configs.enumerated() {
             group.enter()
             fetchSectionItems(variables: config.variables) { items in
                 let sectionData = HomeSectionData(title: config.title, items: items)
-                syncQueue.sync { results[1 + index] = sectionData }
+                syncQueue.sync { results[index] = sectionData }
                 group.leave()
             }
         }
