@@ -517,18 +517,24 @@ class BrowseAnimeViewController: UIViewController {
         super.viewDidLoad()
         setupNavigationBar()
         setupCollectionView()
-        setupSearchController()
         setupOverlays()
-        setupFetchedResultsController()
         setupNotifications()
         loadSections()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Hide nav bar on home — Hayase has no top nav bar, content starts at top
+        navigationController?.setNavigationBarHidden(true, animated: animated)
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Restore nav bar when pushing child VCs (detail, etc.)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
     deinit {
@@ -539,9 +545,8 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Setup
 
     private func setupNavigationBar() {
-        title = "Anime"
-        navigationController?.navigationBar.prefersLargeTitles = true
-        navigationItem.largeTitleDisplayMode = .always
+        // Hayase home/+page.svelte has no title — just content starting from the top
+        title = nil
         tabBarItem.title = "Home"
         tabBarItem.image = UIImage(systemName: "house")
         tabBarItem.selectedImage = UIImage(systemName: "house.fill")

@@ -144,21 +144,25 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     func configure(with item: AnimeItem) {
         titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
-        yearLabel.text = item.year.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
+        // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'
+        let displayYear = item.year ?? item.startYear
+        yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
         formatLabel.text = formatString(item.format)
         loadCover(urlString: item.coverURL ?? "")
     }
 
     private func formatString(_ raw: String?) -> String {
-        guard let raw = raw else { return "TV" }
+        // Matches Hayase's FORMAT_MAP in anilist/util.ts exactly
+        guard let raw = raw else { return "TV Series" }
         switch raw {
+        case "TV":       return "TV Series"
         case "TV_SHORT": return "TV Short"
-        case "OVA": return "OVA"
-        case "ONA": return "ONA"
-        case "MOVIE": return "Movie"
-        case "SPECIAL": return "Special"
-        case "MUSIC": return "Music"
-        default: return "TV"
+        case "OVA":      return "OVA"
+        case "ONA":      return "ONA"
+        case "MOVIE":    return "Movie"
+        case "SPECIAL":  return "Special"
+        case "MUSIC":    return "Music"
+        default:         return raw.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 

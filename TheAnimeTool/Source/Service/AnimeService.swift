@@ -33,6 +33,7 @@ struct AnimeItem {
     let genres: [String]
     let description: String?
     var year: Int? = nil             // media.seasonYear from AniList
+    var startYear: Int? = nil        // media.startDate.year — fallback when seasonYear is null (matches small.svelte)
     var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
     var favourites: Int? = nil           // AniList favourites count
@@ -109,6 +110,8 @@ public class AnimeService: NSObject {
         let trailer: Trailer?
         let seasonYear: Int?
         let format: String?
+        struct StartDate: Codable { let year: Int? }
+        let startDate: StartDate?
 
         struct Title: Codable {
             let english: String?
@@ -328,6 +331,7 @@ public class AnimeService: NSObject {
           status
           seasonYear
           format
+          startDate { year }
           favourites
           trailer { id site }
           description(asHtml: false)
@@ -386,6 +390,7 @@ public class AnimeService: NSObject {
                     genres: media.genres ?? [],
                     description: desc,
                     year: media.seasonYear,
+                    startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
@@ -408,6 +413,9 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          seasonYear
+          format
+          startDate { year }
           favourites
           trailer { id site }
           description(asHtml: false)
@@ -451,6 +459,7 @@ public class AnimeService: NSObject {
                     genres: media.genres ?? [],
                     description: desc,
                     year: media.seasonYear,
+                    startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
@@ -475,6 +484,9 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          seasonYear
+          format
+          startDate { year }
           favourites
           trailer { id site }
           description(asHtml: false)
@@ -531,6 +543,7 @@ public class AnimeService: NSObject {
                     genres: media.genres ?? [],
                     description: desc,
                     year: media.seasonYear,
+                    startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
