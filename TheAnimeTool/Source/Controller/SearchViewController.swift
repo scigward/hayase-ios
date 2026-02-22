@@ -180,10 +180,28 @@ extension SearchViewController: UITableViewDataSource {
 extension SearchViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let torrent = torrentResultsController?.object(at: indexPath),
-              let vc = storyboard?.instantiateViewController(withIdentifier: "VideoListVC") as? VideoListViewController else { return }
-        vc.torrentEntity = torrent
-        navigationController?.pushViewController(vc, animated: true)
+        guard let torrent = torrentResultsController?.object(at: indexPath) else { return }
+
+        let name = torrent.torrentName ?? "Unknown torrent"
+        let sizeMB = torrent.torrentSize?.floatValue ?? 0
+        let sizeStr = sizeMB >= 1024
+            ? String(format: "%.1f GB", sizeMB / 1024)
+            : String(format: "%.0f MB", sizeMB)
+        let seeders = torrent.torrentSeeders?.intValue ?? 0
+
+        let alert = UIAlertController(
+            title: "Download Torrent?",
+            message: "\(name)\n\nSize: \(sizeStr)  ·  ▲ \(seeders) seeders",
+            preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Download", style: .default) { [weak self] _ in
+            guard let self = self,
+                  let vc = self.storyboard?.instantiateViewController(withIdentifier: "VideoListVC")
+                        as? VideoListViewController else { return }
+            vc.torrentEntity = torrent
+            self.navigationController?.pushViewController(vc, animated: true)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
     }
 }
 

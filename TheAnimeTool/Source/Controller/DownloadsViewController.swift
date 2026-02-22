@@ -318,22 +318,23 @@ extension DownloadsViewController: UITableViewDelegate {
 
         // Delete
         let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
-            guard let self = self else { done(false); return }
+            // Call done immediately — iOS requires it synchronously.
+            // Deferring done() to the alert button handlers causes the swipe to collapse
+            // before the sheet appears, making the action silently do nothing.
+            done(false)
+            guard let self = self else { return }
             let sheet = UIAlertController(title: "Delete Download",
                                           message: "Do you also want to delete the downloaded files?",
                                           preferredStyle: .actionSheet)
             sheet.addAction(UIAlertAction(title: "Keep Files", style: .default) { [weak self] _ in
                 TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: false)
-                // didRemoveTorrentWithHash fires asynchronously; refresh immediately.
                 self?.refreshHandles()
-                done(true)
             })
             sheet.addAction(UIAlertAction(title: "Delete Files", style: .destructive) { [weak self] _ in
                 TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: true)
                 self?.refreshHandles()
-                done(true)
             })
-            sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(false) })
+            sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             self.present(sheet, animated: true)
         }
         deleteAction.image = UIImage(systemName: "trash.fill")

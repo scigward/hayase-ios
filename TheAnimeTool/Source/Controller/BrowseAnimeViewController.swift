@@ -169,10 +169,9 @@ class BrowseAnimeViewController: UIViewController {
 
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         super.prepare(for: segue, sender: sender)
-        guard segue.identifier == "showTorrentList",
-              let cell = sender as? AnimeCollectionViewCell,
-              let indexPath = collectionView.indexPath(for: cell),
-              let destination = segue.destination as? TorrentListViewController else { return }
+        guard segue.identifier == "showAnimeDetail",
+              let indexPath = sender as? IndexPath,
+              let destination = segue.destination as? AnimeDetailViewController else { return }
         destination.animeEntity = animeResultsController?.object(at: indexPath)
     }
 }
@@ -201,8 +200,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 extension BrowseAnimeViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
-        guard let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell else { return }
-        performSegue(withIdentifier: "showTorrentList", sender: cell)
+        performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
     }
 }
 

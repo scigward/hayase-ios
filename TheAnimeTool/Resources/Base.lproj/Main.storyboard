@@ -49,12 +49,28 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                     </view>
                     <connections>
-                        <segue destination="tor-vc-001" kind="show" identifier="showTorrentList" id="brw-seg-001"/>
+                        <segue destination="detail-vc-001" kind="show" identifier="showAnimeDetail" id="brw-seg-001"/>
                     </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="brw-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>
             <point key="canvasLocation" x="700" y="430"/>
+        </scene>
+        <!--Anime Detail-->
+        <scene sceneID="detail-sc-001">
+            <objects>
+                <viewController id="detail-vc-001" customClass="AnimeDetailViewController" customModule="TheAnimeTool" customModuleProvider="target" sceneMemberID="viewController">
+                    <view key="view" id="detail-vw-001">
+                        <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    </view>
+                    <connections>
+                        <segue destination="tor-vc-001" kind="show" identifier="showTorrentList" id="det-seg-001"/>
+                    </connections>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="detail-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="700" y="1030"/>
         </scene>
         <!--Torrent List-->
         <scene sceneID="tor-sc-001">

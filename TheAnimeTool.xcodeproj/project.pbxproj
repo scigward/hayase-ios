@@ -42,6 +42,7 @@
 		A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */; };
 		DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */; };
 		DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */; };
+		DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */; };
 		A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */; };
 		A96106CF1D731B43006D39D0 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A96106BD1D731B43006D39D0 /* Info.plist */; };
 		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
@@ -190,6 +191,7 @@
 		A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeCollectionViewCell.swift; sourceTree = "<group>"; };
 		DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
 		DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DownloadsViewController.swift; sourceTree = "<group>"; };
+		DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeDetailViewController.swift; sourceTree = "<group>"; };
 		A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
@@ -458,6 +460,7 @@
 				A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */,
 				DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */,
 				DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */,
+				DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */,
 			);
 			path = Controller;
 			sourceTree = "<group>";
@@ -735,6 +738,7 @@
 				A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */,
 				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
 				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
+				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

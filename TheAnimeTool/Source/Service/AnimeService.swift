@@ -38,9 +38,11 @@ public class AnimeService: NSObject {
         let id: Int?
         let title: Title?
         let coverImage: CoverImage?
+        let bannerImage: String?
         let averageScore: Float?
         let popularity: Int?
         let episodes: Int?
+        let description: String?
         let nextAiringEpisode: NextAiringEpisode?
         let status: String?
 
@@ -67,9 +69,11 @@ public class AnimeService: NSObject {
           id
           title { english romaji }
           coverImage { large medium }
+          bannerImage
           averageScore
           popularity
           episodes
+          description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
         }
@@ -84,9 +88,11 @@ public class AnimeService: NSObject {
           id
           title { english romaji }
           coverImage { large medium }
+          bannerImage
           averageScore
           popularity
           episodes
+          description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
         }
@@ -179,13 +185,17 @@ public class AnimeService: NSObject {
             }
             targetAnime.animeImgL = media.coverImage?.large
             targetAnime.animeImgM = media.coverImage?.medium
-            targetAnime.animeImgS = media.coverImage?.medium
+            // animeImgS repurposed to store bannerImage (was a duplicate of animeImgM).
+            // AnimeDetailViewController uses this as the hero banner; falls back to animeImgL.
+            targetAnime.animeImgS = media.bannerImage
             targetAnime.animePopularity = media.popularity.map { NSNumber(value: $0) }
             targetAnime.animeScore = media.averageScore.map { NSNumber(value: $0) }
             targetAnime.animeStatus = media.status
             targetAnime.animeTitleEnglish = media.title?.english ?? media.title?.romaji
             targetAnime.animeTitleJapanese = media.title?.romaji
             targetAnime.animeTotalEps = media.episodes.map { NSNumber(value: $0) }
+            // Store HTML-stripped synopsis from AniList.
+            targetAnime.animeDescription = AnimeService.stripHTML(media.description ?? "")
             targetAnime.animeNextEps = media.nextAiringEpisode?.episode.map { NSNumber(value: $0) }
             if let timeUntilAiring = media.nextAiringEpisode?.timeUntilAiring {
                 targetAnime.animeNextEpsTime = Date(timeIntervalSinceNow: Double(timeUntilAiring))
@@ -211,6 +221,27 @@ public class AnimeService: NSObject {
         request.predicate = NSPredicate(format: "animeFlagTemp == YES")
         context.deleteAllData(request)
         self.insertIndexForTempEntries = 0
+    }
+
+    // MARK: - Helpers
+
+    /// Strip HTML tags and decode common HTML entities from AniList description text.
+    /// AniList returns description(asHtml: false) but may still include <br> and HTML entities.
+    static func stripHTML(_ html: String) -> String {
+        var s = html
+        // <br> / <br/> / <br /> → newline
+        s = s.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
+        // Remove all remaining HTML tags
+        s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        // Decode common HTML entities
+        s = s.replacingOccurrences(of: "&amp;", with: "&")
+        s = s.replacingOccurrences(of: "&lt;", with: "<")
+        s = s.replacingOccurrences(of: "&gt;", with: ">")
+        s = s.replacingOccurrences(of: "&#039;", with: "'")
+        s = s.replacingOccurrences(of: "&apos;", with: "'")
+        s = s.replacingOccurrences(of: "&quot;", with: "\"")
+        s = s.replacingOccurrences(of: "&nbsp;", with: " ")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static let sharedAnimeService = AnimeService()
