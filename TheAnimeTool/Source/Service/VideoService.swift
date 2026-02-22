@@ -181,12 +181,13 @@ public class VideoService: NSObject {
         let files = handle.snapshot.files
 
         if !coreDataIsReady {
-            // Metadata not yet committed to CoreData. For magnet links, files is empty
-            // until the metadata is fetched from peers/DHT. Once files.count > 0 we can
-            // populate CoreData and show the file list.
-            guard !files.isEmpty else {
-                print("VideoService: snapshot update but still no files (waiting for metadata)")
-                return  // Keep spinner running.
+            // Metadata not yet committed to CoreData. For magnet links, hasMetadata is false
+            // until the ut_metadata extension downloads it from DHT/peers. Once true, files
+            // will also be populated (torrent_file() is non-null when has_metadata is true).
+            guard snapshot.hasMetadata else {
+                let peers = snapshot.numberOfPeers
+                print("VideoService: snapshot update — hasMetadata=false, peers=\(peers) (waiting for metadata)")
+                return  // Keep spinner running; post no notification.
             }
             print("VideoService: metadata arrived via update, \(files.count) files — populating CoreData")
             ClearCurrentTorrentEntityAndVideos()   // clear any stale rows from previous attempt

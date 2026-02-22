@@ -355,6 +355,7 @@ public class TorrentService: NSObject, SessionDelegate {
             // Return existing handle if already active.
             if let hex = hexHash, let existing = self.handles[hex] {
                 print("TorrentService: magnet already in session, reusing handle \(hex)")
+                existing.forceReannounce()   // re-announce so we pick up fresh peers
                 completion(.success(existing))
                 return
             }
@@ -375,6 +376,10 @@ public class TorrentService: NSObject, SessionDelegate {
                     torrentEntity.torrentHashString = hex
                     try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
                 }
+                // Force-reannounce immediately so trackers are contacted right away
+                // instead of waiting for libtorrent's default announce interval.
+                // MagnetURI.configureAfterAdded: is a no-op, so we must do this ourselves.
+                handle.forceReannounce()
                 completion(.success(handle))
                 return
             }
@@ -384,6 +389,7 @@ public class TorrentService: NSObject, SessionDelegate {
                let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hex }) {
                 print("TorrentService: magnet duplicate, found in session.torrents \(hex)")
                 self.handles[hex] = existing
+                existing.forceReannounce()
                 completion(.success(existing))
                 return
             }

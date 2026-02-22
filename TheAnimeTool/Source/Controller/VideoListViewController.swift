@@ -134,8 +134,6 @@ class VideoListViewController: UIViewController {
     private var stopUpdating = false
     private var updateTimer: Timer?
 
-    private var loadingTimeout: DispatchWorkItem?
-
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -149,9 +147,8 @@ class VideoListViewController: UIViewController {
         if let entity = torrentEntity {
             videoService = VideoService(torrentEntity: entity)
             loadingIndicator.startAnimating()
-            emptyLabel.text = "Fetching metadata from peers…"
+            emptyLabel.text = "Connecting to peers…"
             emptyLabel.isHidden = false
-            startLoadingTimeout()
             videoService?.UpdateLocalVideo()
         }
     }
@@ -253,10 +250,26 @@ class VideoListViewController: UIViewController {
         updateTimer?.invalidate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.stopUpdating else { return }
-            // Only reload cells to refresh live progress from handle.snapshot.
             self.tableView.reloadData()
             let count = self.videoResultsController?.sections?.first?.objects?.count ?? 0
-            if !self.loadingIndicator.isAnimating && count == 0 {
+            // While the spinner is animating (loading phase), show live torrent state.
+            if self.loadingIndicator.isAnimating {
+                if let snap = self.videoService?.torrentHandle?.snapshot {
+                    let peers = snap.numberOfPeers
+                    switch snap.state {
+                    case .downloadingMetadata:
+                        self.emptyLabel.text = peers > 0
+                            ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s") connected)"
+                            : "Connecting to DHT and trackers…"
+                    case .downloading, .finished, .seeding:
+                        // Metadata arrived; CoreData will be populated by VideoService soon.
+                        self.emptyLabel.text = "Preparing file list…"
+                    default:
+                        self.emptyLabel.text = "Connecting to peers…"
+                    }
+                    self.emptyLabel.isHidden = false
+                }
+            } else if count == 0 {
                 self.emptyLabel.text = "No video files found"
                 self.emptyLabel.isHidden = false
             }
@@ -264,8 +277,6 @@ class VideoListViewController: UIViewController {
     }
 
     @objc private func handleVideosDidUpdate() {
-        loadingTimeout?.cancel()
-        loadingTimeout = nil
         loadingIndicator.stopAnimating()
 
         // Show error alert if the torrent download or session-add failed.
@@ -291,42 +302,13 @@ class VideoListViewController: UIViewController {
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
             guard let self = self, let vs = self.videoService else { return }
-            self.emptyLabel.isHidden = true
+            self.emptyLabel.text = "Connecting to peers…"
+            self.emptyLabel.isHidden = false
             self.loadingIndicator.startAnimating()
-            self.startLoadingTimeout()
             vs.UpdateLocalVideo()
         })
         alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
         present(alert, animated: true)
-    }
-
-    private func startLoadingTimeout() {
-        loadingTimeout?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.loadingIndicator.stopAnimating()
-            self.emptyLabel.text = "Timed out fetching metadata"
-            self.emptyLabel.isHidden = false
-            let alert = UIAlertController(title: "Timed Out",
-                message: "Could not fetch torrent metadata after 90 seconds. Check your internet connection or try a different torrent.",
-                preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                guard let self = self, let vs = self.videoService else { return }
-                self.emptyLabel.text = "Fetching metadata from peers…"
-                self.emptyLabel.isHidden = false
-                self.loadingIndicator.startAnimating()
-                self.startLoadingTimeout()
-                vs.UpdateLocalVideo()
-            })
-            alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel) { [weak self] _ in
-                self?.emptyLabel.text = "Timed out"
-                self?.emptyLabel.isHidden = false
-            })
-            self.present(alert, animated: true)
-        }
-        loadingTimeout = item
-        // 90 seconds — magnets need DHT/peer negotiation to fetch metadata.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90, execute: item)
     }
 
     // MARK: - Navigation
