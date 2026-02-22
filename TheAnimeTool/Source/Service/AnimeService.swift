@@ -32,6 +32,8 @@ struct AnimeItem {
     let bannerURL: String?
     let genres: [String]
     let description: String?
+    let trailerYouTubeID: String?  // non-nil when AniList trailer site == "youtube"
+    let favourites: Int?           // AniList favourites count
     var relations: [AnimeRelation] = []
     var characters: [AnimeCharacter] = []
 }
@@ -83,6 +85,8 @@ public class AnimeService: NSObject {
         let nextAiringEpisode: NextAiringEpisode?
         let status: String?
         let genres: [String]?
+        let favourites: Int?
+        let trailer: Trailer?
 
         struct Title: Codable {
             let english: String?
@@ -95,6 +99,10 @@ public class AnimeService: NSObject {
         struct NextAiringEpisode: Codable {
             let episode: Int?
             let timeUntilAiring: Int?
+        }
+        struct Trailer: Codable {
+            let id: String?
+            let site: String?
         }
     }
 
@@ -296,6 +304,8 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          favourites
+          trailer { id site }
           description(asHtml: false)
         }
       }
@@ -339,6 +349,7 @@ public class AnimeService: NSObject {
             let items: [AnimeItem] = mediaList.compactMap { media in
                 guard let id = media.id else { return nil }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
                 return AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
@@ -349,7 +360,9 @@ public class AnimeService: NSObject {
                     episodes: media.episodes,
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
-                    description: desc)
+                    description: desc,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites)
             }
             completion(items)
         }.resume()
@@ -370,6 +383,8 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          favourites
+          trailer { id site }
           description(asHtml: false)
         }
       }
@@ -411,6 +426,7 @@ public class AnimeService: NSObject {
             let items: [AnimeItem] = (pageData.media ?? []).compactMap { media in
                 guard let id = media.id else { return nil }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
                 return AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
@@ -421,7 +437,9 @@ public class AnimeService: NSObject {
                     episodes: media.episodes,
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
-                    description: desc)
+                    description: desc,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites)
             }
             DispatchQueue.main.async { completion(items, hasNext) }
         }.resume()
@@ -442,20 +460,29 @@ public class AnimeService: NSObject {
 
         let group = DispatchGroup()
         let syncQueue = DispatchQueue(label: "com.theAnimetool.homeSections")
-        var results: [(index: Int, section: HomeSectionData)] = []
+        // Slot 0 = Airing Today; slots 1..n = configs
+        var results = [HomeSectionData?](repeating: nil, count: 1 + configs.count)
 
+        // Airing Today (slot 0) — uses airingSchedules query for today's weekday
+        let todayWeekday = Calendar.current.component(.weekday, from: Date()) - 1  // 0=Sun
+        group.enter()
+        fetchAiringForWeekday(todayWeekday) { items in
+            syncQueue.sync { results[0] = HomeSectionData(title: "Airing Today", items: items) }
+            group.leave()
+        }
+
+        // Content sections (slots 1..n)
         for (index, config) in configs.enumerated() {
             group.enter()
             fetchSectionItems(variables: config.variables) { items in
                 let sectionData = HomeSectionData(title: config.title, items: items)
-                syncQueue.sync { results.append((index: index, section: sectionData)) }
+                syncQueue.sync { results[1 + index] = sectionData }
                 group.leave()
             }
         }
 
         group.notify(queue: .main) {
-            let sorted = results.sorted { $0.index < $1.index }.map { $0.section }
-            completion(sorted)
+            completion(results.compactMap { $0 })
         }
     }
 

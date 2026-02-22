@@ -80,6 +80,14 @@ final class ScheduleViewController: UIViewController {
 
     // MARK: - init (tab bar item set here so it's visible before viewDidLoad)
 
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        tabBarItem = UITabBarItem(
+            title: "Schedule",
+            image: UIImage(systemName: "calendar"),
+            selectedImage: UIImage(systemName: "calendar.badge.clock"))
+    }
+
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(

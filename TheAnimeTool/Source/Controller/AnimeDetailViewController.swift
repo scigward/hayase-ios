@@ -8,6 +8,7 @@
 //
 
 import UIKit
+import SafariServices
 
 // MARK: - AniZip episode model
 
@@ -530,6 +531,21 @@ private final class AnimeInfoHeaderView: UIView {
         return b
     }()
 
+    // Trailer button — clapperboard icon, hidden when no trailer available.
+    // Matches Hayase's <Clapperboard> button in anime/[id]/+layout.svelte.
+    private let trailerButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "film"), for: .normal)
+        b.tintColor = .label
+        b.backgroundColor = .secondarySystemBackground
+        b.layer.cornerRadius = 12
+        b.layer.masksToBounds = true
+        b.isHidden = true
+        return b
+    }()
+
+    var onPlayTrailer: (() -> Void)?
+
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
 
@@ -556,19 +572,21 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Action buttons row: [Find Torrents (expanding)] [Share icon] [AniList icon]
+        // Action buttons row: [Find Torrents (expanding)] [Share icon] [AniList icon] [Trailer icon]
         // Matches Hayase's action button row in anime/[id]/+layout.svelte
         findTorrentsButton.addTarget(self, action: #selector(findTorrentsTapped), for: .touchUpInside)
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
+        trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
 
-        let actionsRow = UIStackView(arrangedSubviews: [findTorrentsButton, shareButton, anilistButton])
+        let actionsRow = UIStackView(arrangedSubviews: [findTorrentsButton, shareButton, anilistButton, trailerButton])
         actionsRow.axis = .horizontal
         actionsRow.spacing = 8
         actionsRow.alignment = .fill
         NSLayoutConstraint.activate([
             shareButton.widthAnchor.constraint(equalToConstant: 48),
             anilistButton.widthAnchor.constraint(equalToConstant: 48),
+            trailerButton.widthAnchor.constraint(equalToConstant: 48),
         ])
 
         // Outer stack: genres + desc + actionsRow with margins
@@ -643,6 +661,10 @@ private final class AnimeInfoHeaderView: UIView {
 
     @objc private func anilistTapped() {
         onOpenAniList?()
+    }
+
+    @objc private func trailerTapped() {
+        onPlayTrailer?()
     }
 
     func configure(with anime: Animes?) {
@@ -736,6 +758,9 @@ private final class AnimeInfoHeaderView: UIView {
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? "No synopsis available." : desc
 
+        // Trailer button — show only when a YouTube trailer ID is available
+        trailerButton.isHidden = item.trailerYouTubeID == nil
+
         loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
@@ -808,6 +833,32 @@ class AnimeDetailViewController: UIViewController {
     private var characters: [AnimeCharacter] = []
     private var episodeFetchTask: URLSessionDataTask?
 
+    // Active tab for the segmented control (Episodes | Relations | Characters)
+    private var activeSection: Section = .episodes
+
+    private lazy var segControl: UISegmentedControl = {
+        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Characters"])
+        sc.selectedSegmentIndex = 0
+        sc.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
+        return sc
+    }()
+
+    /// Container view returned as the sticky header for section 0.
+    /// Lazy so `segControl` is set up before the container references it.
+    private lazy var segControlContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .systemBackground
+        segControl.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(segControl)
+        NSLayoutConstraint.activate([
+            segControl.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
+            segControl.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+            segControl.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
+            segControl.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
+        ])
+        return v
+    }()
+
     // Section indices
     private enum Section: Int, CaseIterable {
         case episodes = 0, relations, characters
@@ -879,6 +930,13 @@ class AnimeDetailViewController: UIViewController {
             let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
             guard let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
             UIApplication.shared.open(url)
+        }
+        headerView.onPlayTrailer = { [weak self] in
+            guard let self = self,
+                  let trailerID = self.animeItem?.trailerYouTubeID,
+                  let url = URL(string: "https://www.youtube.com/watch?v=\(trailerID)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
         }
         headerView.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
         tableView.tableHeaderView = headerView
@@ -963,6 +1021,14 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
+    // MARK: - Segment control
+
+    @objc private func segmentChanged() {
+        guard let sec = Section(rawValue: segControl.selectedSegmentIndex) else { return }
+        activeSection = sec
+        tableView.reloadSections(IndexSet(integersIn: 0..<Section.allCases.count), with: .automatic)
+    }
+
     // MARK: - Navigation
 
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
@@ -984,20 +1050,16 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
-        case .episodes:  return episodes.count
-        case .relations: return relations.isEmpty ? 0 : 1
-        case .characters: return characters.isEmpty ? 0 : 1
+        case .episodes:   return activeSection == .episodes  ? episodes.count : 0
+        case .relations:  return (activeSection == .relations  && !relations.isEmpty)  ? 1 : 0
+        case .characters: return (activeSection == .characters && !characters.isEmpty) ? 1 : 0
         case .none: return 0
         }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        switch Section(rawValue: section) {
-        case .episodes:  return episodes.isEmpty ? nil : "Episodes · \(episodes.count)"
-        case .relations: return relations.isEmpty ? nil : "Relations"
-        case .characters: return characters.isEmpty ? nil : "Characters"
-        case .none: return nil
-        }
+        // All section headers are returned via viewForHeaderInSection; suppress text headers here.
+        return nil
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -1043,6 +1105,17 @@ extension AnimeDetailViewController: UITableViewDataSource {
 // MARK: - UITableViewDelegate
 
 extension AnimeDetailViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        // Section 0 always shows the segmented tab control (sticks as user scrolls past header)
+        if section == Section.episodes.rawValue { return segControlContainer }
+        return nil
+    }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        // Section 0 = 44pt for segmented control; other sections have no separate header
+        return section == Section.episodes.rawValue ? 44 : 0
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
         case .relations, .characters: return 160

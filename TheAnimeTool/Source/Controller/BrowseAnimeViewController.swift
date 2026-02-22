@@ -792,8 +792,19 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         let rowSection = indexPath.section - 1
         if isLoadingSections {
             header.configure(title: "")
+            header.onViewMore = nil
         } else if !isSearching, rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
+            // "Airing Today" is always sections[0]; "View More" pushes ScheduleViewController
+            if rowSection == 0 {
+                header.onViewMore = { [weak self] in
+                    let vc = ScheduleViewController()
+                    vc.title = "Schedule"
+                    self?.navigationController?.pushViewController(vc, animated: true)
+                }
+            } else {
+                header.onViewMore = nil
+            }
         }
         return header
     }
