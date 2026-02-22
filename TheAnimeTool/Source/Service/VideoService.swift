@@ -190,7 +190,10 @@ public class VideoService: NSObject {
             let ctx = CoreDataService.sharedCoreDataService.mainQueueContext
             let clearReq = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
             clearReq.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
-            if let n = try? ctx.count(for: clearReq), n > 0 { ctx.deleteAllData(clearReq) }
+            if let n = try? ctx.count(for: clearReq), n > 0 {
+                ctx.deleteAllData(clearReq)
+                try? ctx.save()
+            }
 
             // Re-store handle and hash (ClearCurrentTorrentEntityAndVideos would have nil'd them).
             self.torrentHandle = handle

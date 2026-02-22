@@ -44,6 +44,9 @@ class BrowseAnimeViewController: UIViewController {
         title = "Anime"
         navigationController?.navigationBar.prefersLargeTitles = true
         navigationItem.largeTitleDisplayMode = .always
+        tabBarItem.title = "Home"
+        tabBarItem.image = UIImage(systemName: "house")
+        tabBarItem.selectedImage = UIImage(systemName: "house.fill")
     }
 
     private func setupCollectionView() {
