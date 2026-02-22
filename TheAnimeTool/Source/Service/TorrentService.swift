@@ -51,13 +51,27 @@ public class TorrentService: NSObject, SessionDelegate {
 
         let settings = Session.Settings()
         settings.agentName        = "TheAnimeTool"
-        settings.outgoingInterfaces = ""
-        settings.listenInterfaces   = "0.0.0.0:0,[::]:0"
+        // Torrent activity limits — default is 0 (no active torrents!) so we must set positive values.
+        // With active_limit=0 libtorrent queues every torrent and never starts connecting.
+        settings.maxActiveTorrents      = 4    // iTorrent default
+        settings.maxDownloadingTorrents = 4
+        settings.maxUploadingTorrents   = 4
+        // Port settings — use a specific port so UPnP/NAT-PMP can forward it reliably.
+        // Omit IPv6 wildcard ([::]) which can fail in sandboxed environments (LiveContainer).
+        settings.port             = 6881
+        settings.portBindRetries  = 10         // retry on conflict; iTorrent default
+        settings.listenInterfaces = "0.0.0.0:6881"
+        settings.outgoingInterfaces = ""       // OS default routing (matches all interfaces)
+        // Protocol features
         settings.isDhtEnabled  = true
         settings.isLsdEnabled  = true
         settings.isUtpEnabled  = true
         settings.isUpnpEnabled = true
         settings.isNatEnabled  = true
+        // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
+        // Our nyaa trackers are HTTP/UDP so this has no effect on them; it just avoids
+        // a silent SSL failure if any tracker ever redirects to HTTPS.
+        settings.validateHttpsTrackers = false
 
         session = Session(downloadsURL,
                          torrentsPath: torrentsURL,
