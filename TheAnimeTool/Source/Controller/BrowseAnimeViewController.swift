@@ -38,7 +38,7 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    private static let bannerHeight: CGFloat = 260
+    static let bannerHeight: CGFloat = 260
 
     // Exposed so BrowseAnimeViewController can navigate to the currently-shown anime on tap
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }

@@ -659,7 +659,7 @@ public class AnimeService: NSObject {
                 return
             }
 
-            let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge in
+            let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge -> AnimeRelation? in
                 guard let type = edge.relationType, let node = edge.node, let nid = node.id else { return nil }
                 // Skip unwanted relation types
                 let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
@@ -767,7 +767,7 @@ public class AnimeService: NSObject {
             }
             // Deduplicate by media id
             var seen = Set<Int>()
-            let items: [AnimeItem] = schedules.compactMap { sched in
+            let items: [AnimeItem] = schedules.compactMap { sched -> AnimeItem? in
                 guard let media = sched.media, let id = media.id,
                       seen.insert(id).inserted else { return nil }
                 return AnimeItem(
