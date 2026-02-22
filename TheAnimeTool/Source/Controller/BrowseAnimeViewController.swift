@@ -531,7 +531,8 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             let item = sections[indexPath.section - 1].items[indexPath.item]
             pendingAnimeItem = item
         }
-        performSegue(withIdentifier: "showAnimeDetail", sender: IndexPath(row: 0, section: 0))
+        // sender is nil because the item is passed via pendingAnimeItem, not an FRC index path
+        performSegue(withIdentifier: "showAnimeDetail", sender: nil)
     }
 }
 

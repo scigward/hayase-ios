@@ -372,6 +372,9 @@ private final class AnimeInfoHeaderView: UIView {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         badgesStack.addArrangedSubview(spacer)
 
+        // AnimeItem is fetched for home-screen sections which don't include description
+        // (synopsis is omitted from section queries to reduce payload size).
+        // The full synopsis is available on the CoreData entity for search/airing results.
         descriptionLabel.text = "No synopsis available."
         loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
