@@ -299,14 +299,18 @@ extension DownloadsViewController: UITableViewDelegate {
         let handle = entry.handle
         let snap = handle.snapshot
 
-        // Pause/Resume: infer paused when not actively downloading/seeding/metadata
+        // Pause/Resume: infer paused when not actively downloading/seeding/fetching metadata.
+        // .finished is excluded — a completed torrent cannot be paused.
         let isActiveState = (snap.state == .downloading ||
                              snap.state == .downloadingMetadata ||
-                             snap.state == .seeding ||
-                             snap.state == .finished)
+                             snap.state == .seeding)
         let pauseTitle = isActiveState ? "Pause" : "Resume"
-        let pauseAction = UIContextualAction(style: .normal, title: pauseTitle) { _, _, done in
+        let pauseAction = UIContextualAction(style: .normal, title: pauseTitle) { [weak self] _, _, done in
             if isActiveState { handle.pause() } else { handle.resume() }
+            // Refresh row immediately so icon/title reflects new state.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
             done(true)
         }
         pauseAction.backgroundColor = .systemOrange
@@ -318,12 +322,15 @@ extension DownloadsViewController: UITableViewDelegate {
             let sheet = UIAlertController(title: "Delete Download",
                                           message: "Do you also want to delete the downloaded files?",
                                           preferredStyle: .actionSheet)
-            sheet.addAction(UIAlertAction(title: "Keep Files", style: .default) { _ in
+            sheet.addAction(UIAlertAction(title: "Keep Files", style: .default) { [weak self] _ in
                 TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: false)
+                // didRemoveTorrentWithHash fires asynchronously; refresh immediately.
+                self?.refreshHandles()
                 done(true)
             })
-            sheet.addAction(UIAlertAction(title: "Delete Files", style: .destructive) { _ in
+            sheet.addAction(UIAlertAction(title: "Delete Files", style: .destructive) { [weak self] _ in
                 TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: true)
+                self?.refreshHandles()
                 done(true)
             })
             sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(false) })
