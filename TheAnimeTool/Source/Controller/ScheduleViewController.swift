@@ -136,6 +136,9 @@ final class ScheduleViewController: UIViewController {
     private let bgColor = UIColor(red: 0.039, green: 0.039, blue: 0.059, alpha: 1)
     private static let todayColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
 
+    // ISO 8601 calendar — week starts Monday (matches Hayase Mon-Sun column order)
+    private let iso8601Calendar = Calendar(identifier: .iso8601)
+
     // MARK: - Tab bar init
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
@@ -346,7 +349,7 @@ final class ScheduleViewController: UIViewController {
     // MARK: - Calendar Logic
 
     private func reloadCalendar() {
-        let cal = Calendar(identifier: .iso8601)  // week starts Monday (matches Hayase Mon-Sun)
+        let cal = iso8601Calendar
         let monthStart = startOfMonth(for: displayedMonth)
 
         // Display month name
@@ -430,12 +433,12 @@ final class ScheduleViewController: UIViewController {
             group.enter()
             AnimeService.sharedAnimeService.fetchAiringForWeekday(weekday) { [weak self] items in
                 let eps = items.compactMap { item -> ScheduleAiringEpisode? in
-                    guard let id = item.episodes else { return nil }
+                    guard let episodeCount = item.episodes else { return nil }
                     // Approximate airdate: next occurrence of this weekday from today
                     let airDate = self?.nextDate(forWeekday: weekday) ?? Date()
                     return ScheduleAiringEpisode(
                         airingAt: airDate,
-                        episode: id,
+                        episode: episodeCount,
                         mediaID: item.id,
                         titlePreferred: item.titleEnglish ?? item.titleRomaji,
                         coverURL: item.coverURL)
