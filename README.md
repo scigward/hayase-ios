@@ -10,7 +10,7 @@ A convenient tool that uses anilist API  and nyaa tracker for iOS anime watching
 <img src="Previews/preview_torrent_list.png" alt="alt text" width="400"><img src="Previews/preview_video_list.png" alt="alt text" width="400">
 <img src="Previews/preview_video_playing.png" alt="alt text" width="400">
 
-## Hayase UI Porting Progress — ~80%
+## Hayase UI Porting Progress — ~88%
 
 The table below tracks how much of the [Hayase](https://github.com/scigward/interface) web UI has been ported to the iOS native app.
 
@@ -20,10 +20,11 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 | `ui/cards/skeleton.svelte` (loading shimmer) | ✅ ~90% | `SkeletonPosterCell` | Gradient shimmer on both banner and poster rows |
 | `ui/cards/episode.svelte` (episode card) | ✅ ~85% | `EpisodeCell` | Thumbnail, title, runtime badge, overview, airdate |
 | `ui/banner/full-banner.svelte` (hero banner) | ✅ ~90% | `FeaturedBannerCell` | 15-s auto-rotate, dot indicators, cover+title+desc overlay |
-| `/app/home` (home page sections) | ✅ ~90% | `BrowseAnimeViewController` | 7 sections incl. Airing Today; skeleton loading |
+| `/app/home` (home page sections) | ✅ ~92% | `BrowseAnimeViewController` | 8 sections incl. Airing Today; skeleton loading; "View More" → Schedule |
 | `/app/search` (search + filters) | ✅ ~85% | `SearchViewController` | Genre/format/status/sort chips, infinite scroll, trending default |
-| `/app/schedule` (weekly schedule) | ✅ ~90% | `ScheduleViewController` | 7-day chip picker, AniList airingSchedules |
-| `/app/anime/[id]` (detail layout) | ✅ ~85% | `AnimeDetailViewController` | Banner, cover, badges, genres, synopsis, Share, AniList link |
+| `/app/schedule` (weekly schedule) | ✅ ~90% | `ScheduleViewController` | 7-day chip picker, AniList airingSchedules; pushable from Home |
+| `/app/anime/[id]` (detail layout) | ✅ ~90% | `AnimeDetailViewController` | Banner, cover, badges, genres, synopsis, Share, AniList, Trailer button |
+| `/app/anime/[id]` (tabs navigation) | ✅ ~85% | `UISegmentedControl` sticky header | Episodes / Relations / Characters tabs; active section collapses others |
 | `/app/anime/[id]` (episodes tab) | ✅ ~85% | `EpisodeCell` in table section | ani.zip thumbnail, title, runtime badge, overview, airdate |
 | `/app/anime/[id]` (relations tab) | ✅ ~80% | `HorizontalCardsCell` + `RelationCardCell` | Horizontal scroll, relation type badges, tap → detail |
 | `/app/anime/[id]` (characters tab) | ✅ ~80% | `HorizontalCardsCell` + `CharacterCardCell` | Horizontal scroll, MAIN/SUPPORTING role label |
