@@ -622,7 +622,7 @@ class BrowseAnimeViewController: UIViewController {
                 // margins that make the banner appear narrower than the screen.
                 bannerSection.contentInsets = .zero
                 if #available(iOS 14.0, *) {
-                    bannerSection.contentInsetsReference = .none
+                    bannerSection.contentInsetsReference = .layoutContainer
                 }
                 return bannerSection
                 // No header supplementary for section 0
