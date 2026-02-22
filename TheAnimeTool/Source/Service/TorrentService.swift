@@ -122,10 +122,20 @@ public class TorrentService: NSObject, SessionDelegate {
 
     // MARK: - RSS parser for nyaa.si
 
+    // Nyaa trackers included in the panel-footer magnet link on every torrent page.
+    static let nyaaTrackers = [
+        "http://nyaa.tracker.wf:7777/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+    ]
+
     private class NyaaRSSParser: NSObject, XMLParserDelegate {
         struct TorrentItem {
             var name: String = ""
-            var downloadURL: String?
+            var downloadURL: String?   // kept for reference; overwritten with magnet URI when infoHash present
+            var infoHash: String = ""  // from <nyaa:infoHash>; used to build the magnet URI
             var seeders: Int = 0
             var leechers: Int = 0
             var downloads: Int = 0
@@ -164,6 +174,8 @@ public class TorrentService: NSObject, SessionDelegate {
                 currentItem?.leechers = Int(text) ?? 0
             case "nyaa:downloads":
                 currentItem?.downloads = Int(text) ?? 0
+            case "nyaa:infoHash":
+                currentItem?.infoHash = text.lowercased()
             case "nyaa:size":
                 let parts = text.components(separatedBy: " ")
                 if let val = Float(parts.first ?? "0") {
@@ -178,10 +190,23 @@ public class TorrentService: NSObject, SessionDelegate {
                 }
             case "item":
                 if var item = currentItem {
+                    // Extract nyaaId from enclosure URL (used as .torrent download fallback).
                     if let url = item.downloadURL,
                        let range = url.range(of: #"/download/(\d+)\.torrent"#, options: .regularExpression) {
                         let digits = String(url[range]).components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
                         item.nyaaId = Int(digits)
+                    }
+                    // Build magnet URI from infoHash + nyaa trackers.
+                    // This bypasses any HTTP/Cloudflare issues with the /download/*.torrent endpoint.
+                    if !item.infoHash.isEmpty {
+                        let encodedName = item.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                        if encodedName.isEmpty {
+                            print("NyaaRSSParser: percent-encoding failed for '\(item.name)'; skipping magnet dn param")
+                        }
+                        let trParams = nyaaTrackers.map {
+                            "&tr=" + ($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)
+                        }.joined()
+                        item.downloadURL = "magnet:?xt=urn:btih:\(item.infoHash)&dn=\(encodedName)\(trParams)"
                     }
                     items.append(item)
                 }
@@ -271,127 +296,163 @@ public class TorrentService: NSObject, SessionDelegate {
         NotificationCenter.default.post(name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: self)
     }
 
-    /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
-    /// Resolves the download URL from torrentDownloadURL, falling back to the nyaa ID.
-    /// Calls `completion` on the main thread with (TorrentHandle, TorrentFile) or an Error.
+    /// Add the torrent (from magnet URI or .torrent download) to the LibTorrent session.
+    /// Prefers the magnet URI stored in torrentDownloadURL (built from nyaa:infoHash in RSS)
+    /// which requires no HTTP download and bypasses all Cloudflare/rate-limit issues.
+    /// Falls back to downloading the .torrent binary from nyaa.si when no infoHash was available.
+    /// Calls `completion` on the main thread with a TorrentHandle or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
-                                        completion: @escaping (Result<(handle: TorrentHandle, torrentFile: TorrentFile), Error>) -> Void) {
-        // Prefer the RSS-provided enclosure URL; fall back to nyaa ID-based URL.
-        let downloadURL: URL? = {
-            if let s = torrentEntity.torrentDownloadURL, let u = URL(string: s) { return u }
-            if let id = torrentEntity.torrentNyaaId?.intValue, id > 0 {
-                return URL(string: "https://nyaa.si/download/\(id).torrent")
-            }
-            return nil
-        }()
-
-        guard let url = downloadURL else {
-            DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "TorrentService", code: 0,
-                    userInfo: [NSLocalizedDescriptionKey:
-                        "No download URL available.\nNo torrentDownloadURL and no nyaaId stored for this torrent.\nTry searching for the torrent again."])))
+                                        completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
+        guard let urlString = torrentEntity.torrentDownloadURL,
+              let url = URL(string: urlString) else {
+            // No URL at all — last resort: nyaa ID direct download
+            if let id = torrentEntity.torrentNyaaId?.intValue, id > 0,
+               let fallbackURL = URL(string: "https://nyaa.si/download/\(id).torrent") {
+                downloadTorrentFile(from: fallbackURL, torrentEntity: torrentEntity, completion: completion)
+            } else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "TorrentService", code: 0,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "No download URL or info hash available for this torrent.\n" +
+                            "Try searching for the torrent again."])))
+                }
             }
             return
         }
 
-        downloadTorrentData(from: url, torrentEntity: torrentEntity, completion: completion)
+        if url.scheme == "magnet" {
+            addMagnetToSession(url, torrentEntity: torrentEntity, completion: completion)
+        } else {
+            downloadTorrentFile(from: url, torrentEntity: torrentEntity, completion: completion)
+        }
     }
 
-    /// Internal: fetch the .torrent binary from `url` and add it to the LibTorrent session.
-    private func downloadTorrentData(from url: URL,
+    /// Add a magnet URI to the LibTorrent session.
+    /// The torrent handle is returned immediately; files become available once
+    /// metadata is fetched from DHT/peers (triggers didReceiveUpdateForTorrent).
+    private func addMagnetToSession(_ magnetURL: URL,
+                                    torrentEntity: Torrents,
+                                    completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
+        // Extract the 40-char hex info-hash from xt=urn:btih:HASH in the magnet URI.
+        let hexHash: String? = URLComponents(url: magnetURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "xt" })?
+            .value
+            .flatMap { xt in
+                let parts = xt.components(separatedBy: ":")
+                return parts.last?.lowercased()
+            }
+
+        print("TorrentService: addMagnet hex=\(hexHash ?? "unknown") url=\(magnetURL.absoluteString.prefix(80))")
+
+        DispatchQueue.main.async {
+            // Persist the hash early so HandleTorrentInControllerDidUpdate can match updates.
+            if let hex = hexHash {
+                torrentEntity.torrentHashString = hex
+                try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
+            }
+
+            // Return existing handle if already active.
+            if let hex = hexHash, let existing = self.handles[hex] {
+                print("TorrentService: magnet already in session, reusing handle \(hex)")
+                completion(.success(existing))
+                return
+            }
+
+            // Add to session. Returns a handle immediately (snapshot.files is empty until
+            // metadata arrives from DHT/peers and didReceiveUpdateForTorrent fires).
+            if let handle = self.session.addTorrent(magnetURL) {
+                let hex = handle.infoHashes.best.hex
+                print("TorrentService: addTorrent(magnet) ok, hex=\(hex)")
+                self.handles[hex] = handle
+                if hexHash == nil {
+                    torrentEntity.torrentHashString = hex
+                    try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
+                }
+                completion(.success(handle))
+                return
+            }
+
+            // Duplicate — libtorrent already has this magnet; find the existing handle.
+            if let hex = hexHash,
+               let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hex }) {
+                print("TorrentService: magnet duplicate, found in session.torrents \(hex)")
+                self.handles[hex] = existing
+                completion(.success(existing))
+                return
+            }
+
+            completion(.failure(NSError(domain: "TorrentService", code: 4,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Could not add magnet link to the download session.\n" +
+                    "Magnet: \(magnetURL.absoluteString.prefix(120))"])))
+        }
+    }
+
+    /// Fallback: download the .torrent binary and add it to the session.
+    /// Used for entries in CoreData that pre-date the magnet URI feature.
+    private func downloadTorrentFile(from url: URL,
                                      torrentEntity: Torrents,
-                                     completion: @escaping (Result<(handle: TorrentHandle, torrentFile: TorrentFile), Error>) -> Void) {
+                                     completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        // Full iOS Safari User-Agent — nyaa.si (Cloudflare) may block weaker UA strings.
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             forHTTPHeaderField: "User-Agent")
-        request.setValue("application/x-bittorrent, application/octet-stream, */*;q=0.8", forHTTPHeaderField: "Accept")
-        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        request.setValue("application/x-bittorrent, */*;q=0.8", forHTTPHeaderField: "Accept")
         request.setValue("https://nyaa.si", forHTTPHeaderField: "Referer")
-
-        print("TorrentService: downloading from \(url)")
+        print("TorrentService: downloading .torrent from \(url)")
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
-
             let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-
             if let error = error {
-                print("TorrentService: network error (HTTP \(httpStatus)): \(error)")
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
             }
-
             guard let data = data, !data.isEmpty else {
-                print("TorrentService: empty response (HTTP \(httpStatus)) from \(url)")
                 DispatchQueue.main.async {
                     completion(.failure(NSError(domain: "TorrentService", code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Server returned an empty response (HTTP \(httpStatus)).\nURL: \(url)"])))
+                        userInfo: [NSLocalizedDescriptionKey: "Empty response (HTTP \(httpStatus)) from \(url)"])))
                 }
                 return
             }
-
-            // Log the first bytes so we can diagnose HTML vs binary torrent responses.
-            let preview = String(bytes: data.prefix(100), encoding: .utf8) ?? "<binary \(data.count) bytes>"
-            print("TorrentService: \(data.count) bytes (HTTP \(httpStatus)): \(preview.prefix(100))")
+            let preview = String(bytes: data.prefix(120), encoding: .utf8) ?? "<binary \(data.count) bytes>"
+            print("TorrentService: \(data.count) bytes (HTTP \(httpStatus)): \(preview.prefix(120))")
 
             guard let torrentFile = TorrentFile(with: data) else {
-                // The server returned something, but it's not a valid .torrent file.
-                // Likely Cloudflare HTML or a redirect page.
-                let snippet = String(bytes: data.prefix(100), encoding: .utf8) ?? "<binary>"
-                print("TorrentService: invalid torrent data (HTTP \(httpStatus)): \(snippet)")
+                let snippet = (String(bytes: data.prefix(200), encoding: .utf8) ?? "<binary>").prefix(200)
                 DispatchQueue.main.async {
                     completion(.failure(NSError(domain: "TorrentService", code: 2,
                         userInfo: [NSLocalizedDescriptionKey:
-                            "Server did not return a valid .torrent file (HTTP \(httpStatus)).\n" +
-                            "Server response:\n\(snippet)"])))
+                            "Server returned HTML/invalid data instead of a .torrent file (HTTP \(httpStatus)).\n" +
+                            "Response:\n\(snippet)\n\nTip: re-search the anime to get a fresh magnet link."])))
                 }
                 return
             }
 
             let hexHash = torrentFile.infoHashes.best.hex
-            print("TorrentService: parsed '\(torrentFile.name)' hash=\(hexHash) files=\(torrentFile.files.count)")
+            print("TorrentService: parsed '\(torrentFile.name)' hash=\(hexHash)")
 
             DispatchQueue.main.async {
                 torrentEntity.torrentHashString = hexHash
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-                // 1. Already tracked in our active handles dict?
-                if let existingHandle = self.handles[hexHash] {
-                    print("TorrentService: reusing active handle for \(hexHash)")
-                    completion(.success((handle: existingHandle, torrentFile: torrentFile)))
+                if let existing = self.handles[hexHash] {
+                    completion(.success(existing))
                     return
                 }
-
-                // 2. Add to session. addTorrent() synchronously calls didAddTorrent (which
-                //    stores the handle in self.handles) and returns the new TorrentHandle.
-                if let newHandle = self.session.addTorrent(torrentFile) {
-                    print("TorrentService: addTorrent() succeeded, files=\(torrentFile.files.count)")
-                    self.handles[hexHash] = newHandle
-                    completion(.success((handle: newHandle, torrentFile: torrentFile)))
+                if let handle = self.session.addTorrent(torrentFile) {
+                    self.handles[hexHash] = handle
+                    completion(.success(handle))
                     return
                 }
-
-                // 3. addTorrent() returned nil — torrent already exists in the libtorrent session
-                //    (duplicate add; C++ throws std::exception internally → nil return).
-                //    Find the existing handle by hex string comparison.
-                print("TorrentService: addTorrent() returned nil (duplicate), searching session")
-                if let restoredHandle = self.session.torrents.first(where: {
-                    $0.infoHashes.best.hex == hexHash
-                }) {
-                    print("TorrentService: found existing handle in session.torrents")
-                    self.handles[hexHash] = restoredHandle
-                    completion(.success((handle: restoredHandle, torrentFile: torrentFile)))
+                if let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hexHash }) {
+                    self.handles[hexHash] = existing
+                    completion(.success(existing))
                     return
                 }
-
-                // 4. Genuinely not found — report failure.
-                print("TorrentService: handle not found after add attempt")
                 completion(.failure(NSError(domain: "TorrentService", code: 3,
-                    userInfo: [NSLocalizedDescriptionKey:
-                        "Torrent file parsed successfully but could not be added to the download session.\n" +
-                        "Hash: \(hexHash)"])))
+                    userInfo: [NSLocalizedDescriptionKey: "Could not add torrent to session (hash: \(hexHash))"])))
             }
         }.resume()
     }

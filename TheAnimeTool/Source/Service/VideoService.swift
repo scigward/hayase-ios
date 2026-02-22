@@ -40,9 +40,9 @@ public class VideoService: NSObject {
         TorrentService.sharedTorrentService.UpdateTorrentEntityInController(torrentEntity) { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let (handle, torrentFile)):
+            case .success(let handle):
                 self.ClearCurrentTorrentEntityAndVideos()
-                self.UpdateLocalVideosWithHandle(handle, torrentFile: torrentFile)
+                self.UpdateLocalVideosWithHandle(handle)
             case .failure(let error):
                 print("VideoService: torrent update failed: \(error.localizedDescription)")
                 self.lastError = error
@@ -71,50 +71,54 @@ public class VideoService: NSObject {
         self.torrentHandle = nil
     }
 
-    func UpdateLocalVideosWithHandle(_ handle: TorrentHandle, torrentFile: TorrentFile) {
-        // Store handle + hash so the notification filter can match future progress updates.
+    /// Store the active handle and torrent hash.  CoreData is NOT populated here —
+    /// for magnet links the file list is only available after metadata is fetched from
+    /// peers/DHT, which triggers `didReceiveUpdateForTorrent` → `HandleTorrentInControllerDidUpdate`.
+    /// That method watches for `snapshot.files.count > 0` and then populates CoreData.
+    func UpdateLocalVideosWithHandle(_ handle: TorrentHandle) {
         self.torrentHandle = handle
-        self.torrentEntity.torrentHashString = handle.infoHashes.best.hex
+        let hex = handle.infoHashes.best.hex
+        torrentEntity.torrentHashString = hex
         try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
+        print("VideoService: handle stored hex=\(hex), waiting for metadata via snapshot updates")
 
-        // Use torrentFile.files (isPrototype=true entries parsed directly from .torrent binary)
-        // for immediate CoreData population.  snapshot.files requires torrent_file() to be
-        // non-null in libtorrent, which only happens after add_torrent_alert is processed on
-        // the alerts thread (~500 ms after addTorrent() returns).  This matches iTorrent's
-        // approach: TorrentFile.files for initial display; snapshot.files for live progress.
-        let files = torrentFile.files
-        guard !files.isEmpty else {
-            print("VideoService: torrent file has no entries")
-            coreDataIsReady = true
-            NotificationCenter.default.post(
-                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
-            return
+        // Fast path: if metadata is already available (re-open of existing torrent or
+        // .torrent file add), populate CoreData immediately.
+        handle.updateSnapshot()
+        let files = handle.snapshot.files
+        if !files.isEmpty {
+            print("VideoService: metadata available immediately, \(files.count) files")
+            insertVideosFromSnapshot(files, snapshot: handle.snapshot)
+        } else {
+            print("VideoService: metadata not yet available — spinner stays until didReceiveUpdateForTorrent")
         }
+    }
+
+    /// Insert video rows from a fully-populated snapshot file list.
+    private func insertVideosFromSnapshot(_ files: [FileEntry], snapshot: TorrentHandle.Snapshot) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         for entry in files {
-            guard let v = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as? Videos else {
-                print("VideoService: unexpected entity type for \(Videos.entityName)")
-                continue
-            }
+            guard let v = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as? Videos else { continue }
             v.videoName = entry.name
             v.videoSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
+            // Use entry.index (file's actual position in the torrent) not the array position —
+            // the list may be sparse or reordered and the index must match libtorrent's indexing.
             v.videoIndex = NSNumber(value: entry.index)
             v.torrents = torrentEntity
         }
         do {
             try context.save()
+            coreDataIsReady = true
+            print("VideoService: CoreData populated with \(files.count) videos")
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
         } catch {
             print("VideoService: CoreData save error: \(error)")
+            // Still mark ready and notify so the spinner stops (shows empty state).
             coreDataIsReady = true
             NotificationCenter.default.post(
                 name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
-            return
         }
-        // Mark ready BEFORE posting so that any re-entrant notification handler
-        // sees the correct state.
-        coreDataIsReady = true
-        NotificationCenter.default.post(
-            name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
     }
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
@@ -169,19 +173,33 @@ public class VideoService: NSObject {
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
-        // CRITICAL: do not stop the spinner until CoreData has been populated.
-        // Without this guard, a background update for a torrent whose hash was
-        // persisted in CoreData from a previous session fires immediately after
-        // VideoService is created — stopping the spinner before any video rows exist.
-        guard coreDataIsReady else { return }
         guard let handle = notification.userInfo?["torrentHandle"] as? TorrentHandle else { return }
         let handleHex = handle.infoHashes.best.hex
         guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
         self.torrentHandle = handle
-        // CoreData is already populated from torrentFile.files in UpdateLocalVideosWithHandle.
-        // Just notify the UI to refresh progress values read from handle.snapshot.
-        NotificationCenter.default.post(
-            name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+
+        let files = handle.snapshot.files
+
+        if !coreDataIsReady {
+            // Metadata not yet committed to CoreData. For magnet links, files is empty
+            // until the metadata is fetched from peers/DHT. Once files.count > 0 we can
+            // populate CoreData and show the file list.
+            guard !files.isEmpty else {
+                print("VideoService: snapshot update but still no files (waiting for metadata)")
+                return  // Keep spinner running.
+            }
+            print("VideoService: metadata arrived via update, \(files.count) files — populating CoreData")
+            ClearCurrentTorrentEntityAndVideos()   // clear any stale rows from previous attempt
+            // Re-store handle since ClearCurrentTorrentEntityAndVideos() nils it.
+            self.torrentHandle = handle
+            torrentEntity.torrentHashString = handleHex
+            insertVideosFromSnapshot(files, snapshot: handle.snapshot)
+        } else {
+            // CoreData already has video rows. Just notify the UI to refresh progress
+            // values read live from handle.snapshot.
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        }
     }
 
     @objc private func HandleTorrentInControllerUpdateFailed(_ notification: Notification) {

@@ -149,6 +149,8 @@ class VideoListViewController: UIViewController {
         if let entity = torrentEntity {
             videoService = VideoService(torrentEntity: entity)
             loadingIndicator.startAnimating()
+            emptyLabel.text = "Fetching metadata from peers…"
+            emptyLabel.isHidden = false
             startLoadingTimeout()
             videoService?.UpdateLocalVideo()
         }
@@ -202,19 +204,20 @@ class VideoListViewController: UIViewController {
         view.addSubview(loadingIndicator)
 
         emptyLabel = UILabel()
-        emptyLabel.text = "No video files found"
+        emptyLabel.text = "Fetching metadata from peers…"
         emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.font = .systemFont(ofSize: 15)
         emptyLabel.textAlignment = .center
+        emptyLabel.numberOfLines = 0
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.isHidden = true
         view.addSubview(emptyLabel)
 
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -24),
             emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyLabel.topAnchor.constraint(equalTo: loadingIndicator.bottomAnchor, constant: 16),
             emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
             emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
         ])
@@ -251,11 +254,12 @@ class VideoListViewController: UIViewController {
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.stopUpdating else { return }
             // Only reload cells to refresh live progress from handle.snapshot.
-            // performFetch() is called in handleVideosDidUpdate when the dataset changes;
-            // doing it on every timer tick would be redundant.
             self.tableView.reloadData()
             let count = self.videoResultsController?.sections?.first?.objects?.count ?? 0
-            self.emptyLabel.isHidden = self.loadingIndicator.isAnimating || count > 0
+            if !self.loadingIndicator.isAnimating && count == 0 {
+                self.emptyLabel.text = "No video files found"
+                self.emptyLabel.isHidden = false
+            }
         }
     }
 
@@ -276,7 +280,7 @@ class VideoListViewController: UIViewController {
         performFetch()
         tableView.reloadData()
         let count = videoResultsController?.sections?.first?.objects?.count ?? 0
-        emptyLabel.text = "No video files found"
+        emptyLabel.text = count == 0 ? "No video files found" : ""
         emptyLabel.isHidden = count > 0
     }
 
@@ -301,14 +305,28 @@ class VideoListViewController: UIViewController {
         let item = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             self.loadingIndicator.stopAnimating()
-            let alert = UIAlertController(title: "Error",
-                message: "Could not load torrent. Check your connection or try a different torrent.",
+            self.emptyLabel.text = "Timed out fetching metadata"
+            self.emptyLabel.isHidden = false
+            let alert = UIAlertController(title: "Timed Out",
+                message: "Could not fetch torrent metadata after 90 seconds. Check your internet connection or try a different torrent.",
                 preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                guard let self = self, let vs = self.videoService else { return }
+                self.emptyLabel.text = "Fetching metadata from peers…"
+                self.emptyLabel.isHidden = false
+                self.loadingIndicator.startAnimating()
+                self.startLoadingTimeout()
+                vs.UpdateLocalVideo()
+            })
+            alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel) { [weak self] _ in
+                self?.emptyLabel.text = "Timed out"
+                self?.emptyLabel.isHidden = false
+            })
             self.present(alert, animated: true)
         }
         loadingTimeout = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
+        // 90 seconds — magnets need DHT/peer negotiation to fetch metadata.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90, execute: item)
     }
 
     // MARK: - Navigation
