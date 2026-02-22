@@ -519,6 +519,16 @@ class BrowseAnimeViewController: UIViewController {
     private var lastSearchString = ""
     private var searchDebounceTimer: Timer?
 
+    // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        tabBarItem = UITabBarItem(
+            title: "Home",
+            image: UIImage(systemName: "house"),
+            selectedImage: UIImage(systemName: "house.fill"))
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -562,9 +572,6 @@ class BrowseAnimeViewController: UIViewController {
     private func setupNavigationBar() {
         // Hayase home/+page.svelte has no title — just content starting from the top
         title = nil
-        tabBarItem.title = "Home"
-        tabBarItem.image = UIImage(systemName: "house")
-        tabBarItem.selectedImage = UIImage(systemName: "house.fill")
     }
 
     private func setupCollectionView() {
