@@ -43,6 +43,24 @@ struct HomeSectionData {
     var items: [AnimeItem]
 }
 
+// MARK: - Staff + Stats models (anime/[id]/staff.svelte, anime/[id]/stats.svelte)
+
+struct AnimeStaffMember {
+    let name: String
+    let imageURL: String?
+    let role: String      // e.g. "Director", "Character Design", "Music"
+}
+
+struct AnimeScorePoint {
+    let score: Int        // 10, 20, 30 … 100
+    let amount: Int       // number of users who gave this score
+}
+
+struct AnimeStatusCount {
+    let status: String    // "CURRENT", "COMPLETED", "PLANNING", "DROPPED", "PAUSED"
+    let amount: Int
+}
+
 public class AnimeService: NSObject {
     enum AnimeError: Error {
         case errorSavingCoreData
@@ -705,4 +723,87 @@ public class AnimeService: NSObject {
     }
 
     static let sharedAnimeService = AnimeService()
+
+    // MARK: - Staff + Stats fetch (anime/[id]/staff.svelte + anime/[id]/stats.svelte)
+
+    private let staffStatsQuery = """
+    query ($id: Int) {
+      Media(id: $id, type: ANIME) {
+        staff(sort: [RELEVANCE], page: 1, perPage: 12) {
+          edges {
+            role
+            node {
+              name { full }
+              image { medium }
+            }
+          }
+        }
+        stats {
+          scoreDistribution { score amount }
+          statusDistribution { status amount }
+        }
+      }
+    }
+    """
+
+    private struct StaffStatsResponse: Codable {
+        let data: SSData?
+        struct SSData: Codable { let Media: SSMedia? }
+        struct SSMedia: Codable {
+            let staff: StaffConn?
+            let stats: MediaStats?
+        }
+        struct StaffConn: Codable { let edges: [StaffEdge]? }
+        struct StaffEdge: Codable {
+            let role: String?
+            let node: StaffNode?
+        }
+        struct StaffNode: Codable {
+            let name: StaffName?
+            let image: StaffImage?
+            struct StaffName: Codable { let full: String? }
+            struct StaffImage: Codable { let medium: String? }
+        }
+        struct MediaStats: Codable {
+            let scoreDistribution: [ScoreDist]?
+            let statusDistribution: [StatusDist]?
+            struct ScoreDist: Codable { let score: Int?; let amount: Int? }
+            struct StatusDist: Codable { let status: String?; let amount: Int? }
+        }
+    }
+
+    /// Fetch staff members and score/status distribution for an AniList anime.
+    /// Calls completion on the main queue.
+    func fetchStaffAndStats(id: Int,
+                            completion: @escaping ([AnimeStaffMember], [AnimeScorePoint], [AnimeStatusCount]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([], [], []); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": staffStatsQuery, "variables": ["id": id]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(StaffStatsResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                DispatchQueue.main.async { completion([], [], []) }
+                return
+            }
+            let staff: [AnimeStaffMember] = (media.staff?.edges ?? []).compactMap { edge in
+                guard let node = edge.node, let name = node.name?.full else { return nil }
+                return AnimeStaffMember(name: name, imageURL: node.image?.medium, role: edge.role ?? "")
+            }
+            let scores: [AnimeScorePoint] = (media.stats?.scoreDistribution ?? []).compactMap { d in
+                guard let s = d.score, let a = d.amount else { return nil }
+                return AnimeScorePoint(score: s, amount: a)
+            }.sorted { $0.score < $1.score }
+            let statuses: [AnimeStatusCount] = (media.stats?.statusDistribution ?? []).compactMap { d in
+                guard let s = d.status, let a = d.amount else { return nil }
+                return AnimeStatusCount(status: s, amount: a)
+            }
+            DispatchQueue.main.async { completion(staff, scores, statuses) }
+        }.resume()
+    }
 }

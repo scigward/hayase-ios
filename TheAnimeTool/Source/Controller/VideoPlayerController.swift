@@ -13,6 +13,8 @@ import LibTorrent
 /// - Picture-in-Picture (pip.ts: allowsPictureInPicturePlayback)
 /// - Episode title in nav bar / Lock Screen
 /// - Download stats overlay (downloadstats.svelte) while file is still buffering
+/// - Playback speed control (speed.svelte: 0.5× … 2×)
+/// - AirPlay / Route Picker (standard AVRoutePickerView)
 class VideoPlayerController: AVPlayerViewController {
     var videoEntity: Videos? = nil
     /// The active LibTorrent handle for this torrent (used for live stats overlay).
@@ -20,8 +22,12 @@ class VideoPlayerController: AVPlayerViewController {
     /// Index of the file being played inside the torrent (for per-file stats).
     var fileIndex: UInt = 0
 
+    /// The currently selected playback rate; applied when AVPlayer starts.
+    var selectedRate: Float = 1.0
+
     private var statsTimer: Timer?
     private var statsOverlay: UILabel?
+    private weak var speedButton: UIButton?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -31,6 +37,8 @@ class VideoPlayerController: AVPlayerViewController {
         if let name = videoEntity?.videoName, !name.isEmpty {
             title = name
         }
+        setupSpeedControl()
+        setupAirPlayButton()
         guard let videoPath = videoEntity?.videoPath else { return }
         let url = URL(fileURLWithPath: videoPath)
         DispatchQueue.global(qos: .default).async {
@@ -38,9 +46,65 @@ class VideoPlayerController: AVPlayerViewController {
             DispatchQueue.main.async {
                 self.player = player
                 player.play()
+                // Apply user-selected speed (play() resets rate to 1.0)
+                if self.selectedRate != 1.0 { player.rate = self.selectedRate }
                 self.setupDownloadStatsOverlay()
             }
         }
+    }
+
+    // MARK: - Speed control (Hayase speed.svelte)
+
+    private func setupSpeedControl() {
+        let button = UIButton(type: .system)
+        button.setTitle("1×", for: .normal)
+        button.titleLabel?.font = .monospacedSystemFont(ofSize: 14, weight: .semibold)
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        button.tintColor = .white
+        button.layer.cornerRadius = 6
+        button.clipsToBounds = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        let speeds: [(String, Float)] = [
+            ("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
+            ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0),
+        ]
+        let actions = speeds.map { label, rate -> UIAction in
+            UIAction(title: label, state: rate == self.selectedRate ? .on : .off) { [weak self, weak button] _ in
+                self?.selectedRate = rate
+                self?.player?.rate = rate
+                button?.setTitle(label, for: .normal)
+            }
+        }
+        button.menu = UIMenu(title: "Playback Speed", children: actions.reversed())
+        button.showsMenuAsPrimaryAction = true
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            button.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            button.widthAnchor.constraint(equalToConstant: 46),
+            button.heightAnchor.constraint(equalToConstant: 30),
+        ])
+        speedButton = button
+    }
+
+    // MARK: - AirPlay route picker
+
+    private func setupAirPlayButton() {
+        let picker = AVRoutePickerView()
+        picker.activeTintColor = .systemIndigo
+        picker.tintColor = .white
+        picker.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        picker.layer.cornerRadius = 6
+        picker.clipsToBounds = true
+        picker.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(picker)
+        let leadingAnchor = speedButton?.trailingAnchor ?? view.safeAreaLayoutGuide.leadingAnchor
+        NSLayoutConstraint.activate([
+            picker.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            picker.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            picker.widthAnchor.constraint(equalToConstant: 36),
+            picker.heightAnchor.constraint(equalToConstant: 30),
+        ])
     }
 
     // MARK: - Download stats overlay (Hayase downloadstats.svelte)

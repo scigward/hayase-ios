@@ -192,11 +192,12 @@ private final class EpisodeCell: UITableViewCell {
 
 // MARK: - HorizontalCardsCell
 // A UITableViewCell containing a horizontal UICollectionView.
-// tag 100 → Relations, tag 200 → Characters.
+// tag 100 → Relations, tag 200 → Characters, tag 300 → Staff.
 
 private final class HorizontalCardsCell: UITableViewCell {
     static let relationsReuseID  = "HorizontalRelationsCell"
     static let charactersReuseID = "HorizontalCharactersCell"
+    static let staffReuseID      = "HorizontalStaffCell"
 
     let collectionView: UICollectionView
 
@@ -407,7 +408,232 @@ private final class CharacterCardCell: UICollectionViewCell {
     }
 }
 
+// MARK: - StaffCardCell (anime/[id]/staff.svelte)
 
+private final class StaffCardCell: UICollectionViewCell {
+    static let reuseID = "StaffCardCell"
+
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.backgroundColor = .systemGray5
+        iv.layer.cornerRadius = 6
+        return iv
+    }()
+
+    private let nameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.textColor = .label
+        l.numberOfLines = 2
+        return l
+    }()
+
+    private let roleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 8)
+        l.textColor = .secondaryLabel
+        l.numberOfLines = 1
+        return l
+    }()
+
+    private var imageTask: URLSessionDataTask?
+    private var currentURL: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let stack = UIStackView(arrangedSubviews: [nameLabel, roleLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        [imageView, stack].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
+
+            stack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(with member: AnimeStaffMember) {
+        nameLabel.text = member.name
+        roleLabel.text = member.role
+        imageTask?.cancel(); imageTask = nil
+        currentURL = member.imageURL
+        imageView.image = nil
+        guard let urlStr = member.imageURL, let url = URL(string: urlStr) else { return }
+        let captured = urlStr
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data, let img = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                if self?.currentURL == captured {
+                    UIView.transition(with: self?.imageView ?? UIImageView(),
+                                      duration: 0.2, options: .transitionCrossDissolve,
+                                      animations: { self?.imageView.image = img })
+                }
+            }
+        }
+        imageTask?.resume()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel(); imageTask = nil; currentURL = nil
+        imageView.image = nil; nameLabel.text = nil; roleLabel.text = nil
+    }
+}
+
+// MARK: - ScoreBarChartView + StatsCell (anime/[id]/stats.svelte)
+
+private final class ScoreBarChartView: UIView {
+    private var arrangedStack: UIStackView?
+
+    func configure(with points: [AnimeScorePoint]) {
+        arrangedStack?.removeFromSuperview()
+        arrangedStack = nil
+        guard !points.isEmpty else { return }
+        let maxAmount = points.map { $0.amount }.max() ?? 1
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.alignment = .bottom
+        stack.spacing = 3
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        arrangedStack = stack
+        for point in points {
+            let col = UIView()
+            let bar = UIView()
+            // Shade darkens for higher scores (Hayase uses indigo gradient)
+            let alpha = 0.4 + 0.6 * CGFloat(point.score) / 100.0
+            bar.backgroundColor = UIColor.systemIndigo.withAlphaComponent(alpha)
+            bar.layer.cornerRadius = 2
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            let lbl = UILabel()
+            lbl.text = "\(point.score)"
+            lbl.font = .systemFont(ofSize: 7)
+            lbl.textColor = .tertiaryLabel
+            lbl.textAlignment = .center
+            lbl.translatesAutoresizingMaskIntoConstraints = false
+            col.addSubview(bar)
+            col.addSubview(lbl)
+            let fraction = max(0.04, CGFloat(point.amount) / CGFloat(maxAmount))
+            NSLayoutConstraint.activate([
+                lbl.bottomAnchor.constraint(equalTo: col.bottomAnchor),
+                lbl.leadingAnchor.constraint(equalTo: col.leadingAnchor),
+                lbl.trailingAnchor.constraint(equalTo: col.trailingAnchor),
+                lbl.heightAnchor.constraint(equalToConstant: 14),
+                bar.leadingAnchor.constraint(equalTo: col.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: col.trailingAnchor),
+                bar.bottomAnchor.constraint(equalTo: lbl.topAnchor, constant: -2),
+                bar.heightAnchor.constraint(equalTo: col.heightAnchor, multiplier: fraction * 0.85),
+            ])
+            stack.addArrangedSubview(col)
+        }
+    }
+}
+
+private final class StatsCell: UITableViewCell {
+    static let reuseID = "AniDetailStatsCell"
+
+    private let chartView = ScoreBarChartView()
+    private let statusStack = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
+
+    private func makeTitle(_ text: String) -> UILabel {
+        let l = UILabel()
+        l.text = text
+        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.textColor = .label
+        return l
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+        chartView.translatesAutoresizingMaskIntoConstraints = false
+        statusStack.axis = .vertical
+        statusStack.spacing = 10
+        let mainStack = UIStackView(arrangedSubviews: [
+            makeTitle("Score Distribution"), chartView,
+            makeTitle("Watching Status"), statusStack,
+        ])
+        mainStack.axis = .vertical
+        mainStack.spacing = 14
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(mainStack)
+        NSLayoutConstraint.activate([
+            chartView.heightAnchor.constraint(equalToConstant: 90),
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+        ])
+    }
+
+    func configure(scores: [AnimeScorePoint], statuses: [AnimeStatusCount]) {
+        chartView.configure(with: scores)
+        statusStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let total = statuses.reduce(0) { $0 + $1.amount }
+        for status in statuses {
+            let fraction = total > 0 ? Float(status.amount) / Float(total) : 0
+            let name = status.status.replacingOccurrences(of: "_", with: " ").capitalized
+            let nameLabel = UILabel()
+            nameLabel.text = name
+            nameLabel.font = .systemFont(ofSize: 11)
+            nameLabel.textColor = .label
+            nameLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
+            let progress = UIProgressView(progressViewStyle: .default)
+            progress.setProgress(fraction, animated: false)
+            progress.progressTintColor = Self.statusColor(for: status.status)
+            progress.trackTintColor = .systemGray5
+            let countLabel = UILabel()
+            countLabel.text = "\(status.amount)"
+            countLabel.font = .systemFont(ofSize: 11)
+            countLabel.textColor = .secondaryLabel
+            countLabel.textAlignment = .right
+            countLabel.widthAnchor.constraint(equalToConstant: 52).isActive = true
+            let row = UIStackView(arrangedSubviews: [nameLabel, progress, countLabel])
+            row.axis = .horizontal
+            row.spacing = 8
+            row.alignment = .center
+            statusStack.addArrangedSubview(row)
+        }
+    }
+
+    private static func statusColor(for status: String) -> UIColor {
+        switch status {
+        case "CURRENT":   return .systemGreen
+        case "COMPLETED": return .systemBlue
+        case "PLANNING":  return .systemGray
+        case "DROPPED":   return .systemRed
+        case "PAUSED":    return .systemOrange
+        default:          return .systemIndigo
+        }
+    }
+}
+
+// MARK: - AnimeInfoHeaderView
 
 private final class AnimeInfoHeaderView: UIView {
     var onFindTorrents: (() -> Void)?
@@ -831,13 +1057,16 @@ class AnimeDetailViewController: UIViewController {
     private var episodes: [AniZipEpisode] = []
     private var relations: [AnimeRelation] = []
     private var characters: [AnimeCharacter] = []
+    private var staff: [AnimeStaffMember] = []
+    private var scoreDistribution: [AnimeScorePoint] = []
+    private var statusDistribution: [AnimeStatusCount] = []
     private var episodeFetchTask: URLSessionDataTask?
 
-    // Active tab for the segmented control (Episodes | Relations | Characters)
+    // Active tab for the segmented control (Episodes | Relations | Characters | Staff | Stats)
     private var activeSection: Section = .episodes
 
     private lazy var segControl: UISegmentedControl = {
-        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Characters"])
+        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Chars", "Staff", "Stats"])
         sc.selectedSegmentIndex = 0
         sc.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
         return sc
@@ -861,7 +1090,7 @@ class AnimeDetailViewController: UIViewController {
 
     // Section indices
     private enum Section: Int, CaseIterable {
-        case episodes = 0, relations, characters
+        case episodes = 0, relations, characters, staff, stats
     }
 
     // MARK: - Lifecycle
@@ -877,6 +1106,7 @@ class AnimeDetailViewController: UIViewController {
         setupHeaderView()
         fetchEpisodes()
         fetchRelationsAndCharacters()
+        fetchStaffAndStats()
     }
 
     override func viewDidLayoutSubviews() {
@@ -894,6 +1124,8 @@ class AnimeDetailViewController: UIViewController {
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.charactersReuseID)
+        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.staffReuseID)
+        tableView.register(StatsCell.self, forCellReuseIdentifier: StatsCell.reuseID)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
@@ -1021,6 +1253,28 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
+    // MARK: - Fetch staff + stats (anime/[id]/staff.svelte + anime/[id]/stats.svelte)
+
+    private func fetchStaffAndStats() {
+        let id: Int?
+        if let entity = animeEntity { id = entity.animeAnilistId?.intValue }
+        else { id = animeItem?.id }
+        guard let anilistId = id else { return }
+
+        AnimeService.sharedAnimeService.fetchStaffAndStats(id: anilistId) { [weak self] staffMembers, scores, statuses in
+            guard let self = self else { return }
+            self.staff = staffMembers
+            self.scoreDistribution = scores
+            self.statusDistribution = statuses
+            var sections = IndexSet()
+            if !staffMembers.isEmpty { sections.insert(Section.staff.rawValue) }
+            if !scores.isEmpty || !statuses.isEmpty { sections.insert(Section.stats.rawValue) }
+            if !sections.isEmpty {
+                self.tableView.reloadSections(sections, with: .fade)
+            }
+        }
+    }
+
     // MARK: - Segment control
 
     @objc private func segmentChanged() {
@@ -1053,6 +1307,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
         case .episodes:   return activeSection == .episodes  ? episodes.count : 0
         case .relations:  return (activeSection == .relations  && !relations.isEmpty)  ? 1 : 0
         case .characters: return (activeSection == .characters && !characters.isEmpty) ? 1 : 0
+        case .staff:      return (activeSection == .staff      && !staff.isEmpty)      ? 1 : 0
+        case .stats:      return (activeSection == .stats && (!scoreDistribution.isEmpty || !statusDistribution.isEmpty)) ? 1 : 0
         case .none: return 0
         }
     }
@@ -1096,6 +1352,26 @@ extension AnimeDetailViewController: UITableViewDataSource {
             cell.collectionView.reloadData()
             return cell
 
+        case .staff:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HorizontalCardsCell.staffReuseID,
+                for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
+            cell.collectionView.tag = 300
+            cell.collectionView.dataSource = self
+            cell.collectionView.delegate = self
+            cell.collectionView.register(StaffCardCell.self,
+                                         forCellWithReuseIdentifier: StaffCardCell.reuseID)
+            cell.collectionView.reloadData()
+            return cell
+
+        case .stats:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: StatsCell.reuseID, for: indexPath) as? StatsCell else {
+                return UITableViewCell()
+            }
+            cell.configure(scores: scoreDistribution, statuses: statusDistribution)
+            return cell
+
         case .none:
             return UITableViewCell()
         }
@@ -1118,7 +1394,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
-        case .relations, .characters: return 160
+        case .relations, .characters, .staff: return 160
         default: return UITableView.automaticDimension
         }
     }
@@ -1135,23 +1411,37 @@ extension AnimeDetailViewController: UITableViewDelegate {
 
 extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return collectionView.tag == 100 ? relations.count : characters.count
+        switch collectionView.tag {
+        case 100: return relations.count
+        case 200: return characters.count
+        case 300: return staff.count
+        default:  return 0
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        if collectionView.tag == 100 {
+        switch collectionView.tag {
+        case 100:
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
             else { return UICollectionViewCell() }
             cell.configure(with: relations[indexPath.item])
             return cell
-        } else {
+        case 200:
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: CharacterCardCell.reuseID, for: indexPath) as? CharacterCardCell
             else { return UICollectionViewCell() }
             cell.configure(with: characters[indexPath.item])
             return cell
+        case 300:
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: StaffCardCell.reuseID, for: indexPath) as? StaffCardCell
+            else { return UICollectionViewCell() }
+            cell.configure(with: staff[indexPath.item])
+            return cell
+        default:
+            return UICollectionViewCell()
         }
     }
 }
