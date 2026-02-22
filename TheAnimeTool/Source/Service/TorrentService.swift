@@ -361,7 +361,13 @@ public class TorrentService: NSObject, SessionDelegate {
 
             // Add to session. Returns a handle immediately (snapshot.files is empty until
             // metadata arrives from DHT/peers and didReceiveUpdateForTorrent fires).
-            if let handle = self.session.addTorrent(magnetURL) {
+            // session.addTorrent() takes id<Downloadable> — use MagnetURI wrapper, not raw URL.
+            guard let magnetURI = MagnetURI(with: magnetURL) else {
+                completion(.failure(NSError(domain: "TorrentService", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid magnet URI: \(magnetURL.absoluteString.prefix(120))"])))
+                return
+            }
+            if let handle = self.session.addTorrent(magnetURI) {
                 let hex = handle.infoHashes.best.hex
                 print("TorrentService: addTorrent(magnet) ok, hex=\(hex)")
                 self.handles[hex] = handle
