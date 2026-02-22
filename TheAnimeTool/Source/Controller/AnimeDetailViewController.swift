@@ -203,6 +203,23 @@ private final class AnimeInfoHeaderView: UIView {
         return sv
     }()
 
+    // Genre chips row — horizontal, scrollable
+    private let genresStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 8
+        sv.alignment = .center
+        return sv
+    }()
+
+    private let genresScrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsHorizontalScrollIndicator = false
+        sv.showsVerticalScrollIndicator = false
+        sv.alwaysBounceHorizontal = true
+        return sv
+    }()
+
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 14)
@@ -240,8 +257,20 @@ private final class AnimeInfoHeaderView: UIView {
     private func setup() {
         findTorrentsButton.addTarget(self, action: #selector(findTorrentsTapped), for: .touchUpInside)
 
-        // Outer stack: desc + button with margins
-        let bottomStack = UIStackView(arrangedSubviews: [descriptionLabel, findTorrentsButton])
+        // Genre scroll view contains genresStack
+        genresScrollView.translatesAutoresizingMaskIntoConstraints = false
+        genresStack.translatesAutoresizingMaskIntoConstraints = false
+        genresScrollView.addSubview(genresStack)
+        NSLayoutConstraint.activate([
+            genresStack.topAnchor.constraint(equalTo: genresScrollView.topAnchor),
+            genresStack.bottomAnchor.constraint(equalTo: genresScrollView.bottomAnchor),
+            genresStack.leadingAnchor.constraint(equalTo: genresScrollView.leadingAnchor),
+            genresStack.trailingAnchor.constraint(equalTo: genresScrollView.trailingAnchor),
+            genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
+        ])
+
+        // Outer stack: genres + desc + button with margins
+        let bottomStack = UIStackView(arrangedSubviews: [genresScrollView, descriptionLabel, findTorrentsButton])
         bottomStack.axis = .vertical
         bottomStack.spacing = 16
         bottomStack.isLayoutMarginsRelativeArrangement = true
@@ -287,6 +316,9 @@ private final class AnimeInfoHeaderView: UIView {
             badgesStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             badgesStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
             badgesStack.bottomAnchor.constraint(lessThanOrEqualTo: coverImageView.bottomAnchor),
+
+            // Genre scroll view: full-width, fixed 32pt height (chip height)
+            genresScrollView.heightAnchor.constraint(equalToConstant: 32),
 
             // Bottom section (description + button): starts below cover image
             bottomStack.topAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: 12),
@@ -335,6 +367,10 @@ private final class AnimeInfoHeaderView: UIView {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         badgesStack.addArrangedSubview(spacer)
 
+        // Genre chips (CoreData entities don't store genres, so hide the row)
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        genresScrollView.isHidden = true
+
         // Synopsis
         let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? "No synopsis available." : desc
@@ -373,10 +409,17 @@ private final class AnimeInfoHeaderView: UIView {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         badgesStack.addArrangedSubview(spacer)
 
-        // AnimeItem is fetched for home-screen sections which don't include description
-        // (synopsis is omitted from section queries to reduce payload size).
-        // The full synopsis is available on the CoreData entity for search/airing results.
-        descriptionLabel.text = "No synopsis available."
+        // Genre chips
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for genre in item.genres.prefix(6) {
+            genresStack.addArrangedSubview(makeGenreChip(text: genre))
+        }
+        genresScrollView.isHidden = item.genres.isEmpty
+
+        // Synopsis from the section query (now included)
+        let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No synopsis available." : desc
+
         loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
@@ -391,6 +434,30 @@ private final class AnimeInfoHeaderView: UIView {
         l.clipsToBounds = true
         l.setContentHuggingPriority(.required, for: .horizontal)
         return l
+    }
+
+    private func makeGenreChip(text: String) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .secondarySystemBackground
+        container.layer.cornerRadius = 12
+        container.layer.borderWidth = 1
+        container.layer.borderColor = UIColor.separator.cgColor
+        container.clipsToBounds = true
+
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .label
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+        ])
+        container.setContentHuggingPriority(.required, for: .horizontal)
+        return container
     }
 
     private func loadImage(from urlString: String?,

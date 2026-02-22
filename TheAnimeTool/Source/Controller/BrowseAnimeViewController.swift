@@ -270,8 +270,6 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.dataSource = self
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
-        collectionView.register(AnimeFeaturedCell.self,
-                                forCellWithReuseIdentifier: AnimeFeaturedCell.reuseID)
         collectionView.register(SectionHeaderView.self,
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
                                 withReuseIdentifier: SectionHeaderView.reuseID)
@@ -285,41 +283,27 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeHomeLayout() -> UICollectionViewLayout {
-        return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
-            if sectionIndex == 0 {
-                // Featured hero card — full width, 220pt tall
-                let item = NSCollectionLayoutItem(
-                    layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                                      heightDimension: .fractionalHeight(1.0)))
-                let group = NSCollectionLayoutGroup.horizontal(
-                    layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                                      heightDimension: .absolute(220)),
-                    subitems: [item])
-                let section = NSCollectionLayoutSection(group: group)
-                section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 16, trailing: 0)
-                return section
-            } else {
-                // Horizontal scrolling row — 110×165pt cards
-                let item = NSCollectionLayoutItem(
-                    layoutSize: .init(widthDimension: .absolute(110),
-                                      heightDimension: .absolute(165)))
-                item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
-                let group = NSCollectionLayoutGroup.horizontal(
-                    layoutSize: .init(widthDimension: .estimated(110),
-                                      heightDimension: .absolute(165)),
-                    subitems: [item])
-                let section = NSCollectionLayoutSection(group: group)
-                section.orthogonalScrollingBehavior = .continuous
-                section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 20, trailing: 16)
-                let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
-                                                        heightDimension: .absolute(44))
-                let header = NSCollectionLayoutBoundarySupplementaryItem(
-                    layoutSize: headerSize,
-                    elementKind: UICollectionView.elementKindSectionHeader,
-                    alignment: .top)
-                section.boundarySupplementaryItems = [header]
-                return section
-            }
+        return UICollectionViewCompositionalLayout { _, _ -> NSCollectionLayoutSection? in
+            // All sections are horizontal scroll rows — 110×165pt cards (Hayase-style)
+            let item = NSCollectionLayoutItem(
+                layoutSize: .init(widthDimension: .absolute(110),
+                                  heightDimension: .absolute(165)))
+            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+            let group = NSCollectionLayoutGroup.horizontal(
+                layoutSize: .init(widthDimension: .estimated(110),
+                                  heightDimension: .absolute(165)),
+                subitems: [item])
+            let section = NSCollectionLayoutSection(group: group)
+            section.orthogonalScrollingBehavior = .continuous
+            section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 20, trailing: 16)
+            let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
+                                                    heightDimension: .absolute(44))
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: headerSize,
+                elementKind: UICollectionView.elementKindSectionHeader,
+                alignment: .top)
+            section.boundarySupplementaryItems = [header]
+            return section
         }
     }
 
@@ -456,7 +440,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
     func numberOfSections(in collectionView: UICollectionView) -> Int {
         if isSearching { return 1 }
-        return sections.isEmpty ? 0 : 1 + sections.count
+        return sections.count
     }
 
     func collectionView(_ collectionView: UICollectionView,
@@ -464,39 +448,24 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         if isSearching {
             return animeResultsController?.sections?.first?.objects?.count ?? 0
         }
-        if section == 0 {
-            return sections.isEmpty ? 0 : min(1, sections[0].items.count)
-        }
-        return sections[section - 1].items.count
+        guard section < sections.count else { return 0 }
+        return sections[section].items.count
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        if isSearching {
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: AnimeCollectionViewCell.reuseID,
-                for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-            if let anime = animeResultsController?.object(at: indexPath) {
-                cell.configure(with: anime)
-            }
-            return cell
-        }
-
-        if indexPath.section == 0 {
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: AnimeFeaturedCell.reuseID,
-                for: indexPath) as? AnimeFeaturedCell else { return UICollectionViewCell() }
-            if !sections.isEmpty && !sections[0].items.isEmpty {
-                cell.configure(with: sections[0].items[0])
-            }
-            return cell
-        }
-
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-        let item = sections[indexPath.section - 1].items[indexPath.item]
-        cell.configure(with: item)
+
+        if isSearching {
+            if let anime = animeResultsController?.object(at: indexPath) {
+                cell.configure(with: anime)
+            }
+        } else if indexPath.section < sections.count,
+                  indexPath.item < sections[indexPath.section].items.count {
+            cell.configure(with: sections[indexPath.section].items[indexPath.item])
+        }
         return cell
     }
 
@@ -507,8 +476,8 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             ofKind: kind,
             withReuseIdentifier: SectionHeaderView.reuseID,
             for: indexPath) as? SectionHeaderView ?? SectionHeaderView(frame: .zero)
-        if !isSearching, indexPath.section > 0, indexPath.section - 1 < sections.count {
-            header.configure(title: sections[indexPath.section - 1].title)
+        if !isSearching, indexPath.section < sections.count {
+            header.configure(title: sections[indexPath.section].title)
         }
         return header
     }
@@ -524,14 +493,9 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
             return
         }
-        if indexPath.section == 0 {
-            guard !sections.isEmpty, !sections[0].items.isEmpty else { return }
-            pendingAnimeItem = sections[0].items[0]
-        } else {
-            let item = sections[indexPath.section - 1].items[indexPath.item]
-            pendingAnimeItem = item
-        }
-        // sender is nil because the item is passed via pendingAnimeItem, not an FRC index path
+        guard indexPath.section < sections.count,
+              indexPath.item < sections[indexPath.section].items.count else { return }
+        pendingAnimeItem = sections[indexPath.section].items[indexPath.item]
         performSegue(withIdentifier: "showAnimeDetail", sender: nil)
     }
 }

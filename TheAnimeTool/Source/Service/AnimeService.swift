@@ -20,6 +20,7 @@ struct AnimeItem {
     let episodes: Int?
     let bannerURL: String?
     let genres: [String]
+    let description: String?
 }
 
 struct HomeSectionData {
@@ -278,6 +279,7 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          description(asHtml: false)
         }
       }
     }
@@ -303,6 +305,7 @@ public class AnimeService: NSObject {
             }
             let items: [AnimeItem] = mediaList.compactMap { media in
                 guard let id = media.id else { return nil }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
                 return AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
@@ -312,7 +315,8 @@ public class AnimeService: NSObject {
                     status: media.status,
                     episodes: media.episodes,
                     bannerURL: media.bannerImage,
-                    genres: media.genres ?? [])
+                    genres: media.genres ?? [],
+                    description: desc)
             }
             completion(items)
         }.resume()
