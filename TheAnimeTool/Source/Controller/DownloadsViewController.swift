@@ -323,13 +323,13 @@ extension DownloadsViewController: UITableViewDelegate {
                                           message: "Do you also want to delete the downloaded files?",
                                           preferredStyle: .actionSheet)
             sheet.addAction(UIAlertAction(title: "Keep Files", style: .default) { [weak self] _ in
-                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: false)
+                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: false)
                 // didRemoveTorrentWithHash fires asynchronously; refresh immediately.
                 self?.refreshHandles()
                 done(true)
             })
             sheet.addAction(UIAlertAction(title: "Delete Files", style: .destructive) { [weak self] _ in
-                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: true)
+                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: true)
                 self?.refreshHandles()
                 done(true)
             })
