@@ -189,7 +189,224 @@ private final class EpisodeCell: UITableViewCell {
     }
 }
 
-// MARK: - AnimeInfoHeaderView
+// MARK: - HorizontalCardsCell
+// A UITableViewCell containing a horizontal UICollectionView.
+// tag 100 → Relations, tag 200 → Characters.
+
+private final class HorizontalCardsCell: UITableViewCell {
+    static let relationsReuseID  = "HorizontalRelationsCell"
+    static let charactersReuseID = "HorizontalCharactersCell"
+
+    let collectionView: UICollectionView
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.itemSize = CGSize(width: 90, height: 140)
+        layout.minimumInteritemSpacing = 10
+        layout.minimumLineSpacing = 10
+        layout.sectionInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .clear
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.backgroundColor = .clear
+        contentView.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            collectionView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+// MARK: - RelationCardCell
+
+private final class RelationCardCell: UICollectionViewCell {
+    static let reuseID = "RelationCardCell"
+
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.backgroundColor = .systemGray5
+        iv.layer.cornerRadius = 6
+        return iv
+    }()
+
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.textColor = .label
+        l.numberOfLines = 2
+        return l
+    }()
+
+    private let typeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.textColor = .white
+        l.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.85)
+        l.layer.cornerRadius = 3
+        l.clipsToBounds = true
+        return l
+    }()
+
+    private var imageTask: URLSessionDataTask?
+    private var currentURL: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        [imageView, titleLabel, typeLabel].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
+
+            typeLabel.leadingAnchor.constraint(equalTo: imageView.leadingAnchor, constant: 4),
+            typeLabel.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -4),
+
+            titleLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(with relation: AnimeRelation) {
+        let displayType = relation.relationType
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+        typeLabel.text = " \(displayType) "
+        titleLabel.text = relation.media.titleEnglish ?? relation.media.titleRomaji
+        loadImage(from: relation.media.coverURL)
+    }
+
+    private func loadImage(from urlString: String?) {
+        imageTask?.cancel()
+        imageTask = nil
+        currentURL = urlString
+        imageView.image = nil
+        guard let urlString = urlString, let url = URL(string: urlString) else { return }
+        let captured = urlString
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data, let img = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                if self?.currentURL == captured {
+                    UIView.transition(with: self?.imageView ?? UIImageView(),
+                                      duration: 0.2, options: .transitionCrossDissolve,
+                                      animations: { self?.imageView.image = img })
+                }
+            }
+        }
+        imageTask?.resume()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel(); imageTask = nil; currentURL = nil
+        imageView.image = nil; titleLabel.text = nil; typeLabel.text = nil
+    }
+}
+
+// MARK: - CharacterCardCell
+
+private final class CharacterCardCell: UICollectionViewCell {
+    static let reuseID = "CharacterCardCell"
+
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.backgroundColor = .systemGray5
+        iv.layer.cornerRadius = 6
+        return iv
+    }()
+
+    private let nameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.textColor = .label
+        l.numberOfLines = 2
+        return l
+    }()
+
+    private let roleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.textColor = .secondaryLabel
+        l.numberOfLines = 1
+        return l
+    }()
+
+    private var imageTask: URLSessionDataTask?
+    private var currentURL: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let stack = UIStackView(arrangedSubviews: [nameLabel, roleLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        [imageView, stack].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
+
+            stack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(with character: AnimeCharacter) {
+        nameLabel.text = character.name
+        roleLabel.text = character.role.capitalized
+        loadImage(from: character.imageURL)
+    }
+
+    private func loadImage(from urlString: String?) {
+        imageTask?.cancel(); imageTask = nil
+        currentURL = urlString
+        imageView.image = nil
+        guard let urlString = urlString, let url = URL(string: urlString) else { return }
+        let captured = urlString
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data, let img = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                if self?.currentURL == captured {
+                    UIView.transition(with: self?.imageView ?? UIImageView(),
+                                      duration: 0.2, options: .transitionCrossDissolve,
+                                      animations: { self?.imageView.image = img })
+                }
+            }
+        }
+        imageTask?.resume()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel(); imageTask = nil; currentURL = nil
+        imageView.image = nil; nameLabel.text = nil; roleLabel.text = nil
+    }
+}
+
+
 
 private final class AnimeInfoHeaderView: UIView {
     var onFindTorrents: (() -> Void)?
@@ -532,7 +749,14 @@ class AnimeDetailViewController: UIViewController {
     private var tableView: UITableView!
     private var headerView: AnimeInfoHeaderView!
     private var episodes: [AniZipEpisode] = []
+    private var relations: [AnimeRelation] = []
+    private var characters: [AnimeCharacter] = []
     private var episodeFetchTask: URLSessionDataTask?
+
+    // Section indices
+    private enum Section: Int, CaseIterable {
+        case episodes = 0, relations, characters
+    }
 
     // MARK: - Lifecycle
 
@@ -546,6 +770,7 @@ class AnimeDetailViewController: UIViewController {
         setupTableView()
         setupHeaderView()
         fetchEpisodes()
+        fetchRelationsAndCharacters()
     }
 
     override func viewDidLayoutSubviews() {
@@ -561,6 +786,8 @@ class AnimeDetailViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
+        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
+        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.charactersReuseID)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
@@ -578,14 +805,10 @@ class AnimeDetailViewController: UIViewController {
         headerView.onFindTorrents = { [weak self] in
             self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
         }
-        // Initial frame: width known, height 0 — sizeHeaderView() will correct it.
         headerView.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
         tableView.tableHeaderView = headerView
     }
 
-    /// Correctly size the tableHeaderView using Auto Layout.
-    /// Called from viewDidLayoutSubviews. The > 1pt guard avoids infinite loops
-    /// caused by repeatedly setting tableHeaderView which triggers another layout.
     private func sizeHeaderView() {
         guard let header = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
         let targetSize = CGSize(width: tableView.frame.width,
@@ -600,7 +823,7 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
-    // MARK: - Ani.zip episode fetch
+    // MARK: - Fetch episodes (ani.zip)
 
     private func fetchEpisodes() {
         let anilistId: Int?
@@ -622,37 +845,47 @@ class AnimeDetailViewController: UIViewController {
 
             var parsed: [AniZipEpisode] = []
             for (key, val) in episodesDict {
-                guard let num = Int(key),
-                      num > 0,            // skip episode 0 (specials/PV) and any negative keys
+                guard let num = Int(key), num > 0,
                       let info = val as? [String: Any] else { continue }
-
                 let titles = info["title"] as? [String: String] ?? [:]
-                // Prefer English, then romaji (x-jat), then Japanese
                 let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
-                let overview = (info["overview"] as? String
-                    ?? info["summary"] as? String ?? "")
+                let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let imageURL = info["image"] as? String
                 let airDate = info["airdate"] as? String ?? info["airDate"] as? String
                 let runtime = info["length"] as? Int ?? info["runtime"] as? Int ?? 0
-
-                parsed.append(AniZipEpisode(
-                    number: num,
-                    title: title,
-                    overview: overview,
-                    imageURL: imageURL,
-                    airDate: airDate,
-                    runtime: runtime))
+                parsed.append(AniZipEpisode(number: num, title: title, overview: overview,
+                                            imageURL: imageURL, airDate: airDate, runtime: runtime))
             }
-
             parsed.sort { $0.number < $1.number }
 
             DispatchQueue.main.async { [weak self] in
                 self?.episodes = parsed
-                self?.tableView.reloadData()
+                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
             }
         }
         episodeFetchTask?.resume()
+    }
+
+    // MARK: - Fetch relations + characters (AniList detail query)
+
+    private func fetchRelationsAndCharacters() {
+        let id: Int?
+        if let entity = animeEntity { id = entity.animeAnilistId?.intValue }
+        else { id = animeItem?.id }
+        guard let anilistId = id else { return }
+
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, characters in
+            guard let self = self else { return }
+            self.relations = relations
+            self.characters = characters
+            var sections = IndexSet()
+            if !relations.isEmpty { sections.insert(Section.relations.rawValue) }
+            if !characters.isEmpty { sections.insert(Section.characters.rawValue) }
+            if !sections.isEmpty {
+                self.tableView.reloadSections(sections, with: .fade)
+            }
+        }
     }
 
     // MARK: - Navigation
@@ -671,33 +904,119 @@ class AnimeDetailViewController: UIViewController {
 
 extension AnimeDetailViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
-        return episodes.isEmpty ? 0 : 1
+        return Section.allCases.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return episodes.count
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
-            return UITableViewCell()
+        switch Section(rawValue: section) {
+        case .episodes:  return episodes.count
+        case .relations: return relations.isEmpty ? 0 : 1
+        case .characters: return characters.isEmpty ? 0 : 1
+        case .none: return 0
         }
-        cell.configure(with: episodes[indexPath.row])
-        return cell
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return episodes.isEmpty ? nil : "Episodes · \(episodes.count)"
+        switch Section(rawValue: section) {
+        case .episodes:  return episodes.isEmpty ? nil : "Episodes · \(episodes.count)"
+        case .relations: return relations.isEmpty ? nil : "Relations"
+        case .characters: return characters.isEmpty ? nil : "Characters"
+        case .none: return nil
+        }
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        switch Section(rawValue: indexPath.section) {
+        case .episodes:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
+                return UITableViewCell()
+            }
+            cell.configure(with: episodes[indexPath.row])
+            return cell
+
+        case .relations:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HorizontalCardsCell.relationsReuseID,
+                for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
+            cell.collectionView.tag = 100
+            cell.collectionView.dataSource = self
+            cell.collectionView.delegate = self
+            cell.collectionView.register(RelationCardCell.self,
+                                         forCellWithReuseIdentifier: RelationCardCell.reuseID)
+            cell.collectionView.reloadData()
+            return cell
+
+        case .characters:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HorizontalCardsCell.charactersReuseID,
+                for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
+            cell.collectionView.tag = 200
+            cell.collectionView.dataSource = self
+            cell.collectionView.delegate = self
+            cell.collectionView.register(CharacterCardCell.self,
+                                         forCellWithReuseIdentifier: CharacterCardCell.reuseID)
+            cell.collectionView.reloadData()
+            return cell
+
+        case .none:
+            return UITableViewCell()
+        }
     }
 }
 
 // MARK: - UITableViewDelegate
 
 extension AnimeDetailViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        switch Section(rawValue: indexPath.section) {
+        case .relations, .characters: return 160
+        default: return UITableView.automaticDimension
+        }
+    }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        // Tapping an episode navigates to the torrent search for this anime.
-        performSegue(withIdentifier: "showTorrentList", sender: nil)
+        if Section(rawValue: indexPath.section) == .episodes {
+            performSegue(withIdentifier: "showTorrentList", sender: nil)
+        }
+    }
+}
+
+// MARK: - UICollectionViewDataSource (embedded in HorizontalCardsCells)
+
+extension AnimeDetailViewController: UICollectionViewDataSource {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return collectionView.tag == 100 ? relations.count : characters.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        if collectionView.tag == 100 {
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
+            else { return UICollectionViewCell() }
+            cell.configure(with: relations[indexPath.item])
+            return cell
+        } else {
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: CharacterCardCell.reuseID, for: indexPath) as? CharacterCardCell
+            else { return UICollectionViewCell() }
+            cell.configure(with: characters[indexPath.item])
+            return cell
+        }
+    }
+}
+
+// MARK: - UICollectionViewDelegate (embedded)
+
+extension AnimeDetailViewController: UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard collectionView.tag == 100 else { return }  // only relations are tappable
+        let relation = relations[indexPath.item]
+        guard let detailVC = storyboard?.instantiateViewController(
+            withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
+        detailVC.animeItem = relation.media
+        navigationController?.pushViewController(detailVC, animated: true)
     }
 }

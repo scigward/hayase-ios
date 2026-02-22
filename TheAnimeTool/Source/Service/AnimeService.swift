@@ -10,6 +10,17 @@ import CoreData
 
 // MARK: - Home section models
 
+struct AnimeRelation {
+    let relationType: String   // "SEQUEL", "PREQUEL", "SIDE_STORY", "ALTERNATIVE", etc.
+    let media: AnimeItem
+}
+
+struct AnimeCharacter {
+    let name: String
+    let imageURL: String?
+    let role: String           // "MAIN", "SUPPORTING", "BACKGROUND"
+}
+
 struct AnimeItem {
     let id: Int
     let titleEnglish: String?
@@ -21,6 +32,8 @@ struct AnimeItem {
     let bannerURL: String?
     let genres: [String]
     let description: String?
+    var relations: [AnimeRelation] = []
+    var characters: [AnimeCharacter] = []
 }
 
 struct HomeSectionData {
@@ -424,6 +437,224 @@ public class AnimeService: NSObject {
             let sorted = results.sorted { $0.index < $1.index }.map { $0.section }
             completion(sorted)
         }
+    }
+
+    // MARK: - Detail fetch (relations + characters)
+
+    private let detailQuery = """
+    query ($id: Int) {
+      Media(id: $id, type: ANIME) {
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              title { english romaji }
+              coverImage { large }
+              averageScore
+              episodes
+              status
+            }
+          }
+        }
+        characters(sort: [ROLE, RELEVANCE], page: 1, perPage: 12) {
+          edges {
+            role
+            node {
+              name { full }
+              image { medium }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    private struct AniListDetailResponse: Codable {
+        let data: DetailData?
+        struct DetailData: Codable {
+            let Media: DetailMedia?
+        }
+        struct DetailMedia: Codable {
+            let relations: RelationConnection?
+            let characters: CharacterConnection?
+        }
+        struct RelationConnection: Codable {
+            let edges: [RelationEdge]?
+        }
+        struct RelationEdge: Codable {
+            let relationType: String?
+            let node: RelationNode?
+        }
+        struct RelationNode: Codable {
+            let id: Int?
+            let title: RelTitle?
+            let coverImage: RelCover?
+            let averageScore: Float?
+            let episodes: Int?
+            let status: String?
+            struct RelTitle: Codable { let english: String?; let romaji: String? }
+            struct RelCover: Codable { let large: String? }
+        }
+        struct CharacterConnection: Codable {
+            let edges: [CharacterEdge]?
+        }
+        struct CharacterEdge: Codable {
+            let role: String?
+            let node: CharacterNode?
+        }
+        struct CharacterNode: Codable {
+            let name: CharName?
+            let image: CharImage?
+            struct CharName: Codable { let full: String? }
+            struct CharImage: Codable { let medium: String? }
+        }
+    }
+
+    /// Fetch relations and characters for an anime by its AniList ID.
+    /// Calls completion on the main queue.
+    func fetchDetailForItem(id: Int, completion: @escaping ([AnimeRelation], [AnimeCharacter]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([], []); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": detailQuery, "variables": ["id": id]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(AniListDetailResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                DispatchQueue.main.async { completion([], []) }
+                return
+            }
+
+            let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge in
+                guard let type = edge.relationType, let node = edge.node, let nid = node.id else { return nil }
+                // Skip unwanted relation types
+                let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
+                if skip.contains(type) { return nil }
+                let relItem = AnimeItem(
+                    id: nid,
+                    titleEnglish: node.title?.english,
+                    titleRomaji: node.title?.romaji,
+                    coverURL: node.coverImage?.large,
+                    score: node.averageScore,
+                    status: node.status,
+                    episodes: node.episodes,
+                    bannerURL: nil,
+                    genres: [],
+                    description: nil)
+                return AnimeRelation(relationType: type, media: relItem)
+            }
+
+            let characters: [AnimeCharacter] = (media.characters?.edges ?? []).compactMap { edge in
+                guard let node = edge.node, let fullName = node.name?.full else { return nil }
+                return AnimeCharacter(
+                    name: fullName,
+                    imageURL: node.image?.medium,
+                    role: edge.role ?? "SUPPORTING")
+            }
+
+            DispatchQueue.main.async { completion(relations, characters) }
+        }.resume()
+    }
+
+    // MARK: - Airing schedule (used by ScheduleViewController)
+
+    private struct AiringScheduleResponse: Codable {
+        let data: AiringData?
+        struct AiringData: Codable {
+            let Page: AiringPage?
+        }
+        struct AiringPage: Codable {
+            let airingSchedules: [AiringSchedule]?
+        }
+        struct AiringSchedule: Codable {
+            let episode: Int?
+            let airingAt: Int?
+            let media: AiringMedia?
+        }
+        struct AiringMedia: Codable {
+            let id: Int?
+            let title: AiringTitle?
+            let coverImage: AiringCover?
+            let averageScore: Float?
+            let episodes: Int?
+            let status: String?
+            struct AiringTitle: Codable { let english: String?; let romaji: String? }
+            struct AiringCover: Codable { let large: String? }
+        }
+    }
+
+    private let airingScheduleQuery = """
+    query ($from: Int, $to: Int) {
+      Page(page: 1, perPage: 50) {
+        airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) {
+          episode
+          airingAt
+          media {
+            id
+            title { english romaji }
+            coverImage { large }
+            averageScore
+            episodes
+            status
+          }
+        }
+      }
+    }
+    """
+
+    /// Fetch anime airing on the given weekday (0 = Sunday … 6 = Saturday).
+    /// Calls completion on the main queue with a deduplicated list of AnimeItems.
+    func fetchAiringForWeekday(_ weekday: Int, completion: @escaping ([AnimeItem]) -> Void) {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        var comps = cal.dateComponents([.weekOfYear, .yearForWeekOfYear], from: Date())
+        comps.weekday = weekday + 1  // Calendar.weekday is 1-indexed (1 = Sunday)
+        guard let targetDay = cal.date(from: comps) else { completion([]); return }
+        let start = Int(cal.startOfDay(for: targetDay).timeIntervalSince1970)
+        let end = start + 86399
+
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = [
+            "query": airingScheduleQuery,
+            "variables": ["from": start, "to": end]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(AiringScheduleResponse.self, from: data),
+                  let schedules = resp.data?.Page?.airingSchedules else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            // Deduplicate by media id
+            var seen = Set<Int>()
+            let items: [AnimeItem] = schedules.compactMap { sched in
+                guard let media = sched.media, let id = media.id,
+                      seen.insert(id).inserted else { return nil }
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: nil,
+                    genres: [],
+                    description: nil)
+            }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
     }
 
     static let sharedAnimeService = AnimeService()
