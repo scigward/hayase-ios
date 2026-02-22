@@ -17,9 +17,16 @@ private final class BannerGradientView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        gradient.colors = [UIColor.clear.cgColor,
-                           UIColor.black.withAlphaComponent(0.82).cgColor]
-        gradient.locations = [0.15, 1.0]
+        // Approximate Hayase's radial-gradient:
+        //   radial-gradient(75% 65% at 59% 35%, rgba(0,0,0,0.16) 30%, rgba(0,0,0,1) 100%)
+        // Top darkens for status-bar readability; center is light; bottom is very dark for text.
+        gradient.colors = [
+            UIColor.black.withAlphaComponent(0.55).cgColor, // top  — status bar legible
+            UIColor.black.withAlphaComponent(0.05).cgColor, // ~12% — image shows through
+            UIColor.clear.cgColor,                           // ~50% — clear image centre
+            UIColor.black.withAlphaComponent(0.88).cgColor, // bottom — text area
+        ]
+        gradient.locations = [0.0, 0.12, 0.50, 1.0]
         layer.addSublayer(gradient)
     }
 
@@ -44,7 +51,7 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    static let bannerHeight: CGFloat = 280
+    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.80
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -471,10 +478,11 @@ private final class SectionHeaderView: UICollectionReusableView {
             addSubview($0)
         }
         NSLayoutConstraint.activate([
+            // items-end: align text to bottom of header (Hayase uses items-end on section header div)
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             viewMoreButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            viewMoreButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            viewMoreButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             viewMoreButton.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
         ])
     }
@@ -537,6 +545,13 @@ class BrowseAnimeViewController: UIViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        // With contentInsetAdjustmentBehavior = .never, manually account for the tab bar
+        // so the last section's content isn't hidden under it
+        collectionView.contentInset.bottom = view.safeAreaInsets.bottom
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         searchDebounceTimer?.invalidate()
@@ -555,6 +570,9 @@ class BrowseAnimeViewController: UIViewController {
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
         collectionView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark: hsl(240,10%,3.9%)
+        // .never so the banner extends behind the status bar — matching Hayase's
+        // `position:absolute; top:0; left:0; h-[80vh]` banner image on home
+        collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.delegate = self
         collectionView.dataSource = self
@@ -598,16 +616,19 @@ class BrowseAnimeViewController: UIViewController {
             let item = NSCollectionLayoutItem(
                 layoutSize: .init(widthDimension: .absolute(PosterLayout.width),
                                   heightDimension: .absolute(PosterLayout.height)))
-            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+            // 16pt trailing gap between cards (matches Hayase small.svelte p-4 outer padding)
+            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
             let group = NSCollectionLayoutGroup.horizontal(
                 layoutSize: .init(widthDimension: .estimated(PosterLayout.width),
                                   heightDimension: .absolute(PosterLayout.height)),
                 subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
             section.orthogonalScrollingBehavior = .continuous
-            section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 20, trailing: 16)
+            // px-4 = 16pt leading, pt-5 top handled in header height, bottom 24pt breathing room
+            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 24, trailing: 0)
+            // Header: pt-5 (20pt top) + text-lg (18pt) + 10pt bottom = 48pt total
             let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
-                                                    heightDimension: .absolute(44))
+                                                    heightDimension: .absolute(48))
             let header = NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: headerSize,
                 elementKind: UICollectionView.elementKindSectionHeader,
