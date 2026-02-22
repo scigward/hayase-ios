@@ -589,10 +589,11 @@ class SearchViewController: UIViewController {
             layoutSize: .init(widthDimension: .absolute(itemWidth),
                               heightDimension: .absolute(itemHeight)))
 
+        // iOS 14-compatible: pass subitems array instead of count: (count: requires iOS 16)
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1),
                               heightDimension: .absolute(itemHeight + 8)),
-            repeatingSubitem: item, count: Int(cols))
+            subitems: Array(repeating: item, count: Int(cols)))
         group.interItemSpacing = .fixed(gap)
 
         let section = NSCollectionLayoutSection(group: group)
