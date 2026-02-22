@@ -32,6 +32,10 @@ public class VideoService: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(HandleTorrentInControllerUpdateFailed), name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification), object: nil)
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     func UpdateLocalVideo() {
         // Mark CoreData as not ready so background update notifications do not
         // stop the spinner before we have data to show.
@@ -57,15 +61,12 @@ public class VideoService: NSObject {
         coreDataIsReady = false
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
-        // Only delete videos for THIS torrent entity — preserve rows from other torrents.
+        // Only delete video rows for THIS torrent entity.
+        // Do NOT remove the torrent from the LibTorrent session — the download should
+        // continue in the background while the user navigates away.
         request.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
         if let count = try? context.count(for: request), count > 0 {
             context.deleteAllData(request)
-        }
-        if let handle = self.torrentHandle,
-           self.torrentEntity.torrentFlagTemp?.boolValue == true {
-            TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteFiles: true)
-            torrentEntity.torrentHashString = nil
             try? context.save()
         }
         self.torrentHandle = nil
@@ -123,19 +124,12 @@ public class VideoService: NSObject {
 
     func UpdateProgressForFileIndex(_ index: UInt) -> Float {
         guard let handle = torrentHandle else { return 0 }
-        // Use the already-updated snapshot (set by background queue in TorrentService)
+        // Read live download progress from the snapshot (updated by TorrentService background queue).
+        // Do NOT write back to CoreData here — progress is display-only and saving during
+        // cellForRowAt causes unnecessary CoreData churn every refresh tick.
         let files = handle.snapshot.files
         guard let entry = files.first(where: { $0.index == Int(index) }) else { return 0 }
-        let progress = entry.size > 0 ? Float(entry.downloaded) / Float(entry.size) : 0
-        guard let hashHex = torrentEntity.torrentHashString else { return progress }
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        fetchRequest.predicate = NSPredicate(format: "torrents.torrentHashString == %@ AND videoIndex == %d", hashHex, index)
-        if let videos = try? context.fetch(fetchRequest), !videos.isEmpty {
-            videos[0].videoDownloadPercent = NSNumber(value: progress)
-            try? context.save()
-        }
-        return progress
+        return entry.size > 0 ? Float(entry.downloaded) / Float(entry.size) : 0
     }
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
@@ -178,8 +172,6 @@ public class VideoService: NSObject {
         guard let expectedHex = torrentEntity.torrentHashString, handleHex == expectedHex else { return }
         self.torrentHandle = handle
 
-        let files = handle.snapshot.files
-
         if !coreDataIsReady {
             // Metadata not yet committed to CoreData. For magnet links, hasMetadata is false
             // until the ut_metadata extension downloads it from DHT/peers. Once true, files
@@ -189,9 +181,18 @@ public class VideoService: NSObject {
                 print("VideoService: snapshot update — hasMetadata=false, peers=\(peers) (waiting for metadata)")
                 return  // Keep spinner running; post no notification.
             }
+            let files = handle.snapshot.files
             print("VideoService: metadata arrived via update, \(files.count) files — populating CoreData")
-            ClearCurrentTorrentEntityAndVideos()   // clear any stale rows from previous attempt
-            // Re-store handle since ClearCurrentTorrentEntityAndVideos() nils it.
+
+            // Clear any stale video rows for this entity without touching the session.
+            // (ClearCurrentTorrentEntityAndVideos also calls session.removeTorrent for temp
+            //  torrents — we must NOT do that here or the download is killed mid-add.)
+            let ctx = CoreDataService.sharedCoreDataService.mainQueueContext
+            let clearReq = NSFetchRequest<NSFetchRequestResult>(entityName: Videos.entityName)
+            clearReq.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
+            if let n = try? ctx.count(for: clearReq), n > 0 { ctx.deleteAllData(clearReq) }
+
+            // Re-store handle and hash (ClearCurrentTorrentEntityAndVideos would have nil'd them).
             self.torrentHandle = handle
             torrentEntity.torrentHashString = handleHex
             insertVideosFromSnapshot(files, snapshot: handle.snapshot)

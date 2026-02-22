@@ -134,6 +134,11 @@ class VideoListViewController: UIViewController {
     private var stopUpdating = false
     private var updateTimer: Timer?
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        updateTimer?.invalidate()
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -164,9 +169,9 @@ class VideoListViewController: UIViewController {
         stopUpdating = true
         updateTimer?.invalidate()
         updateTimer = nil
-        if isMovingFromParent {
-            videoService?.ClearCurrentTorrentEntityAndVideos()
-        }
+        // Do NOT call ClearCurrentTorrentEntityAndVideos() here.
+        // The download continues in the background while the user navigates away,
+        // so killing the torrent session entry would break in-progress downloads.
     }
 
     // MARK: - Setup
@@ -358,11 +363,17 @@ extension VideoListViewController: UITableViewDelegate {
         let index = UInt(indexNum.intValue)
 
         if vs.CheckIsDoNotDownloadForFileIndex(index) ?? false {
+            // File was set to "don't download" — enable it now.
             vs.SetDoNotDownloadForFileIndex(index, flag: false)
             tableView.reloadRows(at: [indexPath], with: .none)
-        } else if video.videoDownloadPercent?.floatValue == 1.0 {
-            guard let cell = tableView.cellForRow(at: indexPath) as? VideoTableViewCell else { return }
-            performSegue(withIdentifier: "showVideoPlayer", sender: cell)
+        } else {
+            // Read live progress from snapshot (not stale CoreData value).
+            let progress = vs.UpdateProgressForFileIndex(index)
+            if progress >= 1.0 {
+                guard let cell = tableView.cellForRow(at: indexPath) as? VideoTableViewCell else { return }
+                performSegue(withIdentifier: "showVideoPlayer", sender: cell)
+            }
+            // else: still downloading — tap is a no-op (progress bar shows state)
         }
     }
 }
