@@ -116,11 +116,16 @@ class DownloadsViewController: UIViewController {
 
     // MARK: - Lifecycle
 
+    /// Set tabBarItem here (before viewDidLoad) so the tab bar shows icons/titles at launch.
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        tabBarItem = UITabBarItem(title: "Downloads",
+                                  image: UIImage(systemName: "arrow.down.circle"),
+                                  selectedImage: UIImage(systemName: "arrow.down.circle.fill"))
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        tabBarItem.title = "Downloads"
-        tabBarItem.image = UIImage(systemName: "arrow.down.circle")
-        tabBarItem.selectedImage = UIImage(systemName: "arrow.down.circle.fill")
         setupNavigationBar()
         setupTableView()
         setupEmptyLabel()
@@ -268,18 +273,64 @@ extension DownloadsViewController: UITableViewDataSource {
 extension DownloadsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        let entity = TorrentService.sharedTorrentService
-            .GetTorrentEntitiesFromHash(activeHandles[indexPath.row].hex).first
-        if entity == nil {
+        guard indexPath.row < activeHandles.count else { return }
+        let hex = activeHandles[indexPath.row].hex
+        let entity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(hex).first
+        guard let entity = entity else {
             let alert = UIAlertController(
                 title: "Torrent Not Found",
-                message: "This torrent's metadata was cleared from the database. " +
-                         "Go to the Search tab and search for it again to manage the download.",
+                message: "This torrent's file list was cleared. Go to Search and re-add it.",
                 preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: true)
             return
         }
-        performSegue(withIdentifier: "showVideoList", sender: indexPath)
+        guard let vc = storyboard?.instantiateViewController(withIdentifier: "VideoListVC")
+                as? VideoListViewController else { return }
+        vc.torrentEntity = entity
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
+        -> UISwipeActionsConfiguration? {
+        guard indexPath.row < activeHandles.count else { return nil }
+        let entry = activeHandles[indexPath.row]
+        let handle = entry.handle
+        let snap = handle.snapshot
+
+        // Pause/Resume: infer paused when not actively downloading/seeding/metadata
+        let isActiveState = (snap.state == .downloading ||
+                             snap.state == .downloadingMetadata ||
+                             snap.state == .seeding ||
+                             snap.state == .finished)
+        let pauseTitle = isActiveState ? "Pause" : "Resume"
+        let pauseAction = UIContextualAction(style: .normal, title: pauseTitle) { _, _, done in
+            if isActiveState { handle.pause() } else { handle.resume() }
+            done(true)
+        }
+        pauseAction.backgroundColor = .systemOrange
+        pauseAction.image = UIImage(systemName: isActiveState ? "pause.fill" : "play.fill")
+
+        // Delete
+        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
+            guard let self = self else { done(false); return }
+            let sheet = UIAlertController(title: "Delete Download",
+                                          message: "Do you also want to delete the downloaded files?",
+                                          preferredStyle: .actionSheet)
+            sheet.addAction(UIAlertAction(title: "Keep Files", style: .default) { _ in
+                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: false)
+                done(true)
+            })
+            sheet.addAction(UIAlertAction(title: "Delete Files", style: .destructive) { _ in
+                TorrentService.sharedTorrentService.session.removeTorrent(handle, deleteData: true)
+                done(true)
+            })
+            sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done(false) })
+            self.present(sheet, animated: true)
+        }
+        deleteAction.image = UIImage(systemName: "trash.fill")
+
+        return UISwipeActionsConfiguration(actions: [deleteAction, pauseAction])
     }
 }

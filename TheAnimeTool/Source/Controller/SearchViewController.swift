@@ -25,10 +25,18 @@ class SearchViewController: UIViewController {
 
     // MARK: - Lifecycle
 
+    /// Set tabBarItem here (before viewDidLoad) so the tab bar controller can read
+    /// the title/image at launch without waiting for viewDidLoad to be called.
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        tabBarItem = UITabBarItem(title: "Search",
+                                  image: UIImage(systemName: "magnifyingglass"),
+                                  selectedImage: UIImage(systemName: "magnifyingglass.circle.fill"))
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        tabBarItem.title = "Search"
-        tabBarItem.image = UIImage(systemName: "magnifyingglass")
+        view.backgroundColor = .systemBackground
         setupNavigationBar()
         setupTableView()
         setupSearchController()
@@ -148,16 +156,6 @@ class SearchViewController: UIViewController {
         }
     }
 
-    // MARK: - Navigation
-
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        super.prepare(for: segue, sender: sender)
-        guard segue.identifier == "showVideoList",
-              let cell = sender as? TorrentTableViewCell,
-              let indexPath = tableView.indexPath(for: cell),
-              let destination = segue.destination as? VideoListViewController else { return }
-        destination.torrentEntity = torrentResultsController?.object(at: indexPath)
-    }
 }
 
 // MARK: - UITableViewDataSource
@@ -181,8 +179,11 @@ extension SearchViewController: UITableViewDataSource {
 
 extension SearchViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard let cell = tableView.cellForRow(at: indexPath) as? TorrentTableViewCell else { return }
-        performSegue(withIdentifier: "showVideoList", sender: cell)
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard let torrent = torrentResultsController?.object(at: indexPath),
+              let vc = storyboard?.instantiateViewController(withIdentifier: "VideoListVC") as? VideoListViewController else { return }
+        vc.torrentEntity = torrent
+        navigationController?.pushViewController(vc, animated: true)
     }
 }
 

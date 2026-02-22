@@ -13,7 +13,6 @@
             <objects>
                 <tabBarController id="tab-vc-001" sceneMemberID="viewController">
                     <tabBar key="tabBar" id="tab-bar-001"/>
-                    <nil name="viewControllers"/>
                     <connections>
                         <segue destination="nav-vc-001"    kind="relationship" relationship="viewControllers" id="tab-rel-home"/>
                         <segue destination="srch-nav-001"  kind="relationship" relationship="viewControllers" id="tab-rel-search"/>
@@ -76,7 +75,7 @@
         <!--Video List-->
         <scene sceneID="vid-sc-001">
             <objects>
-                <viewController id="vid-vc-001" customClass="VideoListViewController" customModule="TheAnimeTool" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController id="vid-vc-001" storyboardIdentifier="VideoListVC" customClass="VideoListViewController" customModule="TheAnimeTool" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" id="vid-vw-001">
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
@@ -122,9 +121,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                     </view>
-                    <connections>
-                        <segue destination="vid-vc-001" kind="show" identifier="showVideoList" id="srch-seg-001"/>
-                    </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="srch-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>
@@ -155,9 +151,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                     </view>
-                    <connections>
-                        <segue destination="vid-vc-001" kind="show" identifier="showVideoList" id="dl-seg-001"/>
-                    </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="dl-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>

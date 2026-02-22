@@ -376,4 +376,26 @@ extension VideoListViewController: UITableViewDelegate {
             // else: still downloading — tap is a no-op (progress bar shows state)
         }
     }
+
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
+        -> UISwipeActionsConfiguration? {
+        guard let video = videoResultsController?.object(at: indexPath),
+              let vs = videoService,
+              let indexNum = video.videoIndex else { return nil }
+        let index = UInt(indexNum.intValue)
+        let isSkipped = vs.CheckIsDoNotDownloadForFileIndex(index) ?? false
+
+        let title = isSkipped ? "Prioritize" : "Skip"
+        let color: UIColor = isSkipped ? .systemGreen : .systemGray
+        let icon = isSkipped ? "arrow.down.circle" : "nosign"
+        let action = UIContextualAction(style: .normal, title: title) { [weak self] _, _, done in
+            vs.SetDoNotDownloadForFileIndex(index, flag: !isSkipped)
+            self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            done(true)
+        }
+        action.backgroundColor = color
+        action.image = UIImage(systemName: icon)
+        return UISwipeActionsConfiguration(actions: [action])
+    }
 }
