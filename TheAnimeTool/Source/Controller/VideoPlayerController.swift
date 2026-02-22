@@ -7,11 +7,30 @@
 //
 
 import AVKit
+import LibTorrent
 
+/// Matches Hayase's player.svelte capabilities:
+/// - Picture-in-Picture (pip.ts: allowsPictureInPicturePlayback)
+/// - Episode title in nav bar / Lock Screen
+/// - Download stats overlay (downloadstats.svelte) while file is still buffering
 class VideoPlayerController: AVPlayerViewController {
     var videoEntity: Videos? = nil
+    /// The active LibTorrent handle for this torrent (used for live stats overlay).
+    var torrentHandle: TorrentHandle? = nil
+    /// Index of the file being played inside the torrent (for per-file stats).
+    var fileIndex: UInt = 0
+
+    private var statsTimer: Timer?
+    private var statsOverlay: UILabel?
 
     override func viewDidLoad() {
+        super.viewDidLoad()
+        // Hayase pip.ts: PiP is a first-class feature
+        allowsPictureInPicturePlayback = true
+        // Episode title from video entity name
+        if let name = videoEntity?.videoName, !name.isEmpty {
+            title = name
+        }
         guard let videoPath = videoEntity?.videoPath else { return }
         let url = URL(fileURLWithPath: videoPath)
         DispatchQueue.global(qos: .default).async {
@@ -19,7 +38,74 @@ class VideoPlayerController: AVPlayerViewController {
             DispatchQueue.main.async {
                 self.player = player
                 player.play()
+                self.setupDownloadStatsOverlay()
             }
         }
+    }
+
+    // MARK: - Download stats overlay (Hayase downloadstats.svelte)
+
+    /// Shows a small HUD in the top-right corner with live download speed + buffer %
+    /// while the file is still being downloaded. Auto-hides when download completes.
+    private func setupDownloadStatsOverlay() {
+        guard let handle = torrentHandle else { return }
+        let snap = handle.snapshot
+        // Only show overlay if the torrent is still actively downloading
+        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+
+        let label = UILabel()
+        label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        label.layer.cornerRadius = 5
+        label.clipsToBounds = true
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+        ])
+        statsOverlay = label
+
+        updateStats()
+        statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateStats()
+        }
+    }
+
+    private func updateStats() {
+        guard let handle = torrentHandle, let label = statsOverlay else { return }
+        let snap = handle.snapshot
+        if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
+            // Download complete — hide the overlay
+            statsTimer?.invalidate()
+            statsTimer = nil
+            label.removeFromSuperview()
+            statsOverlay = nil
+            return
+        }
+        let speed = Self.fmtSpeed(snap.downloadRate)
+        let pct   = String(format: "%.1f%%", snap.progress * 100)
+        label.text = "  ↓ \(speed)  \(pct)  "
+    }
+
+    /// Formats bytes/sec as a compact human-readable string ("3.2 MB/s", "512 KB/s").
+    private static func fmtSpeed(_ bps: UInt64) -> String {
+        if bps == 0 { return "0 B/s" }
+        if bps >= 1_073_741_824 { return String(format: "%.1f GB/s", Double(bps) / 1_073_741_824) }
+        if bps >= 1_048_576    { return String(format: "%.1f MB/s", Double(bps) / 1_048_576) }
+        if bps >= 1_024        { return String(format: "%.0f KB/s", Double(bps) / 1_024) }
+        return "\(bps) B/s"
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        statsTimer?.invalidate()
+        statsTimer = nil
+    }
+
+    deinit {
+        statsTimer?.invalidate()
     }
 }

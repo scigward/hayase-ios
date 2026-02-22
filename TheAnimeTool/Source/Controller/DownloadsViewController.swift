@@ -331,19 +331,12 @@ extension DownloadsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard indexPath.row < activeHandles.count else { return }
-        let hex = activeHandles[indexPath.row].hex
-        let entity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(hex).first
-        guard let entity = entity else {
-            let alert = UIAlertController(
-                title: "Torrent Not Found",
-                message: "This torrent's file list was cleared. Go to Search and re-add it.",
-                preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-            return
-        }
-        guard let vc = storyboard?.instantiateViewController(withIdentifier: "VideoListVC")
-                as? VideoListViewController else { return }
+        let entry = activeHandles[indexPath.row]
+        let entity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(entry.hex).first
+
+        let vc = TorrentDetailViewController()
+        vc.handle = entry.handle
+        vc.hexHash = entry.hex
         vc.torrentEntity = entity
         navigationController?.pushViewController(vc, animated: true)
     }

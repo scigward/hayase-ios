@@ -337,6 +337,9 @@ class VideoListViewController: UIViewController {
         videoService?.UpdateFilePathForFileIndex(UInt(indexNum.intValue))
         let destination = segue.destination as! VideoPlayerController
         destination.videoEntity = video
+        // Pass live handle for download-stats overlay + PiP title
+        destination.torrentHandle = videoService?.torrentHandle
+        destination.fileIndex = UInt(indexNum.intValue)
     }
 }
 

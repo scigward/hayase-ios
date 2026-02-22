@@ -10,7 +10,7 @@ A convenient tool that uses anilist API  and nyaa tracker for iOS anime watching
 <img src="Previews/preview_torrent_list.png" alt="alt text" width="400"><img src="Previews/preview_video_list.png" alt="alt text" width="400">
 <img src="Previews/preview_video_playing.png" alt="alt text" width="400">
 
-## Hayase UI Porting Progress — ~88%
+## Hayase UI Porting Progress — ~94%
 
 The table below tracks how much of the [Hayase](https://github.com/scigward/interface) web UI has been ported to the iOS native app.
 
@@ -29,9 +29,10 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 | `/app/anime/[id]` (relations tab) | ✅ ~80% | `HorizontalCardsCell` + `RelationCardCell` | Horizontal scroll, relation type badges, tap → detail |
 | `/app/anime/[id]` (characters tab) | ✅ ~80% | `HorizontalCardsCell` + `CharacterCardCell` | Horizontal scroll, MAIN/SUPPORTING role label |
 | `/app/settings` (settings page) | ✅ ~70% | `SettingsViewController` | 6 grouped sections, toggles + UserDefaults persistence |
-| `ui/torrentclient/overview.svelte` | ✅ ~75% | `DownloadsViewController` + `DownloadCell` | Speed (↓/↑), ETA, seeders/leechers, status badge, progress bar |
+| `ui/torrentclient/overview.svelte` | ✅ ~95% | `TorrentDetailViewController` | Full replica: progress+%, speed↓/↑, ETA, elapsed, seeders/leechers/peers |
 | `ui/torrentclient/files/table.svelte` | ✅ ~65% | `VideoListViewController` + `VideoTableViewCell` | Downloaded/total size ("3.2 MB / 1.2 GB"), progress bar, play/skip |
-| `/app/player` (video player) | 🟡 ~60% | `VideoPlayerController` | Native AVPlayerViewController; missing Hayase overlay controls |
+| `/app/player` (video player) | ✅ ~75% | `VideoPlayerController` | PiP (`allowsPictureInPicturePlayback`), episode title, download-stats HUD overlay |
+| `ui/player/downloadstats.svelte` | ✅ ~85% | `VideoPlayerController.statsOverlay` | Live ↓ speed + buffer % HUD; auto-hides on download completion |
 | `ui/profile/` | ❌ 0% | — | Not yet started |
 | `/app/w2g` (Watch2Gether) | ❌ 0% | — | Not applicable for iOS MVP |
 | `/app/chat` | ❌ 0% | — | Not applicable for iOS MVP |
