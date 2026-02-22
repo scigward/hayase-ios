@@ -617,13 +617,12 @@ class BrowseAnimeViewController: UIViewController {
                                       heightDimension: .absolute(FeaturedBannerCell.bannerHeight)),
                     subitems: [item])
                 let bannerSection = NSCollectionLayoutSection(group: group)
-                // Explicit .zero so no automatic safe-area or margin insets are added.
-                // Without this, iOS 14+ contentInsetsReference defaults can add horizontal
-                // margins that make the banner appear narrower than the screen.
+                // Explicit .zero so no additional insets are added.
+                // Full-width is ensured by collectionView.contentInsetAdjustmentBehavior = .never
+                // (set in viewDidLoad) which disables system safe-area scroll-view adjustments.
+                // contentInsetsReference is left at default (.automatic) because the type
+                // changed between Xcode versions and .layoutContainer is not available on all.
                 bannerSection.contentInsets = .zero
-                if #available(iOS 14.0, *) {
-                    bannerSection.contentInsetsReference = .layoutContainer
-                }
                 return bannerSection
                 // No header supplementary for section 0
             }
