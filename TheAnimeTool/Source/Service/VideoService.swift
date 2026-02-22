@@ -184,8 +184,8 @@ public class VideoService: NSObject {
             // Metadata not yet committed to CoreData. For magnet links, hasMetadata is false
             // until the ut_metadata extension downloads it from DHT/peers. Once true, files
             // will also be populated (torrent_file() is non-null when has_metadata is true).
-            guard snapshot.hasMetadata else {
-                let peers = snapshot.numberOfPeers
+            guard handle.snapshot.hasMetadata else {
+                let peers = handle.snapshot.numberOfPeers
                 print("VideoService: snapshot update — hasMetadata=false, peers=\(peers) (waiting for metadata)")
                 return  // Keep spinner running; post no notification.
             }
