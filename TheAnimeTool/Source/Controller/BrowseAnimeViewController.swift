@@ -665,11 +665,30 @@ class BrowseAnimeViewController: UIViewController {
         emptyLabel.isHidden = true
         AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
-            self.isLoadingSections = false
-            self.sections = fetchedSections
-            self.collectionView.reloadData()
-            self.loadingIndicator.stopAnimating()
-            self.emptyLabel.isHidden = !fetchedSections.isEmpty
+
+            // Prepend "Continue Watching" section from WatchProgressService (Hayase continueIDs)
+            let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+            if continueIDs.isEmpty {
+                self.isLoadingSections = false
+                self.sections = fetchedSections
+                self.collectionView.reloadData()
+                self.loadingIndicator.stopAnimating()
+                self.emptyLabel.isHidden = !fetchedSections.isEmpty
+            } else {
+                AnimeService.sharedAnimeService.fetchSectionByIDs(continueIDs) { [weak self] continueItems in
+                    guard let self = self else { return }
+                    self.isLoadingSections = false
+                    var allSections = fetchedSections
+                    if !continueItems.isEmpty {
+                        allSections.insert(HomeSectionData(title: "Continue Watching",
+                                                           items: continueItems), at: 0)
+                    }
+                    self.sections = allSections
+                    self.collectionView.reloadData()
+                    self.loadingIndicator.stopAnimating()
+                    self.emptyLabel.isHidden = !allSections.isEmpty
+                }
+            }
         }
     }
 

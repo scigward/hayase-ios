@@ -79,6 +79,15 @@ private final class EpisodeCell: UITableViewCell {
         return l
     }()
 
+    /// Matches Hayase's EpisodesList.svelte per-episode progress bar (1.5pt line, systemBlue/custom)
+    private let episodeProgressView: UIProgressView = {
+        let v = UIProgressView(progressViewStyle: .default)
+        v.progressTintColor = .systemBlue
+        v.trackTintColor = UIColor.systemGray5
+        v.isHidden = true
+        return v
+    }()
+
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
@@ -105,7 +114,8 @@ private final class EpisodeCell: UITableViewCell {
             cardView.addSubview($0)
         }
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, overviewLabel, metaLabel])
+        // Progress bar sits between title and overview (Hayase EpisodesList watchProgress indicator)
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, episodeProgressView, overviewLabel, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
         textStack.translatesAutoresizingMaskIntoConstraints = false
@@ -139,10 +149,20 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
+
+        // Show per-episode progress bar (Hayase EpisodesList.svelte $watchProgress indicator)
+        if anilistID > 0,
+           let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
+           saved.isInProgress {
+            episodeProgressView.setProgress(Float(saved.fraction), animated: false)
+            episodeProgressView.isHidden = false
+        } else {
+            episodeProgressView.isHidden = true
+        }
 
         var meta: [String] = []
         if let date = episode.airDate { meta.append(date) }
@@ -187,6 +207,8 @@ private final class EpisodeCell: UITableViewCell {
         overviewLabel.text = nil
         metaLabel.text = nil
         runtimeBadge.isHidden = true
+        episodeProgressView.isHidden = true
+        episodeProgressView.setProgress(0, animated: false)
     }
 }
 
@@ -1325,7 +1347,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
                 return UITableViewCell()
             }
-            cell.configure(with: episodes[indexPath.row])
+            let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
+            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID)
             return cell
 
         case .relations:

@@ -7,6 +7,7 @@
 //
 
 import AVKit
+import AVFoundation
 import LibTorrent
 
 /// Matches Hayase's player.svelte capabilities:
@@ -21,6 +22,10 @@ class VideoPlayerController: AVPlayerViewController {
     var torrentHandle: TorrentHandle? = nil
     /// Index of the file being played inside the torrent (for per-file stats).
     var fileIndex: UInt = 0
+    /// AniList media ID for watch-progress tracking (matches Hayase watchProgress.ts).
+    var anilistID: Int = 0
+    /// Episode number (1-based) for watch-progress tracking.
+    var episodeNumber: Int = 0
 
     /// The currently selected playback rate; applied when AVPlayer starts.
     var selectedRate: Float = 1.0
@@ -48,6 +53,15 @@ class VideoPlayerController: AVPlayerViewController {
                 player.play()
                 // Apply user-selected speed (play() resets rate to 1.0)
                 if self.selectedRate != 1.0 { player.rate = self.selectedRate }
+                // Restore saved watch position (Hayase watchProgress.ts)
+                // Timescale 600 = common video timescale (1/600s precision, covers 24/30/60 fps)
+                if let path = self.videoEntity?.videoPath,
+                   let saved = WatchProgressService.shared.getProgress(videoPath: path),
+                   saved.isInProgress {
+                    let preferredTimescale: CMTimeScale = 600
+                    let target = CMTime(seconds: saved.currentTime, preferredTimescale: preferredTimescale)
+                    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
                 self.setupDownloadStatsOverlay()
             }
         }
@@ -165,6 +179,20 @@ class VideoPlayerController: AVPlayerViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Save watch progress before leaving (Hayase watchProgress.ts: setAnimeProgress)
+        if let path = videoEntity?.videoPath,
+           let item = player?.currentItem,
+           item.duration.isNumeric, item.duration.seconds > 0 {
+            let duration = item.duration.seconds
+            let currentTime = player?.currentTime().seconds ?? 0
+            WatchProgressService.shared.setProgress(
+                videoPath: path,
+                anilistID: anilistID,
+                episode: episodeNumber,
+                currentTime: currentTime,
+                duration: duration
+            )
+        }
         statsTimer?.invalidate()
         statsTimer = nil
     }

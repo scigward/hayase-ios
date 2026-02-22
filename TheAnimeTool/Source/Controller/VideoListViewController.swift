@@ -340,6 +340,9 @@ class VideoListViewController: UIViewController {
         // Pass live handle for download-stats overlay + PiP title
         destination.torrentHandle = videoService?.torrentHandle
         destination.fileIndex = UInt(indexNum.intValue)
+        // Pass AniList ID + episode number for watch-progress tracking (Hayase watchProgress.ts)
+        destination.anilistID = Int(videoService?.torrentEntity?.animes?.animeAnilistId ?? 0)
+        destination.episodeNumber = Int(indexNum.intValue) + 1
     }
 }
 
