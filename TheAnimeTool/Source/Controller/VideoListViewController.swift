@@ -267,12 +267,8 @@ class VideoListViewController: UIViewController {
         // Show error alert if the torrent download or session-add failed.
         if let error = videoService?.lastError {
             videoService?.lastError = nil
-            let alert = UIAlertController(
-                title: "Failed to Load Torrent",
-                message: error.localizedDescription,
-                preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
+            showErrorAlert(error)
+            emptyLabel.text = "Failed to load torrent"
             emptyLabel.isHidden = false
             return
         }
@@ -280,7 +276,24 @@ class VideoListViewController: UIViewController {
         performFetch()
         tableView.reloadData()
         let count = videoResultsController?.sections?.first?.objects?.count ?? 0
+        emptyLabel.text = "No video files found"
         emptyLabel.isHidden = count > 0
+    }
+
+    private func showErrorAlert(_ error: Error) {
+        let alert = UIAlertController(
+            title: "Failed to Load Torrent",
+            message: error.localizedDescription,
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+            guard let self = self, let vs = self.videoService else { return }
+            self.emptyLabel.isHidden = true
+            self.loadingIndicator.startAnimating()
+            self.startLoadingTimeout()
+            vs.UpdateLocalVideo()
+        })
+        alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
+        present(alert, animated: true)
     }
 
     private func startLoadingTimeout() {

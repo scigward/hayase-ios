@@ -272,94 +272,126 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     /// Download the .torrent file from nyaa.si and add it to the LibTorrent session.
-    /// Calls `completion` on the main thread with the TorrentHandle AND TorrentFile (always
-    /// has its file list populated from the parsed .torrent data) or an error.
+    /// Resolves the download URL from torrentDownloadURL, falling back to the nyaa ID.
+    /// Calls `completion` on the main thread with (TorrentHandle, TorrentFile) or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
                                         completion: @escaping (Result<(handle: TorrentHandle, torrentFile: TorrentFile), Error>) -> Void) {
-        guard let urlString = torrentEntity.torrentDownloadURL,
-              let url = URL(string: urlString) else {
+        // Prefer the RSS-provided enclosure URL; fall back to nyaa ID-based URL.
+        let downloadURL: URL? = {
+            if let s = torrentEntity.torrentDownloadURL, let u = URL(string: s) { return u }
+            if let id = torrentEntity.torrentNyaaId?.intValue, id > 0 {
+                return URL(string: "https://nyaa.si/download/\(id).torrent")
+            }
+            return nil
+        }()
+
+        guard let url = downloadURL else {
             DispatchQueue.main.async {
                 completion(.failure(NSError(domain: "TorrentService", code: 0,
-                    userInfo: [NSLocalizedDescriptionKey: "Invalid or missing download URL"])))
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "No download URL available.\nNo torrentDownloadURL and no nyaaId stored for this torrent.\nTry searching for the torrent again."])))
             }
             return
         }
 
+        downloadTorrentData(from: url, torrentEntity: torrentEntity, completion: completion)
+    }
+
+    /// Internal: fetch the .torrent binary from `url` and add it to the LibTorrent session.
+    private func downloadTorrentData(from url: URL,
+                                     torrentEntity: Torrents,
+                                     completion: @escaping (Result<(handle: TorrentHandle, torrentFile: TorrentFile), Error>) -> Void) {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        request.setValue("Mozilla/5.0 TheAnimeTool/1.0", forHTTPHeaderField: "User-Agent")
+        // Full iOS Safari User-Agent — nyaa.si (Cloudflare) may block weaker UA strings.
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-bittorrent, application/octet-stream, */*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        request.setValue("https://nyaa.si", forHTTPHeaderField: "Referer")
+
+        print("TorrentService: downloading from \(url)")
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
 
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+
             if let error = error {
-                print("TorrentService: download error: \(error)")
+                print("TorrentService: network error (HTTP \(httpStatus)): \(error)")
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
             }
 
             guard let data = data, !data.isEmpty else {
-                print("TorrentService: empty response from \(urlString)")
+                print("TorrentService: empty response (HTTP \(httpStatus)) from \(url)")
                 DispatchQueue.main.async {
                     completion(.failure(NSError(domain: "TorrentService", code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Empty response from server"])))
+                        userInfo: [NSLocalizedDescriptionKey: "Server returned an empty response (HTTP \(httpStatus)).\nURL: \(url)"])))
                 }
                 return
             }
 
+            // Log the first bytes so we can diagnose HTML vs binary torrent responses.
+            let preview = String(bytes: data.prefix(100), encoding: .utf8) ?? "<binary \(data.count) bytes>"
+            print("TorrentService: \(data.count) bytes (HTTP \(httpStatus)): \(preview.prefix(100))")
+
             guard let torrentFile = TorrentFile(with: data) else {
-                let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-                print("TorrentService: invalid torrent data (HTTP \(httpStatus), \(data.count) bytes)")
+                // The server returned something, but it's not a valid .torrent file.
+                // Likely Cloudflare HTML or a redirect page.
+                let snippet = String(bytes: data.prefix(100), encoding: .utf8) ?? "<binary>"
+                print("TorrentService: invalid torrent data (HTTP \(httpStatus)): \(snippet)")
                 DispatchQueue.main.async {
                     completion(.failure(NSError(domain: "TorrentService", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "Server returned invalid torrent data (HTTP \(httpStatus))"])))
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "Server did not return a valid .torrent file (HTTP \(httpStatus)).\n" +
+                            "Server response:\n\(snippet)"])))
                 }
                 return
             }
 
             let hexHash = torrentFile.infoHashes.best.hex
-            print("TorrentService: torrent parsed, hex=\(hexHash)")
+            print("TorrentService: parsed '\(torrentFile.name)' hash=\(hexHash) files=\(torrentFile.files.count)")
 
             DispatchQueue.main.async {
-                // Persist the hash
                 torrentEntity.torrentHashString = hexHash
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
-                // 1. Already tracked in our handles dict?
-                // handles is maintained by didAddTorrent/didRemoveTorrentWithHash, so any
-                // entry present here belongs to an active torrent in the session.
+                // 1. Already tracked in our active handles dict?
                 if let existingHandle = self.handles[hexHash] {
-                    print("TorrentService: already tracked, using cached handle")
+                    print("TorrentService: reusing active handle for \(hexHash)")
                     completion(.success((handle: existingHandle, torrentFile: torrentFile)))
                     return
                 }
 
-                // 2. Add to session — addTorrent() returns the TorrentHandle directly on success.
-                //    notifyDelegatesWithAdd is also called synchronously inside addTorrent (which
-                //    triggers didAddTorrent → synchronous updateSnapshot). We also store the return
-                //    value directly for immediate use.
+                // 2. Add to session. addTorrent() synchronously calls didAddTorrent (which
+                //    stores the handle in self.handles) and returns the new TorrentHandle.
                 if let newHandle = self.session.addTorrent(torrentFile) {
-                    print("TorrentService: addTorrent succeeded")
+                    print("TorrentService: addTorrent() succeeded, files=\(torrentFile.files.count)")
                     self.handles[hexHash] = newHandle
                     completion(.success((handle: newHandle, torrentFile: torrentFile)))
                     return
                 }
 
-                // 3. addTorrent returned nil — the torrent already exists in the libtorrent session
-                //    (duplicate, throws std::exception internally). Search session.torrents directly.
-                print("TorrentService: addTorrent returned nil (duplicate), searching session.torrents")
+                // 3. addTorrent() returned nil — torrent already exists in the libtorrent session
+                //    (duplicate add; C++ throws std::exception internally → nil return).
+                //    Find the existing handle by hex string comparison.
+                print("TorrentService: addTorrent() returned nil (duplicate), searching session")
                 if let restoredHandle = self.session.torrents.first(where: {
                     $0.infoHashes.best.hex == hexHash
                 }) {
-                    print("TorrentService: found restored handle in session.torrents")
+                    print("TorrentService: found existing handle in session.torrents")
                     self.handles[hexHash] = restoredHandle
                     completion(.success((handle: restoredHandle, torrentFile: torrentFile)))
                     return
                 }
 
-                // 4. Truly not found — report failure
-                print("TorrentService: handle not found in session")
+                // 4. Genuinely not found — report failure.
+                print("TorrentService: handle not found after add attempt")
                 completion(.failure(NSError(domain: "TorrentService", code: 3,
-                    userInfo: [NSLocalizedDescriptionKey: "Failed to add torrent to session"])))
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "Torrent file parsed successfully but could not be added to the download session.\n" +
+                        "Hash: \(hexHash)"])))
             }
         }.resume()
     }
