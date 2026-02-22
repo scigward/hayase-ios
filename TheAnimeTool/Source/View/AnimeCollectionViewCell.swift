@@ -2,8 +2,12 @@
 //  AnimeCollectionViewCell.swift
 //  TheAnimeTool
 //
-//  Hayase-style poster card: cover image fills top, info bar below with title + meta.
-//  Matches small.svelte (9.5rem × 13.5rem poster, title below, year+format metadata).
+//  Matches Hayase's small.svelte exactly:
+//    • w-[9.5rem] = 152pt card width, aspect-ratio 152:290
+//    • Cover image fills top h-[13.5rem] = 216pt (74.5% of 290)
+//    • Below cover: title (font-black, 12.8pt, white, 2 lines), pt-3 top spacing
+//    • Meta row: year left (calendar icon) + format right (tv icon), text-neutral-500
+//    • No separate info-bar background; no score badge overlay
 //
 
 import UIKit
@@ -19,51 +23,44 @@ enum SharedImageCache {
 class AnimeCollectionViewCell: UICollectionViewCell {
     static let reuseID = "AnimeCell"
 
-    private static let infoBarHeight: CGFloat = 50
+    // Aspect ratio from small.svelte: 152 × 290
+    // Cover occupies 216/290 of total height
+    static let coverRatio: CGFloat = 216.0 / 290.0
 
     // MARK: Views
 
-    /// Cover image fills the top ~76% of the cell (152:216 poster ratio → ~76%)
+    /// Cover image — fills top 74.5% of cell (matches h-[13.5rem] on a 152:290 card)
     private let coverImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor.systemGray5
+        iv.backgroundColor = UIColor(white: 0.16, alpha: 1) // --muted in dark mode
+        iv.layer.cornerRadius = 4
         return iv
     }()
 
-    /// Dark info bar below cover — title + meta line
-    private let infoView: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor.secondarySystemBackground
-        return v
-    }()
-
+    // Title — font-black, .8rem (12.8pt), white, 2 lines, pt-3 top spacing
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .bold)
-        l.textColor = .label
+        l.font = .systemFont(ofSize: 12, weight: .heavy)
+        l.textColor = .white
         l.numberOfLines = 2
         return l
     }()
 
-    private let metaLabel: UILabel = {
+    // Year label (left side of meta row) — text-neutral-500, xs/medium
+    private let yearLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .medium)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 1
+        l.font = .systemFont(ofSize: 11, weight: .medium)
+        l.textColor = UIColor(white: 0.45, alpha: 1) // neutral-500
         return l
     }()
 
-    /// Score badge overlaid in the top-right corner of the cover
-    private let scoreBadge: UILabel = {
+    // Format label (right side of meta row) — same style as yearLabel
+    private let formatLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .bold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.backgroundColor = UIColor.black.withAlphaComponent(0.65)
-        l.layer.cornerRadius = 7
-        l.clipsToBounds = true
+        l.font = .systemFont(ofSize: 11, weight: .medium)
+        l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()
 
@@ -87,67 +84,81 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     // MARK: Layout
 
     private func setup() {
-        contentView.layer.cornerRadius = 8
-        contentView.clipsToBounds = true
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.2
-        layer.shadowRadius = 4
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        layer.masksToBounds = false
+        // Transparent background to match Hayase's dark page bg
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
 
-        [coverImageView, infoView, scoreBadge].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
-        [titleLabel, metaLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            infoView.addSubview($0)
-        }
+        // Calendar icon for year
+        let calIcon = UIImageView(image: UIImage(systemName: "calendar"))
+        calIcon.tintColor = UIColor(white: 0.45, alpha: 1)
+        calIcon.contentMode = .scaleAspectFit
+        calIcon.translatesAutoresizingMaskIntoConstraints = false
+
+        // TV icon for format
+        let tvIcon = UIImageView(image: UIImage(systemName: "tv"))
+        tvIcon.tintColor = UIColor(white: 0.45, alpha: 1)
+        tvIcon.contentMode = .scaleAspectFit
+        tvIcon.translatesAutoresizingMaskIntoConstraints = false
+
+        // Meta row: [calIcon  yearLabel  SPACER  formatLabel  tvIcon]
+        let metaRow = UIStackView(arrangedSubviews: [calIcon, yearLabel, UIView(), formatLabel, tvIcon])
+        metaRow.axis = .horizontal
+        metaRow.spacing = 4
+        metaRow.alignment = .center
+
+        // Full card stack: [cover  title  metaRow]
+        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, metaRow])
+        cardStack.axis = .vertical
+        cardStack.spacing = 0
+        cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
+        cardStack.setCustomSpacing(8, after: titleLabel)
+        cardStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(cardStack)
 
         NSLayoutConstraint.activate([
-            // Cover fills top portion; info bar is pinned to bottom at 48pt
-            coverImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            coverImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            coverImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            coverImageView.bottomAnchor.constraint(equalTo: infoView.topAnchor),
+            cardStack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            cardStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
 
-            infoView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            infoView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            infoView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            infoView.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.infoBarHeight),
+            // Cover fills top 74.5% of cell width converted to height via aspect ratio
+            // (cell height is set by the layout to match 152:290 ratio)
+            coverImageView.heightAnchor.constraint(equalTo: contentView.widthAnchor,
+                                                   multiplier: 216.0 / 152.0),
 
-            // Title inside info view
-            titleLabel.leadingAnchor.constraint(equalTo: infoView.leadingAnchor, constant: 7),
-            titleLabel.trailingAnchor.constraint(equalTo: infoView.trailingAnchor, constant: -4),
-            titleLabel.topAnchor.constraint(equalTo: infoView.topAnchor, constant: 5),
-
-            // Meta line below title
-            metaLabel.leadingAnchor.constraint(equalTo: infoView.leadingAnchor, constant: 7),
-            metaLabel.trailingAnchor.constraint(equalTo: infoView.trailingAnchor, constant: -4),
-            metaLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            metaLabel.bottomAnchor.constraint(lessThanOrEqualTo: infoView.bottomAnchor, constant: -4),
-
-            // Score badge: top-right of cover
-            scoreBadge.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            scoreBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
-            scoreBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
-            scoreBadge.heightAnchor.constraint(equalToConstant: 16),
+            calIcon.widthAnchor.constraint(equalToConstant: 12),
+            calIcon.heightAnchor.constraint(equalToConstant: 12),
+            tvIcon.widthAnchor.constraint(equalToConstant: 12),
+            tvIcon.heightAnchor.constraint(equalToConstant: 12),
         ])
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 8).cgPath
+    // MARK: - Configuration
+
+    func configure(with anime: Animes) {
+        titleLabel.text = anime.animeTitleEnglish ?? anime.animeTitleJapanese ?? "Unknown"
+        yearLabel.text = "TBA"   // Animes entity has no year field
+        formatLabel.text = "TV"  // Animes entity has no format field
+        loadCover(urlString: anime.animeImgL ?? anime.animeImgM ?? "")
     }
 
-    // MARK: - Helpers
+    func configure(with item: AnimeItem) {
+        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
+        yearLabel.text = item.year.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
+        formatLabel.text = formatString(item.format)
+        loadCover(urlString: item.coverURL ?? "")
+    }
 
-    private func applyScore(_ score: Float) {
-        if score > 0 {
-            scoreBadge.text = String(format: " %.0f%% ", score)
-            scoreBadge.isHidden = false
-        } else {
-            scoreBadge.isHidden = true
+    private func formatString(_ raw: String?) -> String {
+        guard let raw = raw else { return "TV" }
+        switch raw {
+        case "TV_SHORT": return "TV Short"
+        case "OVA": return "OVA"
+        case "ONA": return "ONA"
+        case "MOVIE": return "Movie"
+        case "SPECIAL": return "Special"
+        case "MUSIC": return "Music"
+        default: return "TV"
         }
     }
 
@@ -174,46 +185,14 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         imageTask?.resume()
     }
 
-    private static func metaString(status: String?, episodes: Int?) -> String {
-        var parts: [String] = []
-        if let s = status {
-            switch s {
-            case "RELEASING": parts.append("Airing")
-            case "FINISHED": parts.append("Finished")
-            case "NOT_YET_RELEASED": parts.append("Upcoming")
-            default: parts.append(s.capitalized)
-            }
-        }
-        if let e = episodes, e > 0 { parts.append("\(e) eps") }
-        return parts.joined(separator: " · ")
-    }
-
-    // MARK: Configuration
-
-    func configure(with anime: Animes) {
-        titleLabel.text = anime.animeTitleEnglish ?? anime.animeTitleJapanese ?? "Unknown"
-        applyScore(anime.animeScore?.floatValue ?? 0)
-        let status = anime.animeStatus
-        let eps = anime.animeTotalEps?.intValue
-        metaLabel.text = AnimeCollectionViewCell.metaString(status: status, episodes: eps)
-        loadCover(urlString: anime.animeImgL ?? anime.animeImgM ?? "")
-    }
-
-    func configure(with item: AnimeItem) {
-        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
-        applyScore(item.score ?? 0)
-        metaLabel.text = AnimeCollectionViewCell.metaString(status: item.status, episodes: item.episodes)
-        loadCover(urlString: item.coverURL ?? "")
-    }
-
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
         imageTask = nil
         currentURLString = nil
         coverImageView.image = nil
-        scoreBadge.isHidden = true
         titleLabel.text = nil
-        metaLabel.text = nil
+        yearLabel.text = nil
+        formatLabel.text = nil
     }
 }

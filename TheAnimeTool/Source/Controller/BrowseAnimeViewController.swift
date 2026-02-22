@@ -32,77 +32,62 @@ private final class BannerGradientView: UIView {
 }
 
 // MARK: - FeaturedBannerCell
-// Matches Hayase's full-banner.svelte: blurred background image, cover art on the left,
-// title/badges/description on the right, dot indicators at the bottom, 15-second auto-rotation.
+// Matches Hayase's full-banner.svelte exactly:
+// • Full-bleed background image (banner or cover) — NO separate cover thumbnail
+// • Black gradient overlay from ~15% to bottom (0.82 alpha)
+// • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines
+// • Badges row: bg-primary/10 (white/10%) pills — duration, format, status, score
+// • Description: text-white/70, 2 lines, text-xs (11pt)
+// • Dot progress indicators at bottom: inactive = white/20%, active animates to fill (bg-custom)
+// • 15-second auto-rotation
 
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    static let bannerHeight: CGFloat = 260
+    static let bannerHeight: CGFloat = 280
 
-    // Exposed so BrowseAnimeViewController can navigate to the currently-shown anime on tap
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
-    private var coverTask: URLSessionDataTask?
 
     // MARK: Views
 
+    // Full-bleed background — banner preferred, fallback to cover
     private let backgroundImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
+        iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
         return iv
     }()
 
-    /// Dark translucent dim on top of background for text readability
-    private let dimView: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.52)
-        return v
-    }()
-
+    // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
-    private let coverImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray4
-        iv.layer.cornerRadius = 6
-        return iv
-    }()
-
+    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 18, weight: .black)
+        l.font = .systemFont(ofSize: 28, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
-        l.shadowOffset = CGSize(width: 0, height: 1)
+        l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
 
-    private let romajiLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
-        l.textColor = UIColor.white.withAlphaComponent(0.7)
-        l.numberOfLines = 1
-        return l
-    }()
-
+    // Badge row: bg-primary/10 pills (duration, format, status, score)
     private let badgeStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 5
+        sv.spacing = 6
         sv.alignment = .center
         return sv
     }()
 
+    // Description: text-white/70 text-xs line-clamp-2
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
@@ -111,10 +96,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return l
     }()
 
+    // Progress dots row — animated fill for active dot
     private let dotsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 5
+        sv.spacing = 6
         sv.alignment = .center
         return sv
     }()
@@ -134,14 +120,15 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private func setup() {
         clipsToBounds = true
 
-        [backgroundImageView, dimView, gradientView, coverImageView].forEach {
+        [backgroundImageView, gradientView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
 
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, romajiLabel, badgeStack, descriptionLabel])
+        // Text stack: [title, badgeStack, descriptionLabel]
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, badgeStack, descriptionLabel])
         textStack.axis = .vertical
-        textStack.spacing = 4
+        textStack.spacing = 8
         textStack.alignment = .leading
         textStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(textStack)
@@ -155,33 +142,26 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             backgroundImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             backgroundImageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            dimView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            dimView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            dimView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            dimView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-
             gradientView.topAnchor.constraint(equalTo: contentView.topAnchor),
             gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
+            // Dots at very bottom
             dotsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
 
-            coverImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            coverImageView.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
-            coverImageView.widthAnchor.constraint(equalToConstant: 78),
-            coverImageView.heightAnchor.constraint(equalToConstant: 110),
-
-            textStack.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
+            // Text stack just above dots, left + right margins
+            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
+            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
         ])
     }
 
     // MARK: Configuration
 
     func configure(with items: [AnimeItem]) {
+        // full-banner.svelte: shuffleAndFilter → media with bannerImage OR trailer
         let filtered = items.filter { $0.bannerURL != nil || $0.coverURL != nil }
         self.items = filtered.isEmpty ? Array(items.prefix(5)) : Array(filtered.prefix(5))
         currentIndex = 0
@@ -195,9 +175,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         let item = items[currentIndex]
         let block = {
             self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
-            let showRomaji = item.titleRomaji != nil && item.titleRomaji != item.titleEnglish
-            self.romajiLabel.text = showRomaji ? item.titleRomaji : nil
-            self.romajiLabel.isHidden = !showRomaji
             self.descriptionLabel.text = item.description
             self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
             self.updateBadges(for: item)
@@ -208,82 +185,58 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         } else {
             block()
         }
-        loadImages(for: item)
+        loadBanner(for: item)
     }
 
-    private func loadImages(for item: AnimeItem) {
+    private func loadBanner(for item: AnimeItem) {
         bannerTask?.cancel()
-        coverTask?.cancel()
         bannerTask = nil
-        coverTask = nil
-
-        // Background: prefer banner image, fallback to cover
-        if let urlStr = (item.bannerURL ?? item.coverURL), !urlStr.isEmpty, let url = URL(string: urlStr) {
-            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                backgroundImageView.image = cached
-            } else {
-                let captured = urlStr
-                let biv = backgroundImageView
-                bannerTask = URLSession.shared.dataTask(with: url) { [weak biv] data, _, _ in
-                    guard let data = data, let image = UIImage(data: data) else { return }
-                    SharedImageCache.shared.setObject(image, forKey: captured as NSString)
-                    DispatchQueue.main.async {
-                        UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
-                                          options: .transitionCrossDissolve,
-                                          animations: { biv?.image = image })
-                    }
-                }
-                bannerTask?.resume()
-            }
-        } else {
+        let urlStr = item.bannerURL ?? item.coverURL
+        guard let urlStr = urlStr, let url = URL(string: urlStr) else {
             backgroundImageView.image = nil
+            return
         }
-
-        // Cover art
-        if let urlStr = item.coverURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                coverImageView.image = cached
-            } else {
-                let captured = urlStr
-                let civ = coverImageView
-                coverTask = URLSession.shared.dataTask(with: url) { [weak civ] data, _, _ in
-                    guard let data = data, let image = UIImage(data: data) else { return }
-                    SharedImageCache.shared.setObject(image, forKey: captured as NSString)
-                    DispatchQueue.main.async {
-                        UIView.transition(with: civ ?? UIImageView(), duration: 0.3,
-                                          options: .transitionCrossDissolve,
-                                          animations: { civ?.image = image })
-                    }
-                }
-                coverTask?.resume()
+        if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+            backgroundImageView.image = cached
+            return
+        }
+        let captured = urlStr
+        let biv = backgroundImageView
+        bannerTask = URLSession.shared.dataTask(with: url) { [weak biv] data, _, _ in
+            guard let data = data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: captured as NSString)
+            DispatchQueue.main.async {
+                UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
+                                  options: .transitionCrossDissolve,
+                                  animations: { biv?.image = image })
             }
-        } else {
-            coverImageView.image = nil
         }
+        bannerTask?.resume()
     }
 
     private func updateBadges(for item: AnimeItem) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         var texts: [String] = []
-        if let s = item.status {
-            switch s {
+        // full-banner.svelte: of(current) ?? duration(current) ?? 'N/A', format, status, score
+        if let eps = item.episodes, eps > 0 { texts.append("\(eps) eps") }
+        if let fmt = item.format { texts.append(fmt.capitalized) }
+        if let st = item.status {
+            switch st {
             case "RELEASING": texts.append("Airing")
             case "FINISHED": texts.append("Finished")
             case "NOT_YET_RELEASED": texts.append("Upcoming")
-            default: texts.append(s.capitalized)
+            default: texts.append(st.replacingOccurrences(of: "_", with: " ").capitalized)
             }
         }
-        if let e = item.episodes, e > 0 { texts.append("\(e) eps") }
         if let score = item.score, score > 0 { texts.append(String(format: "%.0f%%", score)) }
-        for text in texts.prefix(3) {
+        for text in texts.prefix(4) {
             let l = UILabel()
             l.text = "  \(text)  "
-            l.font = .systemFont(ofSize: 10, weight: .semibold)
+            l.font = .systemFont(ofSize: 11, weight: .bold)
+            // bg-primary/10 in dark = white/10%
+            l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
             l.textColor = .white
-            l.backgroundColor = UIColor.white.withAlphaComponent(0.18)
-            l.layer.cornerRadius = 6
-            l.layer.borderWidth = 0.5
-            l.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+            l.layer.cornerRadius = 4
             l.clipsToBounds = true
             badgeStack.addArrangedSubview(l)
         }
@@ -296,22 +249,34 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             dot.layer.cornerRadius = 2
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
-            dot.widthAnchor.constraint(equalToConstant: 16).isActive = true
             dotsStack.addArrangedSubview(dot)
         }
         updateDots()
     }
 
     private func updateDots() {
+        // full-banner.svelte: inactive = bg-white/20, active = width 3rem (48pt) + bg-custom fill
+        // We approximate with width 40pt active / 20pt inactive, white/20% → white/80%
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
-            dot.backgroundColor = (i == currentIndex) ? .white : UIColor.white.withAlphaComponent(0.3)
+            let active = i == currentIndex
+            // Remove old width constraint
+            dot.constraints.filter { $0.firstAttribute == .width }.forEach { dot.removeConstraint($0) }
+            let w = dot.widthAnchor.constraint(equalToConstant: active ? 40 : 20)
+            w.isActive = true
+            UIView.animate(withDuration: 0.3) {
+                dot.backgroundColor = active
+                    ? UIColor.white.withAlphaComponent(0.9)
+                    : UIColor.white.withAlphaComponent(0.2)
+                dot.superview?.layoutIfNeeded()
+            }
         }
     }
 
     private func startTimer() {
         rotationTimer?.invalidate()
         guard items.count > 1 else { return }
-        rotationTimer = Timer.scheduledTimer(withTimeInterval: FeaturedBannerCell.rotationInterval, repeats: true) { [weak self] _ in
+        rotationTimer = Timer.scheduledTimer(withTimeInterval: FeaturedBannerCell.rotationInterval,
+                                             repeats: true) { [weak self] _ in
             guard let self = self, !self.items.isEmpty else { return }
             self.currentIndex = (self.currentIndex + 1) % self.items.count
             self.displayItem(animated: true)
@@ -324,11 +289,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         rotationTimer = nil
         bannerTask?.cancel()
         bannerTask = nil
-        coverTask?.cancel()
-        coverTask = nil
         items = []
         backgroundImageView.image = nil
-        coverImageView.image = nil
     }
 }
 
@@ -405,7 +367,7 @@ private final class SkeletonPosterCell: UICollectionViewCell {
 }
 
 // MARK: - SectionHeaderView
-// Matches Hayase's section title + "View More" inline layout
+// Matches Hayase home page: font-semibold text-lg text-muted-foreground + "View More" text-xs
 
 private final class SectionHeaderView: UICollectionReusableView {
     static let reuseID = "SectionHeader"
@@ -414,16 +376,17 @@ private final class SectionHeaderView: UICollectionReusableView {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .semibold)
-        l.textColor = .label
+        // Hayase: font-semibold text-lg leading-none
+        l.font = .systemFont(ofSize: 18, weight: .semibold)
+        l.textColor = UIColor(white: 0.65, alpha: 1) // text-muted-foreground dark
         return l
     }()
 
     private lazy var viewMoreButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("View More", for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 12)
-        b.setTitleColor(.secondaryLabel, for: .normal)
+        b.titleLabel?.font = .systemFont(ofSize: 12) // text-xs
+        b.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
         b.addTarget(self, action: #selector(viewMoreTapped), for: .touchUpInside)
         return b
     }()
@@ -439,6 +402,7 @@ private final class SectionHeaderView: UICollectionReusableView {
     }
 
     private func setup() {
+        backgroundColor = .clear
         [titleLabel, viewMoreButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
@@ -464,8 +428,9 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Layout Constants
 
     private enum PosterLayout {
-        static let width: CGFloat = 115
-        static let height: CGFloat = 200
+        // Matches Hayase small.svelte: w-[9.5rem] = 152px wide, aspect-ratio 152:290
+        static let width: CGFloat = 110
+        static let height: CGFloat = floor(110 * 290.0 / 152.0)  // ≈ 210
     }
 
     // MARK: - Properties
@@ -521,7 +486,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark: hsl(240,10%,3.9%)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.delegate = self
         collectionView.dataSource = self
@@ -585,15 +550,18 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeSearchLayout() -> UICollectionViewLayout {
-        // 3-column portrait grid (same as before)
+        // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
+        // On mobile 3-column with 152:290 aspect ratio from small.svelte
+        let itemWidth = (UIScreen.main.bounds.width - 48) / 3
+        let itemHeight = floor(itemWidth * 290.0 / 152.0)
         let item = NSCollectionLayoutItem(
-            layoutSize: .init(widthDimension: .fractionalWidth(1.0 / 3.0),
-                              heightDimension: .fractionalHeight(1.0)))
-        item.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5)
+            layoutSize: .init(widthDimension: .absolute(itemWidth),
+                              heightDimension: .absolute(itemHeight)))
+        item.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                              heightDimension: .fractionalWidth(0.5)),
-            subitems: [item])
+                              heightDimension: .absolute(itemHeight + 12)),
+            subitems: [item, item, item])
         let section = NSCollectionLayoutSection(group: group)
         section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
         return UICollectionViewCompositionalLayout(section: section)

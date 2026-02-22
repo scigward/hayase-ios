@@ -32,6 +32,8 @@ struct AnimeItem {
     let bannerURL: String?
     let genres: [String]
     let description: String?
+    var year: Int? = nil             // media.seasonYear from AniList
+    var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
     var favourites: Int? = nil           // AniList favourites count
     var relations: [AnimeRelation] = []
@@ -105,6 +107,8 @@ public class AnimeService: NSObject {
         let genres: [String]?
         let favourites: Int?
         let trailer: Trailer?
+        let seasonYear: Int?
+        let format: String?
 
         struct Title: Codable {
             let english: String?
@@ -322,6 +326,8 @@ public class AnimeService: NSObject {
           genres
           episodes
           status
+          seasonYear
+          format
           favourites
           trailer { id site }
           description(asHtml: false)
@@ -379,6 +385,8 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    year: media.seasonYear,
+                    format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
             }
@@ -442,6 +450,8 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    year: media.seasonYear,
+                    format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
             }
@@ -520,6 +530,8 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    year: media.seasonYear,
+                    format: media.format,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites)
             }
