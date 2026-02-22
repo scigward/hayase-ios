@@ -32,8 +32,8 @@ struct AnimeItem {
     let bannerURL: String?
     let genres: [String]
     let description: String?
-    let trailerYouTubeID: String?  // non-nil when AniList trailer site == "youtube"
-    let favourites: Int?           // AniList favourites count
+    var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
+    var favourites: Int? = nil           // AniList favourites count
     var relations: [AnimeRelation] = []
     var characters: [AnimeCharacter] = []
 }
