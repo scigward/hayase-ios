@@ -212,14 +212,15 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     private let findTorrentsButton: UIButton = {
-        var config = UIButton.Configuration.filled()
-        config.title = "Find Torrents on nyaa.si"
-        config.image = UIImage(systemName: "arrow.down.circle.fill")
-        config.imagePadding = 6
-        config.background.backgroundColor = .systemIndigo
-        config.cornerStyle = .medium
-        config.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
-        let b = UIButton(configuration: config)
+        let b = UIButton(type: .system)
+        b.setTitle("  Find Torrents on nyaa.si", for: .normal)
+        b.setImage(UIImage(systemName: "arrow.down.circle.fill"), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = .systemIndigo
+        b.titleLabel?.font = .boldSystemFont(ofSize: 16)
+        b.contentEdgeInsets = UIEdgeInsets(top: 14, left: 20, bottom: 14, right: 20)
+        b.layer.cornerRadius = 12
+        b.layer.masksToBounds = true
         return b
     }()
 
