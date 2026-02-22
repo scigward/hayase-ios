@@ -32,7 +32,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="52"/>
                         <autoresizingMask key="autoresizingMask"/>
                     </navigationBar>
-                    <nil name="viewControllers"/>
                     <connections>
                         <segue destination="brw-vc-001" kind="relationship" relationship="rootViewController" id="nav-seg-001"/>
                     </connections>
@@ -121,7 +120,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="52"/>
                         <autoresizingMask key="autoresizingMask"/>
                     </navigationBar>
-                    <nil name="viewControllers"/>
                     <connections>
                         <segue destination="srch-vc-001" kind="relationship" relationship="rootViewController" id="srch-nav-seg-001"/>
                     </connections>
@@ -151,7 +149,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="52"/>
                         <autoresizingMask key="autoresizingMask"/>
                     </navigationBar>
-                    <nil name="viewControllers"/>
                     <connections>
                         <segue destination="dl-vc-001" kind="relationship" relationship="rootViewController" id="dl-nav-seg-001"/>
                     </connections>
@@ -181,7 +178,6 @@
                         <rect key="frame" x="0.0" y="0.0" width="390" height="52"/>
                         <autoresizingMask key="autoresizingMask"/>
                     </navigationBar>
-                    <nil name="viewControllers"/>
                     <connections>
                         <segue destination="sett-vc-001" kind="relationship" relationship="rootViewController" id="sett-nav-seg-001"/>
                     </connections>
