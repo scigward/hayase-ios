@@ -51,7 +51,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
-        collectionView.backgroundColor = .systemGroupedBackground
+        collectionView.backgroundColor = .systemBackground
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.delegate = self
         collectionView.dataSource = self
@@ -67,18 +67,20 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
+        // 3-column portrait grid: each cell is ~1/3 wide and 1.5× taller (poster ratio)
         let item = NSCollectionLayoutItem(
-            layoutSize: .init(widthDimension: .fractionalWidth(0.5),
-                              heightDimension: .fractionalHeight(1)))
-        item.contentInsets = .init(top: 6, leading: 6, bottom: 6, trailing: 6)
+            layoutSize: .init(widthDimension: .fractionalWidth(1.0 / 3.0),
+                              heightDimension: .fractionalHeight(1.0)))
+        item.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5)
 
+        // Group height = 50% of collection width → cell aspect ratio ≈ 1.5 (portrait)
         let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: .init(widthDimension: .fractionalWidth(1),
-                              heightDimension: .fractionalWidth(0.75)),
+            layoutSize: .init(widthDimension: .fractionalWidth(1.0),
+                              heightDimension: .fractionalWidth(0.5)),
             subitems: [item])
 
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
         return UICollectionViewCompositionalLayout(section: section)
     }
 
