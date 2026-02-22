@@ -8,6 +8,25 @@
 import UIKit
 import CoreData
 
+// MARK: - Home section models
+
+struct AnimeItem {
+    let id: Int
+    let titleEnglish: String?
+    let titleRomaji: String?
+    let coverURL: String?
+    let score: Float?
+    let status: String?
+    let episodes: Int?
+    let bannerURL: String?
+    let genres: [String]
+}
+
+struct HomeSectionData {
+    let title: String
+    var items: [AnimeItem]
+}
+
 public class AnimeService: NSObject {
     enum AnimeError: Error {
         case errorSavingCoreData
@@ -45,6 +64,7 @@ public class AnimeService: NSObject {
         let description: String?
         let nextAiringEpisode: NextAiringEpisode?
         let status: String?
+        let genres: [String]?
 
         struct Title: Codable {
             let english: String?
@@ -242,6 +262,88 @@ public class AnimeService: NSObject {
         s = s.replacingOccurrences(of: "&quot;", with: "\"")
         s = s.replacingOccurrences(of: "&nbsp;", with: " ")
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Home sections (in-memory, no CoreData)
+
+    private let homeSectionQuery = """
+    query ($status: MediaStatus, $sort: [MediaSort], $genre: String) {
+      Page(page: 1, perPage: 20) {
+        media(type: ANIME, status: $status, sort: $sort, genre: $genre) {
+          id
+          title { english romaji }
+          coverImage { large medium }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          status
+        }
+      }
+    }
+    """
+
+    private func fetchSectionItems(variables: [String: Any],
+                                   completion: @escaping ([AnimeItem]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        var body: [String: Any] = ["query": homeSectionQuery]
+        body["variables"] = variables
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                completion([])
+                return
+            }
+            let items: [AnimeItem] = mediaList.compactMap { media in
+                guard let id = media.id else { return nil }
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [])
+            }
+            completion(items)
+        }.resume()
+    }
+
+    func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
+        let configs: [(title: String, variables: [String: Any])] = [
+            ("Currently Airing", ["sort": ["POPULARITY_DESC"], "status": "RELEASING"]),
+            ("Trending Now",     ["sort": ["TRENDING_DESC"]]),
+            ("All Time Popular", ["sort": ["POPULARITY_DESC"]]),
+            ("Action",           ["sort": ["TRENDING_DESC"], "genre": "Action"]),
+            ("Romance",          ["sort": ["TRENDING_DESC"], "genre": "Romance"]),
+        ]
+
+        let group = DispatchGroup()
+        let syncQueue = DispatchQueue(label: "com.theAnimetool.homeSections")
+        var results: [(index: Int, section: HomeSectionData)] = []
+
+        for (index, config) in configs.enumerated() {
+            group.enter()
+            fetchSectionItems(variables: config.variables) { items in
+                let sectionData = HomeSectionData(title: config.title, items: items)
+                syncQueue.sync { results.append((index: index, section: sectionData)) }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            let sorted = results.sorted { $0.index < $1.index }.map { $0.section }
+            completion(sorted)
+        }
     }
 
     static let sharedAnimeService = AnimeService()

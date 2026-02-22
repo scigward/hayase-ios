@@ -212,14 +212,14 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     private let findTorrentsButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("  Find Torrents on nyaa.si", for: .normal)
-        b.setImage(UIImage(systemName: "arrow.down.circle.fill"), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = .systemIndigo
-        b.layer.cornerRadius = 12
-        b.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        b.contentEdgeInsets = UIEdgeInsets(top: 14, left: 20, bottom: 14, right: 20)
+        var config = UIButton.Configuration.filled()
+        config.title = "Find Torrents on nyaa.si"
+        config.image = UIImage(systemName: "arrow.down.circle.fill")
+        config.imagePadding = 6
+        config.background.backgroundColor = .systemIndigo
+        config.cornerStyle = .medium
+        config.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
+        let b = UIButton(configuration: config)
         return b
     }()
 
@@ -346,6 +346,37 @@ private final class AnimeInfoHeaderView: UIView {
                   into: coverImageView, task: &coverImageTask)
     }
 
+    func configure(with item: AnimeItem) {
+        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
+
+        if let eng = item.titleEnglish, let rom = item.titleRomaji, eng != rom {
+            romajiLabel.text = rom
+            romajiLabel.isHidden = false
+        } else {
+            romajiLabel.isHidden = true
+        }
+
+        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        if let score = item.score, score > 0 {
+            badgesStack.addArrangedSubview(makeBadge(
+                text: String(format: "★ %.0f%%", score), bg: .systemYellow, fg: .black))
+        }
+        if let status = item.status {
+            let text = status.replacingOccurrences(of: "_", with: " ").capitalized
+            badgesStack.addArrangedSubview(makeBadge(text: text, bg: .systemGreen, fg: .white))
+        }
+        if let eps = item.episodes, eps > 0 {
+            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps", bg: .systemIndigo, fg: .white))
+        }
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        badgesStack.addArrangedSubview(spacer)
+
+        descriptionLabel.text = "No synopsis available."
+        loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
+        loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
+    }
+
     private func makeBadge(text: String, bg: UIColor, fg: UIColor) -> UILabel {
         let l = UILabel()
         l.text = "  \(text)  "
@@ -381,6 +412,7 @@ private final class AnimeInfoHeaderView: UIView {
 class AnimeDetailViewController: UIViewController {
 
     var animeEntity: Animes?
+    var animeItem: AnimeItem?
 
     private var tableView: UITableView!
     private var headerView: AnimeInfoHeaderView!
@@ -391,7 +423,8 @@ class AnimeDetailViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese
+        title = animeItem?.titleEnglish ?? animeItem?.titleRomaji
+            ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = .systemBackground
 
@@ -421,7 +454,11 @@ class AnimeDetailViewController: UIViewController {
 
     private func setupHeaderView() {
         headerView = AnimeInfoHeaderView()
-        headerView.configure(with: animeEntity)
+        if let item = animeItem {
+            headerView.configure(with: item)
+        } else {
+            headerView.configure(with: animeEntity)
+        }
         headerView.onFindTorrents = { [weak self] in
             self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
         }
@@ -450,9 +487,15 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Ani.zip episode fetch
 
     private func fetchEpisodes() {
-        guard let anilistId = animeEntity?.animeAnilistId?.intValue else { return }
+        let anilistId: Int?
+        if let entity = animeEntity {
+            anilistId = entity.animeAnilistId?.intValue
+        } else {
+            anilistId = animeItem?.id
+        }
+        guard let id = anilistId else { return }
         var comps = URLComponents(string: "https://api.ani.zip/mappings")
-        comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistId))]
+        comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(id))]
         guard let url = comps?.url else { return }
 
         episodeFetchTask?.cancel()
@@ -502,6 +545,9 @@ class AnimeDetailViewController: UIViewController {
         guard segue.identifier == "showTorrentList",
               let dest = segue.destination as? TorrentListViewController else { return }
         dest.animeEntity = animeEntity
+        if animeEntity == nil, let item = animeItem {
+            dest.animeTitleOverride = item.titleEnglish ?? item.titleRomaji
+        }
     }
 }
 

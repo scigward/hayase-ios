@@ -95,6 +95,7 @@ class TorrentListViewController: UIViewController {
     // MARK: - Properties
 
     var animeEntity: Animes?
+    var animeTitleOverride: String?
 
     private let defaultPredicate = NSPredicate(format: "torrentFlagTemp == YES")
     private let defaultSort = NSSortDescriptor(key: "torrentOrder", ascending: true)
@@ -127,7 +128,7 @@ class TorrentListViewController: UIViewController {
     // MARK: - Setup
 
     private func setupNavigationBar() {
-        title = animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? "Torrents"
+        title = animeTitleOverride ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? "Torrents"
         navigationItem.largeTitleDisplayMode = .never
     }
 
@@ -199,10 +200,12 @@ class TorrentListViewController: UIViewController {
             name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: nil)
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
     private func startSearch() {
         loadingIndicator.startAnimating()
         emptyLabel.isHidden = true
-        let name = animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? ""
+        let name = animeTitleOverride ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? ""
         TorrentService.sharedTorrentService.UpdateTempTorrentsWith(
             TorrentService.UtilMakeShortSearchString(name), sortBy: .Seeders)
     }
@@ -245,8 +248,10 @@ extension TorrentListViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: TorrentTableViewCell.reuseID, for: indexPath) as! TorrentTableViewCell
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: TorrentTableViewCell.reuseID, for: indexPath) as? TorrentTableViewCell else {
+            return UITableViewCell()
+        }
         if let torrent = torrentResultsController?.object(at: indexPath) {
             cell.configure(with: torrent)
         }

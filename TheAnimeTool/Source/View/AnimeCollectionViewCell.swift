@@ -175,6 +175,44 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         imageTask?.resume()
     }
 
+    func configure(with item: AnimeItem) {
+        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
+
+        let score = item.score ?? 0
+        if score > 0 {
+            scoreBadge.text = String(format: " %.0f%% ", score)
+            scoreBadge.isHidden = false
+        } else {
+            scoreBadge.isHidden = true
+        }
+
+        let urlString = item.coverURL ?? ""
+        currentURLString = urlString
+        coverImageView.image = nil
+        imageTask?.cancel()
+
+        guard !urlString.isEmpty, let url = URL(string: urlString) else { return }
+
+        if let cached = ImageCache.shared.object(forKey: urlString as NSString) {
+            coverImageView.image = cached
+            return
+        }
+
+        let captured = urlString
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data, let image = UIImage(data: data) else { return }
+            ImageCache.shared.setObject(image, forKey: captured as NSString)
+            DispatchQueue.main.async {
+                guard self?.currentURLString == captured else { return }
+                UIView.transition(with: self?.coverImageView ?? UIImageView(),
+                                  duration: 0.3,
+                                  options: .transitionCrossDissolve,
+                                  animations: { self?.coverImageView.image = image })
+            }
+        }
+        imageTask?.resume()
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
