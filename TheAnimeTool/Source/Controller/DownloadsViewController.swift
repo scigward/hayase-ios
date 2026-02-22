@@ -9,21 +9,28 @@ import LibTorrent
 
 // MARK: - DownloadCell
 
+/// Matches Hayase's overview.svelte: torrent name + status badge + progress bar +
+/// 4-column stats grid (↓ speed / ↑ speed / ETA / Seeders·Leechers).
 final class DownloadCell: UITableViewCell {
     static let reuseID = "DownloadCell"
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .medium)
+        l.font = .systemFont(ofSize: 14, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
     }()
 
-    private let stateLabel: UILabel = {
+    private let statusBadge: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
-        l.textColor = .secondaryLabel
+        l.font = .systemFont(ofSize: 10, weight: .bold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.layer.cornerRadius = 6
+        l.clipsToBounds = true
+        l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
         return l
     }()
 
@@ -45,19 +52,34 @@ final class DownloadCell: UITableViewCell {
         return p
     }()
 
+    // Stats row — matches overview.svelte "Speed & Transfer" + "Peers & Connections"
+    private let downSpeedLabel  = DownloadCell.makeStatLabel(tint: .systemGreen)
+    private let upSpeedLabel    = DownloadCell.makeStatLabel(tint: .systemBlue)
+    private let etaLabel        = DownloadCell.makeStatLabel(tint: .systemOrange)
+    private let peersLabel      = DownloadCell.makeStatLabel(tint: .systemPurple)
+
+    private static func makeStatLabel(tint: UIColor) -> UILabel {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 11)
+        l.textColor = tint
+        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return l
+    }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setup()
     }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
+    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
         accessoryType = .disclosureIndicator
-        [nameLabel, stateLabel, percentLabel, progressView].forEach {
+        let statsStack = UIStackView(arrangedSubviews: [downSpeedLabel, upSpeedLabel, etaLabel, peersLabel])
+        statsStack.axis = .horizontal
+        statsStack.distribution = .fillEqually
+        statsStack.spacing = 4
+
+        [nameLabel, statusBadge, percentLabel, progressView, statsStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
@@ -69,31 +91,87 @@ final class DownloadCell: UITableViewCell {
             percentLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             percentLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
 
-            stateLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
-            stateLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            stateLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            statusBadge.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            statusBadge.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            statusBadge.heightAnchor.constraint(equalToConstant: 18),
 
-            progressView.topAnchor.constraint(equalTo: stateLabel.bottomAnchor, constant: 6),
+            progressView.topAnchor.constraint(equalTo: statusBadge.bottomAnchor, constant: 8),
             progressView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            progressView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
             progressView.heightAnchor.constraint(equalToConstant: 4),
+
+            statsStack.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 8),
+            statsStack.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            statsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            statsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
     }
 
-    func configure(name: String, stateText: String, progress: Float) {
+    /// Format bytes/sec into a compact human-readable string: "3.2 MB/s", "512 KB/s", etc.
+    private static func formatSpeed(_ bytesPerSec: UInt64) -> String {
+        if bytesPerSec == 0 { return "0 B/s" }
+        if bytesPerSec >= 1_073_741_824 { return String(format: "%.1f GB/s", Double(bytesPerSec) / 1_073_741_824) }
+        if bytesPerSec >= 1_048_576    { return String(format: "%.1f MB/s", Double(bytesPerSec) / 1_048_576) }
+        if bytesPerSec >= 1_024        { return String(format: "%.0f KB/s", Double(bytesPerSec) / 1_024) }
+        return "\(bytesPerSec) B/s"
+    }
+
+    /// Format bytes into a compact size string: "3.2 GB", "512 MB", etc.
+    static func formatSize(_ bytes: UInt64) -> String {
+        if bytes == 0 { return "0 B" }
+        if bytes >= 1_073_741_824 { return String(format: "%.1f GB", Double(bytes) / 1_073_741_824) }
+        if bytes >= 1_048_576    { return String(format: "%.1f MB", Double(bytes) / 1_048_576) }
+        if bytes >= 1_024        { return String(format: "%.0f KB", Double(bytes) / 1_024) }
+        return "\(bytes) B"
+    }
+
+    /// ETA string — matches Hayase's `eta()` util: "2h 15m", "45s", "∞".
+    private static func formatETA(remaining: UInt64, rate: UInt64) -> String {
+        guard rate > 0, remaining > 0 else { return "∞" }
+        let s = remaining / rate
+        if s < 60    { return "\(s)s" }
+        if s < 3600  { return "\(s/60)m \(s%60)s" }
+        return "\(s/3600)h \(s%3600/60)m"
+    }
+
+    func configure(snap: TorrentHandle.Snapshot) {
+        let name = snap.name
         nameLabel.text = name.isEmpty ? "Unknown torrent" : name
-        stateLabel.text = stateText
+
+        let progress = Float(snap.progress)
         progressView.progress = progress
-        if progress >= 1.0 {
-            percentLabel.text = "Complete"
+
+        let isComplete = snap.isFinished || snap.isSeed || progress >= 1.0
+        if isComplete {
+            percentLabel.text = "100%"
             percentLabel.textColor = .systemGreen
             progressView.progressTintColor = .systemGreen
+            statusBadge.text = " Seeding "
+            statusBadge.backgroundColor = .systemBlue
+        } else if snap.isPaused {
+            percentLabel.text = String(format: "%.0f%%", progress * 100)
+            percentLabel.textColor = .secondaryLabel
+            progressView.progressTintColor = .systemGray
+            statusBadge.text = " Paused "
+            statusBadge.backgroundColor = .systemGray
         } else {
             percentLabel.text = String(format: "%.0f%%", progress * 100)
             percentLabel.textColor = .systemIndigo
             progressView.progressTintColor = .systemIndigo
+            statusBadge.text = " Downloading "
+            statusBadge.backgroundColor = .systemGreen
         }
+
+        // Stats grid
+        downSpeedLabel.text = "↓ " + DownloadCell.formatSpeed(snap.downloadRate)
+        upSpeedLabel.text   = "↑ " + DownloadCell.formatSpeed(snap.uploadRate)
+
+        let remaining = snap.totalWanted > snap.totalWantedDone ? snap.totalWanted - snap.totalWantedDone : 0
+        etaLabel.text = "⏱ " + DownloadCell.formatETA(remaining: remaining, rate: snap.downloadRate)
+
+        let s = snap.numberOfSeeds
+        let l = snap.numberOfLeechers
+        peersLabel.text = "👥 \(s)S/\(l)L"
     }
 }
 
@@ -216,24 +294,6 @@ class DownloadsViewController: UIViewController {
         refreshHandles()
     }
 
-    // MARK: - Helpers
-
-    private func stateText(for snapshot: TorrentHandle.Snapshot) -> String {
-        let peers = snapshot.numberOfPeers
-        switch snapshot.state {
-        case .downloadingMetadata:
-            return peers > 0 ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s"))" : "Connecting to peers…"
-        case .downloading:
-            return peers > 0 ? "Downloading • \(peers) peer\(peers == 1 ? "" : "s")" : "Downloading"
-        case .finished, .seeding:
-            return "Complete — Seeding"
-        case .checkingFiles, .checkingResumeData:
-            return "Checking files…"
-        default:
-            return "Connecting…"
-        }
-    }
-
     // MARK: - Navigation
 
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
@@ -260,10 +320,7 @@ extension DownloadsViewController: UITableViewDataSource {
         let cell = tableView.dequeueReusableCell(
             withIdentifier: DownloadCell.reuseID, for: indexPath) as! DownloadCell
         let entry = activeHandles[indexPath.row]
-        let snap = entry.handle.snapshot
-        cell.configure(name: snap.name,
-                       stateText: stateText(for: snap),
-                       progress: Float(snap.progress))
+        cell.configure(snap: entry.handle.snapshot)
         return cell
     }
 }

@@ -132,6 +132,20 @@ public class VideoService: NSObject {
         return entry.size > 0 ? Float(entry.downloaded) / Float(entry.size) : 0
     }
 
+    /// Returns the number of bytes already downloaded for this file index (live from snapshot).
+    func downloadedBytesForFileIndex(_ index: UInt) -> UInt64 {
+        guard let handle = torrentHandle else { return 0 }
+        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
+        return entry.downloaded
+    }
+
+    /// Returns the total size in bytes for this file index (live from snapshot).
+    func totalBytesForFileIndex(_ index: UInt) -> UInt64 {
+        guard let handle = torrentHandle else { return 0 }
+        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
+        return entry.size
+    }
+
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
         guard let handle = torrentHandle else { return "" }
         // Use the already-updated snapshot (set by background queue in TorrentService)

@@ -89,28 +89,37 @@ final class VideoTableViewCell: UITableViewCell {
         ])
     }
 
-    func configure(with video: Videos, progress: Float?, isDoNotDownload: Bool) {
+    func configure(with video: Videos, downloadedBytes: UInt64, totalBytes: UInt64, isDoNotDownload: Bool) {
         nameLabel.text = video.videoName ?? "Unknown"
-        let mb = video.videoSize?.floatValue ?? 0
-        sizeLabel.text = mb >= 1024 ? String(format: "%.1f GB", mb / 1024) : String(format: "%.0f MB", mb)
+
+        // Show "downloaded / total" matching Hayase files/table.svelte size column.
+        if totalBytes > 0 {
+            let dl = DownloadCell.formatSize(downloadedBytes)
+            let tot = DownloadCell.formatSize(totalBytes)
+            sizeLabel.text = downloadedBytes >= totalBytes ? tot : "\(dl) / \(tot)"
+        } else {
+            let mb = video.videoSize?.floatValue ?? 0
+            sizeLabel.text = mb >= 1024 ? String(format: "%.1f GB", mb / 1024) : String(format: "%.0f MB", mb)
+        }
+
+        let progress: Float = totalBytes > 0 ? Float(Double(downloadedBytes) / Double(totalBytes)) : 0
 
         if isDoNotDownload {
             progressView.isHidden = true
-            statusLabel.text = "Download"
-            statusLabel.textColor = .systemIndigo
-            iconView.image = UIImage(systemName: "arrow.down.circle")
-            iconView.tintColor = .systemIndigo
-        } else if let p = progress, p >= 1.0 {
+            statusLabel.text = "Skipped"
+            statusLabel.textColor = .secondaryLabel
+            iconView.image = UIImage(systemName: "minus.circle")
+            iconView.tintColor = .secondaryLabel
+        } else if downloadedBytes >= totalBytes && totalBytes > 0 {
             progressView.isHidden = true
             statusLabel.text = "Play"
             statusLabel.textColor = .systemGreen
             iconView.image = UIImage(systemName: "play.circle.fill")
             iconView.tintColor = .systemGreen
         } else {
-            let p = progress ?? 0
             progressView.isHidden = false
-            progressView.progress = p
-            statusLabel.text = String(format: "%.0f%%", p * 100)
+            progressView.progress = progress
+            statusLabel.text = String(format: "%.0f%%", progress * 100)
             statusLabel.textColor = .systemOrange
             iconView.image = UIImage(systemName: "arrow.down.circle.fill")
             iconView.tintColor = .systemOrange
@@ -346,8 +355,9 @@ extension VideoListViewController: UITableViewDataSource {
               let indexNum = video.videoIndex else { return cell }
         let index = UInt(indexNum.intValue)
         let isDoNotDownload = vs.CheckIsDoNotDownloadForFileIndex(index) ?? true
-        let progress: Float? = isDoNotDownload ? nil : vs.UpdateProgressForFileIndex(index)
-        cell.configure(with: video, progress: progress, isDoNotDownload: isDoNotDownload)
+        let downloaded = isDoNotDownload ? 0 : vs.downloadedBytesForFileIndex(index)
+        let total = vs.totalBytesForFileIndex(index)
+        cell.configure(with: video, downloadedBytes: downloaded, totalBytes: total, isDoNotDownload: isDoNotDownload)
         return cell
     }
 }
@@ -367,9 +377,9 @@ extension VideoListViewController: UITableViewDelegate {
             vs.SetDoNotDownloadForFileIndex(index, flag: false)
             tableView.reloadRows(at: [indexPath], with: .none)
         } else {
-            // Read live progress from snapshot (not stale CoreData value).
-            let progress = vs.UpdateProgressForFileIndex(index)
-            if progress >= 1.0 {
+            let downloaded = vs.downloadedBytesForFileIndex(index)
+            let total = vs.totalBytesForFileIndex(index)
+            if total > 0 && downloaded >= total {
                 guard let cell = tableView.cellForRow(at: indexPath) as? VideoTableViewCell else { return }
                 performSegue(withIdentifier: "showVideoPlayer", sender: cell)
             }
