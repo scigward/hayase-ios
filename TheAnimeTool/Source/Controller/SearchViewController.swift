@@ -169,6 +169,9 @@ class SearchViewController: UIViewController {
     private static let filterRowHeight: CGFloat  = 44
     private static let activeChipsRowHeight: CGFloat = 36
 
+    // Pending prefill from Home "View More" — applied in viewWillAppear if view not yet loaded
+    private var pendingPrefill: (genre: String?, sort: String?)?
+
     // MARK: - Init (set tabBarItem before viewDidLoad per iOS tab bar rules)
 
     required init?(coder: NSCoder) {
@@ -197,16 +200,26 @@ class SearchViewController: UIViewController {
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
+        // Apply any prefill stored while the view wasn't loaded yet
+        if let pending = pendingPrefill {
+            pendingPrefill = nil
+            applyPrefill(genre: pending.genre, sort: pending.sort)
+        }
     }
 
     // MARK: - Prefill from home "View More"
     // Matches Hayase: goto('/app/search', { state: { search: variables } })
     // Called by BrowseAnimeViewController before switching to the Search tab.
     func prefillSearch(genre: String?, sort: String?) {
-        // Only clear/apply after view is loaded (header/filter views must exist)
-        // If called before viewDidLoad the tab switch hasn't happened yet so view isn't loaded;
-        // skip in that case — the user will see default results when the search tab appears.
-        guard isViewLoaded else { return }
+        if isViewLoaded {
+            applyPrefill(genre: genre, sort: sort)
+        } else {
+            // View not loaded yet (Search tab not visited); store and apply in viewWillAppear
+            pendingPrefill = (genre: genre, sort: sort)
+        }
+    }
+
+    private func applyPrefill(genre: String?, sort: String?) {
         // Clear existing filters first
         selectedGenre  = nil
         selectedYear   = nil

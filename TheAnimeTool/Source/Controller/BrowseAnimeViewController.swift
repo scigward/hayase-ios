@@ -211,20 +211,30 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
         if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
             backgroundImageView.image = cached
+            applyContentMode(for: cached)
             return
         }
         let captured = urlStr
         let biv = backgroundImageView
-        bannerTask = URLSession.shared.dataTask(with: url) { [weak biv] data, _, _ in
+        bannerTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
             guard let data = data, let image = UIImage(data: data) else { return }
             SharedImageCache.shared.setObject(image, forKey: captured as NSString)
             DispatchQueue.main.async {
+                self?.applyContentMode(for: image)
                 UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
                                   options: .transitionCrossDissolve,
                                   animations: { biv?.image = image })
             }
         }
         bannerTask?.resume()
+    }
+
+    /// Use .scaleAspectFit for landscape banner images (AniList banners ≈ 1900×400, ratio > 2:1)
+    /// so the full image is visible without severe cropping.
+    /// Use .scaleAspectFill for portrait/square cover fallbacks so they fill the cell nicely.
+    private func applyContentMode(for image: UIImage) {
+        let ratio = image.size.width / max(image.size.height, 1)
+        backgroundImageView.contentMode = ratio > 1.5 ? .scaleAspectFit : .scaleAspectFill
     }
 
     private func updateBadges(for item: AnimeItem) {
