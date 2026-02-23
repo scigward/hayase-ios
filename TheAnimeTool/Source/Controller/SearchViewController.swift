@@ -199,6 +199,36 @@ class SearchViewController: UIViewController {
         }
     }
 
+    // MARK: - Prefill from home "View More"
+    // Matches Hayase: goto('/app/search', { state: { search: variables } })
+    // Called by BrowseAnimeViewController before switching to the Search tab.
+    func prefillSearch(genre: String?, sort: String?) {
+        // Only clear/apply after view is loaded (header/filter views exist)
+        guard isViewLoaded else {
+            // Store pending prefilter to apply in viewDidLoad if needed
+            return
+        }
+        // Clear existing filters first
+        selectedGenre  = nil
+        selectedYear   = nil
+        selectedSeason = nil
+        selectedFormat = nil
+        selectedStatus = nil
+        selectedSort   = "TRENDING_DESC"
+        activeFilterLabels.removeAll()
+
+        if let genre = genre {
+            selectedGenre = genre
+            activeFilterLabels[FilterType.genre.label] = (type: .genre, apiValue: genre)
+        }
+        if let sort = sort, sort != "TRENDING_DESC" {
+            selectedSort = sort
+        }
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResults(reset: true)
+    }
+
     // MARK: - Navigation bar
     // Compact title "Search" (no large title, no UISearchController)
     // Nav bar hidden behind header which starts at safeArea top

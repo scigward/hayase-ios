@@ -106,18 +106,20 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         metaRow.spacing = 4
         metaRow.alignment = .center
 
-        // Full card stack: [cover  title  metaRow]
-        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, metaRow])
+        // Spacer grows to fill remaining vertical space between title and meta row,
+        // matching small.svelte `class="grow"` on the title <p> (flex-grow:1 in CSS flexbox).
+        // Result: metaRow is always pinned to the card bottom regardless of title length.
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+
+        // Full card stack: [cover  title  spacer  metaRow]
+        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, spacer, metaRow])
         cardStack.axis = .vertical
         cardStack.spacing = 0
         cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
-        cardStack.setCustomSpacing(8, after: titleLabel)
+        cardStack.setCustomSpacing(4, after: titleLabel)
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardStack)
-
-        // small.svelte: title has `grow` (flex-grow:1) → always pinned to bottom.
-        // iOS equivalent: low vertical content-hugging on title + stack pinned to bottom.
-        titleLabel.setContentHuggingPriority(.defaultLow, for: .vertical)
 
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: contentView.topAnchor),

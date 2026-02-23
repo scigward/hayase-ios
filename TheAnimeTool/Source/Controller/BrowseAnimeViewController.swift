@@ -51,7 +51,11 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.80
+    // Banner height: UIScreen.main.bounds.height * 0.50 (50% of screen).
+    // 80vh (like Hayase desktop) zooms landscape banner images too aggressively on narrow
+    // iPhone viewports (the 1900×400 banner would show only ~15% of its width).
+    // 50% shows ~27% of the banner width — a more balanced crop.
+    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.50
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -887,9 +891,16 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             header.onViewMore = nil
         } else if !isSearching, rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
-            // "View More" → switch to Search tab (index 1) so user can browse that category
+            let section = sections[rowSection]
+            // "View More" → switch to Search tab (Hayase: goto('/app/search', { state: { search: variables } }))
+            // and pre-apply this section's genre + sort filter to SearchViewController
             header.onViewMore = { [weak self] in
-                self?.tabBarController?.selectedIndex = 1
+                guard let self = self else { return }
+                if let navController = self.tabBarController?.viewControllers?[1] as? UINavigationController,
+                   let searchVC = navController.viewControllers.first as? SearchViewController {
+                    searchVC.prefillSearch(genre: section.filterGenre, sort: section.filterSort)
+                }
+                self.tabBarController?.selectedIndex = 1
             }
         }
         return header

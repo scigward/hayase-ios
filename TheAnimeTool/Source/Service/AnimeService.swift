@@ -44,6 +44,8 @@ struct AnimeItem {
 struct HomeSectionData {
     let title: String
     var items: [AnimeItem]
+    var filterGenre: String? = nil   // genre filter for "View More" (e.g. "Action", "Romance")
+    var filterSort: String? = nil    // sort filter for "View More" (e.g. "TRENDING_DESC")
 }
 
 // MARK: - Staff + Stats models (anime/[id]/staff.svelte, anime/[id]/stats.svelte)
@@ -577,7 +579,9 @@ public class AnimeService: NSObject {
         for (index, config) in configs.enumerated() {
             group.enter()
             fetchSectionItems(variables: config.variables) { items in
-                let sectionData = HomeSectionData(title: config.title, items: items)
+                var sectionData = HomeSectionData(title: config.title, items: items)
+                sectionData.filterGenre = config.variables["genre"] as? String
+                sectionData.filterSort  = (config.variables["sort"] as? [String])?.first
                 syncQueue.sync { results[index] = sectionData }
                 group.leave()
             }

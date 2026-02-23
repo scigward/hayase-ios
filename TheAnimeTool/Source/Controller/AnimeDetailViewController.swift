@@ -152,14 +152,14 @@ private final class EpisodeCell: UITableViewCell {
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-            // max-h-28 = 112pt
-            cardView.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+            // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
+            cardView.heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, 50% width, full height
+            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`), full height
             thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
-            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.42),
+            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5),
 
             // Runtime badge: bottom-left of thumb
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
@@ -1194,8 +1194,8 @@ class AnimeDetailViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = animeItem?.titleEnglish ?? animeItem?.titleRomaji
-            ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese
+        // Hayase anime/[id]/+layout.svelte has no navigation title — info is shown in the header
+        title = nil
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
@@ -1264,21 +1264,41 @@ class AnimeDetailViewController: UIViewController {
             let safari = SFSafariViewController(url: url)
             self.present(safari, animated: true)
         }
-        headerView.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
-        tableView.tableHeaderView = headerView
+
+        // Wrap AnimeInfoHeaderView + segControlContainer in one container so the tab bar
+        // scrolls WITH the content (Hayase: Tabs.Root is inside the scrollable div, not sticky).
+        // With .plain UITableView, viewForHeaderInSection views are sticky; embedding in
+        // tableHeaderView avoids stickiness entirely.
+        let container = UIView()
+        container.backgroundColor = .clear
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        segControlContainer.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(headerView)
+        container.addSubview(segControlContainer)
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: container.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            segControlContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            segControlContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            segControlContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            segControlContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
+        tableView.tableHeaderView = container
     }
 
     private func sizeHeaderView() {
-        guard let header = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
+        guard let container = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
         let targetSize = CGSize(width: tableView.frame.width,
                                 height: UIView.layoutFittingCompressedSize.height)
-        let height = header.systemLayoutSizeFitting(
+        let height = container.systemLayoutSizeFitting(
             targetSize,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel).height
-        if abs(header.frame.height - height) > 1 {
-            header.frame.size.height = height
-            tableView.tableHeaderView = header
+        if abs(container.frame.height - height) > 1 {
+            container.frame.size.height = height
+            tableView.tableHeaderView = container
         }
     }
 
@@ -1477,14 +1497,13 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
 extension AnimeDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        // Section 0 always shows the segmented tab control (sticks as user scrolls past header)
-        if section == Section.episodes.rawValue { return segControlContainer }
+        // Seg control is embedded in tableHeaderView (not a section header) so it scrolls
+        // with content — matches Hayase where Tabs.Root is inside the scrollable div.
         return nil
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        // Section 0 = 44pt for segmented control; other sections have no separate header
-        return section == Section.episodes.rawValue ? 44 : 0
+        return 0
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
