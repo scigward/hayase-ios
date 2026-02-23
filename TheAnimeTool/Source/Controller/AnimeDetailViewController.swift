@@ -1206,6 +1206,25 @@ class AnimeDetailViewController: UIViewController {
         fetchStaffAndStats()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Make the nav bar transparent so only the back chevron floats over the content.
+        // This removes the black bar that appeared when title = nil left an empty nav bar.
+        let nb = navigationController?.navigationBar
+        nb?.setBackgroundImage(UIImage(), for: .default)
+        nb?.shadowImage = UIImage()
+        nb?.tintColor = .white  // back chevron visible over dark banner
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Restore the standard nav bar appearance for other view controllers
+        let nb = navigationController?.navigationBar
+        nb?.setBackgroundImage(nil, for: .default)
+        nb?.shadowImage = nil
+        nb?.tintColor = nil
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         sizeHeaderView()

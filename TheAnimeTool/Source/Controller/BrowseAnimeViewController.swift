@@ -51,11 +51,11 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    // Banner height: UIScreen.main.bounds.height * 0.50 (50% of screen).
-    // 80vh (like Hayase desktop) zooms landscape banner images too aggressively on narrow
-    // iPhone viewports (the 1900×400 banner would show only ~15% of its width).
-    // 50% shows ~27% of the banner width — a more balanced crop.
-    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.50
+    // Banner height: screenWidth / 2.5 ≈ 157pt on iPhone 14 (393pt wide).
+    // At this height, .scaleAspectFill on a 1900×400 landscape banner shows ~53% of the
+    // image width — much less zoomed than 50% screen height (422pt, which showed only ~20%).
+    // No black bars. For portrait cover fallbacks, the top portion shows adequately.
+    static let bannerHeight: CGFloat = UIScreen.main.bounds.width / 2.5
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -229,12 +229,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerTask?.resume()
     }
 
-    /// Use .scaleAspectFit for landscape banner images (AniList banners ≈ 1900×400, ratio > 2:1)
-    /// so the full image is visible without severe cropping.
-    /// Use .scaleAspectFill for portrait/square cover fallbacks so they fill the cell nicely.
+    /// Always use .scaleAspectFill — fills the cell without black bars.
+    /// At bannerHeight ≈ 157pt, a 1900×400 landscape banner shows ~53% of its width.
     private func applyContentMode(for image: UIImage) {
-        let ratio = image.size.width / max(image.size.height, 1)
-        backgroundImageView.contentMode = ratio > 1.5 ? .scaleAspectFit : .scaleAspectFill
+        backgroundImageView.contentMode = .scaleAspectFill
     }
 
     private func updateBadges(for item: AnimeItem) {
