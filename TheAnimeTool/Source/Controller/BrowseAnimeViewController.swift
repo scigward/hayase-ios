@@ -51,11 +51,13 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    // Banner height: screenWidth / 2.5 ≈ 157pt on iPhone 14 (393pt wide).
-    // At this height, .scaleAspectFill on a 1900×400 landscape banner shows ~53% of the
-    // image width — much less zoomed than 50% screen height (422pt, which showed only ~20%).
-    // No black bars. For portrait cover fallbacks, the top portion shows adequately.
-    static let bannerHeight: CGFloat = UIScreen.main.bounds.width / 2.5
+    // Banner height: 240pt — tall enough for the background image to show prominently above
+    // the text overlay at the bottom (title + badges + dots), matching Hayase's intent of
+    // content-at-bottom over a large image. At 240pt with .scaleAspectFill a 1900×400
+    // landscape banner scales to fill 240pt height: rendered width = 240×(1900/400) = 1140pt,
+    // center-cropped to 393pt — shows ~34% of image width with no black bars.
+    // Taller cells (previously 157pt) left no image visible above the text overlay.
+    static let bannerHeight: CGFloat = 240
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -230,7 +232,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 
     /// Always use .scaleAspectFill — fills the cell without black bars.
-    /// At bannerHeight ≈ 157pt, a 1900×400 landscape banner shows ~53% of its width.
+    /// At bannerHeight = 240pt, a 1900×400 landscape banner shows ~34% of its width.
     private func applyContentMode(for image: UIImage) {
         backgroundImageView.contentMode = .scaleAspectFill
     }

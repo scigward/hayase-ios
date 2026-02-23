@@ -1246,6 +1246,10 @@ class AnimeDetailViewController: UIViewController {
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
         tableView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        // Remove the automatic nav-bar/status-bar content inset so the header banner
+        // extends behind the transparent nav bar (no black gap), matching Hayase where
+        // the banner-image div is `absolute top-0` behind the sidebar/browser chrome.
+        tableView.contentInsetAdjustmentBehavior = .never
         view.addSubview(tableView)
     }
 
