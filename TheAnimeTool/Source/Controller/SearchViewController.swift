@@ -203,11 +203,10 @@ class SearchViewController: UIViewController {
     // Matches Hayase: goto('/app/search', { state: { search: variables } })
     // Called by BrowseAnimeViewController before switching to the Search tab.
     func prefillSearch(genre: String?, sort: String?) {
-        // Only clear/apply after view is loaded (header/filter views exist)
-        guard isViewLoaded else {
-            // Store pending prefilter to apply in viewDidLoad if needed
-            return
-        }
+        // Only clear/apply after view is loaded (header/filter views must exist)
+        // If called before viewDidLoad the tab switch hasn't happened yet so view isn't loaded;
+        // skip in that case — the user will see default results when the search tab appears.
+        guard isViewLoaded else { return }
         // Clear existing filters first
         selectedGenre  = nil
         selectedYear   = nil

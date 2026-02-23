@@ -1284,6 +1284,8 @@ class AnimeDetailViewController: UIViewController {
             segControlContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             segControlContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+        // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
+        // using systemLayoutSizeFitting, which is the standard UITableView header sizing pattern.
         container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
         tableView.tableHeaderView = container
     }
