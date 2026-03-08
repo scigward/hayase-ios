@@ -151,6 +151,7 @@ class SearchViewController: UIViewController {
 
     // MARK: - Views
     private var headerView: UIView!
+    private var titleRow: UIStackView!
     private var searchField: UITextField!
     private var boltButton: UIButton!
     private var filterRowVisible = false
@@ -279,7 +280,7 @@ class SearchViewController: UIViewController {
     // Matches: <Input pl-9 border-0 bg-background> + FileImage button + Bolt toggle
     private func setupTitleRow() {
         // Container row
-        let titleRow = UIStackView()
+        titleRow = UIStackView()
         titleRow.translatesAutoresizingMaskIntoConstraints = false
         titleRow.axis = .horizontal
         titleRow.spacing = 8
@@ -366,7 +367,7 @@ class SearchViewController: UIViewController {
         filterRowHeightConstraint.isActive = true
 
         NSLayoutConstraint.activate([
-            filterRow.topAnchor.constraint(equalTo: headerView.subviews.first!.bottomAnchor),
+            filterRow.topAnchor.constraint(equalTo: titleRow.bottomAnchor),
             filterRow.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
             filterRow.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
         ])

@@ -66,6 +66,14 @@ struct AnimeStatusCount {
     let amount: Int
 }
 
+/// A single entry from AniList's airingSchedules — carries the actual airing episode
+/// number and precise air time alongside the media item.
+struct AiringScheduleEntry {
+    let episode:  Int
+    let airingAt: Date
+    let media:    AnimeItem
+}
+
 public class AnimeService: NSObject {
     enum AnimeError: Error {
         case errorSavingCoreData
@@ -759,6 +767,121 @@ public class AnimeService: NSObject {
       }
     }
     """
+
+    // MARK: - Full-month airing schedule (fixes ScheduleViewController bugs #3 and #4)
+
+    private struct AiringSchedulePagedResponse: Codable {
+        let data: PPData?
+        struct PPData:  Codable { let Page: PPPage? }
+        struct PPPage:  Codable {
+            let pageInfo:        PPPageInfo?
+            let airingSchedules: [PPSchedule]?
+            struct PPPageInfo: Codable { let hasNextPage: Bool? }
+            struct PPSchedule:  Codable {
+                let episode:  Int?
+                let airingAt: Int?
+                let media:    PPMedia?
+                struct PPMedia: Codable {
+                    let id:           Int?
+                    let title:        PPTitle?
+                    let coverImage:   PPCover?
+                    let averageScore: Float?
+                    let episodes:     Int?
+                    let status:       String?
+                    struct PPTitle: Codable { let english: String?; let romaji: String? }
+                    struct PPCover:  Codable { let large:   String? }
+                }
+            }
+        }
+    }
+
+    private let airingMonthQuery = """
+    query ($from: Int, $to: Int, $page: Int) {
+      Page(page: $page, perPage: 50) {
+        pageInfo { hasNextPage }
+        airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) {
+          episode
+          airingAt
+          media {
+            id
+            title { english romaji }
+            coverImage { large }
+            averageScore
+            episodes
+            status
+          }
+        }
+      }
+    }
+    """
+
+    /// Fetch all airing schedule entries for a full calendar month, paginating automatically.
+    /// Each entry carries the real airing episode number and precise air timestamp from AniList.
+    /// Calls completion on the main queue.
+    func fetchAiringForMonth(_ month: Date, completion: @escaping ([AiringScheduleEntry]) -> Void) {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let comps = cal.dateComponents([.year, .month], from: month)
+        guard let monthStart = cal.date(from: comps),
+              let monthEnd   = cal.date(byAdding: DateComponents(month: 1), to: monthStart) else {
+            completion([]); return
+        }
+        let from = Int(monthStart.timeIntervalSince1970)
+        let to   = Int(monthEnd.timeIntervalSince1970) - 1
+        collectAiringPages(from: from, to: to, page: 1, accumulated: [], completion: completion)
+    }
+
+    private func collectAiringPages(from: Int, to: Int, page: Int,
+                                     accumulated: [AiringScheduleEntry],
+                                     completion: @escaping ([AiringScheduleEntry]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(accumulated); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = [
+            "query": airingMonthQuery,
+            "variables": ["from": from, "to": to, "page": page]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            guard let self = self,
+                  let data = data,
+                  let resp = try? JSONDecoder().decode(AiringSchedulePagedResponse.self, from: data),
+                  let pageData = resp.data?.Page else {
+                DispatchQueue.main.async { completion(accumulated) }
+                return
+            }
+            let entries: [AiringScheduleEntry] = (pageData.airingSchedules ?? []).compactMap { sched in
+                guard let epNum  = sched.episode,
+                      let atUnix = sched.airingAt,
+                      let media  = sched.media,
+                      let id     = media.id else { return nil }
+                let item = AnimeItem(
+                    id:           id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji:  media.title?.romaji,
+                    coverURL:     media.coverImage?.large,
+                    score:        media.averageScore,
+                    status:       media.status,
+                    episodes:     media.episodes,
+                    bannerURL:    nil,
+                    genres:       [],
+                    description:  nil)
+                return AiringScheduleEntry(
+                    episode:  epNum,
+                    airingAt: Date(timeIntervalSince1970: Double(atUnix)),
+                    media:    item)
+            }
+            let all = accumulated + entries
+            if pageData.pageInfo?.hasNextPage == true {
+                self.collectAiringPages(from: from, to: to, page: page + 1, accumulated: all, completion: completion)
+            } else {
+                DispatchQueue.main.async { completion(all) }
+            }
+        }.resume()
+    }
 
     /// Fetch anime airing on the given weekday (0 = Sunday … 6 = Saturday).
     /// Calls completion on the main queue with a deduplicated list of AnimeItems.

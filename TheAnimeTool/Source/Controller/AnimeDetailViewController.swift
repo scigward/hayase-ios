@@ -714,6 +714,7 @@ private final class AnimeInfoHeaderView: UIView {
     var onShare: (() -> Void)?
     var onOpenAniList: (() -> Void)?
     var onPlayTrailer: (() -> Void)?
+    var onWatch: (() -> Void)?
 
     private var anilistId: Int?
 
@@ -973,7 +974,7 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func shareTapped()   { onShare?() }
     @objc private func anilistTapped() { onOpenAniList?() }
     @objc private func trailerTapped() { onPlayTrailer?() }
-    @objc private func playTapped()    {}  // no-op on iOS (no built-in player)
+    @objc private func playTapped()    { onWatch?() }
 
     // MARK: - Configure (Animes CoreData entity)
 
@@ -1286,6 +1287,9 @@ class AnimeDetailViewController: UIViewController {
                   let url = URL(string: "https://www.youtube.com/watch?v=\(trailerID)") else { return }
             let safari = SFSafariViewController(url: url)
             self.present(safari, animated: true)
+        }
+        headerView.onWatch = { [weak self] in
+            self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
         }
 
         // Wrap AnimeInfoHeaderView + segControlContainer in one container so the tab bar

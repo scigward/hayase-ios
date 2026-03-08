@@ -317,6 +317,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         items = []
         backgroundImageView.image = nil
     }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            rotationTimer?.invalidate()
+            rotationTimer = nil
+        }
+    }
 }
 
 // MARK: - SkeletonPosterCell

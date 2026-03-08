@@ -88,6 +88,10 @@
 		A96107211D73300C006D39D0 /* SwiftyJSON.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; };
 		A96107221D73300C006D39D0 /* SwiftyJSON.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A96105F21D72FB6B006D39D0 /* SwiftyJSON.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DEAD0002DEAD0002DEAD0002 /* OpenSSL */; };
+		MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */; };
+		PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */; };
+		PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */; };
+		PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -200,6 +204,9 @@
 		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
 		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
 		DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WatchProgressService.swift; sourceTree = "<group>"; };
+		PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVWrapper.swift; sourceTree = "<group>"; };
+		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
+		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
 		A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
@@ -241,6 +248,7 @@
 				A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */,
 				FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */,
 				DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */,
+				MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -454,6 +462,7 @@
 				A96106A71D72FC2F006D39D0 /* Extension */,
 				A96106A91D72FC2F006D39D0 /* Service */,
 				A96106AD1D72FC2F006D39D0 /* View */,
+				PLAYER01PLAYER01PLAYER01 /* Player */,
 			);
 			path = Source;
 			sourceTree = "<group>";
@@ -501,6 +510,16 @@
 				A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */,
 			);
 			path = View;
+			sourceTree = "<group>";
+		};
+		PLAYER01PLAYER01PLAYER01 /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */,
+				PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */,
+				PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */,
+			);
+			path = Player;
 			sourceTree = "<group>";
 		};
 		A96106BB1D731B43006D39D0 /* CoreDataService */ = {
@@ -598,6 +617,7 @@
 			name = TheAnimeTool;
 			packageProductDependencies = (
 				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
+				MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */,
 			);
 			productName = TheAnimeTool;
 			productReference = A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */;
@@ -682,6 +702,7 @@
 			projectRoot = "";
 			packageReferences = (
 				DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */,
+				MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */,
 			);
 			targets = (
 				A96105AB1D71ED71006D39D0 /* TheAnimeTool */,
@@ -755,6 +776,9 @@
 				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,
 				DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */,
 				DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */,
+				PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */,
+				PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */,
+				PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1055,6 +1079,14 @@
 				minimumVersion = 3.1.5004;
 			};
 		};
+		MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.41.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1062,6 +1094,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */;
 			productName = OpenSSL;
+		};
+		MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = "MPVKit-GPL";
 		};
 /* End XCSwiftPackageProductDependency section */
 

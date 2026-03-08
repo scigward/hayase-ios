@@ -142,6 +142,7 @@ class VideoListViewController: UIViewController {
     private var emptyLabel: UILabel!
     private var stopUpdating = false
     private var updateTimer: Timer?
+    private var pendingAutoOpenIndexPath: IndexPath?
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -237,7 +238,8 @@ class VideoListViewController: UIViewController {
     private func setupFetchedResultsController() {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let req = NSFetchRequest<Videos>(entityName: Videos.entityName)
-        req.sortDescriptors = [NSSortDescriptor(key: "videoName", ascending: true)]
+        req.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                               NSSortDescriptor(key: "videoName", ascending: true)]
         // Only show videos belonging to this specific torrent entity so stale
         // rows from other torrents (or previous sessions) never appear.
         if let entity = torrentEntity {
@@ -307,6 +309,17 @@ class VideoListViewController: UIViewController {
         let count = videoResultsController?.sections?.first?.objects?.count ?? 0
         emptyLabel.text = count == 0 ? "No video files found" : ""
         emptyLabel.isHidden = count > 0
+
+        if let pending = pendingAutoOpenIndexPath,
+           let video = videoResultsController?.object(at: pending),
+           let vs = videoService,
+           let indexNum = video.videoIndex {
+            let index = UInt(indexNum.intValue)
+            if vs.downloadedBytesForFileIndex(index) > 0 {
+                pendingAutoOpenIndexPath = nil
+                presentPlayer(at: pending)
+            }
+        }
     }
 
     private func showErrorAlert(_ error: Error) {
@@ -327,22 +340,26 @@ class VideoListViewController: UIViewController {
 
     // MARK: - Navigation
 
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        super.prepare(for: segue, sender: sender)
-        guard segue.identifier == "showVideoPlayer",
-              let cell = sender as? VideoTableViewCell,
-              let indexPath = tableView.indexPath(for: cell),
-              let video = videoResultsController?.object(at: indexPath),
+    private func presentPlayer(at indexPath: IndexPath) {
+        guard let video = videoResultsController?.object(at: indexPath),
+              let vs = videoService,
               let indexNum = video.videoIndex else { return }
-        videoService?.UpdateFilePathForFileIndex(UInt(indexNum.intValue))
-        let destination = segue.destination as! VideoPlayerController
-        destination.videoEntity = video
-        // Pass live handle for download-stats overlay + PiP title
-        destination.torrentHandle = videoService?.torrentHandle
-        destination.fileIndex = UInt(indexNum.intValue)
-        // Pass AniList ID + episode number for watch-progress tracking (Hayase watchProgress.ts)
-        destination.anilistID = Int(videoService?.torrentEntity.animes?.animeAnilistId ?? 0)
-        destination.episodeNumber = Int(indexNum.intValue) + 1
+        let fileIdx = UInt(indexNum.intValue)
+        vs.UpdateFilePathForFileIndex(fileIdx)
+
+        let allVids = (videoResultsController?.sections?.first?.objects as? [Videos]) ?? [video]
+        let player = VideoPlayerViewController()
+        player.videoEntity       = video
+        player.torrentHandle     = vs.torrentHandle
+        player.videoService      = vs
+        player.fileIndex         = fileIdx
+        player.anilistID         = Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
+        player.episodeNumber     = Int(indexNum.intValue) + 1
+        player.allVideos         = allVids
+        player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
+        player.modalPresentationStyle = .fullScreen
+        player.modalTransitionStyle   = .crossDissolve
+        present(player, animated: true)
     }
 }
 
@@ -377,19 +394,18 @@ extension VideoListViewController: UITableViewDelegate {
               let vs = videoService,
               let indexNum = video.videoIndex else { return }
         let index = UInt(indexNum.intValue)
+        guard vs.totalBytesForFileIndex(index) > 0 else { return }  // metadata not yet ready
 
-        if vs.CheckIsDoNotDownloadForFileIndex(index) ?? false {
-            // File was set to "don't download" — enable it now.
-            vs.SetDoNotDownloadForFileIndex(index, flag: false)
-            tableView.reloadRows(at: [indexPath], with: .none)
+        // Hayase: focus all download bandwidth on this one episode
+        vs.selectFileForStreaming(index)
+        tableView.reloadData()
+
+        if vs.downloadedBytesForFileIndex(index) > 0 {
+            pendingAutoOpenIndexPath = nil
+            presentPlayer(at: indexPath)
         } else {
-            let downloaded = vs.downloadedBytesForFileIndex(index)
-            let total = vs.totalBytesForFileIndex(index)
-            if total > 0 && downloaded >= total {
-                guard let cell = tableView.cellForRow(at: indexPath) as? VideoTableViewCell else { return }
-                performSegue(withIdentifier: "showVideoPlayer", sender: cell)
-            }
-            // else: still downloading — tap is a no-op (progress bar shows state)
+            // No bytes yet — queue for auto-open once libtorrent delivers the first pieces
+            pendingAutoOpenIndexPath = indexPath
         }
     }
 
@@ -406,8 +422,13 @@ extension VideoListViewController: UITableViewDelegate {
         let color: UIColor = isSkipped ? .systemGreen : .systemGray
         let icon = isSkipped ? "arrow.down.circle" : "nosign"
         let action = UIContextualAction(style: .normal, title: title) { [weak self] _, _, done in
-            vs.SetDoNotDownloadForFileIndex(index, flag: !isSkipped)
-            self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            if isSkipped {
+                vs.selectFileForStreaming(index)  // Hayase: prioritize this, deprioritize others
+                self?.tableView.reloadData()
+            } else {
+                vs.SetDoNotDownloadForFileIndex(index, flag: true)
+                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
             done(true)
         }
         action.backgroundColor = color

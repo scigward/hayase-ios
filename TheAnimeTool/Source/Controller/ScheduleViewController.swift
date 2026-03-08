@@ -422,43 +422,21 @@ final class ScheduleViewController: UIViewController {
         isFetching = true
         spinner.startAnimating()
 
-        // Fetch airing for each weekday 0-6 of this month
-        // We reuse the existing fetchAiringForWeekday which queries AniList airingSchedules
-        // for a given weekday over the current/next few weeks.
-        let group = DispatchGroup()
-        var collected: [ScheduleAiringEpisode] = []
-        let lock = NSLock()
-
-        for weekday in 0...6 {
-            group.enter()
-            AnimeService.sharedAnimeService.fetchAiringForWeekday(weekday) { [weak self] items in
-                let eps = items.compactMap { item -> ScheduleAiringEpisode? in
-                    guard let episodeCount = item.episodes else { return nil }
-                    // Approximate airdate: next occurrence of this weekday from today
-                    let airDate = self?.nextDate(forWeekday: weekday) ?? Date()
-                    return ScheduleAiringEpisode(
-                        airingAt: airDate,
-                        episode: episodeCount,
-                        mediaID: item.id,
-                        titlePreferred: item.titleEnglish ?? item.titleRomaji,
-                        coverURL: item.coverURL)
-                }
-                lock.lock(); collected.append(contentsOf: eps); lock.unlock()
-                group.leave()
-            }
-        }
-
-        group.notify(queue: .main) { [weak self] in
+        AnimeService.sharedAnimeService.fetchAiringForMonth(month) { [weak self] entries in
             guard let self = self else { return }
             self.isFetching = false
             self.spinner.stopAnimating()
             self.fetchedMonths.insert(key)
-            // Merge (avoid duplicates by mediaID+episode)
             var existing = Set(self.airingEpisodes.map { "\($0.mediaID)-\($0.episode)" })
-            for ep in collected {
-                let k = "\(ep.mediaID)-\(ep.episode)"
+            for entry in entries {
+                let k = "\(entry.media.id)-\(entry.episode)"
                 if existing.insert(k).inserted {
-                    self.airingEpisodes.append(ep)
+                    self.airingEpisodes.append(ScheduleAiringEpisode(
+                        airingAt: entry.airingAt,
+                        episode:  entry.episode,
+                        mediaID:  entry.media.id,
+                        titlePreferred: entry.media.titleEnglish ?? entry.media.titleRomaji,
+                        coverURL: entry.media.coverURL))
                 }
             }
             self.calendarCV.reloadData()
@@ -472,15 +450,6 @@ final class ScheduleViewController: UIViewController {
         return "\(y)-\(m)"
     }
 
-    /// Returns the next Date for the given weekday index (0=Sun, 1=Mon, ..., 6=Sat) from today.
-    private func nextDate(forWeekday weekday: Int) -> Date {
-        let cal = Calendar.current
-        var comps = DateComponents()
-        // Calendar weekday: 1=Sun ... 7=Sat; our weekday: 0=Sun ... 6=Sat
-        comps.weekday = weekday + 1
-        return cal.nextDate(after: Date(), matching: comps,
-                            matchingPolicy: .nextTime, direction: .forward) ?? Date()
-    }
 }
 
 // MARK: - UICollectionViewDataSource / Delegate

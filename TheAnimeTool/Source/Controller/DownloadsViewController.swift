@@ -276,10 +276,25 @@ class DownloadsViewController: UIViewController {
     // MARK: - Data refresh
 
     private func refreshHandles() {
-        activeHandles = TorrentService.sharedTorrentService.handles
+        let newHandles = TorrentService.sharedTorrentService.handles
             .map { (hex: $0.key, handle: $0.value) }
-            .sorted { ($0.handle.snapshot.name) < ($1.handle.snapshot.name) }
-        tableView.reloadData()
+            .sorted { $0.handle.snapshot.name < $1.handle.snapshot.name }
+
+        // Full reload only when rows are added or removed — reloadData() collapses any
+        // open swipe actions, so we avoid it when only the cell content (speed/progress)
+        // has changed and the row count is the same.
+        if newHandles.count != activeHandles.count {
+            activeHandles = newHandles
+            tableView.reloadData()
+        } else {
+            activeHandles = newHandles
+            for cell in tableView.visibleCells {
+                guard let ip = tableView.indexPath(for: cell),
+                      let dlCell = cell as? DownloadCell,
+                      ip.row < activeHandles.count else { continue }
+                dlCell.configure(snap: activeHandles[ip.row].handle.snapshot)
+            }
+        }
         emptyLabel.isHidden = !activeHandles.isEmpty
     }
 
@@ -356,7 +371,11 @@ extension DownloadsViewController: UITableViewDelegate {
                              snap.state == .seeding)
         let pauseTitle = isActiveState ? "Pause" : "Resume"
         let pauseAction = UIContextualAction(style: .normal, title: pauseTitle) { [weak self] _, _, done in
-            if isActiveState { handle.pause() } else { handle.resume() }
+            let currentlyActive = { () -> Bool in
+                let s = handle.snapshot.state
+                return s == .downloading || s == .downloadingMetadata || s == .seeding
+            }()
+            if currentlyActive { handle.pause() } else { handle.resume() }
             // Refresh row immediately so icon/title reflects new state.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self?.tableView.reloadRows(at: [indexPath], with: .automatic)
@@ -368,10 +387,7 @@ extension DownloadsViewController: UITableViewDelegate {
 
         // Delete
         let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
-            // Call done immediately — iOS requires it synchronously.
-            // Deferring done() to the alert button handlers causes the swipe to collapse
-            // before the sheet appears, making the action silently do nothing.
-            done(false)
+            done(true)
             guard let self = self else { return }
             let sheet = UIAlertController(title: "Delete Download",
                                           message: "Do you also want to delete the downloaded files?",
