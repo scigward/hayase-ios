@@ -46,13 +46,14 @@ final class VideoPlayerViewController: UIViewController {
     private var isPaused = false
     private var isSeeking = false
     private var tracks: [MPVTrack] = []
-    private var chapters: [MPVChapter] = []
+    private var chapters: [MPVChapter] = [] // Note: Streamyfin's renderer doesn't fetch chapters by default
     private var playbackRate: Double = 1.0
     private var subtitleDelay: Double = 0.0
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
     private var statsTimer: Timer?
+    private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
 
     // MARK: - Lifecycle
 
@@ -62,6 +63,7 @@ final class VideoPlayerViewController: UIViewController {
         setupSurface()
         setupOverlay()
         setupGestures()
+        
         surface.mpv.delegate = self
         loadCurrentVideo()
         scheduleHide()
@@ -170,7 +172,6 @@ final class VideoPlayerViewController: UIViewController {
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
-        // Time label (tap to toggle remaining)
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.textColor = .white
         timeLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
@@ -179,7 +180,6 @@ final class VideoPlayerViewController: UIViewController {
         timeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleTimeFormat)))
         bottomBar.addSubview(timeLabel)
 
-        // Seekbar
         seekBar.translatesAutoresizingMaskIntoConstraints = false
         seekBar.minimumValue = 0
         seekBar.maximumValue = 1
@@ -191,19 +191,16 @@ final class VideoPlayerViewController: UIViewController {
         seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside])
         bottomBar.addSubview(seekBar)
 
-        // Chapter tick marks overlay
         chapterLayer.translatesAutoresizingMaskIntoConstraints = false
         chapterLayer.isUserInteractionEnabled = false
         bottomBar.addSubview(chapterLayer)
 
-        // Duration label
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         durationLabel.textColor = UIColor.white.withAlphaComponent(0.7)
         durationLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
         durationLabel.text = "0:00"
         bottomBar.addSubview(durationLabel)
 
-        // Buttons
         [prevButton, playPauseButton, nextButton, optionsButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.tintColor = .white
@@ -272,7 +269,15 @@ final class VideoPlayerViewController: UIViewController {
         guard let entity = videoEntity else { return }
         let path = entity.videoPath ?? ""
         guard !path.isEmpty else { return }
-        surface.mpv.loadFile(path)
+        
+        // Reset states for new file
+        isEOFTriggered = false
+        chapters.removeAll()
+        updateChapterMarkers()
+        
+        let url = path.starts(with: "http") ? URL(string: path)! : URL(fileURLWithPath: path)
+        surface.mpv.load(url: url, with: PlayerPreset())
+        
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0
         nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
@@ -482,20 +487,24 @@ final class VideoPlayerViewController: UIViewController {
             self?.showSpeedPicker()
         })
 
+        // NOTE: Streamyfin's renderer doesn't expose setProperty publicly.
+        // If you make commandSync / setProperty public in MPVLayerRenderer, you can uncomment these.
+        /*
         sheet.addAction(UIAlertAction(title: "Sub Delay: \(String(format: "%.1fs", subtitleDelay))", style: .default) { [weak self] _ in
             self?.showSubDelayAlert()
         })
+         
+        sheet.addAction(UIAlertAction(title: "Screenshot", style: .default) { [weak self] _ in
+             // Requires adding a public screenshot() func to MPVLayerRenderer calling: commandSync(handle, ["screenshot", "subtitles"])
+             self?.scheduleHide()
+        })
+        */
 
         if !chapters.isEmpty {
             sheet.addAction(UIAlertAction(title: "Chapters", style: .default) { [weak self] _ in
                 self?.showChapterPicker()
             })
         }
-
-        sheet.addAction(UIAlertAction(title: "Screenshot", style: .default) { [weak self] _ in
-            self?.surface.mpv.screenshot()
-            self?.scheduleHide()
-        })
 
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
             self?.scheduleHide()
@@ -540,33 +549,13 @@ final class VideoPlayerViewController: UIViewController {
             let mark = rate == playbackRate ? "✓ " : ""
             picker.addAction(UIAlertAction(title: mark + label, style: .default) { [weak self] _ in
                 self?.playbackRate = rate
-                self?.surface.mpv.setPlaybackRate(rate)
+                self?.surface.mpv.setSpeed(rate) // Adapted to use setSpeed
                 self?.scheduleHide()
             })
         }
         picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
         popoverCentre(picker)
         present(picker, animated: true)
-    }
-
-    private func showSubDelayAlert() {
-        let alert = UIAlertController(
-            title: "Subtitle Delay",
-            message: "Current: \(String(format: "%.1f", subtitleDelay))s  (negative = earlier)",
-            preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.keyboardType = .decimalPad
-            tf.text = String(format: "%.1f", self.subtitleDelay)
-        }
-        alert.addAction(UIAlertAction(title: "Apply", style: .default) { [weak self, weak alert] _ in
-            if let text = alert?.textFields?.first?.text, let val = Double(text) {
-                self?.subtitleDelay = val
-                self?.surface.mpv.setSubtitleDelay(val)
-            }
-            self?.scheduleHide()
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        present(alert, animated: true)
     }
 
     private func showChapterPicker() {
@@ -589,35 +578,64 @@ final class VideoPlayerViewController: UIViewController {
             pop.permittedArrowDirections = []
         }
     }
+    
+    // Auto-plays next episode
+    private func handleFileEnded() {
+        guard currentVideoIndex < allVideos.count - 1 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
+    }
 }
 
-// MARK: - MPVWrapperDelegate
+// MARK: - MPVWrapperDelegate Integration
 
 extension VideoPlayerViewController: MPVWrapperDelegate {
 
-    func mpvTimeUpdated(current: Double, duration: Double) {
-        self.currentTime = current
+    func renderer(_ renderer: MPVWrapper, didUpdatePosition position: Double, duration: Double, cacheSeconds: Double) {
+        self.currentTime = position
         self.duration    = duration
         updateTimeUI()
+        
+        // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event)
+        if duration > 0 && position > 0 && position >= duration - 0.5 {
+            if !isEOFTriggered {
+                isEOFTriggered = true
+                handleFileEnded()
+            }
+        } else if position < duration - 1.0 {
+            isEOFTriggered = false
+        }
     }
 
-    func mpvPauseChanged(_ isPaused: Bool) {
+    func renderer(_ renderer: MPVWrapper, didChangePause isPaused: Bool) {
         self.isPaused = isPaused
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
     }
 
-    func mpvFileEnded() {
-        guard currentVideoIndex < allVideos.count - 1 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
+    func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
+        // Option to add a UIActivityIndicatorView here
     }
 
-    func mpvTracksChanged(_ tracks: [MPVTrack]) {
-        self.tracks = tracks
+    func renderer(_ renderer: MPVWrapper, didBecomeReadyToSeek: Bool) {
+        // Video is completely loaded into memory
     }
 
-    func mpvChaptersChanged(_ chapters: [MPVChapter]) {
-        self.chapters = chapters
-        updateChapterMarkers()
+    func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool) {
+        // Map the [[String: Any]] Dictionaries from Streamyfin into native Swift Structs
+        var newTracks: [MPVTrack] = []
+        
+        for s in renderer.getSubtitleTracks() {
+            if let id = s["id"] as? Int {
+                newTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
+            }
+        }
+        for a in renderer.getAudioTracks() {
+            if let id = a["id"] as? Int {
+                newTracks.append(MPVTrack(id: id, type: "audio", title: a["title"] as? String, lang: a["lang"] as? String, isSelected: a["selected"] as? Bool ?? false))
+            }
+        }
+        self.tracks = newTracks
     }
+
+    func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
 }

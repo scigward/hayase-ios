@@ -1,10 +1,38 @@
 import UIKit
 import AVFoundation
 
-/// A UIView backed by AVSampleBufferDisplayLayer. MPVWrapper renders directly into this layer.
+// MARK: - Legacy Models for UI
+// Included here so UI doesn't break, bridging the gap from Streamyfin's dictionary returns.
+
+public struct PlayerPreset {
+    public var commands: [[String]] = []
+    public init(commands: [[String]] = []) { self.commands = commands }
+}
+
+struct MPVTrack {
+    let id: Int
+    let type: String
+    let title: String?
+    let lang: String?
+    let isSelected: Bool
+
+    var displayName: String {
+        if let t = title, !t.isEmpty { return t }
+        if let l = lang,  !l.isEmpty { return l }
+        return "\(type.capitalized) \(id)"
+    }
+}
+
+struct MPVChapter {
+    let index: Int
+    let title: String
+    let time: Double
+}
+
+/// A UIView backed by AVSampleBufferDisplayLayer. MPVLayerRenderer renders directly into this layer.
 final class MPVSurfaceView: UIView {
 
-    private let displayLayer = AVSampleBufferDisplayLayer()
+    let displayLayer = AVSampleBufferDisplayLayer()
     private(set) var mpv: MPVWrapper!
 
     // MARK: - Init
@@ -16,7 +44,7 @@ final class MPVSurfaceView: UIView {
         displayLayer.frame = bounds
         layer.addSublayer(displayLayer)
         mpv = MPVWrapper(displayLayer: displayLayer)
-        mpv.start()
+        try? mpv.start()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }

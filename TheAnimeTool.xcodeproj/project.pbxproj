@@ -1081,10 +1081,10 @@
 		};
 		MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
+			repositoryURL = "https://github.com/streamyfin/MPVKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.41.0;
+				minimumVersion = "0.40.0-av";
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
