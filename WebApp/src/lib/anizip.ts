@@ -1,9 +1,9 @@
 /**
  * anizip.ts — Mirrors Hayase's src/lib/modules/anizip/index.ts
- * Base URL: https://hayase.ani.zip/v1/  (Hayase's private CDN, not the public api.ani.zip)
+ * Base URL: https://api.ani.zip/v1  (public API, no special headers required)
  */
 
-const BASE = 'https://hayase.ani.zip/v1';
+const BASE = 'https://api.ani.zip/v1';
 
 export interface AniZipImage {
   coverType?: 'Banner' | 'Poster' | 'Fanart' | 'Clearlogo';
@@ -74,4 +74,12 @@ export function episodes(id: number): Promise<AniZipResponse | null> {
 
 export function mappings(id: number): Promise<AniZipMappings | null> {
   return safefetch<AniZipMappings>(`${BASE}/mappings?anilist_id=${id}`);
+}
+
+export function mappingsByKitsuId(kitsuId: number): Promise<AniZipMappings | null> {
+  return safefetch<AniZipMappings>(`${BASE}/mappings?kitsu_id=${kitsuId}`);
+}
+
+export function mappingsByMalId(malId: number): Promise<AniZipMappings | null> {
+  return safefetch<AniZipMappings>(`${BASE}/mappings?mal_id=${malId}`);
 }
