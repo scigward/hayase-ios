@@ -1,25 +1,20 @@
-//
-//  AppDelegate.swift
-//  FinalProject
-//
-//  Created by Charles Augustine.
-//
-//
-
-
 import UIKit
 import CoreData
 
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
-	func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Hayase is `color-scheme: only dark` — enforce dark mode throughout the app
-        window?.overrideUserInterfaceStyle = .dark
-		return true
-	}
+    var window: UIWindow?
 
-	// MARK: Properties
-	var window: UIWindow?
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Create window programmatically — WebViewController as the sole root.
+        let w = UIWindow(frame: UIScreen.main.bounds)
+        w.overrideUserInterfaceStyle = .dark          // Hayase is `color-scheme: only dark`
+        w.rootViewController = WebViewController()
+        w.makeKeyAndVisible()
+        window = w
+        return true
+    }
 }
 

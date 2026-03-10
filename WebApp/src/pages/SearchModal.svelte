@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { searchRequest, closeSearch, settings } from '../lib/store';
-  import { bridge, type TorrentSearchResult } from '../lib/bridge';
+  import { searchRequest, closeSearch, settings, navigateTab } from '../lib/store';
   import { fastPrettyBytes } from '../lib/util';
   import { extensions, savedConfigs } from '../lib/extensions';
   import type { TorrentResult } from '../lib/extensions/types';
@@ -43,49 +42,32 @@
 
   async function doSearch() {
     if (!query.trim() || !req) return;
+    if (!hasExtensions()) return; // extensions-only; no nyaa fallback
     loading = true; error = ''; results = [];
     try {
-      if (hasExtensions()) {
-        // Use extensions engine (mirrors Hayase)
-        const { results: extResults, errors } = await extensions.getResultsFromExtensions({
-          media: {
-            id: req.anilistID,
-            title: { userPreferred: req.animeTitle },
-            synonyms: [],
-          },
-          episode: req.episode,
-          resolution: $settings.searchQuality as '1080' | '720' | '480' | '2160' | '540' | '',
-        });
-        results = extResults.map(r => ({
-          title: r.title,
-          link: r.link,
-          hash: r.hash,
-          seeders: r.seeders,
-          leechers: r.leechers,
-          downloads: r.downloads,
-          size: r.size,
-          accuracy: r.accuracy,
-          extensionSet: r.extension,
-          magnetURL: r.link,
-        }));
-        if (errors.length && results.length === 0) {
-          error = errors.map(e => e.error.message).join('; ');
-        }
-      } else {
-        // Fall back to bridge (nyaa.si search via native)
-        const bridgeResults = await bridge.torrentSearch(query) ?? [];
-        results = bridgeResults.map(r => ({
-          title: r.name,
-          link: r.magnetURL || r.downloadURL,
-          hash: r.magnetURL?.match(/btih:([a-f0-9]{40})/i)?.[1] ?? r.magnetURL ?? r.downloadURL,
-          seeders: r.seeders,
-          leechers: r.leechers,
-          downloads: r.downloads,
-          size: (r.sizeMB ?? 0) * 1024 * 1024,
-          accuracy: 'medium',
-          magnetURL: r.magnetURL,
-          downloadURL: r.downloadURL,
-        }));
+      const { results: extResults, errors } = await extensions.getResultsFromExtensions({
+        media: {
+          id: req.anilistID,
+          title: { userPreferred: req.animeTitle },
+          synonyms: [],
+        },
+        episode: req.episode,
+        resolution: $settings.searchQuality as '1080' | '720' | '480' | '2160' | '540' | '',
+      });
+      results = extResults.map(r => ({
+        title: r.title,
+        link: r.link,
+        hash: r.hash,
+        seeders: r.seeders,
+        leechers: r.leechers,
+        downloads: r.downloads,
+        size: r.size,
+        accuracy: r.accuracy,
+        extensionSet: r.extension,
+        magnetURL: r.link,
+      }));
+      if (errors.length && results.length === 0) {
+        error = errors.map(e => e.error.message).join('; ');
       }
     } catch (e: unknown) {
       error = (e as Error)?.message ?? 'Search failed';
@@ -165,6 +147,17 @@
         </div>
       {:else if error}
         <div class="text-center py-10 text-sm text-red-400">{error}</div>
+      {:else if results.length === 0 && !hasExtensions()}
+        <!-- No extensions installed -->
+        <div class="flex flex-col items-center justify-center py-12 px-6 text-center gap-3">
+          <svg class="text-muted-foreground" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.94 11A8.994 8.994 0 0 0 3.06 13"/><path d="M3.06 13A9.004 9.004 0 0 0 20.94 15"/><path d="M12 2v4"/><path d="m4.929 4.929 2.828 2.828"/><path d="M20 12h2"/><path d="m19.071 4.929-2.828 2.828"/></svg>
+          <p class="text-sm font-bold">No extensions installed</p>
+          <p class="text-xs text-muted-foreground">Install a torrent extension in Settings to search for anime.</p>
+          <button
+            class="mt-1 text-xs bg-white text-black font-bold px-5 py-2 rounded-full active:scale-95 transition-transform"
+            on:click={() => { closeSearch(); navigateTab('settings'); }}
+          >Go to Settings</button>
+        </div>
       {:else if results.length === 0}
         <div class="text-center py-12 text-muted-foreground text-sm">No results found</div>
       {:else}

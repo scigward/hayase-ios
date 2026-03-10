@@ -7,13 +7,14 @@ import { safeLocalStorage } from './util';
 
 // ── Router ─────────────────────────────────────────────────────────────────
 
-export type Tab = 'home' | 'search' | 'downloads' | 'settings';
+export type Tab = 'home' | 'search' | 'downloads' | 'schedule' | 'settings';
 
 export type Route =
   | { page: 'home' }
   | { page: 'search'; query?: string; genre?: string }
   | { page: 'anime'; id: number }
   | { page: 'downloads' }
+  | { page: 'schedule' }
   | { page: 'settings' };
 
 export const currentTab  = writable<Tab>('home');
@@ -146,3 +147,56 @@ settings.subscribe(v => {
 
 export const bannerMedia = writable<any | null>(null);
 export const hideBanner  = writable(false);
+
+// ── Continue Watching (persisted) ─────────────────────────────────────────
+
+export interface ContinueEntry {
+  mediaId: number;
+  episode: number;
+  currentTime: number;
+  duration: number;
+  title: string;
+  cover: string;
+  updatedAt: number;
+}
+
+function loadContinue(): ContinueEntry[] {
+  return safeLocalStorage<ContinueEntry[]>('continueWatching') ?? [];
+}
+
+export const continueWatching = writable<ContinueEntry[]>(loadContinue());
+
+continueWatching.subscribe(v => {
+  try { localStorage.setItem('continueWatching', JSON.stringify(v)); } catch {}
+});
+
+export function addContinueEntry(entry: ContinueEntry) {
+  continueWatching.update(list => {
+    const filtered = list.filter(e => e.mediaId !== entry.mediaId);
+    return [entry, ...filtered].slice(0, 20);
+  });
+}
+
+export function removeContinueEntry(mediaId: number) {
+  continueWatching.update(list => list.filter(e => e.mediaId !== mediaId));
+}
+
+// ── Toasts ────────────────────────────────────────────────────────────────
+
+export interface Toast {
+  id: string;
+  message: string;
+  type: 'info' | 'success' | 'error';
+}
+
+export const toasts = writable<Toast[]>([]);
+
+export function addToast(message: string, type: Toast['type'] = 'info', duration = 3000) {
+  const id = Math.random().toString(36).slice(2);
+  toasts.update(t => [...t, { id, message, type }]);
+  setTimeout(() => toasts.update(t => t.filter(x => x.id !== id)), duration);
+}
+
+export function removeToast(id: string) {
+  toasts.update(t => t.filter(x => x.id !== id));
+}

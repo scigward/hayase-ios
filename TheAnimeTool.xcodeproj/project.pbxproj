@@ -47,6 +47,8 @@
 		DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */; };
 		DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */; };
 		DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */; };
+		DEAD001EDEAD001EDEAD001E /* WebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001FDEAD001FDEAD001F /* WebViewController.swift */; };
+		DEAD002ADEAD002ADEAD002A /* NativeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD002BDEAD002BDEAD002B /* NativeBridge.swift */; };
 		A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */; };
 		A96106CF1D731B43006D39D0 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A96106BD1D731B43006D39D0 /* Info.plist */; };
 		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
@@ -204,6 +206,8 @@
 		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
 		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
 		DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WatchProgressService.swift; sourceTree = "<group>"; };
+		DEAD001FDEAD001FDEAD001F /* WebViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WebViewController.swift; sourceTree = "<group>"; };
+		DEAD002BDEAD002BDEAD002B /* NativeBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeBridge.swift; sourceTree = "<group>"; };
 		PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVWrapper.swift; sourceTree = "<group>"; };
 		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
 		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
@@ -481,6 +485,8 @@
 				DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */,
 				DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */,
 				DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */,
+				DEAD001FDEAD001FDEAD001F /* WebViewController.swift */,
+				DEAD002BDEAD002BDEAD002B /* NativeBridge.swift */,
 			);
 			path = Controller;
 			sourceTree = "<group>";
@@ -776,6 +782,8 @@
 				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,
 				DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */,
 				DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */,
+				DEAD001EDEAD001EDEAD001E /* WebViewController.swift in Sources */,
+				DEAD002ADEAD002ADEAD002A /* NativeBridge.swift in Sources */,
 				PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */,
 				PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */,
 				PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */,
