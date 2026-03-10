@@ -183,7 +183,7 @@ public class VideoService: NSObject {
         guard let handle = torrentHandle else { return }
         for entry in handle.snapshot.files {
             let priority: FileEntry.Priority = entry.index == Int(fileIndex) ? .defaultPriority : .dontDownload
-            handle.setFilePriority(priority, at: entry.index)
+            handle.setFilePriority(priority, at: Int(entry.index))
         }
     }
 
@@ -252,4 +252,3 @@ public class VideoService: NSObject {
         return base.appendingPathComponent(entry.path).path
     }
 }
-
