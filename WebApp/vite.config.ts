@@ -1,22 +1,23 @@
+import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [sveltekit()],
+
+  // Needed when loading from file:// in WKWebView
   base: './',
-  build: {
-    outDir: '../TheAnimeTool/Resources/webapp',
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        entryFileNames: 'assets/app.js',
-        chunkFileNames: 'assets/[name].js',
-        assetFileNames: 'assets/[name].[ext]',
-      },
-    },
-  },
+
   server: {
     port: 5173,
     open: true,
+  },
+
+  build: {
+    target: 'esnext',
+    // outDir is controlled by svelte.config.js adapter
+  },
+
+  worker: {
+    format: 'es',
   },
 });

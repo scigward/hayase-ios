@@ -8,7 +8,11 @@
     "skipLibCheck": true,
     "strict": false,
     "noEmit": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", ".svelte-kit/ambient.d.ts"]
 }

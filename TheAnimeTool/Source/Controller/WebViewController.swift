@@ -25,15 +25,22 @@ final class WebViewController: UIViewController {
 
     private func setupWebView() {
         let config = WKWebViewConfiguration()
+        let userContent = config.userContentController
 
-        // Register the native bridge message handler
-        config.userContentController.add(bridge, name: "bridge")
+        // 1. Inject window.native at document start — before SvelteKit initialises
+        //    so native.ts picks up globalThis.native via Object.assign({...}, globalThis.native)
+        userContent.addUserScript(NativeBridge.makeUserScript())
 
-        // Allow file:// → https:// cross-origin reads (needed for bundled webapp → AniList API)
+        // 2. Register bridge message handler
+        userContent.add(bridge, name: "bridge")
+
+        // Allow inline media, JS enabled
         config.allowsInlineMediaPlayback = true
         if #available(iOS 14, *) {
             config.defaultWebpagePreferences.allowsContentJavaScript = true
         }
+        // Allow file:// webapp to reach external HTTPS APIs (AniList, ani.zip, etc.)
+        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
 
         webView = WKWebView(frame: view.bounds, configuration: config)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]

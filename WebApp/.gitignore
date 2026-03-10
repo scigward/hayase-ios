@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .vite/
+.svelte-kit/
+build/
+# Webapp build output is committed as part of the app bundle via svelte.config.js adapter
+# so we DON'T ignore TheAnimeTool/Resources/webapp/
