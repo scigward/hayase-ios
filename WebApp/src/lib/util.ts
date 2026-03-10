@@ -214,3 +214,113 @@ export const currentSeason = getSeasonForMonth(_m) as 'WINTER' | 'SPRING' | 'SUM
 export const currentYear = _now.getFullYear();
 export const nextSeason = getSeasonForMonth(_m + 3) as 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
 export const nextYear = currentYear + (nextSeason === 'WINTER' ? 1 : 0);
+
+// ── File extension lists (mirrors Hayase utils.ts) ─────────────────────────
+
+export const subtitleExtensions = ['srt', 'vtt', 'ass', 'ssa', 'sub', 'txt'];
+export const subRx = new RegExp(`\\.(${subtitleExtensions.join('|')})$`, 'i');
+
+export const videoExtensions = [
+  '3g2','3gp','asf','avi','dv','flv','gxf','m2ts','m4a','m4b','m4p','m4r','m4v',
+  'mkv','mov','mp4','mpd','mpeg','mpg','mxf','nut','ogm','ogv','swf','ts','vob',
+  'webm','wmv','wtv',
+];
+export const videoRx = new RegExp(`\\.(${videoExtensions.join('|')})$`, 'i');
+
+export const fontExtensions = [
+  'ttf','ttc','woff','woff2','otf','cff','otc','pfa','pfb','pcf','fnt','bdf','pfr','eot',
+];
+export const fontRx = new RegExp(`\\.(${fontExtensions.join('|')})$`, 'i');
+
+// ── Misc utilities (mirrors Hayase utils.ts) ────────────────────────────────
+
+export async function safefetch<T>(
+  _fetch: typeof fetch,
+  ...args: Parameters<typeof fetch>
+): Promise<T | null> {
+  try {
+    const res = await _fetch(...args);
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function arrayEqual<T>(a: T[], b: T[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+export function nextTick(): Promise<void> {
+  return new Promise<void>(resolve => queueMicrotask(resolve));
+}
+
+/** Converts a country code to its flag emoji (mirrors Hayase's codeToEmoji) */
+export function codeToEmoji(c: string): string {
+  if (c === 'ALL') return '🌎';
+  return c.replace(/./g, ch => String.fromCodePoint(0x1f1a5 + ch.charCodeAt(0)));
+}
+
+/** Key-by-object HashMap (mirrors Hayase's HashMap class) */
+export class HashMap<K extends object, T> {
+  private map = new Map<string, T>();
+
+  private _id(k: K): string {
+    return JSON.stringify(k, Object.keys(k).sort());
+  }
+
+  has(k: K): boolean { return this.map.has(this._id(k)); }
+  add(k: K, o: T): this { this.map.set(this._id(k), o); return this; }
+  delete(k: K): boolean { return this.map.delete(this._id(k)); }
+  clear(): void { this.map.clear(); }
+  get size(): number { return this.map.size; }
+  values(): IterableIterator<T> { return this.map.values(); }
+  [Symbol.iterator](): IterableIterator<T> { return this.values(); }
+}
+
+/** trace.moe anime lookup (mirrors Hayase's traceAnime) */
+export interface TraceAnime {
+  anilist: number;
+  filename: string;
+  episode: number;
+  from: number;
+  to: number;
+  similarity: number;
+  video: string;
+  image: string;
+}
+
+export async function traceAnime(image: File | string): Promise<TraceAnime[]> {
+  let res: Response;
+  if (image instanceof File) {
+    res = await fetch('https://api.trace.moe/search?cutBorders', {
+      method: 'POST',
+      body: image,
+      headers: { 'Content-type': image.type },
+    });
+  } else {
+    res = await fetch(`https://api.trace.moe/search?cutBorders&url=${encodeURIComponent(image)}`);
+  }
+  const { result } = (await res.json()) as { result: TraceAnime[] };
+  if (result.length) return result;
+  throw new Error("Search Failed\nCouldn't find anime for specified image!");
+}
+
+/** toTS — mirrors Hayase's toTS exactly (full param support) */
+export function toTSFull(sec: number, full?: number): string {
+  if (isNaN(sec) || sec < 0) {
+    switch (full) {
+      case 1: return '0:00:00.00';
+      case 2: return '0:00:00';
+      case 3: return '00:00';
+      default: return '0:00';
+    }
+  }
+  const hours = Math.floor(sec / 3600);
+  let minutes: string | number = Math.floor(sec / 60) - hours * 60;
+  let seconds: string | number = full === 1 ? (sec % 60).toFixed(2) : Math.floor(sec % 60);
+  if (minutes < 10 && (hours > 0 || full)) minutes = '0' + minutes;
+  if (Number(seconds) < 10) seconds = '0' + seconds;
+  return (hours > 0 || full === 1 || full === 2)
+    ? `${hours}:${minutes}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
