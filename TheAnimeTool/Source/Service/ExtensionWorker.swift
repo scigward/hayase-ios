@@ -64,15 +64,14 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
-        // allowFileAccessFromFileURLs: lets the page load other local files (the extension .js)
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        // allowUniversalAccessFromFileURLs: lets the extension JS import from https://esm.sh
-        // CDN at runtime (required — esm.sh bundles emit bare https:// imports for sub-deps).
-        // This is the primary cause of the infinite-loading bug: without this flag, all
-        // cross-origin HTTPS fetches from the file:// page are silently blocked, the
-        // <script type="module"> fails, no 'ready' message is ever posted, and the
-        // readyContinuation hangs indefinitely showing an eternal spinner.
-        config.preferences.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        // allowFileAccessFromFileURLs: lets the page load other local files (the extension .js).
+        // Using the public documented API instead of KVC to avoid NSUnknownKeyException crashes
+        // on iOS versions that changed or removed private preference keys.
+        config.preferences.allowFileAccessFromFileURLs = true
+        // Note: we do NOT set allowUniversalAccessFromFileURLs — that private key was removed
+        // in iOS 16.4 and throws NSUnknownKeyException (crashes the app).
+        // Instead, jsurl() appends "?bundle" to all esm.sh URLs so the downloaded extension
+        // code is fully self-contained with no external imports at runtime.
 
         let wv = WKWebView(frame: CGRect(x: -1, y: -1, width: 1, height: 1),
                            configuration: config)
@@ -188,6 +187,11 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     func destroy() {
         loadTimeoutWork?.cancel()
         loadTimeoutWork = nil
+        // Resume pending load continuation so load() doesn't hang if destroy() is called
+        // before the 'ready' message arrives (prevents CheckedContinuation leak crash)
+        let pendingLoad = readyContinuation
+        readyContinuation = nil
+        pendingLoad?.resume(throwing: WorkerError.notLoaded)
         webView?.loadHTMLString("", baseURL: nil)
         webView = nil
         pending.values.forEach { $0(.failure(WorkerError.notLoaded)) }

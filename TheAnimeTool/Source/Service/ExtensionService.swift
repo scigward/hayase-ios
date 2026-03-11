@@ -30,9 +30,11 @@ private func jsurl(_ raw: String) -> URL? {
         guard parts.count >= 2 else { return nil }
         let user = parts[0], repo = parts[1]
         let rest = parts.dropFirst(2).joined(separator: "/")
+        // ?bundle makes esm.sh return a fully self-contained file with all sub-dependencies
+        // inlined — no runtime https:// imports that would be blocked from file:// pages.
         let urlStr = rest.isEmpty
-            ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs"
-            : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs"
+            ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs?bundle"
+            : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs?bundle"
         return URL(string: urlStr)
     case "npm":
         let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
@@ -41,8 +43,8 @@ private func jsurl(_ raw: String) -> URL? {
         let pkg = parts[0]
         let rest = parts.dropFirst().joined(separator: "/")
         let urlStr = rest.isEmpty
-            ? "https://esm.sh/\(pkg)/es2022/index.mjs"
-            : "https://esm.sh/\(pkg)/es2022/\(rest).mjs"
+            ? "https://esm.sh/\(pkg)/es2022/index.mjs?bundle"
+            : "https://esm.sh/\(pkg)/es2022/\(rest).mjs?bundle"
         return URL(string: urlStr)
     default: return nil
     }
