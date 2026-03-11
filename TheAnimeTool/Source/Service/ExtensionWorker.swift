@@ -32,20 +32,28 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         }
     }
 
-    // MARK: - Shared host window
+    // MARK: - Shared host container
 
-    /// A 1×1pt UIWindow kept off-screen at window level -1.
-    /// All extension WKWebViews are added as subviews so WebKit considers them
-    /// "active" and fires navigation delegate callbacks and executes import().
-    static let hostWindow: UIWindow = {
-        let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        w.windowLevel = UIWindow.Level(rawValue: -1)
-        w.alpha = 0.001          // invisible but not hidden (hidden windows are inactive)
-        w.isHidden = false
-        w.rootViewController = UIViewController()
-        w.makeKeyAndVisible()
-        return w
-    }()
+    /// A transparent 1×1pt UIView added to the app's existing key window.
+    /// Extension WKWebViews need to be in the view hierarchy so WebKit considers
+    /// them active and fires navigation delegate callbacks.
+    ///
+    /// We deliberately do NOT create a new UIWindow (which would require makeKeyAndVisible()
+    /// and would steal keyboard focus from the real app windows — especially problematic in
+    /// LiveContainer environments).
+    private static var _hostContainer: UIView?
+    static var hostContainer: UIView {
+        if let existing = _hostContainer { return existing }
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        container.alpha = 0.001             // invisible but not hidden
+        container.isUserInteractionEnabled = false
+        _hostContainer = container
+        // Attach to the app's existing key window
+        let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow })
+                  ?? UIApplication.shared.windows.first
+        window?.addSubview(container)
+        return container
+    }
 
     // MARK: - Properties
 
@@ -95,10 +103,10 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1),
                            configuration: config)
         wv.navigationDelegate = self
-        // Attach to the shared host window so WebKit considers the view active.
-        // Without a window attachment, Safari/WebKit on iOS may not fire navigation
-        // delegate callbacks or execute JavaScript (including import() calls).
-        ExtensionWorker.hostWindow.addSubview(wv)
+        wv.isUserInteractionEnabled = false
+        // Attach to the shared host container so WebKit considers the view active.
+        // Must be in a live UIWindow view hierarchy or WebKit suspends JS execution.
+        ExtensionWorker.hostContainer.addSubview(wv)
         self.webView = wv
         self.pendingCode = code
 
@@ -153,8 +161,15 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             self.loadTimeoutWork = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
 
-            // Load from about:blank — no file:// needed
-            self.webView?.loadHTMLString(bootstrap, baseURL: nil)
+            // Load with esm.sh as baseURL so the page's origin is https://esm.sh.
+            // This is critical: blob: URLs created from this page get the form
+            // blob:https://esm.sh/{uuid} (not blob:null/{uuid} from about:blank).
+            // import('blob:https://esm.sh/...') from origin https://esm.sh is same-origin,
+            // and the blob module's https://esm.sh sub-imports are same-origin too.
+            // With baseURL:nil the page is null-origin and import() of blob:null/ is
+            // unreliable in WKWebView — exactly why workers were never set.
+            let baseURL = URL(string: "https://esm.sh")
+            self.webView?.loadHTMLString(bootstrap, baseURL: baseURL)
         }
     }
 
@@ -253,7 +268,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         readyContinuation = nil
         pendingLoad?.resume(throwing: WorkerError.notLoaded)
         webView?.removeFromSuperview()
-        webView?.loadHTMLString("", baseURL: nil)
+        webView?.stopLoading()
         webView = nil
         pending.values.forEach { $0(.failure(WorkerError.notLoaded)) }
         pending.removeAll()

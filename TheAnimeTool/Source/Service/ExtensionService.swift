@@ -217,10 +217,32 @@ final class ExtensionService {
         // Mirrors Hayase: `await storage.ready` before checking extensions.size
         await readyTask?.value
 
+        // Lazy-load fallback: if workers is empty but enabled configs exist, the
+        // initial load() failed (e.g. WKWebView not yet in hierarchy at app launch).
+        // Try loading from disk cache now that the user is actively using the extension.
+        if workers.isEmpty {
+            let enabledConfigs = configs.filter { id, c in
+                (options[id]?.enabled ?? false) && c.type == "torrent"
+            }
+            if !enabledConfigs.isEmpty {
+                for (id, _) in enabledConfigs {
+                    guard workers[id] == nil, let code = cachedCode(for: id) else { continue }
+                    await loadWorker(code: code, id: id)
+                }
+            }
+        }
+
         let enabledWorkers = workers.filter { id, _ in
             (options[id]?.enabled ?? false) && (configs[id]?.type == "torrent")
         }
         guard !enabledWorkers.isEmpty else {
+            // Give a more helpful message if extensions are installed but failed to load
+            let hasInstalled = configs.values.contains { c in
+                (options[c.id]?.enabled ?? false) && c.type == "torrent"
+            }
+            if hasInstalled {
+                throw ExtensionError.noExtensions("Extension failed to initialise. Try restarting the app.")
+            }
             throw ExtensionError.noExtensions("No torrent extensions configured. Add extensions in Settings → Extensions.")
         }
 
