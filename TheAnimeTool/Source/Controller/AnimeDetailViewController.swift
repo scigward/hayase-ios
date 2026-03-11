@@ -1289,7 +1289,7 @@ class AnimeDetailViewController: UIViewController {
             self.present(safari, animated: true)
         }
         headerView.onWatch = { [weak self] in
-            self?.performSegue(withIdentifier: "showTorrentList", sender: nil)
+            self?.openExtensionSearch(episode: 1)
         }
 
         // Wrap AnimeInfoHeaderView + segControlContainer in one container so the tab bar
@@ -1428,13 +1428,12 @@ class AnimeDetailViewController: UIViewController {
 
     // MARK: - Navigation
 
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        guard segue.identifier == "showTorrentList",
-              let dest = segue.destination as? TorrentListViewController else { return }
-        dest.animeEntity = animeEntity
-        if animeEntity == nil, let item = animeItem {
-            dest.animeTitleOverride = item.titleEnglish ?? item.titleRomaji
-        }
+    /// Push the extension-based torrent search screen for the given episode number.
+    private func openExtensionSearch(episode: Int) {
+        let searchVC = ExtensionSearchViewController()
+        searchVC.animeItem = animeItem
+        searchVC.initialEpisode = episode
+        navigationController?.pushViewController(searchVC, animated: true)
     }
 }
 
@@ -1545,7 +1544,8 @@ extension AnimeDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         if Section(rawValue: indexPath.section) == .episodes {
-            performSegue(withIdentifier: "showTorrentList", sender: nil)
+            let epNumber = indexPath.row + 1
+            openExtensionSearch(episode: epNumber)
         }
     }
 }

@@ -12,20 +12,10 @@ public class TorrentService: NSObject, SessionDelegate {
     enum TorrentError: Error {
         case errorSavingCoreData
     }
-    enum SortBy: Int {
-        case Date = 1
-        case Seeders
-        case Leechers
-        case Downloads
-        case Size
-        case Name
-    }
 
     // MARK: - Singleton & notifications
     static let sharedTorrentService = TorrentService()
-    static let LocalTorrentsWillUpdateNotification       = "LocalTorrentsWillUpdateNotification"
-    static let LocalTorrentsDidUpdateNotification        = "LocalTorrentsDidUpdateNotification"
-    static let TorrentInControllerDidUpdateNotification  = "TorrentInControllerDidUpdateNotification"
+    static let TorrentInControllerDidUpdateNotification    = "TorrentInControllerDidUpdateNotification"
     static let TorrentInControllerUpdateFailedNotification = "TorrentInControllerUpdateFailedNotification"
 
     // MARK: - LibTorrent session + handle tracking
@@ -134,103 +124,17 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
-    // MARK: - RSS parser for nyaa.si
-
-    // Nyaa trackers included in the panel-footer magnet link on every torrent page.
-    static let nyaaTrackers = [
-        "http://nyaa.tracker.wf:7777/announce",
+    // MARK: - Public trackers
+    // Well-known public BitTorrent announce endpoints. These can be appended to magnet
+    // URIs produced by extensions that don't include tracker parameters, improving peer
+    // discovery when DHT alone is slow. None of these are nyaa-specific.
+    static let publicTrackers = [
         "udp://open.stealth.si:80/announce",
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://exodus.desync.com:6969/announce",
         "udp://tracker.torrent.eu.org:451/announce",
+        "udp://tracker.openbittorrent.com:6969/announce",
     ]
-
-    private class NyaaRSSParser: NSObject, XMLParserDelegate {
-        struct TorrentItem {
-            var name: String = ""
-            var downloadURL: String?   // kept for reference; overwritten with magnet URI when infoHash present
-            var infoHash: String = ""  // from <nyaa:infoHash>; used to build the magnet URI
-            var seeders: Int = 0
-            var leechers: Int = 0
-            var downloads: Int = 0
-            var sizeMB: Float = 0
-            var nyaaId: Int?
-        }
-
-        var items: [TorrentItem] = []
-        private var currentItem: TorrentItem?
-        private var currentText = ""
-        private var inItem = false
-
-        func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
-            currentText = ""
-            if elementName == "item" {
-                currentItem = TorrentItem()
-                inItem = true
-            } else if elementName == "enclosure", inItem, let url = attributeDict["url"] {
-                currentItem?.downloadURL = url
-            }
-        }
-
-        func parser(_ parser: XMLParser, foundCharacters string: String) {
-            currentText += string
-        }
-
-        func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-            let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard inItem else { return }
-            switch elementName {
-            case "title":
-                currentItem?.name = text
-            case "nyaa:seeders":
-                currentItem?.seeders = Int(text) ?? 0
-            case "nyaa:leechers":
-                currentItem?.leechers = Int(text) ?? 0
-            case "nyaa:downloads":
-                currentItem?.downloads = Int(text) ?? 0
-            case "nyaa:infoHash":
-                currentItem?.infoHash = text.lowercased()
-            case "nyaa:size":
-                let parts = text.components(separatedBy: " ")
-                if let val = Float(parts.first ?? "0") {
-                    let unit = (parts.last ?? "MiB").lowercased()
-                    if unit.hasPrefix("gib") {
-                        currentItem?.sizeMB = val * 1024
-                    } else if unit.hasPrefix("tib") {
-                        currentItem?.sizeMB = val * 1024 * 1024
-                    } else {
-                        currentItem?.sizeMB = val
-                    }
-                }
-            case "item":
-                if var item = currentItem {
-                    // Extract nyaaId from enclosure URL (used as .torrent download fallback).
-                    if let url = item.downloadURL,
-                       let range = url.range(of: #"/download/(\d+)\.torrent"#, options: .regularExpression) {
-                        let digits = String(url[range]).components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-                        item.nyaaId = Int(digits)
-                    }
-                    // Build magnet URI from infoHash + nyaa trackers.
-                    // This bypasses any HTTP/Cloudflare issues with the /download/*.torrent endpoint.
-                    if !item.infoHash.isEmpty {
-                        let encodedName = item.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                        if encodedName.isEmpty {
-                            print("NyaaRSSParser: percent-encoding failed for '\(item.name)'; skipping magnet dn param")
-                        }
-                        let trParams = nyaaTrackers.map {
-                            "&tr=" + ($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)
-                        }.joined()
-                        item.downloadURL = "magnet:?xt=urn:btih:\(item.infoHash)&dn=\(encodedName)\(trParams)"
-                    }
-                    items.append(item)
-                }
-                currentItem = nil
-                inItem = false
-            default:
-                break
-            }
-        }
-    }
 
     // MARK: - Public API
 
@@ -246,90 +150,18 @@ public class TorrentService: NSObject, SessionDelegate {
         return res
     }
 
-    func UpdateTempTorrentsWith(_ searchStr: String, page: Int = 1, sortBy: SortBy = .Date, isDesc: Bool = true) {
-        self.ClearTempTorrents()
-        let sortParam: String
-        switch sortBy {
-        case .Seeders:   sortParam = "seeders"
-        case .Leechers:  sortParam = "leechers"
-        case .Downloads: sortParam = "downloads"
-        case .Size:      sortParam = "size"
-        case .Name:      sortParam = "filename"
-        default:         sortParam = "id"
-        }
-        let orderParam = isDesc ? "desc" : "asc"
-        let encodedSearch = searchStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? searchStr
-        let urlString = "https://nyaa.si/?page=rss&q=\(encodedSearch)&c=1_0&f=0&s=\(sortParam)&o=\(orderParam)"
-        guard let url = URL(string: urlString) else { return }
-
-        URLSession.shared.dataTask(with: url) { data, _, error in
-            if let error = error {
-                print("Error getting torrent data: \(error)")
-                return
-            }
-            guard let data = data else { return }
-            let rssParser = NyaaRSSParser()
-            let xmlParser = XMLParser(data: data)
-            xmlParser.delegate = rssParser
-            xmlParser.parse()
-            DispatchQueue.main.async {
-                do {
-                    try self.UpdateLocalTorrents(rssParser.items, isTemp: true)
-                } catch let error {
-                    print("Error updating local torrents: \(error)")
-                }
-            }
-        }.resume()
-    }
-
-    private func UpdateLocalTorrents(_ items: [NyaaRSSParser.TorrentItem], isTemp: Bool) throws {
-        NotificationCenter.default.post(name: NSNotification.Name(TorrentService.LocalTorrentsWillUpdateNotification), object: self)
-
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        for item in items {
-            let newTorrent = NSEntityDescription.insertNewObject(forEntityName: Torrents.entityName, into: context) as! Torrents
-            newTorrent.torrentName = item.name
-            newTorrent.torrentNyaaId = item.nyaaId.map { NSNumber(value: $0) }
-            newTorrent.torrentSeeders = NSNumber(value: item.seeders)
-            newTorrent.torrentLeechers = NSNumber(value: item.leechers)
-            newTorrent.torrentDownloads = NSNumber(value: item.downloads)
-            newTorrent.torrentSize = NSNumber(value: item.sizeMB)
-            newTorrent.torrentDownloadURL = item.downloadURL
-            newTorrent.torrentFlagTemp = NSNumber(value: isTemp)
-            newTorrent.torrentOrder = NSNumber(value: self.insertIndexForTempEntries)
-            self.insertIndexForTempEntries += 1
-        }
-
-        do {
-            try context.save()
-        } catch {
-            print("Error saving new torrent information")
-            throw TorrentError.errorSavingCoreData
-        }
-
-        NotificationCenter.default.post(name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: self)
-    }
-
-    /// Add the torrent (from magnet URI or .torrent download) to the LibTorrent session.
-    /// Prefers the magnet URI stored in torrentDownloadURL (built from nyaa:infoHash in RSS)
-    /// which requires no HTTP download and bypasses all Cloudflare/rate-limit issues.
-    /// Falls back to downloading the .torrent binary from nyaa.si when no infoHash was available.
+    /// Add the torrent (from magnet URI or .torrent file) to the LibTorrent session.
+    /// Prefers the magnet URI stored in torrentDownloadURL.
+    /// Falls back to downloading the .torrent binary when given an HTTP(S) URL.
     /// Calls `completion` on the main thread with a TorrentHandle or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
                                         completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
         guard let urlString = torrentEntity.torrentDownloadURL,
               let url = URL(string: urlString) else {
-            // No URL at all — last resort: nyaa ID direct download
-            if let id = torrentEntity.torrentNyaaId?.intValue, id > 0,
-               let fallbackURL = URL(string: "https://nyaa.si/download/\(id).torrent") {
-                downloadTorrentFile(from: fallbackURL, torrentEntity: torrentEntity, completion: completion)
-            } else {
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "TorrentService", code: 0,
-                        userInfo: [NSLocalizedDescriptionKey:
-                            "No download URL or info hash available for this torrent.\n" +
-                            "Try searching for the torrent again."])))
-                }
+            DispatchQueue.main.async {
+                completion(.failure(NSError(domain: "TorrentService", code: 0,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "No download URL available for this torrent."])))
             }
             return
         }
@@ -425,7 +257,6 @@ public class TorrentService: NSObject, SessionDelegate {
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             forHTTPHeaderField: "User-Agent")
         request.setValue("application/x-bittorrent, */*;q=0.8", forHTTPHeaderField: "Accept")
-        request.setValue("https://nyaa.si", forHTTPHeaderField: "Referer")
         print("TorrentService: downloading .torrent from \(url)")
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -491,13 +322,6 @@ public class TorrentService: NSObject, SessionDelegate {
             context.deleteAllData(request)
             self.insertIndexForTempEntries = 0
         }
-    }
-
-    static func UtilMakeShortSearchString(_ string: String) -> String {
-        let cleanStr = string.replacingOccurrences(of: "\\s*\\W\\s*", with: " ", options: .regularExpression, range: nil)
-        let splittedStr = cleanStr.components(separatedBy: " ")
-        let shortStr = String(format: "%@%@", splittedStr[0], splittedStr.count > 1 ? " \(splittedStr[1])" : "")
-        return shortStr
     }
 }
 

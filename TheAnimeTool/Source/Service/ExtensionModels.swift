@@ -1,0 +1,227 @@
+// ExtensionModels.swift
+// Ports types.d.ts from scigward/interface — used by ExtensionService and ExtensionWorker.
+
+import Foundation
+
+// MARK: - Core types (mirror types.d.ts)
+
+/// Mirrors types.d.ts SearchOptions value entry
+struct ExtensionOptionDef: Codable, Equatable {
+    var type: String          // "string" | "number" | "boolean" | "select"
+    var description: String
+    var values: [String]?
+    var `default`: AnyCodableValue
+}
+
+/// Minimal Codable Any for extension option values and defaults
+enum AnyCodableValue: Codable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let b = try? c.decode(Bool.self)   { self = .bool(b); return }
+        if let n = try? c.decode(Double.self) { self = .number(n); return }
+        if let s = try? c.decode(String.self) { self = .string(s); return }
+        self = .null
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .number(let n): try c.encode(n)
+        case .bool(let b):   try c.encode(b)
+        case .null:          try c.encodeNil()
+        }
+    }
+
+    var stringValue: String {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return n.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(n)) : String(n)
+        case .bool(let b):   return b ? "true" : "false"
+        case .null:          return ""
+        }
+    }
+
+    var jsonCompatible: Any {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return n
+        case .bool(let b):   return b
+        case .null:          return NSNull()
+        }
+    }
+}
+
+/// Mirrors types.d.ts ExtensionConfig
+struct ExtensionConfig: Codable, Equatable {
+    var name: String
+    var version: String
+    var description: String?
+    var id: String
+    /// "torrent" | "nzb" | "url"
+    var type: String
+    /// "high" | "medium" | "low"
+    var accuracy: String
+    var ratio: AnyCodableValue?
+    /// URL to the icon image
+    var icon: String
+    /// "sub" | "dub" | "both"
+    var media: String
+    /// Base64-encoded origin URL for CORS enablement (mirrors ExtensionConfig.url)
+    var url: String?
+    var languages: [String]
+    /// URL to the config JSON (may use gh: or npm: prefix)
+    var update: String?
+    /// URL to the extension JS code (may use gh: or npm: or file: prefix)
+    var code: String
+    var options: [String: ExtensionOptionDef]?
+}
+
+/// Per-extension user options and enabled state — mirrors ExtensionsOptions in storage.ts
+struct ExtensionOptions: Codable {
+    var options: [String: AnyCodableValue]
+    var enabled: Bool
+}
+
+/// Mirrors TorrentResult in types.d.ts
+struct TorrentResult {
+    var title: String
+    var link: String
+    var id: Int?
+    var seeders: Int
+    var leechers: Int
+    var downloads: Int
+    /// "high" | "medium" | "low"
+    var accuracy: String
+    var hash: String
+    /// size in bytes
+    var size: Int64
+    var date: Date?
+    /// "batch" | "best" | "alt"
+    var type: String?
+    /// Which extension(s) returned this result
+    var extensionIds: Set<String> = []
+
+    init?(from dict: [String: Any]) {
+        guard let title = dict["title"] as? String,
+              let link  = dict["link"]  as? String,
+              let hash  = dict["hash"]  as? String else { return nil }
+        self.title     = title
+        self.link      = link
+        self.hash      = hash
+        self.seeders   = (dict["seeders"]   as? Int) ?? 0
+        self.leechers  = (dict["leechers"]  as? Int) ?? 0
+        self.downloads = (dict["downloads"] as? Int) ?? 0
+        self.accuracy  = (dict["accuracy"]  as? String) ?? "low"
+        self.size      = Int64((dict["size"] as? Double) ?? 0)
+        self.id        = dict["id"] as? Int
+        self.type      = dict["type"] as? String
+        if let dateStr = dict["date"] as? String {
+            self.date = ISO8601DateFormatter().date(from: dateStr)
+        }
+    }
+}
+
+/// Mirrors TorrentQuery in types.d.ts
+struct TorrentQuery {
+    var mediaJSON: [String: Any]
+    var anilistId: Int
+    var titles: [String]
+    var episode: Int
+    var episodeCount: Int?
+    var absoluteEpisodeNumber: Int?
+    /// "2160" | "1080" | "720" | "540" | "480" | ""
+    var resolution: String
+    var exclusions: [String]
+    /// "sub" | "dub" — nil means no preference
+    var subDub: String?
+
+    /// Build from an AnimeItem + episode context (mirrors Extensions.createTitles)
+    static func make(from item: AnimeItem, episode: Int, resolution: String) -> TorrentQuery {
+        var titleDict: [String: Any] = [:]
+        if let eng = item.titleEnglish { titleDict["english"] = eng }
+        if let rom = item.titleRomaji  { titleDict["romaji"]  = rom }
+        if let nat = item.titleNative  { titleDict["native"]  = nat }
+        titleDict["userPreferred"] = item.titleEnglish ?? item.titleRomaji ?? ""
+
+        var mediaJSON: [String: Any] = [
+            "id":       item.id,
+            "title":    titleDict,
+            "synonyms": [],
+            "format":   item.format ?? "TV",
+            "status":   "RELEASING"
+        ]
+        if let ep = item.episodes { mediaJSON["episodes"] = ep }
+
+        // Build titles list — mirrors Extensions.createTitles
+        let candidates = [item.titleEnglish, item.titleRomaji, item.titleNative]
+            .compactMap { $0 }.filter { $0.count > 3 }
+        var seen = Set<String>()
+        var titles: [String] = []
+
+        // Extract just the digit from e.g. "Season 2" or "2nd Season" using NSRegularExpression
+        func extractSeasonNum(_ t: String) -> (range: Range<String.Index>, num: String)? {
+            let patterns = [
+                (#"Season (\d+)"#, false),   // "Season 2" → "S2"
+                (#"(\d+)(?:nd|rd|th|st) Season"#, true), // "2nd Season" → "S2"
+            ]
+            for (pattern, numFirst) in patterns {
+                guard let re = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+                      let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+                      m.numberOfRanges > 1,
+                      let fullRange = Range(m.range, in: t),
+                      let numRange = Range(m.range(at: 1), in: t) else { continue }
+                _ = numFirst // both patterns capture the digit in group 1
+                return (fullRange, String(t[numRange]))
+            }
+            return nil
+        }
+
+        func appendTitle(_ t: String) {
+            guard seen.insert(t).inserted else { return }
+            titles.append(t)
+            if let (range, num) = extractSeasonNum(t) {
+                let alt = t.replacingCharacters(in: range, with: "S\(num)")
+                if seen.insert(alt).inserted { titles.append(alt) }
+            }
+        }
+        for t in candidates {
+            appendTitle(t)
+            if t.contains("-") { appendTitle(t.replacingOccurrences(of: "-", with: "")) }
+        }
+
+        return TorrentQuery(
+            mediaJSON: mediaJSON,
+            anilistId: item.id,
+            titles: titles,
+            episode: episode,
+            episodeCount: item.episodes,
+            absoluteEpisodeNumber: nil,
+            resolution: resolution,
+            exclusions: [],
+            subDub: nil
+        )
+    }
+
+    /// Serialise for passing to the JS extension worker
+    func toDict() -> [String: Any] {
+        var d: [String: Any] = [
+            "media":      mediaJSON,
+            "anilistId":  anilistId,
+            "titles":     titles,
+            "episode":    episode,
+            "resolution": resolution,
+            "exclusions": exclusions
+        ]
+        if let c = episodeCount          { d["episodeCount"] = c }
+        if let a = absoluteEpisodeNumber { d["absoluteEpisodeNumber"] = a }
+        if let t = subDub                { d["type"] = t }
+        return d
+    }
+}

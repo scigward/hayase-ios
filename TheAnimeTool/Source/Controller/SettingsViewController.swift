@@ -23,6 +23,7 @@ class SettingsViewController: UIViewController {
         case toggle(userDefaultsKey: String, defaultValue: Bool)
         case value(String)
         case link(String)
+        case navigate
     }
 
     private struct Row {
@@ -93,6 +94,12 @@ class SettingsViewController: UIViewController {
             Row(title: "Minimal UI",
                 description: "Forces minimalistic player UI, hides controls.",
                 kind: .toggle(userDefaultsKey: "pref_minimalUI", defaultValue: false)),
+        ]),
+        // Extensions
+        Section(header: "Extensions", rows: [
+            Row(title: "Manage Extensions",
+                description: "Install and configure Hayase-compatible torrent/NZB extensions.",
+                kind: .navigate),
         ]),
         // About
         Section(header: "About", rows: [
@@ -191,6 +198,13 @@ extension SettingsViewController: UITableViewDataSource {
             cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
             cell.backgroundColor = cardColor
             return cell
+        case .navigate:
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
+            cell.accessoryType = .disclosureIndicator
+            cell.backgroundColor = cardColor
+            return cell
         }
     }
 }
@@ -202,8 +216,14 @@ extension SettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let row = sections[indexPath.section].rows[indexPath.row]
-        if case .link(let urlStr) = row.kind, let url = URL(string: urlStr) {
-            present(SFSafariViewController(url: url), animated: true)
+        switch row.kind {
+        case .link(let urlStr):
+            if let url = URL(string: urlStr) { present(SFSafariViewController(url: url), animated: true) }
+        case .navigate:
+            let extVC = ExtensionsViewController()
+            navigationController?.pushViewController(extVC, animated: true)
+        default:
+            break
         }
     }
 
