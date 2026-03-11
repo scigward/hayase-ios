@@ -40,6 +40,9 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var loadTimeoutWork: DispatchWorkItem?
     private var pending: [String: (Result<Any, Error>) -> Void] = [:]
+    /// Stores per-call timeout DispatchWorkItems so they can be cancelled when
+    /// the result arrives (prevents 30s leaking work items after every call).
+    private var callTimeouts: [String: DispatchWorkItem] = [:]
 
     // MARK: - Initialiser
 
@@ -322,6 +325,9 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     func destroy() {
         loadTimeoutWork?.cancel()
         loadTimeoutWork = nil
+        // Cancel all per-call timeouts
+        callTimeouts.values.forEach { $0.cancel() }
+        callTimeouts.removeAll()
         // Resume pending load continuation so load() doesn't hang if destroy() is called
         // before the 'ready' message arrives (prevents CheckedContinuation leak crash)
         let pendingLoad = readyContinuation
@@ -360,14 +366,16 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             // 30s safety timeout — if postMessage is never delivered, unblock the caller.
             let timeoutWork = DispatchWorkItem { [weak self] in
                 guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
+                self.callTimeouts.removeValue(forKey: callId)
                 handler(.failure(WorkerError.callFailed("Extension call timed out (30s)")))
             }
+            callTimeouts[callId] = timeoutWork
             DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
 
             webView?.evaluateJavaScript(js) { [weak self] _, err in
                 // Route errors through the pending handler so cont has a single owner.
                 guard let self, let err else { return }
-                timeoutWork.cancel()
+                self.callTimeouts.removeValue(forKey: callId)?.cancel()
                 if let handler = self.pending.removeValue(forKey: callId) {
                     handler(.failure(err))
                 }
@@ -412,8 +420,25 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         // This is the iOS equivalent of Hayase's native.enableCORS() Electron/Tauri bypass.
         if msgType == "fetch" {
             guard let fetchId = dict["fetchId"] as? Int,
-                  let urlStr  = dict["url"] as? String,
-                  let url     = URL(string: urlStr) else { return }
+                  let urlStr  = dict["url"] as? String else { return }
+
+            // Build URL with percent-encoding fallback — extensions sometimes pass URLs
+            // with unencoded spaces (e.g. "https://nyaa.si/?q=JUJUTSU KAISEN") which
+            // URL(string:) rejects. Without the fallback the guard returns silently,
+            // the fetch Promise hangs, and 30s later the call times out → "No results found".
+            let url: URL
+            if let u = URL(string: urlStr) {
+                url = u
+            } else if let encoded = urlStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                      let u = URL(string: encoded) {
+                url = u
+            } else {
+                // URL is genuinely malformed — reject immediately so the extension doesn't hang.
+                let wv = webView
+                wv?.evaluateJavaScript("window.__fetchReject(\(fetchId),'Invalid URL: \(urlStr.prefix(80))');",
+                                       completionHandler: nil)
+                return
+            }
             let method  = (dict["method"] as? String) ?? "GET"
             let headers = (dict["headers"] as? [String: String]) ?? [:]
             let bodyStr =  dict["body"]   as? String
@@ -449,9 +474,17 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                         return
                     }
                     let textJSON = String(raw.dropFirst().dropLast()) // strip [ ]
+                    // Add a completionHandler so if evaluateJavaScript itself fails
+                    // (e.g. JS syntax in textJSON, webView torn down), we reject
+                    // the pending fetch so the extension doesn't hang.
                     wv?.evaluateJavaScript(
-                        "window.__fetchResolve(\(fetchId),\(status),\(textJSON));",
-                        completionHandler: nil)
+                        "window.__fetchResolve(\(fetchId),\(status),\(textJSON));") { _, jsErr in
+                        if jsErr != nil {
+                            wv?.evaluateJavaScript(
+                                "window.__fetchReject(\(fetchId),'Response delivery failed');",
+                                completionHandler: nil)
+                        }
+                    }
                 } catch {
                     // Escape single quotes so the error message is safe in JS
                     let msg = error.localizedDescription
@@ -467,6 +500,9 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         guard let callId = dict["callId"] as? String,
               let handler = pending.removeValue(forKey: callId) else { return }
+
+        // Cancel the per-call timeout now that we have a result/error
+        callTimeouts.removeValue(forKey: callId)?.cancel()
 
         if let errMsg = dict["error"] as? String {
             handler(.failure(WorkerError.callFailed(errMsg)))

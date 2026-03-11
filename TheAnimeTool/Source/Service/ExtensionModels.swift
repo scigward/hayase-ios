@@ -109,17 +109,35 @@ struct TorrentResult {
     var extensionIds: Set<String> = []
 
     init?(from dict: [String: Any]) {
-        guard let title = dict["title"] as? String,
-              let link  = dict["link"]  as? String,
-              let hash  = dict["hash"]  as? String else { return nil }
+        guard let title = dict["title"] as? String else { return nil }
+        let rawLink = (dict["link"] as? String) ?? ""
+
+        // 'hash' is required for deduplication.
+        // If the extension omits it or returns nil, try to extract the InfoHash
+        // from a magnet URI (xt=urn:btih:HASH) in the link field.
+        let rawHash: String
+        if let h = dict["hash"] as? String, !h.isEmpty {
+            rawHash = h.lowercased()
+        } else {
+            let lower = rawLink.lowercased()
+            if let xtRange = lower.range(of: "xt=urn:btih:") {
+                let afterXt = String(lower[xtRange.upperBound...])
+                let hash = afterXt.components(separatedBy: CharacterSet(charactersIn: "&\n\r\t ")).first ?? ""
+                guard !hash.isEmpty else { return nil }
+                rawHash = hash
+            } else {
+                return nil
+            }
+        }
+
         self.title     = title
-        self.link      = link
-        self.hash      = hash
+        self.link      = rawLink
+        self.hash      = rawHash
         self.seeders   = (dict["seeders"]   as? Int) ?? 0
         self.leechers  = (dict["leechers"]  as? Int) ?? 0
         self.downloads = (dict["downloads"] as? Int) ?? 0
         self.accuracy  = (dict["accuracy"]  as? String) ?? "low"
-        self.size      = Int64((dict["size"] as? Double) ?? 0)
+        self.size      = Int64((dict["size"] as? Double) ?? Double(dict["size"] as? Int ?? 0))
         self.id        = dict["id"] as? Int
         self.type      = dict["type"] as? String
         if let dateStr = dict["date"] as? String {

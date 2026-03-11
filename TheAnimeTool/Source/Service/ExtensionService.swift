@@ -291,9 +291,19 @@ final class ExtensionService {
             }
         }
 
-        // Log errors but don't throw if we got some results
+        // Surface extension errors in the UI when no results were found.
+        // If we got some results, log errors silently (partial success is still useful).
         for (extId, err) in errors {
             print("ExtensionService: extension \(extId) error: \(err)")
+        }
+
+        if all.isEmpty && !errors.isEmpty {
+            // All extensions returned errors — surface the first meaningful message so
+            // ExtensionSearchViewController can show it in the red errorLabel instead
+            // of the unhelpful "No results found".
+            let msgs = errors.prefix(3).map { "\($0.id): \($0.error.localizedDescription)" }
+                             .joined(separator: "\n")
+            throw ExtensionError.callFailed(msgs)
         }
 
         return dedupe(all)
