@@ -30,11 +30,12 @@ private func jsurl(_ raw: String) -> URL? {
         guard parts.count >= 2 else { return nil }
         let user = parts[0], repo = parts[1]
         let rest = parts.dropFirst(2).joined(separator: "/")
-        // ?bundle makes esm.sh return a fully self-contained file with all sub-dependencies
-        // inlined — no runtime https:// imports that would be blocked from file:// pages.
+        // Mirrors Hayase jsurl() exactly — no ?bundle suffix.
+        // blob: URL context (used in ExtensionWorker) can load the https:// sub-imports
+        // that esm.sh injects, because esm.sh serves Access-Control-Allow-Origin: *.
         let urlStr = rest.isEmpty
-            ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs?bundle"
-            : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs?bundle"
+            ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs"
+            : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs"
         return URL(string: urlStr)
     case "npm":
         let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
@@ -43,8 +44,8 @@ private func jsurl(_ raw: String) -> URL? {
         let pkg = parts[0]
         let rest = parts.dropFirst().joined(separator: "/")
         let urlStr = rest.isEmpty
-            ? "https://esm.sh/\(pkg)/es2022/index.mjs?bundle"
-            : "https://esm.sh/\(pkg)/es2022/\(rest).mjs?bundle"
+            ? "https://esm.sh/\(pkg)/es2022/index.mjs"
+            : "https://esm.sh/\(pkg)/es2022/\(rest).mjs"
         return URL(string: urlStr)
     default: return nil
     }
@@ -92,6 +93,11 @@ final class ExtensionService {
     /// Active extension workers keyed by extension ID
     private(set) var workers: [String: ExtensionWorker] = [:]
 
+    /// Mirrors storage.ready — resolves when initiate() finishes loading cached workers.
+    /// search() awaits this before checking workers, matching Hayase's
+    /// `await storage.ready` in getResultsFromExtensions().
+    private var readyTask: Task<Void, Never>?
+
     // MARK: - Initialisation
 
     private let encoder = JSONEncoder()
@@ -102,7 +108,7 @@ final class ExtensionService {
     private init() {
         loadFromDefaults()
         Task { await update() }
-        Task { await initiate(configs: Array(configs.values)) }
+        readyTask = Task { await initiate(configs: Array(configs.values)) }
     }
 
     // MARK: - ConfigManager.import (mirrors storage.ts import())
@@ -205,7 +211,11 @@ final class ExtensionService {
     // MARK: - Extensions.getResultsFromExtensions (mirrors extensions.ts)
 
     /// Search all enabled torrent extensions and deduplicate results.
+    /// Mirrors Extensions.getResultsFromExtensions in extensions.ts.
     func search(query: TorrentQuery) async throws -> [TorrentResult] {
+        // Mirrors Hayase: `await storage.ready` before checking extensions.size
+        await readyTask?.value
+
         let enabledWorkers = workers.filter { id, _ in
             (options[id]?.enabled ?? false) && (configs[id]?.type == "torrent")
         }

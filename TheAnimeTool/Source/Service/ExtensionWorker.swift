@@ -3,10 +3,10 @@
 // Mirrors the role of worker.ts + ExtensionWorker in scigward/interface but uses
 // WKWebView instead of Web Workers (iOS does not expose Web Workers to Swift code).
 //
-// The extension JS code is written to Library/Application Support/Extensions/{id}.js
-// so it can be loaded as an ES module via <script type="module"> with a relative import.
-// WKWebView loaded with baseURL = that directory can import './id.js' as a module,
-// which is exactly what Hayase extensions expect (they use `export default {...}`).
+// Loading approach mirrors Hayase's worker.ts load():
+//   URL.createObjectURL(new Blob([code], {type:'application/javascript'})) + import(url)
+// This works because blob: URLs can load https:// sub-imports (esm.sh CORS: *),
+// while file:// pages cannot.
 
 import Foundation
 import WebKit
@@ -51,83 +51,120 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     // MARK: - Load
 
-    /// Write code to disk and load the WKWebView sandbox.
-    /// Mirrors CodeManager._loadWorker: write code → create Worker → construct → loaded.
-    func load(code: String) async throws {
-        let extDir = try extensionsDirectory()
-        let codeFile = extDir.appendingPathComponent("\(id).js")
-        try code.write(to: codeFile, atomically: true, encoding: .utf8)
+    // Pending code to inject after WKWebView finishes loading the bootstrap page.
+    // Stored here so webView(_:didFinish:) can access it without capture-list gymnastics.
+    private var pendingCode: String?
 
+    /// Load the extension code into an isolated WKWebView sandbox.
+    ///
+    /// Mirrors Hayase's CodeManager._loadWorker / worker.ts load() exactly:
+    ///   1. Hayase worker.ts: URL.createObjectURL(new Blob([code], {type:'application/javascript'}))
+    ///                        then import(blobUrl) — dynamic import of a Blob module.
+    ///   2. We do the same inside a WKWebView instead of a Web Worker.
+    ///
+    /// WHY NOT <script type="module"> with file://baseURL (the old approach)?
+    ///   Extension code fetched from esm.sh contains bare https:// sub-import statements.
+    ///   A file:// page is not allowed to fetch https:// resources (cross-origin policy) —
+    ///   the import() fails silently, 'ready' is never posted, and the continuation hangs.
+    ///   A blob: URL CAN import https:// resources because esm.sh sets CORS Allow-Origin: *.
+    ///   This is exactly the same reason Hayase uses a Web Worker (blob: origin) not a
+    ///   <script type="module"> in a regular page.
+    func load(code: String) async throws {
         let handler = BridgeMessageHandler(worker: self)
         let userContent = WKUserContentController()
         userContent.add(handler, name: "extBridge")
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
-        // allowFileAccessFromFileURLs: lets the page (loaded with file:// baseURL) import
-        // the extension .js file from the same directory.
-        // "allowFileAccessFromFileURLs" (lowercase f) IS still a valid WKPreferences KVC key.
-        // "allowUniversalAccessFromFileURLs" (the cross-origin one) was removed in iOS 16.4
-        // and crashes the app — we do NOT use that key.
-        // jsurl() appends "?bundle" so extension code is fully self-contained (no runtime imports).
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        // No file-access KVC keys needed — we use blob: URLs, not file://
 
         let wv = WKWebView(frame: CGRect(x: -1, y: -1, width: 1, height: 1),
                            configuration: config)
         wv.navigationDelegate = self
         self.webView = wv
+        self.pendingCode = code
 
-        // The bootstrap page: a module script that imports the extension, stores it as
-        // window.__ext, and exposes window.__call for Swift to invoke methods.
-        // The outer try/catch is critical: without it, any import error (e.g., CDN
-        // timeout, bad JS syntax, missing export) silently swallows and never posts
-        // a message — causing readyContinuation to hang forever (the original bug).
+        // Bootstrap page — defines window.__loadExtension(code).
+        // The actual extension code is injected via evaluateJavaScript after didFinish fires,
+        // with code serialised as a JSON string literal so all special characters are safe.
+        //
+        // __loadExtension mirrors Hayase worker.ts load():
+        //   const url = URL.createObjectURL(new Blob([code], {type:'application/javascript'}))
+        //   const module = await import(url)
+        //   URL.revokeObjectURL(url)
+        //   return module.default
         let bootstrap = """
-        <!DOCTYPE html><html><head>
-        <script type="module">
-        try {
-            const mod = await import('./\(id).js');
+        <!DOCTYPE html><html><head><script>
+        window.__loadExtension = async function(code) {
+          try {
+            const blob = new Blob([code], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const mod = await import(url);
+            URL.revokeObjectURL(url);
             window.__ext = mod.default;
             window.__call = async function(callId, method, query, options) {
-                try {
-                    var result = await window.__ext[method]({...query, fetch: fetch}, options);
-                    window.webkit.messageHandlers.extBridge.postMessage(
-                        JSON.stringify({callId: callId, result: result}));
-                } catch(e) {
-                    window.webkit.messageHandlers.extBridge.postMessage(
-                        JSON.stringify({callId: callId, error: String(e.message ?? e)}));
-                }
+              try {
+                var result = await window.__ext[method]({...query, fetch: fetch}, options);
+                window.webkit.messageHandlers.extBridge.postMessage(
+                    JSON.stringify({callId: callId, result: result}));
+              } catch(e) {
+                window.webkit.messageHandlers.extBridge.postMessage(
+                    JSON.stringify({callId: callId, error: String(e.message ?? e)}));
+              }
             };
             window.webkit.messageHandlers.extBridge.postMessage(
                 JSON.stringify({type: 'ready'}));
-        } catch(e) {
-            // Report module load failure so Swift can throw instead of hanging
+          } catch(e) {
             window.webkit.messageHandlers.extBridge.postMessage(
                 JSON.stringify({type: 'error', error: String(e.message ?? e)}));
-        }
-        </script>
-        </head><body></body></html>
+          }
+        };
+        </script></head><body></body></html>
         """
 
         try await withCheckedThrowingContinuation { [weak self] (cont: CheckedContinuation<Void, Error>) in
             guard let self else { cont.resume(throwing: WorkerError.notLoaded); return }
             self.readyContinuation = cont
 
-            // 15-second timeout: if neither 'ready' nor 'error' arrives (e.g., network
-            // completely unreachable for CDN imports), fail cleanly instead of hanging.
+            // 30s timeout — covers slow CDN on first-ever install
             let item = DispatchWorkItem { [weak self] in
                 guard let self, let c = self.readyContinuation else { return }
                 self.readyContinuation = nil
-                c.resume(throwing: WorkerError.loadFailed("Extension load timed out after 15s. Check network connectivity."))
+                c.resume(throwing: WorkerError.loadFailed("Extension load timed out (30s). Check network."))
             }
             self.loadTimeoutWork = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
 
-            self.webView?.loadHTMLString(bootstrap, baseURL: extDir)
+            // Load from about:blank — no file:// needed
+            self.webView?.loadHTMLString(bootstrap, baseURL: nil)
         }
     }
 
     // MARK: - WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Page is ready. Inject extension code safely using JSON serialisation,
+        // which handles backticks, quotes, backslashes, Unicode, etc.
+        guard let code = pendingCode else { return }
+        pendingCode = nil
+
+        guard let codeData = try? JSONSerialization.data(withJSONObject: code),
+              let codeJSON = String(data: codeData, encoding: .utf8) else {
+            loadTimeoutWork?.cancel(); loadTimeoutWork = nil
+            let cont = readyContinuation; readyContinuation = nil
+            cont?.resume(throwing: WorkerError.loadFailed("Code JSON serialisation failed"))
+            return
+        }
+
+        webView.evaluateJavaScript("window.__loadExtension(\(codeJSON));") { [weak self] _, err in
+            if let err = err {
+                self?.loadTimeoutWork?.cancel(); self?.loadTimeoutWork = nil
+                let cont = self?.readyContinuation; self?.readyContinuation = nil
+                cont?.resume(throwing: WorkerError.loadFailed(err.localizedDescription))
+            }
+            // On success: wait for 'ready' or 'error' message via extBridge handler
+        }
+    }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         loadTimeoutWork?.cancel()
@@ -267,15 +304,6 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         }
     }
 
-    // MARK: - Helpers
-
-    private func extensionsDirectory() throws -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                  in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Extensions", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
 }
 
 // MARK: - WKScriptMessageHandler (holds weak ref to avoid retain cycle)
