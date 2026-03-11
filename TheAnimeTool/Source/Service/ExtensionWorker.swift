@@ -64,14 +64,13 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
-        // allowFileAccessFromFileURLs: lets the page load other local files (the extension .js).
-        // Using the public documented API instead of KVC to avoid NSUnknownKeyException crashes
-        // on iOS versions that changed or removed private preference keys.
-        config.preferences.allowFileAccessFromFileURLs = true
-        // Note: we do NOT set allowUniversalAccessFromFileURLs — that private key was removed
-        // in iOS 16.4 and throws NSUnknownKeyException (crashes the app).
-        // Instead, jsurl() appends "?bundle" to all esm.sh URLs so the downloaded extension
-        // code is fully self-contained with no external imports at runtime.
+        // allowFileAccessFromFileURLs: lets the page (loaded with file:// baseURL) import
+        // the extension .js file from the same directory.
+        // "allowFileAccessFromFileURLs" (lowercase f) IS still a valid WKPreferences KVC key.
+        // "allowUniversalAccessFromFileURLs" (the cross-origin one) was removed in iOS 16.4
+        // and crashes the app — we do NOT use that key.
+        // jsurl() appends "?bundle" so extension code is fully self-contained (no runtime imports).
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
         let wv = WKWebView(frame: CGRect(x: -1, y: -1, width: 1, height: 1),
                            configuration: config)
