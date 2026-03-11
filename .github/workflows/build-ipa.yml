@@ -21,11 +21,48 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # Cache resolved SPM packages so we don't re-download MPVKit/OpenSSL on every run.
+      # The cache key includes the resolved versions (from project.pbxproj) so it
+      # invalidates automatically when package versions change.
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
+            ~/.swiftpm/cache
+          key: spm-${{ runner.os }}-${{ hashFiles('TheAnimeTool.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: Install Boost + OpenSSL
         run: brew install boost openssl@3
 
       - name: Prepare LibTorrent
         run: OPENSSL_ROOT_DIR=$(brew --prefix openssl@3) ./Component/LibTorrent-Swift/make.sh
+
+      # Pre-resolve SPM dependencies separately with a timeout and retry.
+      # This isolates the network-dependent step from the build step, and retries
+      # if GitHub's CDN is slow (MPVKit pre-built binaries are ~500 MB).
+      - name: Resolve SPM dependencies (with retry)
+        run: |
+          RESOLVED=false
+          for attempt in 1 2 3; do
+            echo "=== Resolve attempt $attempt/3 ==="
+            if timeout 300 xcodebuild \
+                -workspace TheAnimeTool.xcworkspace \
+                -scheme TheAnimeTool \
+                -resolvePackageDependencies \
+                SYMROOT=${{ github.workspace }}/build/app 2>&1; then
+              RESOLVED=true
+              break
+            fi
+            echo "Attempt $attempt failed or timed out, retrying in 10s..."
+            sleep 10
+          done
+          if [ "$RESOLVED" != "true" ]; then
+            echo "ERROR: Failed to resolve SPM packages after 3 attempts"
+            exit 1
+          fi
 
       - name: Build TheAnimeTool (Release, no signing)
         run: |
@@ -35,6 +72,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
+            -skipPackageUpdates \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
