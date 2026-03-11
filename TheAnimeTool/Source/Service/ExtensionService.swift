@@ -16,32 +16,35 @@ import UIKit
 
 // MARK: - URL helpers (mirrors jsurl / jsonurl in storage.ts)
 
+// Extract scheme and path from a custom-scheme URI like "gh:user/repo/src/file.js"
+// using raw string splitting instead of URL(string:).path, which returns "" for
+// opaque URIs (no // authority) in Swift's RFC-3986 parser.
+private func schemePath(_ raw: String) -> (scheme: String, path: String)? {
+    guard let colon = raw.firstIndex(of: ":") else { return nil }
+    let scheme = String(raw[raw.startIndex..<colon])
+    let path   = String(raw[raw.index(after: colon)...])
+    return (scheme, path)
+}
+
 private func jsurl(_ raw: String) -> URL? {
     if raw.hasPrefix("http") { return URL(string: raw) }
-    // Mirrors Hayase's jsurl() in storage.ts exactly:
-    //   gh:[user]/[repo]/[path] → https://esm.sh/gh/[user]/[repo]/es2022/[path].mjs
-    //   npm:[pkg]/[path]        → https://esm.sh/[pkg]/es2022/[path].mjs
-    guard let parsed = URL(string: raw) else { return nil }
-    switch parsed.scheme {
+    guard let (scheme, path) = schemePath(raw) else { return nil }
+    // Mirrors Hayase storage.ts jsurl() exactly:
+    //   gh:[user]/[repo]/[...path] → https://esm.sh/gh/[user]/[repo]/es2022/[path].mjs
+    //   npm:[pkg]/[...path]        → https://esm.sh/[pkg]/es2022/[path].mjs
+    let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    switch scheme {
     case "gh":
-        // parsed.path for 'gh:user/repo/src/file.js' is 'user/repo/src/file.js'
-        let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
-        let parts = fullPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 2 else { return nil }
         let user = parts[0], repo = parts[1]
         let rest = parts.dropFirst(2).joined(separator: "/")
-        // Mirrors Hayase jsurl() exactly — no ?bundle suffix.
-        // blob: URL context (used in ExtensionWorker) can load the https:// sub-imports
-        // that esm.sh injects, because esm.sh serves Access-Control-Allow-Origin: *.
         let urlStr = rest.isEmpty
             ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs"
             : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs"
         return URL(string: urlStr)
     case "npm":
-        let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
-        let parts = fullPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !parts.isEmpty else { return nil }
-        let pkg = parts[0]
+        let pkg  = parts[0]
         let rest = parts.dropFirst().joined(separator: "/")
         let urlStr = rest.isEmpty
             ? "https://esm.sh/\(pkg)/es2022/index.mjs"
@@ -53,14 +56,12 @@ private func jsurl(_ raw: String) -> URL? {
 
 private func jsonurl(_ raw: String) -> URL? {
     if raw.hasPrefix("http") { return URL(string: raw) }
-    guard let parsed = URL(string: raw) else { return nil }
-    switch parsed.scheme {
+    guard let (scheme, path) = schemePath(raw) else { return nil }
+    switch scheme {
     case "gh":
-        let path = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
         let base = "https://esm.sh/gh/\(path)"
         return URL(string: base.hasSuffix(".json") ? base : "\(base)/index.json")
     case "npm":
-        let path = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
         let base = "https://esm.sh/\(path)"
         return URL(string: base.hasSuffix(".json") ? base : "\(base)/index.json")
     default: return nil

@@ -32,6 +32,21 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         }
     }
 
+    // MARK: - Shared host window
+
+    /// A 1×1pt UIWindow kept off-screen at window level -1.
+    /// All extension WKWebViews are added as subviews so WebKit considers them
+    /// "active" and fires navigation delegate callbacks and executes import().
+    static let hostWindow: UIWindow = {
+        let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        w.windowLevel = UIWindow.Level(rawValue: -1)
+        w.alpha = 0.001          // invisible but not hidden (hidden windows are inactive)
+        w.isHidden = false
+        w.rootViewController = UIViewController()
+        w.makeKeyAndVisible()
+        return w
+    }()
+
     // MARK: - Properties
 
     let id: String
@@ -76,11 +91,14 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
-        // No file-access KVC keys needed — we use blob: URLs, not file://
 
-        let wv = WKWebView(frame: CGRect(x: -1, y: -1, width: 1, height: 1),
+        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1),
                            configuration: config)
         wv.navigationDelegate = self
+        // Attach to the shared host window so WebKit considers the view active.
+        // Without a window attachment, Safari/WebKit on iOS may not fire navigation
+        // delegate callbacks or execute JavaScript (including import() calls).
+        ExtensionWorker.hostWindow.addSubview(wv)
         self.webView = wv
         self.pendingCode = code
 
@@ -234,6 +252,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         let pendingLoad = readyContinuation
         readyContinuation = nil
         pendingLoad?.resume(throwing: WorkerError.notLoaded)
+        webView?.removeFromSuperview()
         webView?.loadHTMLString("", baseURL: nil)
         webView = nil
         pending.values.forEach { $0(.failure(WorkerError.notLoaded)) }
