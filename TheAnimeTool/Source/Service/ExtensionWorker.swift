@@ -37,6 +37,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     let id: String
     private var webView: WKWebView?
     private var readyContinuation: CheckedContinuation<Void, Error>?
+    /// Timeout work item that fires if the 'ready' message never arrives
+    private var loadTimeoutWork: DispatchWorkItem?
     /// Pending call completions keyed by callId UUID string
     private var pending: [String: (Result<Any, Error>) -> Void] = [:]
 
@@ -62,8 +64,15 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
-        // Allow file:// access across Extensions directory for ES module imports
+        // allowFileAccessFromFileURLs: lets the page load other local files (the extension .js)
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        // allowUniversalAccessFromFileURLs: lets the extension JS import from https://esm.sh
+        // CDN at runtime (required — esm.sh bundles emit bare https:// imports for sub-deps).
+        // This is the primary cause of the infinite-loading bug: without this flag, all
+        // cross-origin HTTPS fetches from the file:// page are silently blocked, the
+        // <script type="module"> fails, no 'ready' message is ever posted, and the
+        // readyContinuation hangs indefinitely showing an eternal spinner.
+        config.preferences.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
 
         let wv = WKWebView(frame: CGRect(x: -1, y: -1, width: 1, height: 1),
                            configuration: config)
@@ -72,23 +81,32 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         // The bootstrap page: a module script that imports the extension, stores it as
         // window.__ext, and exposes window.__call for Swift to invoke methods.
+        // The outer try/catch is critical: without it, any import error (e.g., CDN
+        // timeout, bad JS syntax, missing export) silently swallows and never posts
+        // a message — causing readyContinuation to hang forever (the original bug).
         let bootstrap = """
         <!DOCTYPE html><html><head>
         <script type="module">
-        import ext from './\(id).js';
-        window.__ext = ext;
-        window.__call = async function(callId, method, query, options) {
-            try {
-                var result = await window.__ext[method]({...query, fetch: fetch}, options);
-                window.webkit.messageHandlers.extBridge.postMessage(
-                    JSON.stringify({callId: callId, result: result}));
-            } catch(e) {
-                window.webkit.messageHandlers.extBridge.postMessage(
-                    JSON.stringify({callId: callId, error: String(e.message ?? e)}));
-            }
-        };
-        window.webkit.messageHandlers.extBridge.postMessage(
-            JSON.stringify({type: 'ready'}));
+        try {
+            const mod = await import('./\(id).js');
+            window.__ext = mod.default;
+            window.__call = async function(callId, method, query, options) {
+                try {
+                    var result = await window.__ext[method]({...query, fetch: fetch}, options);
+                    window.webkit.messageHandlers.extBridge.postMessage(
+                        JSON.stringify({callId: callId, result: result}));
+                } catch(e) {
+                    window.webkit.messageHandlers.extBridge.postMessage(
+                        JSON.stringify({callId: callId, error: String(e.message ?? e)}));
+                }
+            };
+            window.webkit.messageHandlers.extBridge.postMessage(
+                JSON.stringify({type: 'ready'}));
+        } catch(e) {
+            // Report module load failure so Swift can throw instead of hanging
+            window.webkit.messageHandlers.extBridge.postMessage(
+                JSON.stringify({type: 'error', error: String(e.message ?? e)}));
+        }
         </script>
         </head><body></body></html>
         """
@@ -96,6 +114,17 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         try await withCheckedThrowingContinuation { [weak self] (cont: CheckedContinuation<Void, Error>) in
             guard let self else { cont.resume(throwing: WorkerError.notLoaded); return }
             self.readyContinuation = cont
+
+            // 15-second timeout: if neither 'ready' nor 'error' arrives (e.g., network
+            // completely unreachable for CDN imports), fail cleanly instead of hanging.
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, let c = self.readyContinuation else { return }
+                self.readyContinuation = nil
+                c.resume(throwing: WorkerError.loadFailed("Extension load timed out after 15s. Check network connectivity."))
+            }
+            self.loadTimeoutWork = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: item)
+
             self.webView?.loadHTMLString(bootstrap, baseURL: extDir)
         }
     }
@@ -103,6 +132,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        loadTimeoutWork?.cancel()
+        loadTimeoutWork = nil
         let cont = readyContinuation
         readyContinuation = nil
         cont?.resume(throwing: WorkerError.loadFailed(error.localizedDescription))
@@ -155,6 +186,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     // MARK: - Destroy
 
     func destroy() {
+        loadTimeoutWork?.cancel()
+        loadTimeoutWork = nil
         webView?.loadHTMLString("", baseURL: nil)
         webView = nil
         pending.values.forEach { $0(.failure(WorkerError.notLoaded)) }
@@ -198,11 +231,26 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
               let data = str.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
-        // 'ready' fires once after bootstrap module script runs
-        if (dict["type"] as? String) == "ready" {
+        let msgType = dict["type"] as? String
+
+        // 'ready' fires once after bootstrap module script runs successfully
+        if msgType == "ready" {
+            loadTimeoutWork?.cancel()
+            loadTimeoutWork = nil
             let cont = readyContinuation
             readyContinuation = nil
             cont?.resume()
+            return
+        }
+
+        // 'error' fires when the bootstrap try/catch catches a module import failure
+        if msgType == "error" {
+            loadTimeoutWork?.cancel()
+            loadTimeoutWork = nil
+            let cont = readyContinuation
+            readyContinuation = nil
+            let errMsg = (dict["error"] as? String) ?? "Extension module failed to load"
+            cont?.resume(throwing: WorkerError.loadFailed(errMsg))
             return
         }
 

@@ -75,7 +75,7 @@ struct ExtensionConfig: Codable, Equatable {
     var media: String
     /// Base64-encoded origin URL for CORS enablement (mirrors ExtensionConfig.url)
     var url: String?
-    var languages: [String]
+    var languages: [String]?         // optional — not all real manifests include this
     /// URL to the config JSON (may use gh: or npm: prefix)
     var update: String?
     /// URL to the extension JS code (may use gh: or npm: or file: prefix)

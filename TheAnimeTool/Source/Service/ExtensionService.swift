@@ -18,16 +18,32 @@ import UIKit
 
 private func jsurl(_ raw: String) -> URL? {
     if raw.hasPrefix("http") { return URL(string: raw) }
-    // gh:[username]/[repo]/[path] → https://esm.sh/gh/[username]/[repo]/es2022/[path].mjs
-    // npm:[pkg]/[path] → https://esm.sh/[pkg]/es2022/[path].mjs
+    // Mirrors Hayase's jsurl() in storage.ts exactly:
+    //   gh:[user]/[repo]/[path] → https://esm.sh/gh/[user]/[repo]/es2022/[path].mjs
+    //   npm:[pkg]/[path]        → https://esm.sh/[pkg]/es2022/[path].mjs
     guard let parsed = URL(string: raw) else { return nil }
     switch parsed.scheme {
     case "gh":
-        let path = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
-        return URL(string: "https://esm.sh/gh/\(path)/es2022/index.mjs")
+        // parsed.path for 'gh:user/repo/src/file.js' is 'user/repo/src/file.js'
+        let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
+        let parts = fullPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2 else { return nil }
+        let user = parts[0], repo = parts[1]
+        let rest = parts.dropFirst(2).joined(separator: "/")
+        let urlStr = rest.isEmpty
+            ? "https://esm.sh/gh/\(user)/\(repo)/es2022/index.mjs"
+            : "https://esm.sh/gh/\(user)/\(repo)/es2022/\(rest).mjs"
+        return URL(string: urlStr)
     case "npm":
-        let path = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
-        return URL(string: "https://esm.sh/\(path)/es2022/index.mjs")
+        let fullPath = parsed.path.hasPrefix("/") ? String(parsed.path.dropFirst()) : parsed.path
+        let parts = fullPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !parts.isEmpty else { return nil }
+        let pkg = parts[0]
+        let rest = parts.dropFirst().joined(separator: "/")
+        let urlStr = rest.isEmpty
+            ? "https://esm.sh/\(pkg)/es2022/index.mjs"
+            : "https://esm.sh/\(pkg)/es2022/\(rest).mjs"
+        return URL(string: urlStr)
     default: return nil
     }
 }
