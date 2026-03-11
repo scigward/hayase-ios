@@ -18,10 +18,6 @@ import LibTorrent
 /// - AirPlay / Route Picker (standard AVRoutePickerView)
 class VideoPlayerController: AVPlayerViewController {
     var videoEntity: Videos? = nil
-    /// Direct file URL — used by NativeBridge when no Videos entity is available.
-    var videoURL: URL? = nil
-    /// Display title — used by NativeBridge when no Videos entity is available.
-    var videoTitle: String? = nil
     /// The active LibTorrent handle for this torrent (used for live stats overlay).
     var torrentHandle: TorrentHandle? = nil
     /// Index of the file being played inside the torrent (for per-file stats).
@@ -42,22 +38,14 @@ class VideoPlayerController: AVPlayerViewController {
         super.viewDidLoad()
         // Hayase pip.ts: PiP is a first-class feature
         allowsPictureInPicturePlayback = true
-        // Episode title from video entity name or direct title
+        // Episode title from video entity name
         if let name = videoEntity?.videoName, !name.isEmpty {
             title = name
-        } else if let t = videoTitle, !t.isEmpty {
-            title = t
         }
         setupSpeedControl()
         setupAirPlayButton()
-        // Resolve file URL from videoEntity or direct videoURL
-        let resolvedURL: URL?
-        if let path = videoEntity?.videoPath {
-            resolvedURL = URL(fileURLWithPath: path)
-        } else {
-            resolvedURL = videoURL
-        }
-        guard let url = resolvedURL else { return }
+        guard let videoPath = videoEntity?.videoPath else { return }
+        let url = URL(fileURLWithPath: videoPath)
         DispatchQueue.global(qos: .default).async {
             let player = AVPlayer(url: url)
             DispatchQueue.main.async {
@@ -67,8 +55,7 @@ class VideoPlayerController: AVPlayerViewController {
                 if self.selectedRate != 1.0 { player.rate = self.selectedRate }
                 // Restore saved watch position (Hayase watchProgress.ts)
                 // Timescale 600 = common video timescale (1/600s precision, covers 24/30/60 fps)
-                let watchPath = self.videoEntity?.videoPath ?? self.videoURL?.path
-                if let path = watchPath,
+                if let path = self.videoEntity?.videoPath,
                    let saved = WatchProgressService.shared.getProgress(videoPath: path),
                    saved.isInProgress {
                     let preferredTimescale: CMTimeScale = 600

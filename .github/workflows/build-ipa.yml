@@ -21,25 +21,6 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: WebApp/pnpm-lock.yaml
-
-      - name: Build Svelte webapp (SvelteKit static)
-        working-directory: WebApp
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
-
       - name: Install Boost + OpenSSL
         run: brew install boost openssl@3
 
