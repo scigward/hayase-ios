@@ -148,13 +148,19 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         guard let code = pendingCode else { return }
         pendingCode = nil
 
-        guard let codeData = try? JSONSerialization.data(withJSONObject: code),
-              let codeJSON = String(data: codeData, encoding: .utf8) else {
+        // Wrap code in an array so NSJSONSerialization (which requires a top-level
+        // Array or Dictionary) can produce a valid JSON string literal for the string.
+        // We then strip the surrounding brackets to get just the quoted string.
+        guard let codeData = try? JSONSerialization.data(withJSONObject: [code]),
+              let codeArray = String(data: codeData, encoding: .utf8),
+              codeArray.count > 2 else {
             loadTimeoutWork?.cancel(); loadTimeoutWork = nil
             let cont = readyContinuation; readyContinuation = nil
             cont?.resume(throwing: WorkerError.loadFailed("Code JSON serialisation failed"))
             return
         }
+        // Strip leading "[" and trailing "]" to get the quoted string literal
+        let codeJSON = String(codeArray.dropFirst().dropLast())
 
         webView.evaluateJavaScript("window.__loadExtension(\(codeJSON));") { [weak self] _, err in
             if let err = err {
