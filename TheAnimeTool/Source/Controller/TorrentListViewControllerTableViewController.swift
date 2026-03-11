@@ -197,17 +197,17 @@ class TorrentListViewController: UIViewController {
     private func setupNotifications() {
         NotificationCenter.default.addObserver(self,
             selector: #selector(handleDidUpdate),
-            name: NSNotification.Name(TorrentService.LocalTorrentsDidUpdateNotification), object: nil)
+            name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
     private func startSearch() {
-        loadingIndicator.startAnimating()
-        emptyLabel.isHidden = true
-        let name = animeTitleOverride ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? ""
-        TorrentService.sharedTorrentService.UpdateTempTorrentsWith(
-            TorrentService.UtilMakeShortSearchString(name), sortBy: .Seeders)
+        // Torrent list search is now handled by ExtensionSearchViewController.
+        // This VC is kept for storyboard compatibility only; show empty state immediately.
+        loadingIndicator.stopAnimating()
+        emptyLabel.isHidden = false
+        emptyLabel.text = "Use Extensions to search for torrents"
     }
 
     private func performFetch() {
