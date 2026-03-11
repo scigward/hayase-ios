@@ -1,12 +1,13 @@
 // ExtensionWorker.swift
 // Runs one Hayase extension's JavaScript in an isolated WKWebView sandbox.
 // Mirrors the role of worker.ts + ExtensionWorker in scigward/interface but uses
-// WKWebView instead of Web Workers (iOS does not expose Web Workers to Swift code).
+// WKWebView instead of Web Workers (not available to Swift code on iOS).
 //
-// Loading approach mirrors Hayase's worker.ts load():
-//   URL.createObjectURL(new Blob([code], {type:'application/javascript'})) + import(url)
-// This works because blob: URLs can load https:// sub-imports (esm.sh CORS: *),
-// while file:// pages cannot.
+// Loading approach:
+//   <script type="module"> in loadHTMLString with the direct esm.sh HTTPS URL.
+//   This is the most reliable method in WKWebView — static module imports in
+//   <script type="module"> are fully supported, and esm.sh sets CORS Allow-Origin: *.
+//   No blob URLs, no evaluateJavaScript code injection, no file:// pages.
 
 import Foundation
 import WebKit
@@ -24,7 +25,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
         var errorDescription: String? {
             switch self {
-            case .notLoaded:              return "Extension worker not loaded"
+            case .notLoaded:             return "Extension worker not loaded"
             case .loadFailed(let msg):   return "Extension load failed: \(msg)"
             case .callFailed(let msg):   return "Extension call failed: \(msg)"
             case .jsonSerialisation:     return "JSON serialisation error"
@@ -32,37 +33,12 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         }
     }
 
-    // MARK: - Shared host container
-
-    /// A transparent 1×1pt UIView added to the app's existing key window.
-    /// Extension WKWebViews need to be in the view hierarchy so WebKit considers
-    /// them active and fires navigation delegate callbacks.
-    ///
-    /// We deliberately do NOT create a new UIWindow (which would require makeKeyAndVisible()
-    /// and would steal keyboard focus from the real app windows — especially problematic in
-    /// LiveContainer environments).
-    private static var _hostContainer: UIView?
-    static var hostContainer: UIView {
-        if let existing = _hostContainer { return existing }
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        container.alpha = 0.001             // invisible but not hidden
-        container.isUserInteractionEnabled = false
-        _hostContainer = container
-        // Attach to the app's existing key window
-        let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow })
-                  ?? UIApplication.shared.windows.first
-        window?.addSubview(container)
-        return container
-    }
-
     // MARK: - Properties
 
     let id: String
     private var webView: WKWebView?
     private var readyContinuation: CheckedContinuation<Void, Error>?
-    /// Timeout work item that fires if the 'ready' message never arrives
     private var loadTimeoutWork: DispatchWorkItem?
-    /// Pending call completions keyed by callId UUID string
     private var pending: [String: (Result<Any, Error>) -> Void] = [:]
 
     // MARK: - Initialiser
@@ -74,25 +50,15 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     // MARK: - Load
 
-    // Pending code to inject after WKWebView finishes loading the bootstrap page.
-    // Stored here so webView(_:didFinish:) can access it without capture-list gymnastics.
-    private var pendingCode: String?
-
-    /// Load the extension code into an isolated WKWebView sandbox.
+    /// Load the extension from its esm.sh URL into an isolated WKWebView sandbox.
     ///
-    /// Mirrors Hayase's CodeManager._loadWorker / worker.ts load() exactly:
-    ///   1. Hayase worker.ts: URL.createObjectURL(new Blob([code], {type:'application/javascript'}))
-    ///                        then import(blobUrl) — dynamic import of a Blob module.
-    ///   2. We do the same inside a WKWebView instead of a Web Worker.
-    ///
-    /// WHY NOT <script type="module"> with file://baseURL (the old approach)?
-    ///   Extension code fetched from esm.sh contains bare https:// sub-import statements.
-    ///   A file:// page is not allowed to fetch https:// resources (cross-origin policy) —
-    ///   the import() fails silently, 'ready' is never posted, and the continuation hangs.
-    ///   A blob: URL CAN import https:// resources because esm.sh sets CORS Allow-Origin: *.
-    ///   This is exactly the same reason Hayase uses a Web Worker (blob: origin) not a
-    ///   <script type="module"> in a regular page.
-    func load(code: String) async throws {
+    /// Uses <script type="module"> with a direct import(url) of the extension's
+    /// HTTPS esm.sh URL. This is the most reliable approach in WKWebView:
+    ///   - Static/dynamic imports in module scripts work natively
+    ///   - esm.sh serves Access-Control-Allow-Origin: * so cross-origin imports work
+    ///   - No blob URLs (unreliable in WKWebView), no evaluateJavaScript injection
+    ///   - loadHTMLString works without the WKWebView being in the view hierarchy
+    func load(extensionURL: URL) async throws {
         let handler = BridgeMessageHandler(worker: self)
         let userContent = WKUserContentController()
         userContent.add(handler, name: "extBridge")
@@ -100,112 +66,105 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         let config = WKWebViewConfiguration()
         config.userContentController = userContent
 
-        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1),
-                           configuration: config)
+        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
         wv.navigationDelegate = self
         wv.isUserInteractionEnabled = false
-        // Attach to the shared host container so WebKit considers the view active.
-        // Must be in a live UIWindow view hierarchy or WebKit suspends JS execution.
-        ExtensionWorker.hostContainer.addSubview(wv)
         self.webView = wv
-        self.pendingCode = code
 
-        // Bootstrap page — defines window.__loadExtension(code).
-        // The actual extension code is injected via evaluateJavaScript after didFinish fires,
-        // with code serialised as a JSON string literal so all special characters are safe.
+        // Escape URL for safe embedding in JS string literal.
+        // esm.sh URLs are always clean HTTPS URLs, but be defensive.
+        let jsURL = extensionURL.absoluteString
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+
+        // Bootstrap HTML:
+        //   1. onerror + unhandledrejection → post 'error' to Swift (catches module load failures)
+        //   2. <script type="module"> does import(url) of the extension entry point
+        //   3. On success: sets window.__ext, window.__call, posts 'ready'
+        //   4. On failure: posts 'error'
         //
-        // __loadExtension mirrors Hayase worker.ts load():
-        //   const url = URL.createObjectURL(new Blob([code], {type:'application/javascript'}))
-        //   const module = await import(url)
-        //   URL.revokeObjectURL(url)
-        //   return module.default
-        let bootstrap = """
-        <!DOCTYPE html><html><head><script>
-        window.__loadExtension = async function(code) {
-          try {
-            const blob = new Blob([code], { type: 'application/javascript' });
-            const url = URL.createObjectURL(blob);
-            const mod = await import(url);
-            URL.revokeObjectURL(url);
+        // baseURL = https://esm.sh so the page has esm.sh origin → all esm.sh imports
+        // are same-origin. WKWebView supports <script type="module"> fully since iOS 14.
+        let html = """
+        <!DOCTYPE html><html><head>
+        <script>
+        window.onerror = function(msg, src, line, col, err) {
+            try { window.webkit.messageHandlers.extBridge.postMessage(
+                JSON.stringify({type:'error',error:msg||String(err)})); } catch(_){}
+            return true;
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+            try {
+                var reason = e.reason;
+                var msg = (reason && reason.message) ? reason.message : String(reason || 'Unknown error');
+                window.webkit.messageHandlers.extBridge.postMessage(
+                    JSON.stringify({type:'error',error:msg}));
+            } catch(_){}
+        });
+        </script>
+        <script type="module">
+        (function() {
+          import('\(jsURL)').then(function(mod) {
             window.__ext = mod.default;
             window.__call = async function(callId, method, query, options) {
               try {
-                var result = await window.__ext[method]({...query, fetch: fetch}, options);
+                var q = Object.assign({}, query, {fetch: window.fetch.bind(window)});
+                var result = await window.__ext[method](q, options);
                 window.webkit.messageHandlers.extBridge.postMessage(
                     JSON.stringify({callId: callId, result: result}));
               } catch(e) {
                 window.webkit.messageHandlers.extBridge.postMessage(
-                    JSON.stringify({callId: callId, error: String(e.message ?? e)}));
+                    JSON.stringify({callId: callId, error: (e && e.message) ? e.message : String(e)}));
               }
             };
+            window.webkit.messageHandlers.extBridge.postMessage(JSON.stringify({type:'ready'}));
+          }).catch(function(e) {
+            var msg = (e && e.message) ? e.message : String(e);
             window.webkit.messageHandlers.extBridge.postMessage(
-                JSON.stringify({type: 'ready'}));
-          } catch(e) {
-            window.webkit.messageHandlers.extBridge.postMessage(
-                JSON.stringify({type: 'error', error: String(e.message ?? e)}));
-          }
-        };
-        </script></head><body></body></html>
+                JSON.stringify({type:'error',error:msg}));
+          });
+        })();
+        </script>
+        </head><body></body></html>
         """
 
         try await withCheckedThrowingContinuation { [weak self] (cont: CheckedContinuation<Void, Error>) in
             guard let self else { cont.resume(throwing: WorkerError.notLoaded); return }
             self.readyContinuation = cont
 
-            // 30s timeout — covers slow CDN on first-ever install
+            // 45s timeout — enough for slow CDN + first-ever module graph fetch
             let item = DispatchWorkItem { [weak self] in
                 guard let self, let c = self.readyContinuation else { return }
                 self.readyContinuation = nil
-                c.resume(throwing: WorkerError.loadFailed("Extension load timed out (30s). Check network."))
+                c.resume(throwing: WorkerError.loadFailed(
+                    "Extension load timed out (45s). Check your network connection."))
             }
             self.loadTimeoutWork = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: item)
 
-            // Load with esm.sh as baseURL so the page's origin is https://esm.sh.
-            // This is critical: blob: URLs created from this page get the form
-            // blob:https://esm.sh/{uuid} (not blob:null/{uuid} from about:blank).
-            // import('blob:https://esm.sh/...') from origin https://esm.sh is same-origin,
-            // and the blob module's https://esm.sh sub-imports are same-origin too.
-            // With baseURL:nil the page is null-origin and import() of blob:null/ is
-            // unreliable in WKWebView — exactly why workers were never set.
-            let baseURL = URL(string: "https://esm.sh")
-            self.webView?.loadHTMLString(bootstrap, baseURL: baseURL)
+            self.webView?.loadHTMLString(html, baseURL: URL(string: "https://esm.sh"))
         }
     }
 
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Page is ready. Inject extension code safely using JSON serialisation,
-        // which handles backticks, quotes, backslashes, Unicode, etc.
-        guard let code = pendingCode else { return }
-        pendingCode = nil
-
-        // Wrap code in an array so NSJSONSerialization (which requires a top-level
-        // Array or Dictionary) can produce a valid JSON string literal for the string.
-        // We then strip the surrounding brackets to get just the quoted string.
-        guard let codeData = try? JSONSerialization.data(withJSONObject: [code]),
-              let codeArray = String(data: codeData, encoding: .utf8),
-              codeArray.count > 2 else {
-            loadTimeoutWork?.cancel(); loadTimeoutWork = nil
-            let cont = readyContinuation; readyContinuation = nil
-            cont?.resume(throwing: WorkerError.loadFailed("Code JSON serialisation failed"))
-            return
-        }
-        // Strip leading "[" and trailing "]" to get the quoted string literal
-        let codeJSON = String(codeArray.dropFirst().dropLast())
-
-        webView.evaluateJavaScript("window.__loadExtension(\(codeJSON));") { [weak self] _, err in
-            if let err = err {
-                self?.loadTimeoutWork?.cancel(); self?.loadTimeoutWork = nil
-                let cont = self?.readyContinuation; self?.readyContinuation = nil
-                cont?.resume(throwing: WorkerError.loadFailed(err.localizedDescription))
-            }
-            // On success: wait for 'ready' or 'error' message via extBridge handler
-        }
+        // The <script type="module"> runs automatically as part of page load.
+        // 'ready' or 'error' arrives via the extBridge message handler.
+        // No code injection needed here.
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        loadTimeoutWork?.cancel()
+        loadTimeoutWork = nil
+        let cont = readyContinuation
+        readyContinuation = nil
+        cont?.resume(throwing: WorkerError.loadFailed(error.localizedDescription))
+    }
+
+    func webView(_ webView: WKWebView,
+                 didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) {
         loadTimeoutWork?.cancel()
         loadTimeoutWork = nil
         let cont = readyContinuation

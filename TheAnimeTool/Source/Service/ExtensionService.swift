@@ -155,13 +155,10 @@ final class ExtensionService {
     // MARK: - ConfigManager.delete (mirrors storage.ts delete())
 
     func delete(id: String) async {
-        await workers[id]?.destroy()
+        workers[id]?.destroy()
         workers.removeValue(forKey: id)
         configs.removeValue(forKey: id)
         options.removeValue(forKey: id)
-        // Remove cached JS file
-        let file = try? extensionsDirectory().appendingPathComponent("\(id).js")
-        if let file { try? FileManager.default.removeItem(at: file) }
     }
 
     // MARK: - ConfigManager.setEnabled / setOption
@@ -218,16 +215,16 @@ final class ExtensionService {
         await readyTask?.value
 
         // Lazy-load fallback: if workers is empty but enabled configs exist, the
-        // initial load() failed (e.g. WKWebView not yet in hierarchy at app launch).
-        // Try loading from disk cache now that the user is actively using the extension.
+        // initial load() may have failed before the WKWebView was ready.
+        // Try loading now that the user is actively using the extension.
         if workers.isEmpty {
             let enabledConfigs = configs.filter { id, c in
                 (options[id]?.enabled ?? false) && c.type == "torrent"
             }
             if !enabledConfigs.isEmpty {
-                for (id, _) in enabledConfigs {
-                    guard workers[id] == nil, let code = cachedCode(for: id) else { continue }
-                    await loadWorker(code: code, id: id)
+                for (id, config) in enabledConfigs {
+                    guard workers[id] == nil, let url = jsurl(config.code) else { continue }
+                    await loadWorker(url: url, id: id)
                 }
             }
         }
@@ -338,39 +335,42 @@ final class ExtensionService {
 
     // MARK: - Internal: CodeManager methods
 
-    /// mirrors CodeManager.initiate — loads cached code for all configured extensions
+    /// mirrors CodeManager.initiate — loads all configured extensions from their esm.sh URLs
     private func initiate(configs: [ExtensionConfig]) async {
         await withTaskGroup(of: Void.self) { group in
             for config in configs {
                 group.addTask { @MainActor in
-                    guard let code = self.cachedCode(for: config.id) else { return }
-                    await self.loadWorker(code: code, id: config.id)
+                    guard let url = jsurl(config.code) else {
+                        print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
+                        return
+                    }
+                    await self.loadWorker(url: url, id: config.id)
                 }
             }
         }
     }
 
-    /// mirrors CodeManager.downloadScripts — fetches JS code for new/updated extensions
+    /// mirrors CodeManager.downloadScripts — resolves the esm.sh URL and loads the worker
     @discardableResult
     private func downloadScripts(_ cfgs: [ExtensionConfig], update: Bool = false) async -> [String] {
         var invalid: [String] = []
         for config in cfgs {
             if workers[config.id] != nil && !update { continue }
-            guard let codeURL = jsurl(config.code),
-                  let (data, _) = try? await URLSession.shared.data(from: codeURL),
-                  let code = String(data: data, encoding: .utf8) else {
+            guard let url = jsurl(config.code) else {
+                print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
                 invalid.append(config.id)
                 continue
             }
-            // Cache the code
-            cacheCode(code, for: config.id)
-            await loadWorker(code: code, id: config.id)
+            await loadWorker(url: url, id: config.id)
+            if workers[config.id] == nil {
+                invalid.append(config.id)
+            }
         }
         return invalid
     }
 
     /// mirrors CodeManager._loadWorker — creates/replaces a WKWebView worker
-    private func loadWorker(code: String, id: String) async {
+    private func loadWorker(url: URL, id: String) async {
         // Destroy old worker first
         if let old = workers[id] {
             old.destroy()
@@ -378,7 +378,7 @@ final class ExtensionService {
         }
         let worker = ExtensionWorker(id: id)
         do {
-            try await worker.load(code: code)
+            try await worker.load(extensionURL: url)
             workers[id] = worker
             print("ExtensionService: loaded worker for \(id)")
         } catch {
@@ -415,25 +415,6 @@ final class ExtensionService {
     private func validateConfig(_ config: ExtensionConfig) -> Bool {
         !config.name.isEmpty && !config.version.isEmpty && !config.id.isEmpty &&
         !config.type.isEmpty && !config.accuracy.isEmpty && !config.code.isEmpty
-    }
-
-    // MARK: - Code cache (mirrors idb-keyval set/getMany)
-
-    private func extensionsDirectory() throws -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir  = base.appendingPathComponent("Extensions", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private func cacheCode(_ code: String, for id: String) {
-        guard let dir = try? extensionsDirectory() else { return }
-        try? code.write(to: dir.appendingPathComponent("\(id).js"), atomically: true, encoding: .utf8)
-    }
-
-    private func cachedCode(for id: String) -> String? {
-        guard let dir = try? extensionsDirectory() else { return nil }
-        return try? String(contentsOf: dir.appendingPathComponent("\(id).js"), encoding: .utf8)
     }
 }
 
