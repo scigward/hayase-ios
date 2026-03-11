@@ -172,6 +172,18 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         cont?.resume(throwing: WorkerError.loadFailed(error.localizedDescription))
     }
 
+    /// Called when the WebContent process crashes (OOM, JS engine fault, etc.).
+    /// Reject all pending continuations so call() / load() don't hang forever.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        loadTimeoutWork?.cancel()
+        loadTimeoutWork = nil
+        let cont = readyContinuation
+        readyContinuation = nil
+        cont?.resume(throwing: WorkerError.loadFailed("WebContent process terminated"))
+        pending.values.forEach { $0(.failure(WorkerError.callFailed("WebContent process terminated"))) }
+        pending.removeAll()
+    }
+
     // MARK: - Public API (mirror TorrentSource methods in types.d.ts)
 
     /// mirrors TorrentSource.single(query, options)
@@ -192,8 +204,10 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
     /// mirrors TorrentSource.test()
     func test() async throws -> Bool {
         let callId = UUID().uuidString
+        // 'void' prefix prevents iOS 16+ from awaiting the IIFE's returned Promise (same
+        // deadlock fix as call() above).
         let js = """
-        (async () => {
+        void (async () => {
             try {
                 var result = await window.__ext.test();
                 window.webkit.messageHandlers.extBridge.postMessage(
@@ -207,9 +221,9 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         let result: Any = try await withCheckedThrowingContinuation { cont in
             pending[callId] = { cont.resume(with: $0) }
             webView?.evaluateJavaScript(js) { [weak self] _, err in
-                if let err = err {
-                    self?.pending.removeValue(forKey: callId)
-                    cont.resume(throwing: err)
+                guard let self, let err else { return }
+                if let handler = self.pending.removeValue(forKey: callId) {
+                    handler(.failure(err))
                 }
             }
         }
@@ -247,14 +261,28 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         }
 
         let escapedId = callId.replacingOccurrences(of: "'", with: "\\'")
-        let js = "window.__call('\(escapedId)', '\(method)', \(queryJSON), \(optionsJSON));"
+        // IMPORTANT: prefix with 'void' so evaluateJavaScript sees 'undefined' (not a Promise).
+        // Since iOS 16, evaluateJavaScript awaits any returned Promise — which would deadlock:
+        // the Promise resolves by calling postMessage, but postMessage delivery needs the main
+        // thread that evaluateJavaScript is already blocking. 'void expr' → undefined → no await.
+        let js = "void window.__call('\(escapedId)', '\(method)', \(queryJSON), \(optionsJSON));"
 
         let raw: Any = try await withCheckedThrowingContinuation { cont in
             pending[callId] = { cont.resume(with: $0) }
+
+            // 30s safety timeout — if postMessage is never delivered, unblock the caller.
+            let timeoutWork = DispatchWorkItem { [weak self] in
+                guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
+                handler(.failure(WorkerError.callFailed("Extension call timed out (30s)")))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
+
             webView?.evaluateJavaScript(js) { [weak self] _, err in
-                if let err = err {
-                    self?.pending.removeValue(forKey: callId)
-                    cont.resume(throwing: err)
+                // Route errors through the pending handler so cont has a single owner.
+                guard let self, let err else { return }
+                timeoutWork.cancel()
+                if let handler = self.pending.removeValue(forKey: callId) {
+                    handler(.failure(err))
                 }
             }
         }
