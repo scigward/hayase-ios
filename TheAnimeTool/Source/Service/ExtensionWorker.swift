@@ -78,16 +78,101 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             .replacingOccurrences(of: "'", with: "\\'")
 
         // Bootstrap HTML:
-        //   1. onerror + unhandledrejection → post 'error' to Swift (catches module load failures)
-        //   2. <script type="module"> does import(url) of the extension entry point
-        //   3. On success: sets window.__ext, window.__call, posts 'ready'
-        //   4. On failure: posts 'error'
+        //   1. window.fetch proxy — routes ALL extension fetch() calls through Swift URLSession.
+        //      This is the iOS equivalent of Hayase's native.enableCORS() (Electron/Tauri bypass).
+        //      WKWebView enforces CORS: extension fetch() to torrent sites (nyaa.si etc.) is blocked
+        //      because those sites don't set Access-Control-Allow-Origin: *.
+        //      URLSession has NO CORS restrictions → requests succeed → results returned.
+        //   2. onerror + unhandledrejection → post 'error' to Swift (catches module load failures)
+        //   3. <script type="module"> does import(url) of the extension entry point
+        //   4. On success: sets window.__ext, window.__call, posts 'ready'
+        //   5. On failure: posts 'error'
         //
-        // baseURL = https://esm.sh so the page has esm.sh origin → all esm.sh imports
-        // are same-origin. WKWebView supports <script type="module"> fully since iOS 14.
+        // The fetch proxy must be in a plain <script> BEFORE the module script so it is
+        // already installed when the module executes and Hayase's worker.ts does:
+        //   const queryWithFetch = { ...query, fetch }   ← picks up our proxy
+        //
+        // baseURL = https://esm.sh so the page has esm.sh origin → all esm.sh module
+        // imports are same-origin. WKWebView supports <script type="module"> since iOS 14.
         let html = """
         <!DOCTYPE html><html><head>
         <script>
+        // ── Native fetch proxy ──────────────────────────────────────────────────────
+        // Intercepts window.fetch and routes through Swift URLSession (no CORS limit).
+        // Mirrors what Hayase's native.enableCORS() achieves in Electron/Tauri.
+        (function() {
+          var __pending = new Map();
+          var __seq = 0;
+
+          // Called by Swift after URLSession completes.
+          window.__fetchResolve = function(id, status, text) {
+            var p = __pending.get(id);
+            __pending.delete(id);
+            if (!p) return;
+            p.resolve({
+              ok: status >= 200 && status < 300,
+              status: status,
+              statusText: '',
+              url: '',
+              headers: { get: function() { return null; }, has: function() { return false; } },
+              text: function() { return Promise.resolve(text); },
+              json: function() {
+                return new Promise(function(res, rej) {
+                  try { res(JSON.parse(text)); } catch(e) { rej(e); }
+                });
+              },
+              arrayBuffer: function() {
+                var b = new Uint8Array(text.length);
+                for (var i = 0; i < text.length; i++) b[i] = text.charCodeAt(i) & 0xff;
+                return Promise.resolve(b.buffer);
+              },
+              blob: function() { return Promise.resolve(new Blob([text])); },
+              clone: function() { return this; }
+            });
+          };
+
+          // Called by Swift when URLSession fails.
+          window.__fetchReject = function(id, error) {
+            var p = __pending.get(id);
+            __pending.delete(id);
+            if (p) p.reject(new TypeError(String(error)));
+          };
+
+          // Override global fetch.
+          window.fetch = function(resource, init) {
+            var id = ++__seq;
+            var url = (typeof resource === 'string') ? resource
+                    : (resource && resource.url) ? resource.url : String(resource);
+            var method = (init && init.method) ? init.method
+                       : (resource && resource.method) ? resource.method : 'GET';
+            // Flatten headers to a plain object
+            var headers = {};
+            var h = (init && init.headers) || (resource && resource.headers);
+            if (h) {
+              if (typeof h.forEach === 'function') {
+                h.forEach(function(v, k) { headers[k] = v; });
+              } else if (typeof h === 'object') {
+                Object.assign(headers, h);
+              }
+            }
+            var body = null;
+            if (init && init.body != null) body = String(init.body);
+
+            return new Promise(function(resolve, reject) {
+              __pending.set(id, { resolve: resolve, reject: reject });
+              try {
+                window.webkit.messageHandlers.extBridge.postMessage(
+                  JSON.stringify({ type: 'fetch', fetchId: id, url: url,
+                                   method: method, headers: headers, body: body }));
+              } catch(e) {
+                __pending.delete(id);
+                reject(new TypeError('Fetch proxy unavailable: ' + String(e)));
+              }
+            });
+          };
+        })();
+        // ── End fetch proxy ─────────────────────────────────────────────────────────
+
         window.onerror = function(msg, src, line, col, err) {
             try { window.webkit.messageHandlers.extBridge.postMessage(
                 JSON.stringify({type:'error',error:msg||String(err)})); } catch(_){}
@@ -108,6 +193,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             window.__ext = mod.default;
             window.__call = async function(callId, method, query, options) {
               try {
+                // Pass window.fetch (our proxy) as query.fetch, matching Hayase worker.ts:
+                //   const queryWithFetch = { ...query, fetch }
                 var q = Object.assign({}, query, {fetch: window.fetch.bind(window)});
                 var result = await window.__ext[method](q, options);
                 window.webkit.messageHandlers.extBridge.postMessage(
@@ -318,6 +405,63 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             readyContinuation = nil
             let errMsg = (dict["error"] as? String) ?? "Extension module failed to load"
             cont?.resume(throwing: WorkerError.loadFailed(errMsg))
+            return
+        }
+
+        // 'fetch' — extension called window.fetch(); proxy it through URLSession (no CORS).
+        // This is the iOS equivalent of Hayase's native.enableCORS() Electron/Tauri bypass.
+        if msgType == "fetch" {
+            guard let fetchId = dict["fetchId"] as? Int,
+                  let urlStr  = dict["url"] as? String,
+                  let url     = URL(string: urlStr) else { return }
+            let method  = (dict["method"] as? String) ?? "GET"
+            let headers = (dict["headers"] as? [String: String]) ?? [:]
+            let bodyStr =  dict["body"]   as? String
+            let wv = webView                          // capture before Task
+            Task {
+                do {
+                    var req = URLRequest(url: url, timeoutInterval: 30)
+                    req.httpMethod = method
+                    for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+                    // Send a browser-like UA so torrent sites don't reject the request
+                    if req.value(forHTTPHeaderField: "User-Agent") == nil {
+                        req.setValue(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                            "Chrome/120.0.0.0 Safari/537.36",
+                            forHTTPHeaderField: "User-Agent")
+                    }
+                    if let b = bodyStr, !b.isEmpty {
+                        req.httpBody = b.data(using: .utf8)
+                    }
+                    let (data, resp) = try await URLSession.shared.data(for: req)
+                    let status = (resp as? HTTPURLResponse)?.statusCode ?? 200
+                    // Decode as UTF-8; fall back to Latin-1 (handles some RSS feeds)
+                    let text = String(data: data, encoding: .utf8)
+                           ?? String(data: data, encoding: .isoLatin1) ?? ""
+                    // JSON-encode response text so all special chars are safely escaped.
+                    // [text] → ["...escaped..."] → strip [ and ] → "...escaped..."
+                    guard let td  = try? JSONSerialization.data(withJSONObject: [text]),
+                          let raw = String(data: td, encoding: .utf8) else {
+                        wv?.evaluateJavaScript(
+                            "window.__fetchReject(\(fetchId),'Serialization failed');",
+                            completionHandler: nil)
+                        return
+                    }
+                    let textJSON = String(raw.dropFirst().dropLast()) // strip [ ]
+                    wv?.evaluateJavaScript(
+                        "window.__fetchResolve(\(fetchId),\(status),\(textJSON));",
+                        completionHandler: nil)
+                } catch {
+                    // Escape single quotes so the error message is safe in JS
+                    let msg = error.localizedDescription
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                    wv?.evaluateJavaScript(
+                        "window.__fetchReject(\(fetchId),'\(msg)');",
+                        completionHandler: nil)
+                }
+            }
             return
         }
 

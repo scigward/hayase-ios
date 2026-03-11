@@ -43,12 +43,13 @@ jobs:
       # Pre-resolve SPM dependencies separately with a timeout and retry.
       # This isolates the network-dependent step from the build step, and retries
       # if GitHub's CDN is slow (MPVKit pre-built binaries are ~500 MB).
+      # Note: macOS does not ship GNU 'timeout'; use Perl alarm() instead.
       - name: Resolve SPM dependencies (with retry)
         run: |
           RESOLVED=false
           for attempt in 1 2 3; do
             echo "=== Resolve attempt $attempt/3 ==="
-            if timeout 300 xcodebuild \
+            if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
                 -workspace TheAnimeTool.xcworkspace \
                 -scheme TheAnimeTool \
                 -resolvePackageDependencies \
