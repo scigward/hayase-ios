@@ -147,7 +147,6 @@ struct TorrentQuery {
         var titleDict: [String: Any] = [:]
         if let eng = item.titleEnglish { titleDict["english"] = eng }
         if let rom = item.titleRomaji  { titleDict["romaji"]  = rom }
-        if let nat = item.titleNative  { titleDict["native"]  = nat }
         titleDict["userPreferred"] = item.titleEnglish ?? item.titleRomaji ?? ""
 
         var mediaJSON: [String: Any] = [
@@ -160,7 +159,7 @@ struct TorrentQuery {
         if let ep = item.episodes { mediaJSON["episodes"] = ep }
 
         // Build titles list — mirrors Extensions.createTitles
-        let candidates = [item.titleEnglish, item.titleRomaji, item.titleNative]
+        let candidates = [item.titleEnglish, item.titleRomaji]
             .compactMap { $0 }.filter { $0.count > 3 }
         var seen = Set<String>()
         var titles: [String] = []

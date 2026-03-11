@@ -263,7 +263,7 @@ final class ExtensionSearchViewController: UIViewController {
         if let animeItem {
             let req = Animes.fetchRequest()
             req.predicate = NSPredicate(format: "animeAnilistId == %d", animeItem.id)
-            entity.animes = (try? context.fetch(req))?.first
+            entity.animes = (try? context.fetch(req))?.first as? Animes
         }
         try? context.save()
 
