@@ -1444,6 +1444,11 @@ class AnimeDetailViewController: UIViewController {
         // extends behind the transparent nav bar (no black gap), matching Hayase where
         // the banner-image div is `absolute top-0` behind the sidebar/browser chrome.
         tableView.contentInsetAdjustmentBehavior = .never
+        // With .never, iOS doesn't add tab-bar inset automatically.
+        // Set bottom inset = tab bar height so the last row isn't clipped.
+        let tabBarH = tabBarController?.tabBar.frame.height ?? 83
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
+        tableView.scrollIndicatorInsets = tableView.contentInset
         view.addSubview(tableView)
     }
 
@@ -1714,18 +1719,14 @@ class AnimeDetailViewController: UIViewController {
         themesLoading = true
         tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .none)
 
-        // Build URL using URLComponents so [brackets] are percent-encoded correctly.
-        // Hayase uses ky (fetch library) which encodes filter[external_id] → filter%5Bexternal_id%5D.
-        // URL(string:) with literal brackets may produce a valid NSURL on iOS but the
-        // server can silently ignore the unencoded filter params → same result for every anime.
+        // Build URL using percentEncodedQuery directly.
+        // Hayase uses ky (fetch) which encodes brackets (%5B/%5D) but NOT commas in include.
+        // Using queryItems encodes commas in "include" as %2C, which animethemes.moe does not
+        // parse correctly — causing it to return the same first-match anime for every request.
+        // Solution: set percentEncodedQuery directly so brackets are encoded (%5B/%5D) but
+        // commas in the include value remain literal (valid RFC 3986 query characters).
         var comps = URLComponents(string: "https://api.animethemes.moe/anime")!
-        comps.queryItems = [
-            URLQueryItem(name: "filter[external_id]", value: "\(id)"),
-            URLQueryItem(name: "filter[site]",        value: "AniList"),
-            URLQueryItem(name: "include",             value: "animethemes.song.artists,animethemes.animethemeentries.videos"),
-        ]
-        // percentEncodedQuery: URLComponents encodes brackets as %5B / %5D automatically
-        // via queryItems setter — exactly what the animethemes.moe API expects.
+        comps.percentEncodedQuery = "filter%5Bexternal_id%5D=\(id)&filter%5Bsite%5D=AniList&include=animethemes.song.artists,animethemes.animethemeentries.videos"
         guard let url = comps.url else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self, let data else { return }
@@ -1856,7 +1857,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
             guard !themesLoading, !themes.isEmpty else { return }
             let theme = themes[indexPath.row]
             if let urlStr = theme.entries.first?.videoURL, let url = URL(string: urlStr) {
-                present(SFSafariViewController(url: url), animated: true)
+                present(ThemePlayerViewController(videoURL: url), animated: true)
             }
         default: break
         }
