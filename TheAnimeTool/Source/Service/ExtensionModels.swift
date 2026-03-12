@@ -93,21 +93,26 @@ struct ExtensionOptions: Codable {
 struct TorrentResult {
     var title: String
     var link: String
-    var id: Int?
-    var seeders: Int
-    var leechers: Int
-    var downloads: Int
-    /// "high" | "medium" | "low"
-    var accuracy: String
     var hash: String
+    var id: Int? = nil
+    var seeders: Int = 0
+    var leechers: Int = 0
+    var downloads: Int = 0
+    /// "high" | "medium" | "low"
+    var accuracy: String = "low"
     /// size in bytes
-    var size: Int64
-    var date: Date?
+    var size: Int64 = 0
+    var date: Date? = nil
     /// "batch" | "best" | "alt"
-    var type: String?
+    var type: String? = nil
     /// Which extension(s) returned this result
     var extensionIds: Set<String> = []
+    // Swift synthesises a memberwise init since no init is declared in the body.
+    // Required fields: title, link, hash. All others have defaults.
+}
 
+extension TorrentResult {
+    /// Decode a result dictionary returned by an extension's single/batch/movie call.
     init?(from dict: [String: Any]) {
         guard let title = dict["title"] as? String else { return nil }
         let rawLink = (dict["link"] as? String) ?? ""
@@ -133,12 +138,12 @@ struct TorrentResult {
         self.title     = title
         self.link      = rawLink
         self.hash      = rawHash
-        self.seeders   = (dict["seeders"]   as? Int) ?? 0
-        self.leechers  = (dict["leechers"]  as? Int) ?? 0
-        self.downloads = (dict["downloads"] as? Int) ?? 0
-        self.accuracy  = (dict["accuracy"]  as? String) ?? "low"
-        self.size      = Int64((dict["size"] as? Double) ?? Double(dict["size"] as? Int ?? 0))
         self.id        = dict["id"] as? Int
+        self.seeders   = (dict["seeders"]   as? NSNumber)?.intValue ?? 0
+        self.leechers  = (dict["leechers"]  as? NSNumber)?.intValue ?? 0
+        self.downloads = (dict["downloads"] as? NSNumber)?.intValue ?? 0
+        self.accuracy  = (dict["accuracy"]  as? String) ?? "low"
+        self.size      = Int64((dict["size"] as? NSNumber)?.doubleValue ?? 0)
         self.type      = dict["type"] as? String
         if let dateStr = dict["date"] as? String {
             self.date = ISO8601DateFormatter().date(from: dateStr)

@@ -462,9 +462,9 @@ final class ExtensionSearchViewController: UIViewController {
         // Detect magnet link
         let text = filterText
         if text.lowercased().hasPrefix("magnet:") {
-            let magnetResult = TorrentResult(title: "Magnet Link", hash: text, link: text,
-                                     seeders: 0, leechers: 0, size: 0,
-                                     accuracy: "high", type: nil, extensionIds: [])
+            let magnetResult = TorrentResult(title: "Magnet Link", link: text, hash: text,
+                                             seeders: 0, leechers: 0, size: 0,
+                                             accuracy: "high")
             confirmDownload(magnetResult)
             return
         }
