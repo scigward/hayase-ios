@@ -8,11 +8,13 @@ import LibTorrent
 
 /// Manages torrent-based video streaming for a single file within a torrent.
 ///
-/// Follows the Hayase streaming model:
-/// - Sequential piece downloading from the file's beginning
-/// - Piece deadline management to prioritize pieces near playback position
-/// - Buffer tracking ahead of the current playback position
-/// - Aggressive initial buffering before playback begins
+/// Follows the Hayase streaming model — only downloads the data directly
+/// needed for playback, down to the minute:
+/// - Pure deadline-based piece management (no sequential download)
+/// - Small buffer window: a few seconds of critical pieces + minimal look-ahead
+/// - Stops requesting once the buffer is filled
+/// - Resets deadlines for pieces outside the active window to save bandwidth
+/// - Reduces strain on the peer swarm by requesting only what's needed
 final class TorrentStreamer {
 
     // MARK: - Notifications
@@ -21,23 +23,33 @@ final class TorrentStreamer {
 
     // MARK: - Configuration
 
-    /// Number of pieces to set with tight deadlines (critical buffer — needed immediately).
-    private let criticalPieceCount = 20
+    /// Target buffer in seconds of video. Once we have this many seconds
+    /// buffered ahead we stop requesting more pieces.
+    private let targetBufferSeconds: Double = 15.0
 
-    /// Number of pieces to set with relaxed deadlines (look-ahead buffer).
-    private let highPriorityPieceCount = 80
+    /// Number of critical pieces to request with tight deadlines (immediate need).
+    /// Kept small so we only fetch what's needed for the next few seconds.
+    private let criticalPieceCount = 8
+
+    /// Number of look-ahead pieces with relaxed deadlines. Together with the
+    /// critical pieces this covers roughly `targetBufferSeconds` of video.
+    private let lookAheadPieceCount = 12
 
     /// Deadline in milliseconds for the very first critical piece.
     private let criticalDeadlineBase: Int32 = 50
 
     /// Deadline step per piece in the critical range (ms).
-    private let criticalDeadlineStep: Int32 = 100
+    private let criticalDeadlineStep: Int32 = 150
 
-    /// Deadline in milliseconds for the first high-priority piece.
-    private let highPriorityDeadlineBase: Int32 = 5000
+    /// Deadline in milliseconds for the first look-ahead piece.
+    private let lookAheadDeadlineBase: Int32 = 3000
 
-    /// Deadline step per piece in the high-priority range (ms).
-    private let highPriorityDeadlineStep: Int32 = 500
+    /// Deadline step per piece in the look-ahead range (ms).
+    private let lookAheadDeadlineStep: Int32 = 500
+
+    /// Minimum piece distance before we re-evaluate deadlines. Prevents
+    /// excessive libtorrent calls when playback advances smoothly.
+    private let minPieceUpdateDistance = 3
 
     // MARK: - State
 
@@ -56,6 +68,11 @@ final class TorrentStreamer {
     /// The last piece index for which deadlines were set (avoids redundant work).
     private var lastDeadlinePiece: Int = -1
 
+    /// Range of pieces that currently have active deadlines, so we can
+    /// reset exactly those when the window moves.
+    private var activeWindowStart: Int = -1
+    private var activeWindowEnd: Int = -1
+
     /// Whether streaming has been set up.
     private(set) var isActive: Bool = false
 
@@ -68,13 +85,14 @@ final class TorrentStreamer {
 
     // MARK: - Setup
 
-    /// Enables sequential download, reads file piece boundaries, and
-    /// sets aggressive deadlines on the first pieces so playback can start quickly.
+    /// Reads file piece boundaries and sets aggressive deadlines on the
+    /// first pieces so playback can start quickly.
+    /// Sequential download is NOT used — we rely purely on piece deadlines
+    /// so libtorrent only fetches the narrow window we request.
     func start() {
         guard !isActive else { return }
         isActive = true
 
-        // Read piece range from the snapshot's file entry.
         torrentHandle.updateSnapshot()
         guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else {
             print("TorrentStreamer: file index \(fileIndex) not found in snapshot")
@@ -85,33 +103,46 @@ final class TorrentStreamer {
         endPiece = Int(entry.end_idx)
         totalFilePieces = Int(entry.num_pieces)
 
+        // Disable sequential download — deadline-based management is more
+        // bandwidth-efficient because it only fetches the narrow buffer window.
+        torrentHandle.setSequentialDownload(false)
+
         print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total)")
 
-        // Set deadlines on the first pieces for a fast startup.
-        setDeadlinesFrom(pieceIndex: beginPiece)
+        // Kick-start: request the first few pieces for fast playback start.
+        setDeadlinesFrom(pieceIndex: beginPiece, force: true)
     }
 
-    /// Stops streaming management.
+    /// Stops streaming management and resets all outstanding deadlines.
     func stop() {
         guard isActive else { return }
         isActive = false
+        resetActiveWindow()
         lastDeadlinePiece = -1
         print("TorrentStreamer: stopped")
     }
 
     // MARK: - Playback position update
 
-    /// Called by the player as playback progresses. `fraction` is 0.0–1.0 representing
-    /// the current playback position within the video duration.
-    func updatePlaybackPosition(fraction: Double) {
+    /// Called by the player as playback progresses. `fraction` is 0.0–1.0
+    /// representing the current playback position within the video duration.
+    func updatePlaybackPosition(fraction: Double, videoDuration: Double = 0) {
         guard isActive, totalFilePieces > 0 else { return }
 
         let clampedFraction = max(0, min(1, fraction))
         let currentPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
-        // Only update deadlines when the playback front has moved at least 5 pieces
-        // since the last update to avoid excessive libtorrent calls.
-        if lastDeadlinePiece >= 0 && abs(currentPiece - lastDeadlinePiece) < 5 {
+        // If we already have enough buffer ahead, skip requesting more.
+        if videoDuration > 0 {
+            let bufSec = bufferedSeconds(fromFraction: clampedFraction, videoDuration: videoDuration)
+            if bufSec >= targetBufferSeconds && lastDeadlinePiece >= 0 {
+                return
+            }
+        }
+
+        // Only update deadlines when the playback front has moved at least
+        // minPieceUpdateDistance pieces since the last update.
+        if lastDeadlinePiece >= 0 && abs(currentPiece - lastDeadlinePiece) < minPieceUpdateDistance {
             return
         }
 
@@ -125,15 +156,14 @@ final class TorrentStreamer {
         let clampedFraction = max(0, min(1, fraction))
         let targetPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
-        // Force-update deadlines regardless of distance from last update.
-        lastDeadlinePiece = -1
-        setDeadlinesFrom(pieceIndex: targetPiece)
+        // Force-update: reset the old window and request pieces around the seek target.
+        setDeadlinesFrom(pieceIndex: targetPiece, force: true)
     }
 
     // MARK: - Buffer metrics
 
     /// Returns the number of consecutive pieces that are downloaded starting from
-    /// the piece at `fraction` of the file. This represents how far ahead the buffer extends.
+    /// the piece at `fraction` of the file.
     func consecutiveBufferedPieces(fromFraction fraction: Double) -> Int {
         guard isActive, totalFilePieces > 0 else { return 0 }
 
@@ -156,7 +186,6 @@ final class TorrentStreamer {
     }
 
     /// Returns an estimated number of seconds of buffered video ahead of the current position.
-    /// Requires the video duration (from MPV) for an accurate estimate.
     func bufferedSeconds(fromFraction fraction: Double, videoDuration: Double) -> Double {
         guard totalFilePieces > 0, videoDuration > 0 else { return 0 }
         let pieces = consecutiveBufferedPieces(fromFraction: fraction)
@@ -175,14 +204,24 @@ final class TorrentStreamer {
 
     // MARK: - Private
 
-    /// Sets piece deadlines from `pieceIndex` onwards:
-    /// - Critical pieces (the next `criticalPieceCount`): tight deadlines
-    /// - High-priority pieces (next `highPriorityPieceCount`): relaxed deadlines
-    private func setDeadlinesFrom(pieceIndex: Int) {
+    /// Sets piece deadlines for a narrow window starting at `pieceIndex`:
+    /// - Critical pieces: tight deadlines for immediate playback need
+    /// - Look-ahead pieces: relaxed deadlines for short-term buffer
+    /// Pieces outside this window have their deadlines reset so libtorrent
+    /// does not waste bandwidth fetching data far from playback.
+    private func setDeadlinesFrom(pieceIndex: Int, force: Bool = false) {
         let start = max(pieceIndex, beginPiece)
+
+        if !force && start == lastDeadlinePiece { return }
         lastDeadlinePiece = start
 
-        // Critical buffer: pieces needed in the next ~10 seconds of playback.
+        // Reset deadlines for pieces that are no longer in the active window.
+        resetActiveWindow()
+
+        let totalWindow = criticalPieceCount + lookAheadPieceCount
+        let windowEnd = min(start + totalWindow - 1, endPiece)
+
+        // Critical buffer: pieces needed in the next few seconds of playback.
         for i in 0..<criticalPieceCount {
             let piece = start + i
             guard piece <= endPiece else { break }
@@ -190,12 +229,27 @@ final class TorrentStreamer {
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        // High-priority buffer: pieces needed in the next ~30–60 seconds.
-        for i in criticalPieceCount..<(criticalPieceCount + highPriorityPieceCount) {
+        // Look-ahead buffer: pieces needed in the near future.
+        for i in criticalPieceCount..<totalWindow {
             let piece = start + i
             guard piece <= endPiece else { break }
-            let deadline = highPriorityDeadlineBase + Int32(i - criticalPieceCount) * highPriorityDeadlineStep
+            let deadline = lookAheadDeadlineBase + Int32(i - criticalPieceCount) * lookAheadDeadlineStep
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
+
+        activeWindowStart = start
+        activeWindowEnd = windowEnd
+    }
+
+    /// Resets piece deadlines for the previous active window so libtorrent stops
+    /// prioritizing those pieces. This is critical for the Hayase approach:
+    /// pieces behind playback or beyond the buffer window should not consume bandwidth.
+    private func resetActiveWindow() {
+        guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
+        for piece in activeWindowStart...activeWindowEnd {
+            torrentHandle.resetPieceDeadline(piece)
+        }
+        activeWindowStart = -1
+        activeWindowEnd = -1
     }
 }

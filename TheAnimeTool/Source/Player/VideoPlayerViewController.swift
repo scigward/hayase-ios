@@ -304,9 +304,9 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Streaming setup
 
     /// Creates a TorrentStreamer for the active file if the torrent is still downloading.
-    /// The streamer enables sequential download and sets piece deadlines so that pieces
-    /// near the playback position are fetched first — enabling streaming playback before
-    /// the full file is downloaded.
+    /// The streamer uses deadline-based piece management (no sequential download) so that
+    /// only the narrow buffer window near the playback position is fetched — matching the
+    /// Hayase approach of downloading only what's directly needed for playback.
     private func setupStreamer() {
         // Stop any previous streamer
         streamer?.stop()
@@ -641,9 +641,10 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         updateTimeUI()
 
         // Feed playback position to the streamer so it can set piece deadlines
-        // ahead of the current position.
+        // ahead of the current position. Pass duration so the streamer can check
+        // whether the buffer is already sufficient and skip unnecessary requests.
         if duration > 0 {
-            streamer?.updatePlaybackPosition(fraction: position / duration)
+            streamer?.updatePlaybackPosition(fraction: position / duration, videoDuration: duration)
         }
         
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event)
