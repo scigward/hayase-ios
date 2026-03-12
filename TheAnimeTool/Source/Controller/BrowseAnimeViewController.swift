@@ -209,60 +209,32 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerTask = nil
         fanartTask?.cancel()
         fanartTask = nil
-        let urlStr = item.bannerURL ?? item.coverURL
-        guard let urlStr = urlStr, let url = URL(string: urlStr) else {
-            backgroundImageView.image = nil
-            return
-        }
-        if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-            backgroundImageView.image = cached
-            applyContentMode(for: cached)
-            // Still try to upgrade to Fanart (cached fast)
-            upgradeToBannerFanart(for: item)
-            return
-        }
-        let captured = urlStr
         let biv = backgroundImageView
-        bannerTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
-            guard let data = data, let image = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(image, forKey: captured as NSString)
-            DispatchQueue.main.async {
-                self?.applyContentMode(for: image)
-                UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
-                                  options: .transitionCrossDissolve,
-                                  animations: { biv?.image = image })
-                // After AniList banner, upgrade to TVDB Fanart if available
-                self?.upgradeToBannerFanart(for: item)
+        let bannerFallback = item.bannerURL ?? item.coverURL
+        // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
+        // fall back to AniList banner. Single image load = no visible flicker/swap.
+        AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
+            let urlStr = fanartURL ?? bannerFallback
+            guard let urlStr, let url = URL(string: urlStr) else {
+                DispatchQueue.main.async { biv?.image = nil }
+                return
             }
-        }
-        bannerTask?.resume()
-    }
-
-    /// Fetches the TVDB Fanart from ani.zip and replaces the banner if found.
-    /// Matches Hayase banner.svelte: episodesCached(id) → images.find('Fanart').url
-    private func upgradeToBannerFanart(for item: AnimeItem) {
-        let anilistID = item.id
-        let biv = backgroundImageView
-        AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self, weak biv] fanartURL in
-            guard let fanartURL, let url = URL(string: fanartURL) else { return }
-            // Check shared image cache first
-            if let cached = SharedImageCache.shared.object(forKey: fanartURL as NSString) {
+            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                 DispatchQueue.main.async {
                     self?.applyContentMode(for: cached)
-                    UIView.transition(with: biv ?? UIImageView(), duration: 0.4,
-                                      options: .transitionCrossDissolve,
-                                      animations: { biv?.image = cached })
+                    biv?.image = cached
                 }
                 return
             }
+            let captured = urlStr
             self?.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
-                guard let data, let img = UIImage(data: data) else { return }
-                SharedImageCache.shared.setObject(img, forKey: fanartURL as NSString)
+                guard let data, let image = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
-                    self?.applyContentMode(for: img)
-                    UIView.transition(with: biv ?? UIImageView(), duration: 0.4,
+                    self?.applyContentMode(for: image)
+                    UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
                                       options: .transitionCrossDissolve,
-                                      animations: { biv?.image = img })
+                                      animations: { biv?.image = image })
                 }
             }
             self?.fanartTask?.resume()

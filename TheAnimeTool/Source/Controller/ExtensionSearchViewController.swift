@@ -238,29 +238,30 @@ final class ExtensionSearchViewController: UIViewController {
         // Note: anime title shown in navigation bar via navigationItem.title
         // No overlay label needed on the banner image.
 
-        // Load banner image (AniList bannerImage → coverURL fallback), then upgrade to ani.zip Fanart
-        if let urlStr = animeItem?.bannerURL ?? animeItem?.coverURL,
-           let url = URL(string: urlStr) {
+        // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
+        // fall back to AniList banner. Single image load = no visible flicker/swap.
+        let bannerFallback = animeItem?.bannerURL ?? animeItem?.coverURL
+        if let anilistID = animeItem?.id {
+            AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
+                let urlStr = fanartURL ?? bannerFallback
+                guard let urlStr, let url = URL(string: urlStr) else { return }
+                if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                    DispatchQueue.main.async { self?.bannerImageView.image = cached }
+                    return
+                }
+                URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                    if let data, let img = UIImage(data: data) {
+                        SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
+                        DispatchQueue.main.async { self?.bannerImageView.image = img }
+                    }
+                }.resume()
+            }
+        } else if let urlStr = bannerFallback, let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 if let data, let img = UIImage(data: data) {
                     DispatchQueue.main.async { self?.bannerImageView.image = img }
                 }
             }.resume()
-        }
-        // After AniList banner loads, try ani.zip Fanart (same approach as AnimeDetailViewController)
-        if let anilistID = animeItem?.id {
-            AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
-                guard let fanartURL, let url = URL(string: fanartURL) else { return }
-                URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                    if let data, let img = UIImage(data: data) {
-                        DispatchQueue.main.async {
-                            UIView.transition(with: self?.bannerImageView ?? UIImageView(),
-                                              duration: 0.4, options: .transitionCrossDissolve,
-                                              animations: { self?.bannerImageView.image = img })
-                        }
-                    }
-                }.resume()
-            }
         }
 
         NSLayoutConstraint.activate([
