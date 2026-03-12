@@ -65,6 +65,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var currentIndex = 0
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
+    private var fanartTask: URLSessionDataTask?
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
     private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
@@ -206,6 +207,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private func loadBanner(for item: AnimeItem) {
         bannerTask?.cancel()
         bannerTask = nil
+        fanartTask?.cancel()
+        fanartTask = nil
         let urlStr = item.bannerURL ?? item.coverURL
         guard let urlStr = urlStr, let url = URL(string: urlStr) else {
             backgroundImageView.image = nil
@@ -214,6 +217,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
             backgroundImageView.image = cached
             applyContentMode(for: cached)
+            // Still try to upgrade to Fanart (cached fast)
+            upgradeToBannerFanart(for: item)
             return
         }
         let captured = urlStr
@@ -226,9 +231,42 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
                                   options: .transitionCrossDissolve,
                                   animations: { biv?.image = image })
+                // After AniList banner, upgrade to TVDB Fanart if available
+                self?.upgradeToBannerFanart(for: item)
             }
         }
         bannerTask?.resume()
+    }
+
+    /// Fetches the TVDB Fanart from ani.zip and replaces the banner if found.
+    /// Matches Hayase banner.svelte: episodesCached(id) → images.find('Fanart').url
+    private func upgradeToBannerFanart(for item: AnimeItem) {
+        let anilistID = item.id
+        let biv = backgroundImageView
+        AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self, weak biv] fanartURL in
+            guard let fanartURL, let url = URL(string: fanartURL) else { return }
+            // Check shared image cache first
+            if let cached = SharedImageCache.shared.object(forKey: fanartURL as NSString) {
+                DispatchQueue.main.async {
+                    self?.applyContentMode(for: cached)
+                    UIView.transition(with: biv ?? UIImageView(), duration: 0.4,
+                                      options: .transitionCrossDissolve,
+                                      animations: { biv?.image = cached })
+                }
+                return
+            }
+            self?.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
+                guard let data, let img = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(img, forKey: fanartURL as NSString)
+                DispatchQueue.main.async {
+                    self?.applyContentMode(for: img)
+                    UIView.transition(with: biv ?? UIImageView(), duration: 0.4,
+                                      options: .transitionCrossDissolve,
+                                      animations: { biv?.image = img })
+                }
+            }
+            self?.fanartTask?.resume()
+        }
     }
 
     /// Always use .scaleAspectFill — fills the cell without black bars.
@@ -314,6 +352,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         rotationTimer = nil
         bannerTask?.cancel()
         bannerTask = nil
+        fanartTask?.cancel()
+        fanartTask = nil
         items = []
         backgroundImageView.image = nil
     }

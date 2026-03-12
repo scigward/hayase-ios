@@ -1025,4 +1025,61 @@ public class AnimeService: NSObject {
             DispatchQueue.main.async { completion(staff, scores, statuses) }
         }.resume()
     }
+
+    // MARK: - ani.zip Fanart cache
+    // Shared across all screens that want to upgrade banners to TVDB Fanart images.
+    // Same approach as AnimeDetailViewController.fetchEpisodes() but exposed as a static utility.
+    private static var _fanartURLs:   [Int: String]  = [:]  // id → fanart URL (when found)
+    private static var _fanartFetched: Set<Int>       = []   // ids already fetched (hit or miss)
+    private static var _fanartCallbacks: [Int: [(String?) -> Void]] = [:]
+    private static let _fanartQueue = DispatchQueue(label: "com.nyais.fanartcache", attributes: .concurrent)
+
+    /// Fetches the TVDB Fanart URL for an AniList media ID from api.ani.zip.
+    /// Results are cached in-memory for the lifetime of the app session.
+    /// Multiple concurrent callers for the same ID are coalesced — only one network request is made.
+    /// Calls completion on the main queue with nil if no Fanart is available.
+    static func fetchFanartURL(anilistID: Int, completion: @escaping (String?) -> Void) {
+        _fanartQueue.async(flags: .barrier) {
+            // Cache hit
+            if _fanartFetched.contains(anilistID) {
+                let url = _fanartURLs[anilistID]  // String?
+                DispatchQueue.main.async { completion(url) }
+                return
+            }
+            // Already in-flight — queue callback
+            if _fanartCallbacks[anilistID] != nil {
+                _fanartCallbacks[anilistID]?.append(completion)
+                return
+            }
+            // First caller — start fetch
+            _fanartCallbacks[anilistID] = [completion]
+            var comps = URLComponents(string: "https://api.ani.zip/mappings")
+            comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
+            guard let url = comps?.url else {
+                _fanartQueue.async(flags: .barrier) {
+                    let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                    _fanartFetched.insert(anilistID)
+                    cbs.forEach { DispatchQueue.main.async { $0(nil) } }
+                }
+                return
+            }
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            URLSession.shared.dataTask(with: req) { data, _, _ in
+                var fanartURL: String? = nil
+                if let data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let images = json["images"] as? [[String: Any]] {
+                    fanartURL = images.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
+                               ?? images.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+                }
+                _fanartQueue.async(flags: .barrier) {
+                    let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                    _fanartFetched.insert(anilistID)
+                    if let fanartURL { _fanartURLs[anilistID] = fanartURL }
+                    cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
+                }
+            }.resume()
+        }
+    }
 }

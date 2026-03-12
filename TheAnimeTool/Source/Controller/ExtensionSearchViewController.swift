@@ -149,7 +149,6 @@ final class ExtensionSearchViewController: UIViewController {
     // Banner
     private var bannerImageView: UIImageView!
     private var bannerGradientLayer: CAGradientLayer!
-    private var animeTitleLabel: UILabel!
 
     // Controls
     private var filterField: UITextField!
@@ -171,7 +170,36 @@ final class ExtensionSearchViewController: UIViewController {
         currentEpisode = initialEpisode
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.title = nil
+        // Two-line navigation title: anime title (small, secondary) + "Torrent Search" (main)
+        // This is the iOS-standard workaround for showing the title without conflicting with the banner.
+        let titleView = UIView()
+        let animeNameLabel = UILabel()
+        animeNameLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
+        animeNameLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        animeNameLabel.textColor = UIColor.white.withAlphaComponent(0.65)
+        animeNameLabel.textAlignment = .center
+        animeNameLabel.numberOfLines = 1
+        animeNameLabel.lineBreakMode = .byTruncatingTail
+        animeNameLabel.translatesAutoresizingMaskIntoConstraints = false
+        let searchLabel = UILabel()
+        searchLabel.text = "Torrent Search"
+        searchLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        searchLabel.textColor = .white
+        searchLabel.textAlignment = .center
+        searchLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleView.addSubview(animeNameLabel)
+        titleView.addSubview(searchLabel)
+        NSLayoutConstraint.activate([
+            animeNameLabel.topAnchor.constraint(equalTo: titleView.topAnchor),
+            animeNameLabel.leadingAnchor.constraint(equalTo: titleView.leadingAnchor),
+            animeNameLabel.trailingAnchor.constraint(equalTo: titleView.trailingAnchor),
+            searchLabel.topAnchor.constraint(equalTo: animeNameLabel.bottomAnchor, constant: 1),
+            searchLabel.leadingAnchor.constraint(equalTo: titleView.leadingAnchor),
+            searchLabel.trailingAnchor.constraint(equalTo: titleView.trailingAnchor),
+            searchLabel.bottomAnchor.constraint(equalTo: titleView.bottomAnchor),
+        ])
+        titleView.frame = CGRect(x: 0, y: 0, width: 220, height: 36)
+        navigationItem.titleView = titleView
 
         setupHeader()
         setupTableView()
@@ -236,20 +264,10 @@ final class ExtensionSearchViewController: UIViewController {
 
         // Anime title — small single-line label at the bottom of the banner
         // Sits on the dark gradient zone → always readable. One line, truncated.
-        animeTitleLabel = UILabel()
-        animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
-        animeTitleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        animeTitleLabel.textColor = .white
-        animeTitleLabel.numberOfLines = 1
-        animeTitleLabel.lineBreakMode = .byTruncatingTail
-        animeTitleLabel.layer.shadowColor = UIColor.black.cgColor
-        animeTitleLabel.layer.shadowOpacity = 0.8
-        animeTitleLabel.layer.shadowRadius = 3
-        animeTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
-        animeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        bannerView.addSubview(animeTitleLabel)
+        // Note: anime title shown in navigation titleView (two-line: name + "Torrent Search")
+        // No overlay label needed on the banner image.
 
-        // Load banner image (AniList bannerImage → coverURL fallback)
+        // Load banner image (AniList bannerImage → coverURL fallback), then upgrade to ani.zip Fanart
         if let urlStr = animeItem?.bannerURL ?? animeItem?.coverURL,
            let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -257,6 +275,21 @@ final class ExtensionSearchViewController: UIViewController {
                     DispatchQueue.main.async { self?.bannerImageView.image = img }
                 }
             }.resume()
+        }
+        // After AniList banner loads, try ani.zip Fanart (same approach as AnimeDetailViewController)
+        if let anilistID = animeItem?.id {
+            AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
+                guard let fanartURL, let url = URL(string: fanartURL) else { return }
+                URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                    if let data, let img = UIImage(data: data) {
+                        DispatchQueue.main.async {
+                            UIView.transition(with: self?.bannerImageView ?? UIImageView(),
+                                              duration: 0.4, options: .transitionCrossDissolve,
+                                              animations: { self?.bannerImageView.image = img })
+                        }
+                    }
+                }.resume()
+            }
         }
 
         NSLayoutConstraint.activate([
@@ -271,11 +304,6 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
             bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
-
-            // Title label: pinned to bottom-left of banner (dark gradient area)
-            animeTitleLabel.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 16),
-            animeTitleLabel.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor, constant: -16),
-            animeTitleLabel.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor, constant: -10),
         ])
 
         // ── 2. CONTROLS VIEW — EXPLICIT height 156pt, pinned to bannerView.bottom ───
