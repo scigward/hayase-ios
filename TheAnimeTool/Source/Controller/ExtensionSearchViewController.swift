@@ -149,7 +149,6 @@ final class ExtensionSearchViewController: UIViewController {
     // Banner
     private var bannerImageView: UIImageView!
     private var bannerGradientLayer: CAGradientLayer!
-    private var animeTitleLabel: UILabel!
 
     // Controls
     private var filterField: UITextField!
@@ -244,16 +243,6 @@ final class ExtensionSearchViewController: UIViewController {
             }.resume()
         }
 
-        // Anime title — bottom-left of banner (mirrors Hayase text-2xl font-bold)
-        animeTitleLabel = UILabel()
-        animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Torrent Search"
-        animeTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
-        animeTitleLabel.textColor = .white
-        animeTitleLabel.numberOfLines = 1
-        animeTitleLabel.lineBreakMode = .byTruncatingTail
-        animeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        bannerView.addSubview(animeTitleLabel)
-
         NSLayoutConstraint.activate([
             // bannerView: from very top of screen (under transparent nav bar)
             bannerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -266,11 +255,6 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
             bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
-
-            // Title: 14pt above the bottom of the banner, 16pt insets
-            animeTitleLabel.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor, constant: -14),
-            animeTitleLabel.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 16),
-            animeTitleLabel.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor, constant: -16),
         ])
 
         // ── 2. CONTROLS VIEW — EXPLICIT height 156pt, pinned to bannerView.bottom ───
