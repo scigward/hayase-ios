@@ -14,6 +14,7 @@ import LibTorrent
 /// - Small buffer window: a few seconds of critical pieces + minimal look-ahead
 /// - Stops requesting once the buffer is filled
 /// - Resets deadlines for pieces outside the active window to save bandwidth
+/// - Requests tail pieces for MKV Cues/index (enables seeking + subtitles)
 /// - Reduces strain on the peer swarm by requesting only what's needed
 final class TorrentStreamer {
 
@@ -50,6 +51,27 @@ final class TorrentStreamer {
     /// Minimum piece distance before we re-evaluate deadlines. Prevents
     /// excessive libtorrent calls when playback advances smoothly.
     private let minPieceUpdateDistance = 3
+
+    // -- Seek-specific settings --
+
+    /// Number of critical pieces to request after a seek. Larger than normal
+    /// so MPV has enough data to resume playback at the new position quickly.
+    private let seekCriticalPieceCount = 16
+
+    /// Very tight deadline base for seek operations (ms). Pieces needed
+    /// immediately after a seek are requested with near-zero deadlines.
+    private let seekDeadlineBase: Int32 = 10
+
+    /// Deadline step per piece during seek (ms).
+    private let seekDeadlineStep: Int32 = 80
+
+    // -- Tail pieces for MKV index --
+
+    /// Number of pieces from the END of the file to request with tight deadlines.
+    /// MKV containers store Cues (seek index) and subtitle track index near the
+    /// end. Without these, MPV cannot seek properly and cannot discover subtitle
+    /// tracks until the file is fully downloaded.
+    private let tailPieceCount = 8
 
     // MARK: - State
 
@@ -109,6 +131,9 @@ final class TorrentStreamer {
 
         print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total)")
 
+        // Request tail pieces for MKV Cues/index — enables seeking and subtitles.
+        requestTailPieces()
+
         // Kick-start: request the first few pieces for fast playback start.
         setDeadlinesFrom(pieceIndex: beginPiece, force: true)
     }
@@ -149,15 +174,17 @@ final class TorrentStreamer {
         setDeadlinesFrom(pieceIndex: currentPiece)
     }
 
-    /// Called when the user seeks to a new position. Always forces a deadline update.
+    /// Called when the user seeks to a new position. Always forces a deadline
+    /// update with more aggressive deadlines than normal playback, so pieces
+    /// at the seek target arrive quickly.
     func seekTo(fraction: Double) {
         guard isActive, totalFilePieces > 0 else { return }
 
         let clampedFraction = max(0, min(1, fraction))
         let targetPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
-        // Force-update: reset the old window and request pieces around the seek target.
-        setDeadlinesFrom(pieceIndex: targetPiece, force: true)
+        // Force-update with aggressive seek deadlines and a larger window.
+        setDeadlinesFrom(pieceIndex: targetPiece, force: true, isSeek: true)
     }
 
     // MARK: - Buffer metrics
@@ -185,6 +212,13 @@ final class TorrentStreamer {
         return count
     }
 
+    /// Returns true if at least `minimumCount` consecutive pieces starting from
+    /// `fraction` of the file have been downloaded. Used to check whether MPV
+    /// can safely read data at a seek target.
+    func hasPiecesAt(fraction: Double, minimumCount: Int = 2) -> Bool {
+        return consecutiveBufferedPieces(fromFraction: fraction) >= minimumCount
+    }
+
     /// Returns an estimated number of seconds of buffered video ahead of the current position.
     func bufferedSeconds(fromFraction fraction: Double, videoDuration: Double) -> Double {
         guard totalFilePieces > 0, videoDuration > 0 else { return 0 }
@@ -204,12 +238,12 @@ final class TorrentStreamer {
 
     // MARK: - Private
 
-    /// Sets piece deadlines for a narrow window starting at `pieceIndex`:
-    /// - Critical pieces: tight deadlines for immediate playback need
-    /// - Look-ahead pieces: relaxed deadlines for short-term buffer
-    /// Pieces outside this window have their deadlines reset so libtorrent
+    /// Sets piece deadlines for a narrow window starting at `pieceIndex`.
+    /// - Normal playback: tight deadlines for critical pieces + relaxed look-ahead
+    /// - Seek mode: more aggressive deadlines and a larger critical window
+    /// Pieces outside the window have their deadlines reset so libtorrent
     /// does not waste bandwidth fetching data far from playback.
-    private func setDeadlinesFrom(pieceIndex: Int, force: Bool = false) {
+    private func setDeadlinesFrom(pieceIndex: Int, force: Bool = false, isSeek: Bool = false) {
         let start = max(pieceIndex, beginPiece)
 
         if !force && start == lastDeadlinePiece { return }
@@ -218,35 +252,61 @@ final class TorrentStreamer {
         // Reset deadlines for pieces that are no longer in the active window.
         resetActiveWindow()
 
-        let totalWindow = criticalPieceCount + lookAheadPieceCount
+        // Use larger window and tighter deadlines for seek operations.
+        let critCount = isSeek ? seekCriticalPieceCount : criticalPieceCount
+        let critBase  = isSeek ? seekDeadlineBase : criticalDeadlineBase
+        let critStep  = isSeek ? seekDeadlineStep : criticalDeadlineStep
+        let lookCount = lookAheadPieceCount
+
+        let totalWindow = critCount + lookCount
         let windowEnd = min(start + totalWindow - 1, endPiece)
 
-        // Critical buffer: pieces needed in the next few seconds of playback.
-        for i in 0..<criticalPieceCount {
+        // Critical buffer: pieces needed for immediate playback.
+        for i in 0..<critCount {
             let piece = start + i
             guard piece <= endPiece else { break }
-            let deadline = criticalDeadlineBase + Int32(i) * criticalDeadlineStep
+            let deadline = critBase + Int32(i) * critStep
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
         // Look-ahead buffer: pieces needed in the near future.
-        for i in criticalPieceCount..<totalWindow {
+        for i in critCount..<totalWindow {
             let piece = start + i
             guard piece <= endPiece else { break }
-            let deadline = lookAheadDeadlineBase + Int32(i - criticalPieceCount) * lookAheadDeadlineStep
+            let deadline = lookAheadDeadlineBase + Int32(i - critCount) * lookAheadDeadlineStep
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
         activeWindowStart = start
         activeWindowEnd = windowEnd
+
+        // Always keep tail pieces active (MKV Cues/index).
+        requestTailPieces()
+    }
+
+    /// Requests the last few pieces of the file with tight deadlines.
+    /// MKV containers store their Cues (seek index) and subtitle track index
+    /// near the end. Without these, MPV cannot seek to arbitrary positions
+    /// and cannot discover subtitle tracks until the entire file is downloaded.
+    private func requestTailPieces() {
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
+        for piece in tailStart...endPiece {
+            let offset = Int32(piece - tailStart)
+            let deadline = criticalDeadlineBase + offset * criticalDeadlineStep
+            torrentHandle.setPieceDeadline(piece, deadline: deadline)
+        }
     }
 
     /// Resets piece deadlines for the previous active window so libtorrent stops
     /// prioritizing those pieces. This is critical for the Hayase approach:
     /// pieces behind playback or beyond the buffer window should not consume bandwidth.
+    /// Tail pieces are NOT reset — they are always kept active for MKV index access.
     private func resetActiveWindow() {
         guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in activeWindowStart...activeWindowEnd {
+            // Don't reset tail pieces — they must stay active for MKV Cues/index.
+            if piece >= tailStart { continue }
             torrentHandle.resetPieceDeadline(piece)
         }
         activeWindowStart = -1

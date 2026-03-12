@@ -57,6 +57,7 @@ final class VideoPlayerViewController: UIViewController {
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
     private var statsTimer: Timer?
+    private var seekPollTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
 
     // MARK: - Lifecycle
@@ -82,6 +83,7 @@ final class VideoPlayerViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         statsTimer?.invalidate()
+        seekPollTimer?.invalidate()
         streamer?.stop()
         surface.stop()
     }
@@ -297,7 +299,17 @@ final class VideoPlayerViewController: UIViewController {
         guard let saved = WatchProgressService.shared.getProgress(videoPath: path),
               saved.isInProgress, saved.currentTime > 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.surface.mpv.seek(to: saved.currentTime)
+            guard let self = self else { return }
+            let fraction = self.duration > 0 ? saved.currentTime / self.duration : 0
+            // If streaming, set deadlines at the restore position and wait for pieces.
+            if fraction > 0 {
+                self.streamer?.seekTo(fraction: fraction)
+            }
+            if let s = self.streamer, s.isActive, fraction > 0 {
+                self.waitForPiecesAndSeek(fraction: fraction)
+            } else {
+                self.surface.mpv.seek(to: saved.currentTime)
+            }
         }
     }
 
@@ -497,16 +509,61 @@ final class VideoPlayerViewController: UIViewController {
 
     @objc private func seekEnded() {
         let seekFraction = Double(seekBar.value)
-        surface.mpv.seek(to: seekFraction * duration)
         isSeeking = false
-        // Notify the streamer so it can re-prioritize pieces around the new position.
+
+        // Set piece deadlines BEFORE sending the seek to MPV.
+        // This gives libtorrent a head start on fetching pieces at the
+        // new position so they're more likely to be on disk when MPV reads.
         streamer?.seekTo(fraction: seekFraction)
+
+        if let s = streamer, s.isActive {
+            // Streaming: wait for critical pieces at the seek target before
+            // telling MPV to seek, so it doesn't read undownloaded (zero) data.
+            waitForPiecesAndSeek(fraction: seekFraction)
+        } else {
+            // Fully downloaded or no streamer: seek immediately.
+            surface.mpv.seek(to: seekFraction * duration)
+        }
         scheduleHide()
     }
 
     @objc private func optionsTapped() {
         hideWork?.cancel()
         showOptionsSheet()
+    }
+
+    // MARK: - Seek buffering
+
+    /// Polls piece availability at `fraction` before sending the seek to MPV.
+    /// This prevents MPV from reading holes (zeros) in a partially-downloaded file,
+    /// which would cause a hang or black screen.
+    private func waitForPiecesAndSeek(fraction: Double) {
+        seekPollTimer?.invalidate()
+
+        guard let s = streamer, s.isActive else {
+            surface.mpv.seek(to: fraction * duration)
+            return
+        }
+
+        // If pieces are already available, seek immediately.
+        if s.hasPiecesAt(fraction: fraction, minimumCount: 2) {
+            surface.mpv.seek(to: fraction * duration)
+            return
+        }
+
+        // Poll every 200ms for up to 10 seconds, waiting for critical pieces.
+        var remaining = 50
+        seekPollTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            remaining -= 1
+
+            let ready = self.streamer?.hasPiecesAt(fraction: fraction, minimumCount: 2) ?? true
+            if ready || remaining <= 0 {
+                timer.invalidate()
+                self.seekPollTimer = nil
+                self.surface.mpv.seek(to: fraction * self.duration)
+            }
+        }
     }
 
     // MARK: - Options sheet
