@@ -868,9 +868,11 @@ private final class AnimeInfoHeaderView: UIView {
     private func setup() {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
-        // Banner gradient layer (dark edges → lighter center, like banner-image.svelte)
+        // Banner gradient: transparent top-30% → black/0.85 at bottom (mirrors Hayase mobile banner-gr-sm)
+        // Hayase: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // Approximated as linear top→bottom starting clear at 30% → black/85 at 100%
         bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
-        bannerGradientLayer.locations = [0.2, 1.0]
+        bannerGradientLayer.locations = [0.3, 1.0]
 
         // Badges scrollview
         badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1053,7 +1055,11 @@ private final class AnimeInfoHeaderView: UIView {
         // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
 
-        loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
+        // Banner image: use coverURL (portrait cover art) — mirrors Hayase mobile behavior.
+        // Hayase: `$: src = $breakpoints.md ? banner(media) : cover(media)`
+        // iOS is always mobile-width, so always show the portrait cover art.
+        // This is why Hayase shows a different, better-looking image than AniList's landscape banner.
+        loadImage(from: item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
 
@@ -1172,8 +1178,9 @@ class AnimeDetailViewController: UIViewController {
     private var activeSection: Section = .episodes
 
     // Matches Hayase tabs: bg-muted container (#27272a), active = bg-foreground (#fafafa) text-background (black)
+    // Tabs: Episodes | Relations | Threads | Themes  (exactly as Hayase +page.svelte)
     private lazy var segControl: UISegmentedControl = {
-        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Chars", "Staff", "Stats"])
+        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Threads", "Themes"])
         sc.selectedSegmentIndex = 0
         // Tabs.List bg: --muted = #27272a
         sc.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
@@ -1199,9 +1206,10 @@ class AnimeDetailViewController: UIViewController {
         return v
     }()
 
-    // Section indices
+    // Section indices — exactly mirrors Hayase +page.svelte tabs:
+    // Episodes | Relations | Threads | Themes  (NO Characters, Staff, Stats)
     private enum Section: Int, CaseIterable {
-        case episodes = 0, relations, characters, staff, stats
+        case episodes = 0, relations, threads, themes
     }
 
     // MARK: - Lifecycle
@@ -1217,7 +1225,6 @@ class AnimeDetailViewController: UIViewController {
         setupHeaderView()
         fetchEpisodes()
         fetchRelationsAndCharacters()
-        fetchStaffAndStats()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1253,9 +1260,6 @@ class AnimeDetailViewController: UIViewController {
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
-        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.charactersReuseID)
-        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.staffReuseID)
-        tableView.register(StatsCell.self, forCellReuseIdentifier: StatsCell.reuseID)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
@@ -1388,7 +1392,7 @@ class AnimeDetailViewController: UIViewController {
         episodeFetchTask?.resume()
     }
 
-    // MARK: - Fetch relations + characters (AniList detail query)
+    // MARK: - Fetch relations (AniList detail query)
 
     private func fetchRelationsAndCharacters() {
         let id: Int?
@@ -1396,37 +1400,11 @@ class AnimeDetailViewController: UIViewController {
         else { id = animeItem?.id }
         guard let anilistId = id else { return }
 
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, characters in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, _ in
             guard let self = self else { return }
             self.relations = relations
-            self.characters = characters
-            var sections = IndexSet()
-            if !relations.isEmpty { sections.insert(Section.relations.rawValue) }
-            if !characters.isEmpty { sections.insert(Section.characters.rawValue) }
-            if !sections.isEmpty {
-                self.tableView.reloadSections(sections, with: .fade)
-            }
-        }
-    }
-
-    // MARK: - Fetch staff + stats (anime/[id]/staff.svelte + anime/[id]/stats.svelte)
-
-    private func fetchStaffAndStats() {
-        let id: Int?
-        if let entity = animeEntity { id = entity.animeAnilistId?.intValue }
-        else { id = animeItem?.id }
-        guard let anilistId = id else { return }
-
-        AnimeService.sharedAnimeService.fetchStaffAndStats(id: anilistId) { [weak self] staffMembers, scores, statuses in
-            guard let self = self else { return }
-            self.staff = staffMembers
-            self.scoreDistribution = scores
-            self.statusDistribution = statuses
-            var sections = IndexSet()
-            if !staffMembers.isEmpty { sections.insert(Section.staff.rawValue) }
-            if !scores.isEmpty || !statuses.isEmpty { sections.insert(Section.stats.rawValue) }
-            if !sections.isEmpty {
-                self.tableView.reloadSections(sections, with: .fade)
+            if !relations.isEmpty {
+                self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
             }
         }
     }
@@ -1459,11 +1437,10 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
-        case .episodes:   return activeSection == .episodes  ? episodes.count : 0
-        case .relations:  return (activeSection == .relations  && !relations.isEmpty)  ? 1 : 0
-        case .characters: return (activeSection == .characters && !characters.isEmpty) ? 1 : 0
-        case .staff:      return (activeSection == .staff      && !staff.isEmpty)      ? 1 : 0
-        case .stats:      return (activeSection == .stats && (!scoreDistribution.isEmpty || !statusDistribution.isEmpty)) ? 1 : 0
+        case .episodes:  return activeSection == .episodes  ? episodes.count : 0
+        case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
+        case .threads:   return activeSection == .threads ? 1 : 0
+        case .themes:    return activeSection == .themes  ? 1 : 0
         case .none: return 0
         }
     }
@@ -1496,36 +1473,40 @@ extension AnimeDetailViewController: UITableViewDataSource {
             cell.collectionView.reloadData()
             return cell
 
-        case .characters:
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: HorizontalCardsCell.charactersReuseID,
-                for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
-            cell.collectionView.tag = 200
-            cell.collectionView.dataSource = self
-            cell.collectionView.delegate = self
-            cell.collectionView.register(CharacterCardCell.self,
-                                         forCellWithReuseIdentifier: CharacterCardCell.reuseID)
-            cell.collectionView.reloadData()
+        case .threads:
+            // Threads: AniList forum threads for this anime — shown as empty state for now
+            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+            cell.backgroundColor = .clear
+            cell.selectionStyle = .none
+            let label = UILabel()
+            label.text = "No threads yet."
+            label.textColor = UIColor(white: 0.5, alpha: 1)
+            label.font = .systemFont(ofSize: 15)
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            cell.contentView.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+            ])
             return cell
 
-        case .staff:
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: HorizontalCardsCell.staffReuseID,
-                for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
-            cell.collectionView.tag = 300
-            cell.collectionView.dataSource = self
-            cell.collectionView.delegate = self
-            cell.collectionView.register(StaffCardCell.self,
-                                         forCellWithReuseIdentifier: StaffCardCell.reuseID)
-            cell.collectionView.reloadData()
-            return cell
-
-        case .stats:
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: StatsCell.reuseID, for: indexPath) as? StatsCell else {
-                return UITableViewCell()
-            }
-            cell.configure(scores: scoreDistribution, statuses: statusDistribution)
+        case .themes:
+            // Themes: anime OPs/EDs from AnimeThemes — shown as empty state for now
+            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+            cell.backgroundColor = .clear
+            cell.selectionStyle = .none
+            let label = UILabel()
+            label.text = "No themes yet."
+            label.textColor = UIColor(white: 0.5, alpha: 1)
+            label.font = .systemFont(ofSize: 15)
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            cell.contentView.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+            ])
             return cell
 
         case .none:
@@ -1549,8 +1530,9 @@ extension AnimeDetailViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
-        case .relations, .characters, .staff: return 160
-        default: return UITableView.automaticDimension
+        case .relations:          return 160
+        case .threads, .themes:   return 120
+        default:                  return UITableView.automaticDimension
         }
     }
 

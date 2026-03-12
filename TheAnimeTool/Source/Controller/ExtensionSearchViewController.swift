@@ -213,14 +213,18 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(bannerImageView)
 
-        // Gradient: transparent at top → black/80 at bottom (mirrors bg-gradient-to-t from-black/80)
+        // Gradient: transparent (top 30%) → black/80 (bottom), mirrors:
+        // <div class='w-full h-[70%] bg-gradient-to-t from-black/80 to-transparent' />
+        // The gradient div covers the lower 70% (not full height), hence locations [0.3, 1.0]
         bannerGradientLayer = CAGradientLayer()
-        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
-        bannerGradientLayer.locations = [0.0, 1.0]
+        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.8).cgColor]
+        bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
-        // Load banner or cover image
-        let imageURLStr = animeItem?.bannerURL ?? animeItem?.coverURL
+        // Load cover image (portrait) — mirrors Hayase mobile: cover(media), NOT banner(media)
+        // On mobile Hayase uses `$: src = $breakpoints.md ? banner(media) : cover(media)`
+        // iOS is always mobile-width, so we always use coverURL (portrait cover art)
+        let imageURLStr = animeItem?.coverURL
         if let urlStr = imageURLStr, let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 if let data, let img = UIImage(data: data) {
