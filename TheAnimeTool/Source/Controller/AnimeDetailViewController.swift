@@ -1055,12 +1055,17 @@ private final class AnimeInfoHeaderView: UIView {
         // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
 
-        // Banner image: use coverURL (portrait cover art) — mirrors Hayase mobile behavior.
-        // Hayase: `$: src = $breakpoints.md ? banner(media) : cover(media)`
-        // iOS is always mobile-width, so always show the portrait cover art.
-        // This is why Hayase shows a different, better-looking image than AniList's landscape banner.
-        loadImage(from: item.coverURL, into: bannerImageView, task: &bannerImageTask)
+        // Banner image: AniList bannerImage → coverURL fallback.
+        // ani.zip Fanart (TVDB-sourced) is fetched asynchronously in fetchEpisodes()
+        // and applied via updateBanner(from:) — matching Hayase's banner.svelte desktop logic.
+        loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
+    }
+
+    /// Called after ani.zip episodes fetch if a Fanart/Poster image is found.
+    /// Matches Hayase banner.svelte: `metadata?.images?.find(i => i.coverType === 'Fanart')?.url`
+    func updateBanner(from urlString: String) {
+        loadImage(from: urlString, into: bannerImageView, task: &bannerImageTask)
     }
 
     // MARK: - Helpers
@@ -1177,17 +1182,18 @@ class AnimeDetailViewController: UIViewController {
     // Active tab for the segmented control (Episodes | Relations | Characters | Staff | Stats)
     private var activeSection: Section = .episodes
 
-    // Matches Hayase tabs: bg-muted container (#27272a), active = bg-foreground (#fafafa) text-background (black)
-    // Tabs: Episodes | Relations | Threads | Themes  (exactly as Hayase +page.svelte)
+    // Tabs.List: bg-muted (#27272a), inline-flex (centered, not full-width).
+    // Active tab: bg-custom (coverImage.color) + text-contrast. Inactive: muted-foreground.
     private lazy var segControl: UISegmentedControl = {
         let sc = UISegmentedControl(items: ["Episodes", "Relations", "Threads", "Themes"])
         sc.selectedSegmentIndex = 0
         // Tabs.List bg: --muted = #27272a
         sc.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        // Active segment: bg-foreground (#fafafa) text-background (dark)
+        // Default active: white (overridden per-anime in setupHeaderView when coverColor available)
         sc.selectedSegmentTintColor = UIColor(white: 0.98, alpha: 1)
         sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.649, alpha: 1)], for: .normal)
-        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.04, alpha: 1), .font: UIFont.systemFont(ofSize: 13, weight: .bold)], for: .selected)
+        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.04, alpha: 1),
+                                   .font: UIFont.systemFont(ofSize: 13, weight: .bold)], for: .selected)
         sc.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
         return sc
     }()
@@ -1197,11 +1203,15 @@ class AnimeDetailViewController: UIViewController {
         v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
         segControl.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(segControl)
+        // Hayase Tabs.List is `inline-flex` centered (not full-width).
+        // Use greaterThan/lessThan anchors so the control is only as wide as its content,
+        // centered horizontally, matching Hayase's `flex justify-center` wrapper.
         NSLayoutConstraint.activate([
             segControl.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
             segControl.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
-            segControl.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
-            segControl.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
+            segControl.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            segControl.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 16),
+            segControl.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16),
         ])
         return v
     }()
@@ -1275,6 +1285,14 @@ class AnimeDetailViewController: UIViewController {
         headerView = AnimeInfoHeaderView()
         if let item = animeItem {
             headerView.configure(with: item)
+            // Hayase +page.svelte: data-[state=active]:bg-custom data-[state=active]:text-contrast
+            // Apply coverImage.color as the active tab tint color (same as badge/button theming).
+            let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? UIColor(white: 0.98, alpha: 1)
+            let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
+            segControl.selectedSegmentTintColor = accent
+            segControl.setTitleTextAttributes([.foregroundColor: contrast,
+                                               .font: UIFont.systemFont(ofSize: 13, weight: .bold)],
+                                              for: .selected)
         } else {
             headerView.configure(with: animeEntity)
         }
@@ -1365,9 +1383,9 @@ class AnimeDetailViewController: UIViewController {
         episodeFetchTask?.cancel()
         episodeFetchTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let episodesDict = json["episodes"] as? [String: Any] else { return }
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
+            let episodesDict = json["episodes"] as? [String: Any] ?? [:]
             var parsed: [AniZipEpisode] = []
             for (key, val) in episodesDict {
                 guard let num = Int(key), num > 0,
@@ -1384,9 +1402,22 @@ class AnimeDetailViewController: UIViewController {
             }
             parsed.sort { $0.number < $1.number }
 
+            // Hayase banner.svelte (desktop): episodesCached(id) → images.find(Fanart)?.url
+            // If ani.zip provides a Fanart (TVDB-sourced landscape) or Poster image,
+            // use it as the banner instead of AniList's bannerImage.
+            var anizipBannerURL: String? = nil
+            if let imagesArray = json["images"] as? [[String: Any]] {
+                let fanart = imagesArray.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
+                let poster  = imagesArray.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+                anizipBannerURL = fanart ?? poster
+            }
+
             DispatchQueue.main.async { [weak self] in
                 self?.episodes = parsed
                 self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                if let bannerURL = anizipBannerURL {
+                    self?.headerView.updateBanner(from: bannerURL)
+                }
             }
         }
         episodeFetchTask?.resume()

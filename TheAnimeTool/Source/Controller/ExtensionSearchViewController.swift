@@ -221,10 +221,11 @@ final class ExtensionSearchViewController: UIViewController {
         bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
-        // Load cover image (portrait) — mirrors Hayase mobile: cover(media), NOT banner(media)
-        // On mobile Hayase uses `$: src = $breakpoints.md ? banner(media) : cover(media)`
-        // iOS is always mobile-width, so we always use coverURL (portrait cover art)
-        let imageURLStr = animeItem?.coverURL
+        // Banner: AniList bannerImage first → coverURL fallback.
+        // (Hayase SearchModal uses <Banner> which on mobile uses coverImage.extraLarge,
+        //  but since iOS 18+ layout may show the banner in a wide viewport at times,
+        //  prefer the landscape bannerImage when available for best visual.)
+        let imageURLStr = animeItem?.bannerURL ?? animeItem?.coverURL
         if let urlStr = imageURLStr, let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 if let data, let img = UIImage(data: data) {
