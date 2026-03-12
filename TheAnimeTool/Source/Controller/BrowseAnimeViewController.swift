@@ -216,13 +216,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             let urlStr = fanartURL ?? bannerFallback
             guard let urlStr, let url = URL(string: urlStr) else {
-                DispatchQueue.main.async { biv?.image = nil }
+                DispatchQueue.main.async { biv.image = nil }
                 return
             }
             if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                 DispatchQueue.main.async {
                     self?.applyContentMode(for: cached)
-                    biv?.image = cached
+                    biv.image = cached
                 }
                 return
             }
