@@ -43,6 +43,7 @@
 		DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */; };
 		DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */; };
 		DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */; };
+		THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */; };
 		DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */; };
 		DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */; };
 		DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */; };
@@ -205,6 +206,7 @@
 		DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
 		DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DownloadsViewController.swift; sourceTree = "<group>"; };
 		DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeDetailViewController.swift; sourceTree = "<group>"; };
+		THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ThreadDetailViewController.swift; sourceTree = "<group>"; };
 		DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
 		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
@@ -488,6 +490,7 @@
 				DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */,
 				DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */,
 				DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */,
+				THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */,
 				DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */,
 				DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */,
 				DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */,
@@ -787,6 +790,7 @@
 				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
 				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
 				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
+				THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */,
 				DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */,
 				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,
 				DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */,

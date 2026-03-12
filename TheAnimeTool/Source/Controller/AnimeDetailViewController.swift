@@ -1850,9 +1850,8 @@ extension AnimeDetailViewController: UITableViewDelegate {
         case .threads:
             guard !threadsLoading, !threads.isEmpty else { return }
             let thread = threads[indexPath.row]
-            if let url = URL(string: "https://anilist.co/forum/thread/\(thread.id)") {
-                present(SFSafariViewController(url: url), animated: true)
-            }
+            let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+            navigationController?.pushViewController(threadVC, animated: true)
         case .themes:
             guard !themesLoading, !themes.isEmpty else { return }
             let theme = themes[indexPath.row]
