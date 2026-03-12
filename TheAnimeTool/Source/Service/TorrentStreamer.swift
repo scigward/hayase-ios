@@ -17,7 +17,7 @@ final class TorrentStreamer {
 
     // MARK: - Notifications
 
-    static let BufferDidUpdateNotification = "TorrentStreamerBufferDidUpdateNotification"
+    static let bufferDidUpdate = Notification.Name("TorrentStreamerBufferDidUpdate")
 
     // MARK: - Configuration
 
@@ -74,9 +74,6 @@ final class TorrentStreamer {
         guard !isActive else { return }
         isActive = true
 
-        // Enable sequential piece picking so libtorrent fetches pieces in order.
-        torrentHandle.setSequentialDownload(true)
-
         // Read piece range from the snapshot's file entry.
         torrentHandle.updateSnapshot()
         guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else {
@@ -94,11 +91,10 @@ final class TorrentStreamer {
         setDeadlinesFrom(pieceIndex: beginPiece)
     }
 
-    /// Stops streaming management and disables sequential download.
+    /// Stops streaming management.
     func stop() {
         guard isActive else { return }
         isActive = false
-        torrentHandle.setSequentialDownload(false)
         lastDeadlinePiece = -1
         print("TorrentStreamer: stopped")
     }

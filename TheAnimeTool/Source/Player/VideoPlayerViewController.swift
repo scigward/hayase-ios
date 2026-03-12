@@ -349,7 +349,7 @@ final class VideoPlayerViewController: UIViewController {
         let speed = fmtSpeed(snap.downloadRate)
         // When streaming, show buffer seconds ahead of playback.
         if let s = streamer, s.isActive, duration > 0 {
-            let fraction = duration > 0 ? currentTime / duration : 0
+            let fraction = currentTime / duration
             let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
             statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", snap.progress * 100))"
         } else {
