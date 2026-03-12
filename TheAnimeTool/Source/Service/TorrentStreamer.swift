@@ -214,7 +214,9 @@ final class TorrentStreamer {
 
     /// Returns true if at least `minimumCount` consecutive pieces starting from
     /// `fraction` of the file have been downloaded. Used to check whether MPV
-    /// can safely read data at a seek target.
+    /// can safely read data at a seek target. Defaults to 2 pieces because MPV's
+    /// MKV demuxer typically needs at least one full cluster (which may span 2
+    /// pieces) to parse valid data and begin decoding at a seek position.
     func hasPiecesAt(fraction: Double, minimumCount: Int = 2) -> Bool {
         return consecutiveBufferedPieces(fromFraction: fraction) >= minimumCount
     }

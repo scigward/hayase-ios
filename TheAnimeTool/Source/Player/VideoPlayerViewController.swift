@@ -551,14 +551,17 @@ final class VideoPlayerViewController: UIViewController {
             return
         }
 
-        // Poll every 200ms for up to 10 seconds, waiting for critical pieces.
-        var remaining = 50
-        seekPollTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] timer in
+        // Poll for piece availability before sending the seek to MPV.
+        let pollInterval: TimeInterval = 0.2   // seconds between checks
+        let maxWait: TimeInterval = 10.0        // give up after this long
+        var remainingPolls = Int(maxWait / pollInterval)
+
+        seekPollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
-            remaining -= 1
+            remainingPolls -= 1
 
             let ready = self.streamer?.hasPiecesAt(fraction: fraction, minimumCount: 2) ?? true
-            if ready || remaining <= 0 {
+            if ready || remainingPolls <= 0 {
                 timer.invalidate()
                 self.seekPollTimer = nil
                 self.surface.mpv.seek(to: fraction * self.duration)
