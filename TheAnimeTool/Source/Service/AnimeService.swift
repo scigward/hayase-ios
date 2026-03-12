@@ -1059,7 +1059,7 @@ public class AnimeService: NSObject {
                 _fanartQueue.async(flags: .barrier) {
                     let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
                     _fanartFetched.insert(anilistID)
-                    cbs.forEach { DispatchQueue.main.async { $0(nil) } }
+                    cbs.forEach { cb in DispatchQueue.main.async { cb(nil) } }
                 }
                 return
             }
