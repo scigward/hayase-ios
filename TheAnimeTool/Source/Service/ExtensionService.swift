@@ -209,55 +209,78 @@ final class ExtensionService {
     // MARK: - Extensions.getResultsFromExtensions (mirrors extensions.ts)
 
     /// High-level entry point matching Hayase's Extensions.getResultsFromExtensions(media:episode:resolution:).
-    /// Fetches AniDB IDs from api.ani.zip (ALToAniDB + ALtoAniDBEpisode), builds the full
-    /// TorrentQuery, then delegates to search(query:).
+    /// Fetches AniDB IDs from api.ani.zip in a SINGLE request (anilist_id response includes
+    /// both mappings.anidb_id AND episodes[n].anidbEid), then delegates to search(query:).
     func search(for item: AnimeItem, episode: Int, resolution: String) async throws -> [TorrentResult] {
-        // Mirrors Hayase extensions.ts:
-        //   const aniDBID = await this.ALToAniDB(media.id)
-        //   const aniDBEpisodeID = await this.ALtoAniDBEpisode(aniDBID, episode)
-        async let anidbAid = ALToAniDB(anilistID: item.id)
-        let aid = await anidbAid
-        async let anidbEid = ALtoAniDBEpisode(anidbID: aid, episode: episode)
-        let eid = await anidbEid
+        let (aid, eid) = await fetchAniDBIDs(anilistID: item.id, episode: episode)
 
         var query = TorrentQuery.make(from: item, episode: episode, resolution: resolution)
         query.anidbAid = aid
         query.anidbEid = eid
-        query.absoluteEpisodeNumber = eid   // mirrors Hayase: absoluteEpisodeNumber = aniDBEpisodeID
+        query.absoluteEpisodeNumber = eid  // mirrors Hayase: absoluteEpisodeNumber = aniDBEpisodeID
 
         return try await search(query: query)
     }
 
-    /// Mirrors Extensions.ALToAniDB — fetches AniDB anime ID from api.ani.zip mappings.
-    private func ALToAniDB(anilistID: Int) async -> Int? {
-        guard let url = URL(string: "https://api.ani.zip/v1/mappings?anilist_id=\(anilistID)"),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let mappings = json["mappings"] as? [String: Any] else { return nil }
-        return mappings["anidb_id"] as? Int
-    }
-
-    /// Mirrors Extensions.ALtoAniDBEpisode — fetches AniDB episode ID from api.ani.zip episodes.
-    /// Matches: Object.values(episodes).find(e => e.episodeNumber === episode && e.seasonNumber === 1)
-    private func ALtoAniDBEpisode(anidbID: Int?, episode: Int) async -> Int? {
-        guard let aid = anidbID else { return nil }
-        // api.ani.zip /v1/mappings?anidb_id returns episodes keyed by string episode number
-        guard let url = URL(string: "https://api.ani.zip/v1/mappings?anidb_id=\(aid)"),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let episodes = json["episodes"] as? [String: Any] else { return nil }
-
-        // Find the episode with matching episodeNumber and seasonNumber == 1
-        for (_, epValue) in episodes {
-            guard let ep = epValue as? [String: Any],
-                  let epNum = ep["episodeNumber"] as? Int,
-                  epNum == episode else { continue }
-            // seasonNumber may be absent; treat absent as season 1
-            let seasonNum = ep["seasonNumber"] as? Int ?? 1
-            guard seasonNum == 1 else { continue }
-            return ep["anidbEid"] as? Int
+    /// Fetches anidbAid AND anidbEid in ONE api.ani.zip request.
+    ///
+    /// The `?anilist_id=X` response already contains both `mappings.anidb_id` and the
+    /// `episodes` dictionary (each entry has `anidbEid`). Mirrors the logic of Hayase's
+    /// ALToAniDB + ALtoAniDBEpisode but saves a network round-trip.
+    ///
+    /// Uses NSNumber for int extraction — JSONSerialization always boxes JSON numbers as
+    /// NSNumber, so `as? Int` on a Double-valued NSNumber returns nil on some platforms;
+    /// `(x as? NSNumber)?.intValue` is always correct.
+    private func fetchAniDBIDs(anilistID: Int, episode: Int) async -> (aid: Int?, eid: Int?) {
+        // 15-second timeout — fail fast so the caller can show an error instead of
+        // waiting 60 seconds for URLSession's default timeout.
+        guard let url = URL(string: "https://api.ani.zip/v1/mappings?anilist_id=\(anilistID)") else {
+            return (nil, nil)
         }
-        return nil
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse).map({ $0.statusCode == 200 }) != false,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            print("ExtensionService: api.ani.zip fetch failed for anilist_id=\(anilistID)")
+            return (nil, nil)
+        }
+
+        // --- anidbAid from mappings.anidb_id ---
+        let aid: Int?
+        if let mappings = json["mappings"] as? [String: Any] {
+            aid = (mappings["anidb_id"] as? NSNumber)?.intValue
+        } else {
+            aid = nil
+        }
+
+        // --- anidbEid from episodes[*].anidbEid where episodeNumber == episode ---
+        var eid: Int?
+        if let episodes = json["episodes"] as? [String: Any] {
+            // Prefer direct key lookup first (episodes keyed by episode number string)
+            if let epData = episodes[String(episode)] as? [String: Any] {
+                let seasonNum = (epData["seasonNumber"] as? NSNumber)?.intValue ?? 1
+                if seasonNum == 1 {
+                    eid = (epData["anidbEid"] as? NSNumber)?.intValue
+                }
+            }
+            // Fallback: scan all episodes (handles offset numbering)
+            if eid == nil {
+                for (_, epValue) in episodes {
+                    guard let ep = epValue as? [String: Any] else { continue }
+                    let epNum    = (ep["episodeNumber"] as? NSNumber)?.intValue ?? -1
+                    let seasonNum = (ep["seasonNumber"] as? NSNumber)?.intValue ?? 1
+                    guard epNum == episode, seasonNum == 1 else { continue }
+                    eid = (ep["anidbEid"] as? NSNumber)?.intValue
+                    break
+                }
+            }
+        }
+
+        print("ExtensionService: anilist_id=\(anilistID) → anidbAid=\(String(describing: aid)) anidbEid=\(String(describing: eid))")
+        return (aid, eid)
     }
 
     /// Search all enabled torrent extensions and deduplicate results.
