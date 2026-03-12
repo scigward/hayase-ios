@@ -37,6 +37,7 @@ struct AnimeItem {
     var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
     var favourites: Int? = nil           // AniList favourites count
+    var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
     var relations: [AnimeRelation] = []
     var characters: [AnimeCharacter] = []
 }
@@ -130,6 +131,7 @@ public class AnimeService: NSObject {
         struct CoverImage: Codable {
             let large: String?
             let medium: String?
+            let color: String?
         }
         struct NextAiringEpisode: Codable {
             let episode: Int?
@@ -149,7 +151,7 @@ public class AnimeService: NSObject {
         media(status: RELEASING, type: ANIME, sort: POPULARITY_DESC) {
           id
           title { english romaji }
-          coverImage { large medium }
+          coverImage { large medium color }
           bannerImage
           averageScore
           popularity
@@ -168,7 +170,7 @@ public class AnimeService: NSObject {
         media(search: $search, type: ANIME, sort: POPULARITY_DESC) {
           id
           title { english romaji }
-          coverImage { large medium }
+          coverImage { large medium color }
           bannerImage
           averageScore
           popularity
@@ -333,7 +335,7 @@ public class AnimeService: NSObject {
         media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear) {
           id
           title { english romaji }
-          coverImage { large medium }
+          coverImage { large medium color }
           bannerImage
           averageScore
           genres
@@ -403,7 +405,8 @@ public class AnimeService: NSObject {
                     startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
-                    favourites: media.favourites)
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
             }
             completion(items)
         }.resume()
@@ -417,7 +420,7 @@ public class AnimeService: NSObject {
         media(type: ANIME, id_in: $idIn) {
           id
           title { english romaji }
-          coverImage { large medium }
+          coverImage { large medium color }
           bannerImage
           averageScore
           genres
@@ -472,7 +475,8 @@ public class AnimeService: NSObject {
                     startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
-                    favourites: media.favourites)
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
             }
             let ordered = ids.compactMap { itemMap[$0] }
             DispatchQueue.main.async { completion(ordered) }
@@ -488,7 +492,7 @@ public class AnimeService: NSObject {
         media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort, seasonYear: $seasonYear, season: $season) {
           id
           title { english romaji }
-          coverImage { large medium }
+          coverImage { large medium color }
           bannerImage
           averageScore
           genres
@@ -560,7 +564,8 @@ public class AnimeService: NSObject {
                     startYear: media.startDate?.year,
                     format: media.format,
                     trailerYouTubeID: trailerID,
-                    favourites: media.favourites)
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
             }
             DispatchQueue.main.async { completion(items, hasNext) }
         }.resume()
@@ -611,7 +616,7 @@ public class AnimeService: NSObject {
             node {
               id
               title { english romaji }
-              coverImage { large }
+              coverImage { large color }
               averageScore
               episodes
               status
@@ -655,7 +660,7 @@ public class AnimeService: NSObject {
             let episodes: Int?
             let status: String?
             struct RelTitle: Codable { let english: String?; let romaji: String? }
-            struct RelCover: Codable { let large: String? }
+            struct RelCover: Codable { let large: String?; let color: String? }
         }
         struct CharacterConnection: Codable {
             let edges: [CharacterEdge]?
@@ -706,7 +711,8 @@ public class AnimeService: NSObject {
                     episodes: node.episodes,
                     bannerURL: nil,
                     genres: [],
-                    description: nil)
+                    description: nil,
+                    coverColor: node.coverImage?.color)
                 return AnimeRelation(relationType: type, media: relItem)
             }
 
@@ -745,7 +751,7 @@ public class AnimeService: NSObject {
             let episodes: Int?
             let status: String?
             struct AiringTitle: Codable { let english: String?; let romaji: String? }
-            struct AiringCover: Codable { let large: String? }
+            struct AiringCover: Codable { let large: String?; let color: String? }
         }
     }
 
@@ -758,7 +764,7 @@ public class AnimeService: NSObject {
           media {
             id
             title { english romaji }
-            coverImage { large }
+            coverImage { large color }
             averageScore
             episodes
             status
@@ -789,7 +795,7 @@ public class AnimeService: NSObject {
                     let episodes:     Int?
                     let status:       String?
                     struct PPTitle: Codable { let english: String?; let romaji: String? }
-                    struct PPCover:  Codable { let large:   String? }
+                    struct PPCover:  Codable { let large:   String?; let color: String? }
                 }
             }
         }
@@ -805,7 +811,7 @@ public class AnimeService: NSObject {
           media {
             id
             title { english romaji }
-            coverImage { large }
+            coverImage { large color }
             averageScore
             episodes
             status
@@ -868,7 +874,8 @@ public class AnimeService: NSObject {
                     episodes:     media.episodes,
                     bannerURL:    nil,
                     genres:       [],
-                    description:  nil)
+                    description:  nil,
+                    coverColor:   media.coverImage?.color)
                 return AiringScheduleEntry(
                     episode:  epNum,
                     airingAt: Date(timeIntervalSince1970: Double(atUnix)),
@@ -927,7 +934,8 @@ public class AnimeService: NSObject {
                     episodes: media.episodes,
                     bannerURL: nil,
                     genres: [],
-                    description: nil)
+                    description: nil,
+                    coverColor: media.coverImage?.color)
             }
             DispatchQueue.main.async { completion(items) }
         }.resume()

@@ -1024,12 +1024,22 @@ private final class AnimeInfoHeaderView: UIView {
         romajiLabel.text = (english != nil && romaji != nil && english != romaji) ? romaji : nil
         romajiLabel.isHidden = romajiLabel.text == nil
 
+        // Apply anime's cover colour to Watch Now button and badge pills
+        // Mirrors Hayase +layout.svelte: style:--custom={media.coverImage?.color ?? '#fff'}
+        // bg-custom text-contrast (luminance-based black/white text)
+        let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
+        let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
+        playButton.backgroundColor = accent
+        playButton.tintColor = contrast
+
         rebuildBadges(score:    item.score,
                       status:   item.status,
                       episodes: item.episodes,
                       nextEp:   nil,
                       format:   item.format,
-                      season:   nil)
+                      season:   nil,
+                      accent:   accent,
+                      contrastColor: contrast)
 
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for genre in item.genres.prefix(8) {
@@ -1050,20 +1060,22 @@ private final class AnimeInfoHeaderView: UIView {
     // MARK: - Helpers
 
     /// Builds the badges row matching Hayase's +layout.svelte badge pills.
-    /// Badges: duration/eps, format, status, season, score — all bg-primary/10, rounded, font-bold h-6
+    /// Badges: duration/eps, format, status, season, score — all bg-custom (accent), rounded, font-bold h-6
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
-                                nextEp: Int?, format: String?, season: String?) {
+                                nextEp: Int?, format: String?, season: String?,
+                                accent: UIColor = .white,
+                                contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         // duration/eps badge
         if let eps = episodes, eps > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps"))
+            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps", accent: accent, contrast: contrastColor))
         } else if let next = nextEp, next > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing"))
+            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing", accent: accent, contrast: contrastColor))
         }
         // format badge
         if let fmt = format {
             let display = fmt == "TV_SHORT" ? "TV Short" : fmt.replacingOccurrences(of: "_", with: " ").capitalized
-            badgesStack.addArrangedSubview(makeBadge(text: display))
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
         }
         // status badge
         if let st = status {
@@ -1074,22 +1086,23 @@ private final class AnimeInfoHeaderView: UIView {
             case "NOT_YET_RELEASED": display = "Upcoming"
             default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display))
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
         }
         // score badge
         if let sc = score, sc > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc)))
+            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc), accent: accent, contrast: contrastColor))
         }
     }
 
-    /// Badge pill: bg-primary/10 (white/10%) rounded px-3.5 font-bold h-6 text-white
-    private func makeBadge(text: String) -> UILabel {
+    /// Badge pill: bg-custom (accent colour, mirrors Hayase --custom) rounded px-3.5 font-bold h-6 text-contrast
+    private func makeBadge(text: String,
+                            accent: UIColor = .white,
+                            contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
         let l = UILabel()
         l.text = "  \(text)  "
         l.font = .systemFont(ofSize: 12, weight: .bold)
-        l.textColor = .white
-        // bg-primary/10 in dark: primary=#fafafa so white at 10% opacity
-        l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        l.textColor = contrast
+        l.backgroundColor = accent
         l.layer.cornerRadius = 4   // rounded
         l.clipsToBounds = true
         l.setContentHuggingPriority(.required, for: .horizontal)

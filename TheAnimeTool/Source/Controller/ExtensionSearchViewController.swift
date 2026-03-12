@@ -200,7 +200,11 @@ final class ExtensionSearchViewController: UIViewController {
         header.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(header)
 
-        // ── Banner image (mirrors <Banner class='opacity-40' />)
+        // ── Banner image (mirrors SearchModal.svelte: <Banner class='opacity-40' />)
+        // The banner is positioned ABSOLUTE at top-0, h=144pt (max-h-36), behind all content.
+        // Content starts at top+32pt (pt-8) and overlaps the banner — the gradient makes
+        // the lower banner area dark so overlapping text is readable. This matches exactly
+        // how Hayase's modal layout works: the absolute banner div does NOT take flow space.
         bannerImageView = UIImageView()
         bannerImageView.contentMode = .scaleAspectFill
         bannerImageView.clipsToBounds = true
@@ -209,10 +213,10 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(bannerImageView)
 
-        // Gradient: transparent at top → black at bottom (mirrors bg-gradient-to-t from-black/80)
+        // Gradient: transparent at top → black/80 at bottom (mirrors bg-gradient-to-t from-black/80)
         bannerGradientLayer = CAGradientLayer()
         bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
-        bannerGradientLayer.locations = [0.3, 1.0]
+        bannerGradientLayer.locations = [0.0, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         // Load banner or cover image
@@ -225,7 +229,14 @@ final class ExtensionSearchViewController: UIViewController {
             }.resume()
         }
 
-        // ── Anime title (mirrors <div class='text-2xl font-bold text-ellipsis text-nowrap'>{title(media)}</div>)
+        // ── Compute accent colour from AniList coverImage.color (mirrors --custom in Hayase)
+        // Hayase: style:--custom={media.coverImage?.color ?? '#fff'}
+        // bg-custom = background in the anime's dominant color; text-contrast = black or white
+        let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
+        let contrastColor = Self.luminanceContrastColor(for: accentColor)
+
+        // ── Anime title (mirrors <div class='text-2xl font-bold text-ellipsis text-nowrap'>)
+        // Positioned at top+32pt (pt-8), overlapping the banner's lower portion.
         animeTitleLabel = UILabel()
         animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Torrent Search"
         animeTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -324,41 +335,47 @@ final class ExtensionSearchViewController: UIViewController {
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(controlsRow)
 
-        // ── Auto Select button (mirrors <ProgressButton class='w-full font-bold bg-custom'>)
+        // ── Auto Select button (mirrors <ProgressButton class='w-full font-bold bg-custom text-contrast'>)
+        // bg-custom = anime's coverImage.color; text-contrast = black or white based on luminance
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
-        autoSelectButton.setTitleColor(UIColor(white: 0.05, alpha: 1), for: .normal)
+        autoSelectButton.setTitleColor(contrastColor, for: .normal)
         autoSelectButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
-        autoSelectButton.backgroundColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
+        autoSelectButton.backgroundColor = accentColor
         autoSelectButton.layer.cornerRadius = 8
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(autoSelectButton)
+
+        // Send banner to back so all content renders on top of it
+        header.sendSubviewToBack(bannerImageView)
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            // Banner: 144pt tall (max-h-36 = 144pt), full width
+            // Banner: absolute at top-0, h=144pt (max-h-36 = 9rem = 144pt)
+            // Sent to back above — content overlaps from top+32pt onward
             bannerImageView.topAnchor.constraint(equalTo: header.topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: header.trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: 144),
 
-            // Anime title — below banner, 16pt padding
-            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: 10),
+            // Content column starts at top+32pt (pt-8), overlapping the banner.
+            // The banner gradient fades to black/85 so text is readable.
+            animeTitleLabel.topAnchor.constraint(equalTo: header.topAnchor, constant: 32),
             animeTitleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             animeTitleLabel.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
 
-            // Filter field — below title
-            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 12),
+            // Filter field — space-y-4 = 16pt below title
+            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 16),
             filterField.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             filterField.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
 
-            // Episode + resolution controls row
-            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 10),
+            // Episode + resolution controls row — space-y-4 = 16pt below filter
+            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
             controlsRow.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             controlsRow.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             controlsRow.heightAnchor.constraint(equalToConstant: 34),
@@ -366,13 +383,36 @@ final class ExtensionSearchViewController: UIViewController {
             episodeField.widthAnchor.constraint(equalToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
-            // Auto Select button
-            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
+            // Auto Select button — space-y-4 = 16pt below controls
+            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
             autoSelectButton.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             autoSelectButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
-            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12),
+            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -16),
         ])
+    }
+
+    // MARK: - Colour helpers (mirror Hayase's colors() utility + text-contrast logic)
+
+    /// Parse a CSS hex colour string (#rrggbb or #rgb) → UIColor. Returns nil on failure.
+    static func uiColor(fromHex hex: String?) -> UIColor? {
+        guard var h = hex, h.hasPrefix("#") else { return nil }
+        h.removeFirst()
+        if h.count == 3 { h = h.map { "\($0)\($0)" }.joined() }
+        guard h.count == 6, let bigint = UInt64(h, radix: 16) else { return nil }
+        let r = CGFloat((bigint >> 16) & 0xff) / 255
+        let g = CGFloat((bigint >>  8) & 0xff) / 255
+        let b = CGFloat( bigint        & 0xff) / 255
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
+    }
+
+    /// Compute WCAG luminance and return black or white for best contrast.
+    /// Mirrors Hayase's text-contrast CSS class (luminance > 0.5 → dark text).
+    static func luminanceContrastColor(for color: UIColor) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return luminance > 0.5 ? UIColor(white: 0.07, alpha: 1) : .white
     }
 
     private func setupTableView() {
