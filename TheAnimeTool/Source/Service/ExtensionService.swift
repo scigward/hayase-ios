@@ -234,7 +234,10 @@ final class ExtensionService {
     private func fetchAniDBIDs(anilistID: Int, episode: Int) async -> (aid: Int?, eid: Int?) {
         // 15-second timeout — fail fast so the caller can show an error instead of
         // waiting 60 seconds for URLSession's default timeout.
-        guard let url = URL(string: "https://api.ani.zip/v1/mappings?anilist_id=\(anilistID)") else {
+        // Hayase calls episodes(media.id) → /v1/episodes?anilist_id=X (NOT /mappings).
+        // The episodes endpoint returns { mappings: { anidb_id }, episodes: { "1": { anidbEid } } }.
+        // The mappings endpoint returns a flat object with NO episodes key → eid always nil.
+        guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(anilistID)") else {
             return (nil, nil)
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
