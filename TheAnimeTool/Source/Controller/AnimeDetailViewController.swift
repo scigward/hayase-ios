@@ -1553,14 +1553,10 @@ class AnimeDetailViewController: UIViewController {
                 let ratingRaw = info["rating"]
                 let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
                     ?? (ratingRaw as? String).flatMap(Double.init)
-                // Filler: ani.zip returns "filler" as Bool or NSNumber (0/1)
-                let isFiller: Bool
-                if let b = info["filler"] as? Bool { isFiller = b }
-                else if let n = info["filler"] as? NSNumber { isFiller = n.boolValue }
-                else { isFiller = false }
+                // isFiller is set after fetching ThaUnknown/filler-scrape/master/filler.json
                 parsed.append(AniZipEpisode(number: num, title: title, overview: overview,
                                             imageURL: imageURL, airDate: airDate, runtime: runtime,
-                                            rating: rating, isFiller: isFiller))
+                                            rating: rating, isFiller: false))
             }
             parsed.sort { $0.number < $1.number }
 
@@ -1574,15 +1570,69 @@ class AnimeDetailViewController: UIViewController {
                 anizipBannerURL = fanart ?? poster
             }
 
-            DispatchQueue.main.async { [weak self] in
-                self?.episodes = parsed
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
-                if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+            // Fetch filler data from ThaUnknown/filler-scrape (exact Hayase match):
+            // extensions.ts: fetch('https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json')
+            //                filler: !!fillerEpisodes[media.id]?.includes(episode)
+            AnimeDetailViewController.loadFillerSet(for: id) { fillerSet in
+                let finalEpisodes = parsed.map { ep in
+                    AniZipEpisode(number: ep.number, title: ep.title, overview: ep.overview,
+                                  imageURL: ep.imageURL, airDate: ep.airDate, runtime: ep.runtime,
+                                  rating: ep.rating, isFiller: fillerSet.contains(ep.number))
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.episodes = finalEpisodes
+                    self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                    if let bannerURL = anizipBannerURL {
+                        self?.headerView.updateBanner(from: bannerURL)
+                    }
                 }
             }
         }
         episodeFetchTask?.resume()
+    }
+
+    // MARK: - Filler cache (ThaUnknown/filler-scrape)
+    // Mirrors Hayase extensions.ts:
+    //   fetch('https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json')
+    //   fillerEpisodes[media.id]?.includes(episode)
+    // The JSON is { "anilistId": [fillerEpNumber, ...] }
+
+    private static var _fillerMap: [Int: Set<Int>] = [:]
+    private static var _fillerMapLoaded = false
+    private static var _fillerMapCallbacks: [([Int: Set<Int>]) -> Void] = []
+    private static let _fillerQueue = DispatchQueue(label: "com.nyais.fillerCache")
+
+    private static func loadFillerSet(for anilistId: Int, completion: @escaping (Set<Int>) -> Void) {
+        _fillerQueue.async {
+            if _fillerMapLoaded {
+                let set = _fillerMap[anilistId] ?? []
+                completion(set)
+                return
+            }
+            let isFirst = _fillerMapCallbacks.isEmpty
+            _fillerMapCallbacks.append { map in completion(map[anilistId] ?? []) }
+            guard isFirst else { return }
+
+            let url = URL(string: "https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json")!
+            URLSession.shared.dataTask(with: url) { data, _, _ in
+                var map: [Int: Set<Int>] = [:]
+                if let data = data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    for (key, val) in json {
+                        if let aid = Int(key), let raw = val as? [Any] {
+                            map[aid] = Set(raw.compactMap { ($0 as? NSNumber)?.intValue })
+                        }
+                    }
+                }
+                _fillerQueue.async {
+                    let callbacks = _fillerMapCallbacks
+                    _fillerMap = map
+                    _fillerMapLoaded = true
+                    _fillerMapCallbacks = []
+                    for cb in callbacks { cb(map) }
+                }
+            }.resume()
+        }
     }
 
     // MARK: - Fetch relations (AniList detail query)

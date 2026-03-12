@@ -200,25 +200,20 @@ final class ExtensionSearchViewController: UIViewController {
         header.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(header)
 
-        // ── Banner image (mirrors SearchModal.svelte: <Banner class='opacity-40' />)
-        // The banner is positioned ABSOLUTE at top-0, h=144pt (max-h-36), behind all content.
-        // Content starts at top+32pt (pt-8) and overlaps the banner — the gradient makes
-        // the lower banner area dark so overlapping text is readable. This matches exactly
-        // how Hayase's modal layout works: the absolute banner div does NOT take flow space.
+        // ── Banner image — same method as AnimeInfoHeaderView:
+        // Full opacity, CAGradientLayer on the banner fades clear→black/0.9 top→bottom.
+        // Content overlaps the banner from below (like detail page contentStack -30pt overlap).
         bannerImageView = UIImageView()
         bannerImageView.contentMode = .scaleAspectFill
         bannerImageView.clipsToBounds = true
-        bannerImageView.alpha = 0.4 // matches opacity-40
         bannerImageView.backgroundColor = UIColor(white: 0.08, alpha: 1)
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(bannerImageView)
 
-        // Gradient: transparent (top 30%) → black/80 (bottom), mirrors:
-        // <div class='w-full h-[70%] bg-gradient-to-t from-black/80 to-transparent' />
-        // The gradient div covers the lower 70% (not full height), hence locations [0.3, 1.0]
+        // Gradient: clear at top → black/0.9 at bottom (matches AnimeInfoHeaderView approach)
         bannerGradientLayer = CAGradientLayer()
-        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.8).cgColor]
-        bannerGradientLayer.locations = [0.3, 1.0]
+        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.9).cgColor]
+        bannerGradientLayer.locations = [0.0, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         // Banner: AniList bannerImage first → coverURL fallback.
@@ -359,8 +354,8 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.trailingAnchor.constraint(equalTo: header.trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: 144),
 
-            // Title below banner
-            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: 12),
+            // Title overlaps banner from below — same as AnimeInfoHeaderView (constant: -30)
+            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -40),
             animeTitleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             animeTitleLabel.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
 
