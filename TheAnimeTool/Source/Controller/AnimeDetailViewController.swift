@@ -1131,10 +1131,32 @@ private final class AnimeInfoHeaderView: UIView {
         // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
 
-        // Banner image: AniList bannerImage → coverURL fallback.
-        // ani.zip Fanart (TVDB-sourced) is fetched asynchronously in fetchEpisodes()
-        // and applied via updateBanner(from:) — matching Hayase's banner.svelte desktop logic.
-        loadImage(from: item.bannerURL ?? item.coverURL, into: bannerImageView, task: &bannerImageTask)
+        // Fetch fanart first (no flicker). AnimeService.fetchFanartURL is cached — if
+        // fetchEpisodes() calls it concurrently it gets a cache hit instantly.
+        // Fallback order: ani.zip Fanart → AniList bannerURL → coverURL.
+        let bannerFallback = item.bannerURL ?? item.coverURL
+        AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
+            guard let self else { return }
+            let urlStr = fanartURL ?? bannerFallback
+            self.bannerImageTask?.cancel()
+            self.bannerImageTask = nil
+            guard let urlStr, let url = URL(string: urlStr) else { return }
+            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                self.bannerImageView.image = cached
+                return
+            }
+            let biv = self.bannerImageView
+            self.bannerImageTask = URLSession.shared.dataTask(with: url) { [weak biv] data, _, _ in
+                guard let data, let img = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
+                DispatchQueue.main.async {
+                    UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
+                                      options: .transitionCrossDissolve,
+                                      animations: { biv?.image = img })
+                }
+            }
+            self.bannerImageTask?.resume()
+        }
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
 
@@ -1719,14 +1741,17 @@ class AnimeDetailViewController: UIViewController {
         themesLoading = true
         tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .none)
 
-        // Build URL using percentEncodedQuery directly.
-        // Hayase uses ky (fetch) which encodes brackets (%5B/%5D) but NOT commas in include.
-        // Using queryItems encodes commas in "include" as %2C, which animethemes.moe does not
-        // parse correctly — causing it to return the same first-match anime for every request.
-        // Solution: set percentEncodedQuery directly so brackets are encoded (%5B/%5D) but
-        // commas in the include value remain literal (valid RFC 3986 query characters).
-        var comps = URLComponents(string: "https://api.animethemes.moe/anime")!
-        comps.percentEncodedQuery = "filter%5Bexternal_id%5D=\(id)&filter%5Bsite%5D=AniList&include=animethemes.song.artists,animethemes.animethemeentries.videos"
+        // Exact Hayase URL (src/lib/modules/animethemes/index.ts):
+        //   https://api.animethemes.moe/anime/?
+        //     fields[audio]=id,basename,link,size
+        //     &fields[video]=id,basename,link,tags
+        //     &filter[external_id]=${id}
+        //     &filter[has]=resources        ← CRITICAL: without this the API ignores external_id
+        //     &filter[site]=AniList
+        //     &include=animethemes.animethemeentries.videos,animethemes.song,animethemes.song.artists
+        // percentEncodedQuery: brackets → %5B/%5D, commas in include stay literal (server expects them).
+        var comps = URLComponents(string: "https://api.animethemes.moe/anime/")!
+        comps.percentEncodedQuery = "fields%5Baudio%5D=id,basename,link,size&fields%5Bvideo%5D=id,basename,link,tags&filter%5Bexternal_id%5D=\(id)&filter%5Bhas%5D=resources&filter%5Bsite%5D=AniList&include=animethemes.animethemeentries.videos,animethemes.song,animethemes.song.artists"
         guard let url = comps.url else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self, let data else { return }
