@@ -18,6 +18,10 @@ final class VideoPlayerViewController: UIViewController {
 
     private let surface = MPVSurfaceView()
 
+    // MARK: - Streaming
+
+    private var streamer: TorrentStreamer?
+
     // MARK: - Overlay
 
     private let overlay       = UIView()
@@ -78,6 +82,7 @@ final class VideoPlayerViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         statsTimer?.invalidate()
+        streamer?.stop()
         surface.stop()
     }
 
@@ -274,6 +279,9 @@ final class VideoPlayerViewController: UIViewController {
         isEOFTriggered = false
         chapters.removeAll()
         updateChapterMarkers()
+
+        // Set up torrent streaming if the file is still downloading.
+        setupStreamer()
         
         let url = path.starts(with: "http") ? URL(string: path)! : URL(fileURLWithPath: path)
         surface.mpv.load(url: url, with: PlayerPreset())
@@ -291,6 +299,27 @@ final class VideoPlayerViewController: UIViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.surface.mpv.seek(to: saved.currentTime)
         }
+    }
+
+    // MARK: - Streaming setup
+
+    /// Creates a TorrentStreamer for the active file if the torrent is still downloading.
+    /// The streamer enables sequential download and sets piece deadlines so that pieces
+    /// near the playback position are fetched first — enabling streaming playback before
+    /// the full file is downloaded.
+    private func setupStreamer() {
+        // Stop any previous streamer
+        streamer?.stop()
+        streamer = nil
+
+        guard let handle = torrentHandle else { return }
+        let snap = handle.snapshot
+        // Only create a streamer when the file is not yet fully downloaded.
+        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+
+        let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
+        s.start()
+        streamer = s
     }
 
     // MARK: - Download stats
@@ -313,10 +342,19 @@ final class VideoPlayerViewController: UIViewController {
         if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
             statsTimer?.invalidate()
             statsLabel.isHidden = true
+            streamer?.stop()
+            streamer = nil
             return
         }
         let speed = fmtSpeed(snap.downloadRate)
-        statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", snap.progress * 100))"
+        // When streaming, show buffer seconds ahead of playback.
+        if let s = streamer, s.isActive, duration > 0 {
+            let fraction = duration > 0 ? currentTime / duration : 0
+            let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
+            statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", snap.progress * 100))"
+        } else {
+            statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", snap.progress * 100))"
+        }
     }
 
     private func fmtSpeed(_ bps: UInt64) -> String {
@@ -409,6 +447,8 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func prevTapped() {
         guard currentVideoIndex > 0 else { return }
         saveProgress()
+        streamer?.stop()
+        streamer = nil
         currentVideoIndex -= 1
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
@@ -425,6 +465,8 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func nextTapped() {
         guard currentVideoIndex < allVideos.count - 1 else { return }
         saveProgress()
+        streamer?.stop()
+        streamer = nil
         currentVideoIndex += 1
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
@@ -454,8 +496,11 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func seekEnded() {
-        surface.mpv.seek(to: Double(seekBar.value) * duration)
+        let seekFraction = Double(seekBar.value)
+        surface.mpv.seek(to: seekFraction * duration)
         isSeeking = false
+        // Notify the streamer so it can re-prioritize pieces around the new position.
+        streamer?.seekTo(fraction: seekFraction)
         scheduleHide()
     }
 
@@ -594,6 +639,12 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.currentTime = position
         self.duration    = duration
         updateTimeUI()
+
+        // Feed playback position to the streamer so it can set piece deadlines
+        // ahead of the current position.
+        if duration > 0 {
+            streamer?.updatePlaybackPosition(fraction: position / duration)
+        }
         
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event)
         if duration > 0 && position > 0 && position >= duration - 0.5 {

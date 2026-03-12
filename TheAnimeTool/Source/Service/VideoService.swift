@@ -179,12 +179,16 @@ public class VideoService: NSObject {
     /// Hayase approach: focus all download bandwidth on one episode.
     /// Sets every other file in the torrent to dontDownload so libtorrent
     /// dedicates all piece-picking to the file the user wants to watch.
+    /// Also enables sequential download mode for streaming.
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
         for entry in handle.snapshot.files {
             let priority: FileEntry.Priority = entry.index == Int(fileIndex) ? .defaultPriority : .dontDownload
             handle.setFilePriority(priority, at: Int(entry.index))
         }
+        // Enable sequential download for streaming — pieces are fetched in order
+        // so the video file can be played back before the download completes.
+        handle.setSequentialDownload(true)
     }
 
     func UpdateTorrentFileInfos() {
