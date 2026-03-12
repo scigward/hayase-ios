@@ -48,9 +48,5 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Fonts/Nunito-Variable.ttf</string>
-	</array>
 </dict>
 </plist>

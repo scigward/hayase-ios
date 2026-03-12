@@ -1343,6 +1343,12 @@ class AnimeDetailViewController: UIViewController {
     private var statusDistribution: [AnimeStatusCount] = []
     private var episodeFetchTask: URLSessionDataTask?
 
+    // Threads (AniList forum) and Themes (animethemes.moe)
+    private var threads: [AniListThread] = []
+    private var themes: [AnimeTheme] = []
+    private var threadsLoading = false
+    private var themesLoading = false
+
     // Active tab for the segmented control (Episodes | Relations | Threads | Themes)
     private var activeSection: Section = .episodes
 
@@ -1658,6 +1664,75 @@ class AnimeDetailViewController: UIViewController {
         guard let sec = Section(rawValue: index) else { return }
         activeSection = sec
         tableView.reloadSections(IndexSet(integersIn: 0..<Section.allCases.count), with: .automatic)
+        // Lazy-fetch threads/themes on first tap
+        if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
+        if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
+    }
+
+    // MARK: - Threads (AniList forum)
+
+    private func fetchThreads() {
+        guard let id = animeItem?.id else { return }
+        threadsLoading = true
+        tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
+
+        let query = """
+        query($id:Int){Page(perPage:20){threads(mediaCategoryId:$id,sort:CREATED_AT_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
+        """
+        let body: [String: Any] = ["query": query, "variables": ["id": id]]
+        guard let data = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://graphql.anilist.co") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let self, let data else { return }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
+               let rawThreads = page["threads"] as? [[String: Any]] {
+                let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
+                DispatchQueue.main.async {
+                    self.threads = parsed
+                    self.threadsLoading = false
+                    if self.activeSection == .threads {
+                        self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)
+                    }
+                }
+            } else {
+                DispatchQueue.main.async { self.threadsLoading = false }
+            }
+        }.resume()
+    }
+
+    // MARK: - Themes (animethemes.moe)
+
+    private func fetchThemes() {
+        guard let id = animeItem?.id else { return }
+        themesLoading = true
+        tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .none)
+
+        // animethemes.moe: filter by AniList ID, include songs, artists, entries, videos
+        let urlStr = "https://api.animethemes.moe/anime?filter[external_id]=\(id)&filter[site]=AniList&include=animethemes.song.artists,animethemes.animethemeentries.videos"
+        guard let url = URL(string: urlStr) else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self, let data else { return }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let animes = json["anime"] as? [[String: Any]],
+               let first = animes.first,
+               let rawThemes = first["animethemes"] as? [[String: Any]] {
+                let parsed = rawThemes.compactMap { AnimeTheme(dict: $0) }
+                DispatchQueue.main.async {
+                    self.themes = parsed
+                    self.themesLoading = false
+                    if self.activeSection == .themes {
+                        self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
+                    }
+                }
+            } else {
+                DispatchQueue.main.async { self.themesLoading = false }
+            }
+        }.resume()
     }
 
     // MARK: - Navigation
@@ -1682,8 +1757,12 @@ extension AnimeDetailViewController: UITableViewDataSource {
         switch Section(rawValue: section) {
         case .episodes:  return activeSection == .episodes  ? episodes.count : 0
         case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
-        case .threads:   return activeSection == .threads ? 1 : 0
-        case .themes:    return activeSection == .themes  ? 1 : 0
+        case .threads:
+            if activeSection != .threads { return 0 }
+            return threadsLoading ? 1 : max(threads.count, 1)  // 1 for loading/empty state
+        case .themes:
+            if activeSection != .themes { return 0 }
+            return themesLoading ? 1 : max(themes.count, 1)
         case .none: return 0
         }
     }
@@ -1717,39 +1796,11 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return cell
 
         case .threads:
-            // Threads: AniList forum threads for this anime — shown as empty state for now
-            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-            cell.backgroundColor = .clear
-            cell.selectionStyle = .none
-            let label = UILabel()
-            label.text = "No threads yet."
-            label.textColor = UIColor(white: 0.5, alpha: 1)
-            label.font = .systemFont(ofSize: 15)
-            label.textAlignment = .center
-            label.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
-                label.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
-            ])
+            let cell = makeThreadCell(for: indexPath)
             return cell
 
         case .themes:
-            // Themes: anime OPs/EDs from AnimeThemes — shown as empty state for now
-            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-            cell.backgroundColor = .clear
-            cell.selectionStyle = .none
-            let label = UILabel()
-            label.text = "No themes yet."
-            label.textColor = UIColor(white: 0.5, alpha: 1)
-            label.font = .systemFont(ofSize: 15)
-            label.textAlignment = .center
-            label.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
-                label.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
-            ])
+            let cell = makeThemeCell(for: indexPath)
             return cell
 
         case .none:
@@ -1774,16 +1825,29 @@ extension AnimeDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
         case .relations:          return 160
-        case .threads, .themes:   return 120
+        case .threads, .themes:   return UITableView.automaticDimension
         default:                  return UITableView.automaticDimension
         }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if Section(rawValue: indexPath.section) == .episodes {
-            let epNumber = indexPath.row + 1
-            openExtensionSearch(episode: epNumber)
+        switch Section(rawValue: indexPath.section) {
+        case .episodes:
+            openExtensionSearch(episode: indexPath.row + 1)
+        case .threads:
+            guard !threadsLoading, !threads.isEmpty else { return }
+            let thread = threads[indexPath.row]
+            if let url = URL(string: "https://anilist.co/forum/thread/\(thread.id)") {
+                present(SFSafariViewController(url: url), animated: true)
+            }
+        case .themes:
+            guard !themesLoading, !themes.isEmpty else { return }
+            let theme = themes[indexPath.row]
+            if let urlStr = theme.entries.first?.videoURL, let url = URL(string: urlStr) {
+                present(SFSafariViewController(url: url), animated: true)
+            }
+        default: break
         }
     }
 }
@@ -1839,3 +1903,304 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
         navigationController?.pushViewController(detailVC, animated: true)
     }
 }
+
+// MARK: - Thread & Theme data models
+
+struct AniListThread {
+    let id: Int
+    let title: String
+    let viewCount: Int
+    let replyCount: Int
+    let likeCount: Int
+    let isLocked: Bool
+    let createdAt: TimeInterval
+    let userName: String?
+    let avatarURL: String?
+    let categories: [String]
+
+    init?(dict: [String: Any]) {
+        guard let id = dict["id"] as? Int else { return nil }
+        self.id = id
+        self.title = dict["title"] as? String ?? "Thread \(id)"
+        self.viewCount = dict["viewCount"] as? Int ?? 0
+        self.replyCount = dict["replyCount"] as? Int ?? 0
+        self.likeCount = dict["likeCount"] as? Int ?? 0
+        self.isLocked = dict["isLocked"] as? Bool ?? false
+        self.createdAt = dict["createdAt"] as? TimeInterval ?? 0
+        let user = dict["user"] as? [String: Any]
+        self.userName = user?["name"] as? String
+        let avatar = user?["avatar"] as? [String: Any]
+        self.avatarURL = avatar?["large"] as? String
+        let cats = dict["categories"] as? [[String: Any]] ?? []
+        self.categories = cats.compactMap { $0["name"] as? String }.filter { $0 != "Anime" }
+    }
+
+    var sinceString: String {
+        let diff = Date().timeIntervalSince1970 - createdAt
+        switch diff {
+        case ..<60:        return "just now"
+        case ..<3600:      return "\(Int(diff/60))m ago"
+        case ..<86400:     return "\(Int(diff/3600))h ago"
+        case ..<2592000:   return "\(Int(diff/86400))d ago"
+        default:           return "\(Int(diff/2592000))mo ago"
+        }
+    }
+}
+
+struct AnimeThemeEntry {
+    let version: Int
+    let episodes: String
+    let videoURL: String?
+}
+
+struct AnimeTheme {
+    let type: String    // "OP", "ED" + number e.g. "OP1", "ED2"
+    let songTitle: String
+    let artists: String
+    let entries: [AnimeThemeEntry]
+
+    init?(dict: [String: Any]) {
+        guard let slug = dict["slug"] as? String else { return nil }
+        self.type = slug.uppercased()
+        let song = dict["song"] as? [String: Any]
+        self.songTitle = song?["title"] as? String ?? "Unknown"
+        let artistArr = song?["artists"] as? [[String: Any]] ?? []
+        self.artists = artistArr.compactMap { $0["name"] as? String }.joined(separator: ", ")
+        let rawEntries = dict["animethemeentries"] as? [[String: Any]] ?? []
+        self.entries = rawEntries.compactMap { e -> AnimeThemeEntry? in
+            let ver = e["version"] as? Int ?? 1
+            let eps = e["episodes"] as? String ?? ""
+            let videos = e["videos"] as? [[String: Any]] ?? []
+            let link = videos.last?["link"] as? String
+            return AnimeThemeEntry(version: ver, episodes: eps, videoURL: link)
+        }
+    }
+}
+
+// MARK: - Thread & Theme cell builders
+
+extension AnimeDetailViewController {
+
+    private func makeEmptyStateCell(text: String, loading: Bool) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .none
+        let label = UILabel()
+        label.text = loading ? "Loading…" : text
+        label.textColor = UIColor(white: loading ? 0.7 : 0.5, alpha: 1)
+        label.font = .systemFont(ofSize: 14)
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
+            label.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 40),
+            label.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -40),
+        ])
+        return cell
+    }
+
+    func makeThreadCell(for indexPath: IndexPath) -> UITableViewCell {
+        if threadsLoading || threads.isEmpty {
+            return makeEmptyStateCell(
+                text: "No threads found.",
+                loading: threadsLoading)
+        }
+        let thread = threads[indexPath.row]
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .default
+
+        // bg-neutral-950 card
+        let card = UIView()
+        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
+        card.layer.cornerRadius = 8
+        card.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(card)
+
+        // Title
+        let titleLabel = UILabel()
+        titleLabel.text = thread.title
+        titleLabel.font = .systemFont(ofSize: 12.8, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.numberOfLines = 1
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Stats row: ♥ likes  👁 views  💬 replies
+        let statsLabel = UILabel()
+        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
+        statsLabel.font = .systemFont(ofSize: 9.6)
+        statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
+        statsLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Footer: time + categories
+        let footerLabel = UILabel()
+        var footerParts = [thread.sinceString]
+        if let name = thread.userName { footerParts.append("by \(name)") }
+        footerLabel.text = footerParts.joined(separator: " · ")
+        footerLabel.font = .systemFont(ofSize: 9.6)
+        footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        footerLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Category badges
+        let accentColor = animeItem.flatMap { item in
+            ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
+        let badgeStack = UIStackView()
+        badgeStack.axis = .horizontal
+        badgeStack.spacing = 4
+        badgeStack.translatesAutoresizingMaskIntoConstraints = false
+        for cat in thread.categories.prefix(3) {
+            let badge = UILabel()
+            badge.text = cat
+            badge.font = .systemFont(ofSize: 9.6, weight: .bold)
+            badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+            badge.backgroundColor = accentColor
+            badge.layer.cornerRadius = 4
+            badge.clipsToBounds = true
+            badge.textAlignment = .center
+            let pad: CGFloat = 4
+            badge.layoutMargins = UIEdgeInsets(top: pad, left: pad*2, bottom: pad, right: pad*2)
+            badge.isLayoutMarginsRelativeArrangement = false
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badgeStack.addArrangedSubview(badge)
+        }
+
+        card.addSubview(titleLabel)
+        card.addSubview(statsLabel)
+        card.addSubview(footerLabel)
+        card.addSubview(badgeStack)
+
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+
+            titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+
+            statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal),
+
+            footerLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            footerLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+
+            badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
+            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+        ])
+        return cell
+    }
+
+    func makeThemeCell(for indexPath: IndexPath) -> UITableViewCell {
+        if themesLoading || themes.isEmpty {
+            return makeEmptyStateCell(
+                text: "No themes found.",
+                loading: themesLoading)
+        }
+        let theme = themes[indexPath.row]
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .default
+
+        // bg-neutral-950 card
+        let card = UIView()
+        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
+        card.layer.cornerRadius = 8
+        card.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(card)
+
+        // Type badge (OP1, ED2 …)
+        let typeLabel = UILabel()
+        typeLabel.text = theme.type
+        typeLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
+        typeLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Song title
+        let songLabel = UILabel()
+        songLabel.text = theme.songTitle
+        songLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        songLabel.textColor = .white
+        songLabel.numberOfLines = 1
+        songLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Artists
+        let artistLabel = UILabel()
+        artistLabel.text = theme.artists.isEmpty ? "" : "by \(theme.artists)"
+        artistLabel.font = .systemFont(ofSize: 11)
+        artistLabel.textColor = UIColor(white: 0.6, alpha: 1)
+        artistLabel.numberOfLines = 1
+        artistLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // Play button (▶ bg-custom)
+        let accentColor = animeItem.flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
+            ?? UIColor(red: 0.24, green: 0.71, blue: 0.95, alpha: 1)
+        let playBtn = UIButton(type: .system)
+        playBtn.setTitle("▶", for: .normal)
+        playBtn.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
+        playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+        playBtn.backgroundColor = accentColor
+        playBtn.layer.cornerRadius = 14
+        playBtn.translatesAutoresizingMaskIntoConstraints = false
+
+        // Episodes line (e.g. "v1 · Episodes 1-12")
+        let firstEntry = theme.entries.first
+        let epLabel = UILabel()
+        epLabel.text = firstEntry.map { "v\($0.version) · Episodes \($0.episodes)" } ?? ""
+        epLabel.font = .systemFont(ofSize: 10)
+        epLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        epLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        card.addSubview(typeLabel)
+        card.addSubview(songLabel)
+        card.addSubview(artistLabel)
+        card.addSubview(epLabel)
+        card.addSubview(playBtn)
+
+        // Store videoURL tag via associated object — simpler: use a closure via objc
+        if let urlStr = firstEntry?.videoURL {
+            playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
+            objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+
+            typeLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            typeLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
+            typeLabel.widthAnchor.constraint(equalToConstant: 40),
+
+            songLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
+            songLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
+            songLabel.trailingAnchor.constraint(equalTo: playBtn.leadingAnchor, constant: -8),
+
+            artistLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
+            artistLabel.topAnchor.constraint(equalTo: songLabel.bottomAnchor, constant: 4),
+            artistLabel.trailingAnchor.constraint(equalTo: playBtn.leadingAnchor, constant: -8),
+
+            epLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
+            epLabel.topAnchor.constraint(equalTo: artistLabel.bottomAnchor, constant: 6),
+            epLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
+
+            playBtn.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            playBtn.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            playBtn.widthAnchor.constraint(equalToConstant: 28),
+            playBtn.heightAnchor.constraint(equalToConstant: 28),
+        ])
+        return cell
+    }
+
+    @objc private func themePlayTapped(_ sender: UIButton) {
+        guard let urlStr = objc_getAssociatedObject(sender, &themeURLKey) as? String,
+              let url = URL(string: urlStr) else { return }
+        present(SFSafariViewController(url: url), animated: true)
+    }
+}
+
+private var themeURLKey = "themeURL"
