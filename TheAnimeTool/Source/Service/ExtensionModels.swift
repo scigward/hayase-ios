@@ -158,6 +158,18 @@ struct TorrentQuery {
     var anidbAid: Int?
     /// AniDB episode ID — fetched from api.ani.zip, required by animetosho and others
     var anidbEid: Int?
+    /// MyAnimeList ID — from api.ani.zip mappings
+    var malId: Int?
+    /// TheTVDB series ID — from api.ani.zip mappings
+    var tvdbId: Int?
+    /// TheTVDB episode ID — from api.ani.zip episode entry
+    var tvdbEId: Int?
+    /// TheMovieDB ID — from api.ani.zip mappings
+    var tmdbId: Int?
+    /// Kitsu ID — from api.ani.zip mappings
+    var kitsuId: Int?
+    /// IMDB ID — from api.ani.zip mappings
+    var imdbId: String?
     /// "2160" | "1080" | "720" | "540" | "480" | ""
     var resolution: String
     var exclusions: [String]
@@ -226,6 +238,12 @@ struct TorrentQuery {
             absoluteEpisodeNumber: nil,
             anidbAid: nil,
             anidbEid: nil,
+            malId: nil,
+            tvdbId: nil,
+            tvdbEId: nil,
+            tmdbId: nil,
+            kitsuId: nil,
+            imdbId: nil,
             resolution: resolution,
             exclusions: [],
             subDub: nil
@@ -246,6 +264,12 @@ struct TorrentQuery {
         if let a = absoluteEpisodeNumber { d["absoluteEpisodeNumber"] = a }
         if let aid = anidbAid            { d["anidbAid"] = aid }
         if let eid = anidbEid            { d["anidbEid"] = eid }
+        if let v = malId                 { d["malId"] = v }
+        if let v = tvdbId                { d["tvdbId"] = v }
+        if let v = tvdbEId               { d["tvdbEId"] = v }
+        if let v = tmdbId                { d["tmdbId"] = v }
+        if let v = kitsuId               { d["kitsuId"] = v }
+        if let v = imdbId                { d["imdbId"] = v }
         if let t = subDub                { d["type"] = t }
         return d
     }

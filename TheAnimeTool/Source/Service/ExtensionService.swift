@@ -209,36 +209,57 @@ final class ExtensionService {
     // MARK: - Extensions.getResultsFromExtensions (mirrors extensions.ts)
 
     /// High-level entry point matching Hayase's Extensions.getResultsFromExtensions(media:episode:resolution:).
-    /// Fetches AniDB IDs from api.ani.zip in a SINGLE request (anilist_id response includes
-    /// both mappings.anidb_id AND episodes[n].anidbEid), then delegates to search(query:).
+    /// Fetches ALL IDs from api.ani.zip in a SINGLE request (episodes endpoint returns
+    /// mappings + per-episode data), then delegates to search(query:).
+    ///
+    /// Mirrors Hayase's getResultsFromExtensions exactly:
+    ///   const aniDBMeta = await this.ALToAniDB(media)
+    ///   const { anidb_id: anidbAid, mal_id: malId, ... } = aniDBMeta?.mappings ?? {}
+    ///   const { anidbEid, tvdbId: tvdbEId, absoluteEpisodeNumber } = await this.ALtoAniDBEpisode(...)
     func search(for item: AnimeItem, episode: Int, resolution: String) async throws -> [TorrentResult] {
-        let (aid, eid) = await fetchAniDBIDs(anilistID: item.id, episode: episode)
+        let ids = await fetchAniZipData(anilistID: item.id, episode: episode)
 
         var query = TorrentQuery.make(from: item, episode: episode, resolution: resolution)
-        query.anidbAid = aid
-        query.anidbEid = eid
-        query.absoluteEpisodeNumber = eid  // mirrors Hayase: absoluteEpisodeNumber = aniDBEpisodeID
+        query.anidbAid             = ids.aid
+        query.anidbEid             = ids.eid
+        query.malId                = ids.malId
+        query.tvdbId               = ids.tvdbId
+        query.tvdbEId              = ids.tvdbEId
+        query.tmdbId               = ids.tmdbId
+        query.kitsuId              = ids.kitsuId
+        query.imdbId               = ids.imdbId
+        // absoluteEpisodeNumber comes from the episode entry (separate from anidbEid).
+        // Hayase: const { anidbEid, tvdbId: tvdbEId, absoluteEpisodeNumber } = ALtoAniDBEpisode(...)
+        query.absoluteEpisodeNumber = ids.absoluteEpisodeNumber ?? ids.eid
 
         return try await search(query: query)
     }
 
-    /// Fetches anidbAid AND anidbEid in ONE api.ani.zip request.
+    /// Fetches ALL IDs from api.ani.zip in ONE request.
     ///
-    /// The `?anilist_id=X` response already contains both `mappings.anidb_id` and the
-    /// `episodes` dictionary (each entry has `anidbEid`). Mirrors the logic of Hayase's
-    /// ALToAniDB + ALtoAniDBEpisode but saves a network round-trip.
+    /// Implements the equivalent of Hayase's ALToAniDB + ALtoAniDBEpisode using a single
+    /// /v1/episodes?anilist_id=X request (same endpoint Hayase uses via _episodes()).
     ///
-    /// Uses NSNumber for int extraction — JSONSerialization always boxes JSON numbers as
-    /// NSNumber, so `as? Int` on a Double-valued NSNumber returns nil on some platforms;
-    /// `(x as? NSNumber)?.intValue` is always correct.
-    private func fetchAniDBIDs(anilistID: Int, episode: Int) async -> (aid: Int?, eid: Int?) {
-        // 15-second timeout — fail fast so the caller can show an error instead of
-        // waiting 60 seconds for URLSession's default timeout.
-        // Hayase calls episodes(media.id) → /v1/episodes?anilist_id=X (NOT /mappings).
-        // The episodes endpoint returns { mappings: { anidb_id }, episodes: { "1": { anidbEid } } }.
-        // The mappings endpoint returns a flat object with NO episodes key → eid always nil.
+    /// Key: implements makeEpisodeList equivalent — sorts episodes by episodeNumber and
+    /// uses index-based lookup ([episode-1]) instead of dict key lookup (episodes["1"]).
+    /// This correctly handles offset numbering where AniDB episode numbers don't match
+    /// AniList episode numbers (e.g. Bleach, One Piece, continuing series).
+    ///
+    /// Uses (x as? NSNumber)?.intValue for all int extraction — JSONSerialization always
+    /// boxes JSON numbers as NSNumber; `as? Int` returns nil for Double-backed NSNumbers.
+    private func fetchAniZipData(anilistID: Int, episode: Int) async -> (
+        aid: Int?, eid: Int?,
+        malId: Int?, tvdbId: Int?, tvdbEId: Int?,
+        tmdbId: Int?, kitsuId: Int?, imdbId: String?,
+        absoluteEpisodeNumber: Int?
+    ) {
+        let empty = (aid: nil as Int?, eid: nil as Int?,
+                     malId: nil as Int?, tvdbId: nil as Int?, tvdbEId: nil as Int?,
+                     tmdbId: nil as Int?, kitsuId: nil as Int?, imdbId: nil as String?,
+                     absoluteEpisodeNumber: nil as Int?)
+
         guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(anilistID)") else {
-            return (nil, nil)
+            return empty
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -248,42 +269,57 @@ final class ExtensionService {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             print("ExtensionService: api.ani.zip fetch failed for anilist_id=\(anilistID)")
-            return (nil, nil)
+            return empty
         }
 
-        // --- anidbAid from mappings.anidb_id ---
-        let aid: Int?
-        if let mappings = json["mappings"] as? [String: Any] {
-            aid = (mappings["anidb_id"] as? NSNumber)?.intValue
-        } else {
-            aid = nil
-        }
+        // ── Mappings: series-level IDs ────────────────────────────────────────────────
+        // Mirrors: const { anidb_id: anidbAid, mal_id: malId, ... } = aniDBMeta?.mappings ?? {}
+        let mappings = json["mappings"] as? [String: Any]
+        let aid     = (mappings?["anidb_id"]      as? NSNumber)?.intValue
+        let malId   = (mappings?["mal_id"]        as? NSNumber)?.intValue
+        let tvdbId  = (mappings?["thetvdb_id"]    as? NSNumber)?.intValue
+        let kitsuId = (mappings?["kitsu_id"]      as? NSNumber)?.intValue
+        let tmdbId  = (mappings?["themoviedb_id"] as? NSNumber)?.intValue
+        let imdbId  = mappings?["imdb_id"] as? String
 
-        // --- anidbEid from episodes[*].anidbEid where episodeNumber == episode ---
+        // ── Episodes: makeEpisodeList equivalent ──────────────────────────────────────
+        // Hayase: makeEpisodeList(media, episodesRes)[episode - 1]
+        //
+        // The api.ani.zip episodes dict is keyed by AniDB episode numbers, NOT by
+        // sequential AniList episode numbers. A show may have episodes keyed "5","6","7"
+        // (offset), or have specials keyed "0","S1","S2" mixed in. Direct key lookup
+        // (episodes["1"]) gives wrong results for offset numbering.
+        //
+        // makeEpisodeList: filter to episodeNumber > 0, sort by episodeNumber asc,
+        // return [episode - 1]. This is the correct AniDB → AniList episode mapping.
         var eid: Int?
+        var tvdbEId: Int?
+        var absoluteEpNum: Int?
+
         if let episodes = json["episodes"] as? [String: Any] {
-            // Prefer direct key lookup first (episodes keyed by episode number string)
-            if let epData = episodes[String(episode)] as? [String: Any] {
-                let seasonNum = (epData["seasonNumber"] as? NSNumber)?.intValue ?? 1
-                if seasonNum == 1 {
-                    eid = (epData["anidbEid"] as? NSNumber)?.intValue
-                }
+            // Build sorted list of regular episodes (episodeNumber > 0 only — excludes specials)
+            var regularEps = episodes.values.compactMap { $0 as? [String: Any] }.filter {
+                (($0["episodeNumber"] as? NSNumber)?.intValue ?? -1) > 0
             }
-            // Fallback: scan all episodes (handles offset numbering)
-            if eid == nil {
-                for (_, epValue) in episodes {
-                    guard let ep = epValue as? [String: Any] else { continue }
-                    let epNum    = (ep["episodeNumber"] as? NSNumber)?.intValue ?? -1
-                    let seasonNum = (ep["seasonNumber"] as? NSNumber)?.intValue ?? 1
-                    guard epNum == episode, seasonNum == 1 else { continue }
-                    eid = (ep["anidbEid"] as? NSNumber)?.intValue
-                    break
-                }
+            regularEps.sort {
+                let a = ($0["episodeNumber"] as? NSNumber)?.intValue ?? 0
+                let b = ($1["episodeNumber"] as? NSNumber)?.intValue ?? 0
+                return a < b
+            }
+
+            // Index-based lookup: episode 1 → index 0, episode 2 → index 1, etc.
+            // This is exactly what Hayase's makeEpisodeList(media, res)[episode - 1] does.
+            let idx = episode - 1
+            if idx >= 0 && idx < regularEps.count {
+                let ep = regularEps[idx]
+                eid          = (ep["anidbEid"]              as? NSNumber)?.intValue
+                tvdbEId      = (ep["tvdbEid"]               as? NSNumber)?.intValue
+                absoluteEpNum = (ep["absoluteEpisodeNumber"] as? NSNumber)?.intValue
             }
         }
 
-        print("ExtensionService: anilist_id=\(anilistID) → anidbAid=\(String(describing: aid)) anidbEid=\(String(describing: eid))")
-        return (aid, eid)
+        print("ExtensionService: anilist_id=\(anilistID) ep=\(episode) → anidbAid=\(aid.map(String.init) ?? "nil") anidbEid=\(eid.map(String.init) ?? "nil") malId=\(malId.map(String.init) ?? "nil")")
+        return (aid, eid, malId, tvdbId, tvdbEId, tmdbId, kitsuId, imdbId, absoluteEpNum)
     }
 
     /// Search all enabled torrent extensions and deduplicate results.
@@ -324,42 +360,72 @@ final class ExtensionService {
         var all: [TorrentResult] = []
         var errors: [(id: String, error: Error)] = []
 
-        let isMovie  = (query.mediaJSON["format"] as? String) == "MOVIE"
+        let isMovie    = (query.mediaJSON["format"] as? String) == "MOVIE"
         let isSingleEp = (query.mediaJSON["episodes"] as? Int) == 1
+        let checkMovie = isMovie && !isSingleEp
+        let checkBatch = !isMovie && !isSingleEp
 
+        // Run all extension calls concurrently — mirrors Hayase's Promise.allSettled:
+        //   promises.push(worker.single(options, opts))
+        //   if (checkMovie) promises.push(worker.movie(options, opts))
+        //   if (checkBatch) promises.push(worker.batch(options, opts))
+        //   for (const result of await Promise.allSettled(promises)) { ... }
+        //
+        // Previously single/batch ran SEQUENTIALLY inside one task: if single() timed
+        // out (30s), batch() wouldn't run until 30s later. Now each method is its own
+        // concurrent task within an inner TaskGroup, so they all start at the same time.
         await withTaskGroup(of: ([TorrentResult], [(String, Error)]).self) { group in
             for (extId, worker) in enabledWorkers {
                 let opts = options[extId]?.options.mapValues(\.jsonCompatible) ?? [:]
                 group.addTask { @MainActor in
-                    var results: [TorrentResult] = []
-                    var errs: [(String, Error)] = []
+                    // Inner TaskGroup: single / batch / movie run concurrently per extension
+                    await withTaskGroup(of: ([TorrentResult], Error?).self) { inner in
+                        // Always call single()
+                        inner.addTask { @MainActor in
+                            do {
+                                var r = try await worker.single(query: query, options: opts)
+                                for i in r.indices { r[i].extensionIds.insert(extId) }
+                                return (r, nil)
+                            } catch {
+                                print("ExtensionService: \(extId) single() failed: \(error)")
+                                return ([], error)
+                            }
+                        }
+                        // Call movie() for movie-format non-single-ep anime
+                        if checkMovie {
+                            inner.addTask { @MainActor in
+                                do {
+                                    var r = try await worker.movie(query: query, options: opts)
+                                    for i in r.indices { r[i].extensionIds.insert(extId) }
+                                    return (r, nil)
+                                } catch {
+                                    print("ExtensionService: \(extId) movie() failed: \(error)")
+                                    return ([], error)
+                                }
+                            }
+                        }
+                        // Call batch() for multi-episode non-movie anime
+                        if checkBatch {
+                            inner.addTask { @MainActor in
+                                do {
+                                    var r = try await worker.batch(query: query, options: opts)
+                                    for i in r.indices { r[i].extensionIds.insert(extId) }
+                                    return (r, nil)
+                                } catch {
+                                    print("ExtensionService: \(extId) batch() failed: \(error)")
+                                    return ([], error)
+                                }
+                            }
+                        }
 
-                    // Always call single()
-                    do {
-                        var r = try await worker.single(query: query, options: opts)
-                        for i in r.indices { r[i].extensionIds.insert(extId) }
-                        results.append(contentsOf: r)
-                    } catch { errs.append((extId, error)) }
-
-                    // Call movie() for movie-format anime that are not single episodes
-                    if isMovie && !isSingleEp {
-                        do {
-                            var r = try await worker.movie(query: query, options: opts)
-                            for i in r.indices { r[i].extensionIds.insert(extId) }
+                        var results: [TorrentResult] = []
+                        var errs: [(String, Error)] = []
+                        for await (r, e) in inner {
                             results.append(contentsOf: r)
-                        } catch { errs.append((extId, error)) }
+                            if let e { errs.append((extId, e)) }
+                        }
+                        return (results, errs)
                     }
-
-                    // Call batch() for multi-episode non-movie anime
-                    if !isMovie && !isSingleEp {
-                        do {
-                            var r = try await worker.batch(query: query, options: opts)
-                            for i in r.indices { r[i].extensionIds.insert(extId) }
-                            results.append(contentsOf: r)
-                        } catch { errs.append((extId, error)) }
-                    }
-
-                    return (results, errs)
                 }
             }
 
