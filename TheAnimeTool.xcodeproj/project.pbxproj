@@ -53,6 +53,7 @@
 		EXTVC001EXTVC001EXTVC001 /* ExtensionsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */; };
 		EXTSRC01EXTSRC01EXTSRC01 /* ExtensionSearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */; };
 		A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */; };
+		FONTRES01FONTRES01FONTRES1 /* Nunito-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FONTRES02FONTRES02FONTRES2 /* Nunito-Variable.ttf */; };
 		A96106CF1D731B43006D39D0 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A96106BD1D731B43006D39D0 /* Info.plist */; };
 		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
 		A96106D11D731B43006D39D0 /* Animes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C01D731B43006D39D0 /* Animes.swift */; };
@@ -218,6 +219,7 @@
 		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
 		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
 		A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
+		FONTRES02FONTRES02FONTRES2 /* Nunito-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "Nunito-Variable.ttf"; path = "Resources/Fonts/Nunito-Variable.ttf"; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
@@ -461,6 +463,7 @@
 				A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */,
 				A96105BE1D71ED71006D39D0 /* Info.plist */,
 				A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */,
+				FONTRES02FONTRES02FONTRES2 /* Nunito-Variable.ttf */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -736,6 +739,7 @@
 				A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */,
 				A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */,
 				A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */,
+				FONTRES01FONTRES01FONTRES1 /* Nunito-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
