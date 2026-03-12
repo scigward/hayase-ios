@@ -1553,8 +1553,11 @@ class AnimeDetailViewController: UIViewController {
                 let ratingRaw = info["rating"]
                 let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
                     ?? (ratingRaw as? String).flatMap(Double.init)
-                // Filler: ani.zip "filler" boolean field
-                let isFiller = info["filler"] as? Bool ?? false
+                // Filler: ani.zip returns "filler" as Bool or NSNumber (0/1)
+                let isFiller: Bool
+                if let b = info["filler"] as? Bool { isFiller = b }
+                else if let n = info["filler"] as? NSNumber { isFiller = n.boolValue }
+                else { isFiller = false }
                 parsed.append(AniZipEpisode(number: num, title: title, overview: overview,
                                             imageURL: imageURL, airDate: airDate, runtime: runtime,
                                             rating: rating, isFiller: isFiller))
