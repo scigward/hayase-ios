@@ -171,13 +171,28 @@ final class ExtensionSearchViewController: UIViewController {
         currentEpisode = initialEpisode
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
-        // Hide nav bar title since we show the anime title in the banner area
         navigationItem.title = nil
 
         setupHeader()
         setupTableView()
         setupStateViews()
         triggerSearch()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Transparent nav bar so banner can extend to the very top of the screen
+        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+        navigationController?.navigationBar.shadowImage = UIImage()
+        navigationController?.navigationBar.isTranslucent = true
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Restore opaque nav bar for the previous screen
+        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        navigationController?.navigationBar.shadowImage = nil
+        navigationController?.navigationBar.isTranslucent = true
     }
 
     override func viewDidLayoutSubviews() {
@@ -208,6 +223,7 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView = UIImageView()
         bannerImageView.contentMode = .scaleAspectFill
         bannerImageView.clipsToBounds = true
+        bannerImageView.alpha = 0.4          // Hayase: class='opacity-40'
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(bannerImageView)
 
@@ -239,8 +255,8 @@ final class ExtensionSearchViewController: UIViewController {
         bannerView.addSubview(animeTitleLabel)
 
         NSLayoutConstraint.activate([
-            // bannerView: EXPLICIT height — never collapses to 0
-            bannerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            // bannerView: from very top of screen (under transparent nav bar)
+            bannerView.topAnchor.constraint(equalTo: view.topAnchor),
             bannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bannerView.heightAnchor.constraint(equalToConstant: 160),
@@ -263,7 +279,7 @@ final class ExtensionSearchViewController: UIViewController {
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
 
         let controlsView = UIView()
-        controlsView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        controlsView.backgroundColor = .clear     // transparent — banner visible behind controls
         controlsView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(controlsView)
 
@@ -357,8 +373,8 @@ final class ExtensionSearchViewController: UIViewController {
         controlsView.addSubview(autoSelectButton)
 
         NSLayoutConstraint.activate([
-            // controlsView: pinned to bannerView.bottom, EXPLICIT height 156pt
-            controlsView.topAnchor.constraint(equalTo: bannerView.bottomAnchor),
+            // controlsView: starts at safe area top (below transparent nav bar), EXPLICIT height
+            controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlsView.heightAnchor.constraint(equalToConstant: 156),
