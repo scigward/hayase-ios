@@ -154,6 +154,10 @@ struct TorrentQuery {
     var episode: Int
     var episodeCount: Int?
     var absoluteEpisodeNumber: Int?
+    /// AniDB anime ID — fetched from api.ani.zip, required by animetosho and others
+    var anidbAid: Int?
+    /// AniDB episode ID — fetched from api.ani.zip, required by animetosho and others
+    var anidbEid: Int?
     /// "2160" | "1080" | "720" | "540" | "480" | ""
     var resolution: String
     var exclusions: [String]
@@ -220,6 +224,8 @@ struct TorrentQuery {
             episode: episode,
             episodeCount: item.episodes,
             absoluteEpisodeNumber: nil,
+            anidbAid: nil,
+            anidbEid: nil,
             resolution: resolution,
             exclusions: [],
             subDub: nil
@@ -238,6 +244,8 @@ struct TorrentQuery {
         ]
         if let c = episodeCount          { d["episodeCount"] = c }
         if let a = absoluteEpisodeNumber { d["absoluteEpisodeNumber"] = a }
+        if let aid = anidbAid            { d["anidbAid"] = aid }
+        if let eid = anidbEid            { d["anidbEid"] = eid }
         if let t = subDub                { d["type"] = t }
         return d
     }

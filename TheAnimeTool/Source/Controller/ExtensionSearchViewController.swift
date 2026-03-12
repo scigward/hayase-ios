@@ -179,7 +179,6 @@ final class ExtensionSearchViewController: UIViewController {
     private func triggerSearch() {
         searchTask?.cancel()
         guard let item = animeItem else { return }
-        let query = TorrentQuery.make(from: item, episode: currentEpisode, resolution: currentResolution)
 
         results = []
         tableView.reloadData()
@@ -188,9 +187,14 @@ final class ExtensionSearchViewController: UIViewController {
         loadingIndicator.startAnimating()
         isSearching = true
 
+        let episode = currentEpisode
+        let resolution = currentResolution
+
         searchTask = Task { @MainActor in
             do {
-                let found = try await ExtensionService.shared.search(query: query)
+                // Use the high-level search(for:episode:resolution:) which fetches
+                // AniDB IDs from api.ani.zip — matches Hayase's getResultsFromExtensions.
+                let found = try await ExtensionService.shared.search(for: item, episode: episode, resolution: resolution)
                 guard !Task.isCancelled else { return }
                 self.results = found
                 self.tableView.reloadData()
