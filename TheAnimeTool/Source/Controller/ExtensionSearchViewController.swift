@@ -182,43 +182,45 @@ final class ExtensionSearchViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        bannerGradientLayer?.frame = bannerImageView?.bounds ?? .zero
+        // bannerImageView fills its parent bannerView (160pt, full width).
+        // The gradient must match the image view's bounds, updated each layout pass.
+        if let iv = bannerImageView { bannerGradientLayer?.frame = iv.bounds }
     }
 
-    // MARK: - Setup: header (mirrors SearchModal.svelte layout exactly)
-    // Layout top-to-bottom:
-    //   [144pt banner: cover image @ 40% opacity + gradient fade to black]
-    //   [Anime title — text-2xl font-bold, truncated]
-    //   [Filter textfield with magnifying glass icon]
-    //   [Episode field  |  Resolution button] (equal halves)
-    //   [Auto Select Torrent button — full width, accent blue]
-
     private func setupHeader() {
-        let header = UIView()
-        self.headerView = header
-        header.backgroundColor = UIColor(white: 0.04, alpha: 1)
-        header.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(header)
+        // ── Root cause of previous banner-not-showing bug: ──────────────────────────────
+        // A single headerView with translatesAutoresizingMaskIntoConstraints=false whose
+        // height was determined only by inner-constraint chains can silently collapse to
+        // height 0 when Auto Layout can't resolve the circular dependency.
+        // Fix: TWO separate views, each with an explicit heightAnchor constant.
+        //   bannerView  → 160pt (always visible, never 0)
+        //   controlsView → 156pt (12+38+10+34+10+40+12)
+        // tableView.top = controlsView.bottom → always correct.
+        // ─────────────────────────────────────────────────────────────────────────────────
 
-        // ── Banner image — same method as AnimeInfoHeaderView:
-        // Full opacity, CAGradientLayer on the banner fades clear→black/0.9 top→bottom.
-        // Content overlaps the banner from below (like detail page contentStack -30pt overlap).
+        // ── 1. BANNER VIEW — fixed 160pt, sticks at top ──────────────────────────────
+        let bannerView = UIView()
+        bannerView.clipsToBounds = true
+        bannerView.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        bannerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bannerView)
+
         bannerImageView = UIImageView()
         bannerImageView.contentMode = .scaleAspectFill
         bannerImageView.clipsToBounds = true
-        bannerImageView.backgroundColor = UIColor(white: 0.08, alpha: 1)
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(bannerImageView)
+        bannerView.addSubview(bannerImageView)
 
-        // Gradient: clear at top → black/0.9 at bottom (matches AnimeInfoHeaderView approach)
+        // Gradient: clear at top → black at bottom (same as AnimeInfoHeaderView)
         bannerGradientLayer = CAGradientLayer()
-        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.9).cgColor]
-        bannerGradientLayer.locations = [0.0, 1.0]
+        bannerGradientLayer.colors = [UIColor.clear.cgColor,
+                                       UIColor.black.withAlphaComponent(0.85).cgColor]
+        bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
-        // Banner: AniList bannerImage first → coverURL fallback.
-        let imageURLStr = animeItem?.bannerURL ?? animeItem?.coverURL
-        if let urlStr = imageURLStr, let url = URL(string: urlStr) {
+        // Load banner image (AniList bannerImage → coverURL fallback)
+        if let urlStr = animeItem?.bannerURL ?? animeItem?.coverURL,
+           let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 if let data, let img = UIImage(data: data) {
                     DispatchQueue.main.async { self?.bannerImageView.image = img }
@@ -226,11 +228,7 @@ final class ExtensionSearchViewController: UIViewController {
             }.resume()
         }
 
-        // ── Compute accent colour from AniList coverImage.color (mirrors --custom in Hayase)
-        let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
-        let contrastColor = Self.luminanceContrastColor(for: accentColor)
-
-        // ── Anime title (mirrors <div class='text-2xl font-bold'>)
+        // Anime title — bottom-left of banner (mirrors Hayase text-2xl font-bold)
         animeTitleLabel = UILabel()
         animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Torrent Search"
         animeTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -238,9 +236,38 @@ final class ExtensionSearchViewController: UIViewController {
         animeTitleLabel.numberOfLines = 1
         animeTitleLabel.lineBreakMode = .byTruncatingTail
         animeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(animeTitleLabel)
+        bannerView.addSubview(animeTitleLabel)
 
-        // ── Filter field (mirrors <Input placeholder="Filter by text..." /> with MagnifyingGlass icon)
+        NSLayoutConstraint.activate([
+            // bannerView: EXPLICIT height — never collapses to 0
+            bannerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            bannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bannerView.heightAnchor.constraint(equalToConstant: 160),
+
+            // bannerImageView fills the bannerView entirely
+            bannerImageView.topAnchor.constraint(equalTo: bannerView.topAnchor),
+            bannerImageView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
+            bannerImageView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
+            bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
+
+            // Title: 14pt above the bottom of the banner, 16pt insets
+            animeTitleLabel.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor, constant: -14),
+            animeTitleLabel.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 16),
+            animeTitleLabel.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor, constant: -16),
+        ])
+
+        // ── 2. CONTROLS VIEW — EXPLICIT height 156pt, pinned to bannerView.bottom ───
+        // height = 12 (top) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 12 (bottom) = 156
+        let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
+        let contrastColor = Self.luminanceContrastColor(for: accentColor)
+
+        let controlsView = UIView()
+        controlsView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        controlsView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(controlsView)
+
+        // Filter field
         filterField = UITextField()
         filterField.placeholder = "Filter by text, or paste a magnet / torrent link"
         filterField.attributedPlaceholder = NSAttributedString(
@@ -263,9 +290,9 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.delegate = self
         filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
         filterField.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(filterField)
+        controlsView.addSubview(filterField)
 
-        // ── Episode row (mirrors <div>Episode <Input type='number' /></div>)
+        // Episode field
         let epLabel = UILabel()
         epLabel.text = "Episode"
         epLabel.textColor = .white
@@ -282,27 +309,22 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.layer.cornerRadius = 8
         episodeField.delegate = self
         episodeField.translatesAutoresizingMaskIntoConstraints = false
-        let toolbar = UIToolbar()
-        toolbar.sizeToFit()
+        let toolbar = UIToolbar(); toolbar.sizeToFit()
         let decBtn = UIBarButtonItem(title: "−", style: .plain, target: self, action: #selector(decrementEpisode))
         let incBtn = UIBarButtonItem(title: "+", style: .plain, target: self, action: #selector(incrementEpisode))
         decBtn.tintColor = .white; incBtn.tintColor = .white
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         let done = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(episodeFieldDone))
         toolbar.items = [decBtn, incBtn, flex, done]
-        toolbar.barStyle = .black
-        toolbar.tintColor = .white
+        toolbar.barStyle = .black; toolbar.tintColor = .white
         episodeField.inputAccessoryView = toolbar
 
         let epStack = UIStackView(arrangedSubviews: [epLabel, episodeField])
-        epStack.axis = .horizontal
-        epStack.spacing = 8
-        epStack.alignment = .center
+        epStack.axis = .horizontal; epStack.spacing = 8; epStack.alignment = .center
 
-        // ── Resolution row (mirrors <div>Resolution <SingleCombo /></div>)
+        // Resolution button
         let resLabel = UILabel()
-        resLabel.text = "Resolution"
-        resLabel.textColor = .white
+        resLabel.text = "Resolution"; resLabel.textColor = .white
         resLabel.font = .systemFont(ofSize: 14)
 
         resolutionButton = UIButton(type: .system)
@@ -313,23 +335,17 @@ final class ExtensionSearchViewController: UIViewController {
         resolutionButton.layer.cornerRadius = 8
         resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         resolutionButton.addTarget(self, action: #selector(resolutionTapped), for: .touchUpInside)
-        resolutionButton.translatesAutoresizingMaskIntoConstraints = false
 
         let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionButton])
-        resStack.axis = .horizontal
-        resStack.spacing = 8
-        resStack.alignment = .center
+        resStack.axis = .horizontal; resStack.spacing = 8; resStack.alignment = .center
 
-        // Episode + Resolution in equal-halves horizontal stack
         let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
-        controlsRow.axis = .horizontal
-        controlsRow.distribution = .fillEqually
-        controlsRow.spacing = 16
-        controlsRow.alignment = .center
+        controlsRow.axis = .horizontal; controlsRow.distribution = .fillEqually
+        controlsRow.spacing = 16; controlsRow.alignment = .center
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(controlsRow)
+        controlsView.addSubview(controlsRow)
 
-        // ── Auto Select button (bg-custom = anime accent color)
+        // Auto Select button
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(contrastColor, for: .normal)
@@ -338,49 +354,36 @@ final class ExtensionSearchViewController: UIViewController {
         autoSelectButton.layer.cornerRadius = 8
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(autoSelectButton)
-
-        // Banner behind content
-        header.sendSubviewToBack(bannerImageView)
+        controlsView.addSubview(autoSelectButton)
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // controlsView: pinned to bannerView.bottom, EXPLICIT height 156pt
+            controlsView.topAnchor.constraint(equalTo: bannerView.bottomAnchor),
+            controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            controlsView.heightAnchor.constraint(equalToConstant: 156),
 
-            // Banner: fills top, 144pt tall, content flows below it (no overlap)
-            bannerImageView.topAnchor.constraint(equalTo: header.topAnchor),
-            bannerImageView.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            bannerImageView.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            bannerImageView.heightAnchor.constraint(equalToConstant: 144),
-
-            // Title overlaps banner from below — same as AnimeInfoHeaderView (constant: -30)
-            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -40),
-            animeTitleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            animeTitleLabel.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
-
-            // Filter field below title
-            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 12),
-            filterField.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            filterField.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            filterField.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 12),
+            filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
+            filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
 
-            // Controls row below filter
-            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 12),
-            controlsRow.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            controlsRow.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 10),
+            controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
+            controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             controlsRow.heightAnchor.constraint(equalToConstant: 34),
 
             episodeField.widthAnchor.constraint(equalToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
-            // Auto Select below controls
-            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 12),
-            autoSelectButton.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            autoSelectButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
+            autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
+            autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
-            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12),
         ])
+
+        // headerView is the bottom edge that tableView.topAnchor pins to
+        self.headerView = controlsView
     }
 
     // MARK: - Colour helpers (mirror Hayase's colors() utility + text-contrast logic)
