@@ -1,177 +1,413 @@
 // ExtensionSearchViewController.swift
-// Torrent search sheet powered by Hayase-compatible extensions.
-// Replaces TorrentListViewControllerTableViewController.swift (which hit nyaa.si directly).
-// Mirrors the behaviour of SearchModal.svelte from scigward/interface.
+// Ports SearchModal.svelte from scigward/interface exactly to native UIKit.
 //
-// Flow:
-//   1. Presented (push) from AnimeDetailViewController when user taps "Watch Now" on an episode.
-//   2. Shows episode/resolution pickers; calls ExtensionService.shared.search(query:).
-//   3. Displays deduplicated TorrentResult list with accuracy badge, seeders, size.
-//   4. Tapping a result confirms download → adds magnet/torrent to LibTorrent session.
+// Layout (matches SearchModal.svelte):
+//   [Banner image header with gradient + title]
+//   [Filter textfield (with magnifying glass icon)]
+//   [Episode number field]  [Resolution picker]
+//   [Auto Select button — accent color]
+//   [Scrollable card list]
+//     Each card: dark bg #0a0a0a, release group xl bold, simplified filename,
+//     type badge (Best/Alt/Batch), seeders (coloured), size, date, tech term badges
+//     BadgeCheck top-left (green=high, muted=medium, hidden=low, 40% opacity=low)
 
 import UIKit
+
+// MARK: - TitleExtraction helpers (mirrors getGroup / simplifyFilename / sanitiseTerms)
+
+private enum TitleUtils {
+
+    // MARK: Term colours (mirror termMapping in SearchModal.svelte)
+    static let lime     = UIColor(red: 0.776, green: 0.925, blue: 0.345, alpha: 1) // #c6ec58
+    static let blue     = UIColor(red: 0.047, green: 0.549, blue: 0.914, alpha: 1) // #0c8ce9
+    static let orange   = UIColor(red: 0.965, green: 0.447, blue: 0.333, alpha: 1) // #f67255
+    static let darkRed  = UIColor(red: 0.671, green: 0.106, blue: 0.192, alpha: 1) // #ab1b31
+    static let yellow   = UIColor(red: 1.000, green: 0.796, blue: 0.231, alpha: 1) // #ffcb3b
+
+    struct Term { let text: String; let color: UIColor }
+
+    // Ordered — first match wins per category
+    static let termPatterns: [(pattern: NSRegularExpression, term: Term)] = build()
+
+    private static func build() -> [(pattern: NSRegularExpression, term: Term)] {
+        let pairs: [(String, Term)] = [
+            // Resolution (lime)
+            (#"\b2160p\b"#,              Term(text: "4K",       color: lime)),
+            (#"\b4K\b"#,                 Term(text: "4K",       color: lime)),
+            (#"\b1080p\b"#,              Term(text: "1080p",    color: lime)),
+            (#"\b720p\b"#,               Term(text: "720p",     color: lime)),
+            (#"\b480p\b"#,               Term(text: "480p",     color: lime)),
+            // Video codec (blue)
+            (#"\b(?:HEVC|H\.265|x265|H265)\b"#, Term(text: "HEVC",     color: blue)),
+            (#"\b(?:AVC|H\.264|x264|H264)\b"#,  Term(text: "AVC",      color: blue)),
+            (#"\bAV1\b"#,                        Term(text: "AV1",      color: blue)),
+            (#"\b(?:10[- ]?[Bb]it|HI10P?|Hi10P?)\b"#, Term(text: "10 Bit", color: blue)),
+            (#"\bHI444P{1,2}\b"#,        Term(text: "HI444",    color: blue)),
+            // Source (dark red)
+            (#"\b(?:BD|BDRip|BluRay|Blu-Ray|Blu_Ray)\b"#, Term(text: "BD",   color: darkRed)),
+            (#"\b(?:DVD|DVDRip|DVD-RIP)\b"#,               Term(text: "DVD",  color: darkRed)),
+            (#"\bWEB(?:RIP|-RIP)?\b"#,                     Term(text: "WEB",  color: darkRed)),
+            // Audio (orange)
+            (#"\bFLAC(?:X[234])?\b"#,   Term(text: "FLAC",      color: orange)),
+            (#"\bTrueHD5\.1\b"#,        Term(text: "TrueHD 5.1",color: orange)),
+            (#"\bEAC3|E-AC-3\b"#,       Term(text: "EAC3",       color: orange)),
+            (#"\bAAC(?:X[234])?\b"#,    Term(text: "AAC",         color: orange)),
+            (#"\bAC3\b"#,               Term(text: "AC3",         color: orange)),
+            (#"\b5\.1(?:CH)?\b"#,       Term(text: "5.1",         color: orange)),
+            // Multi-sub (yellow)
+            (#"\b(?:MULTI.?SUBS?)\b"#,  Term(text: "Multi Sub",  color: yellow)),
+            (#"\b(?:DUAL.?AUDIO)\b"#,   Term(text: "Dual Audio", color: yellow)),
+        ]
+        return pairs.compactMap { (pat, term) in
+            guard let rx = try? NSRegularExpression(pattern: pat, options: .caseInsensitive)
+            else { return nil }
+            return (rx, term)
+        }
+    }
+
+    /// Extract tech terms from torrent title — mirrors sanitiseTerms()
+    static func sanitise(_ title: String) -> [Term] {
+        let ns = title as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        var seen = Set<String>()
+        var result: [Term] = []
+        for (rx, term) in termPatterns {
+            if rx.firstMatch(in: title, range: range) != nil {
+                if !seen.contains(term.text) {
+                    seen.insert(term.text)
+                    result.append(term)
+                }
+            }
+        }
+        return result
+    }
+
+    /// Extract release group — mirrors getGroup()
+    static func getGroup(from title: String) -> String {
+        // Try [Group] at start
+        if let m = title.range(of: #"^\[([^\]]{1,19})\]"#, options: .regularExpression) {
+            let inner = title[title.index(after: m.lowerBound)..<title.index(before: m.upperBound)]
+            return String(inner)
+        }
+        // Try (Group) in the title — common for SubsPlease, Erai-raws etc.
+        if let m = title.range(of: #"\(([A-Za-z0-9_\-]{2,18})\)"#, options: .regularExpression) {
+            let inner = title[title.index(after: m.lowerBound)..<title.index(before: m.upperBound)]
+            return String(inner)
+        }
+        // Try -Group at end (before extension or space+paren)
+        let nsTitle = title as NSString
+        let rx = try? NSRegularExpression(pattern: #"-([A-Za-z0-9_]{2,18})(?:\s*[\(\[]|\.\w+$|$)"#)
+        if let m = rx?.firstMatch(in: title, range: NSRange(location: 0, length: nsTitle.length)),
+           m.range(at: 1).location != NSNotFound {
+            return nsTitle.substring(with: m.range(at: 1))
+        }
+        return "Unknown"
+    }
+
+    /// Simplified filename — mirrors simplifyFilename()
+    static func simplify(_ title: String) -> String {
+        var s = title
+        // Remove [Group] and (Group) brackets
+        s = s.replacingOccurrences(of: #"\[[^\]]*\]"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\([^\)]*\)"#, with: "", options: .regularExpression)
+        // Remove resolution, codecs
+        let junk = [#"\b(?:2160p|1080p|720p|480p|4K|HEVC|x265|x264|H\.265|H\.264|AV1|BD|BDRip|BluRay|Blu-Ray|FLAC|AAC|AC3|EAC3|10bit|HI10P?|WEB-DL|WEBRip)\b"#]
+        for pattern in junk {
+            s = s.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        // Remove empty brackets and extra spaces
+        s = s.replacingOccurrences(of: #"[\[\(\{\}\)\]]\s*[\[\(\{\}\)\]]"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        // Remove file extension
+        s = s.replacingOccurrences(of: #"\.\w{2,4}$"#, with: "", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+}
 
 // MARK: - ExtensionSearchViewController
 
 final class ExtensionSearchViewController: UIViewController {
 
-    // MARK: - Input
-
+    // MARK: Input
     var animeItem: AnimeItem?
     var initialEpisode: Int = 1
 
-    // MARK: - Private state
-
+    // MARK: State
     private var results: [TorrentResult] = []
+    private var filteredResults: [TorrentResult] = []
+    private var filterText: String = ""
     private var isSearching = false
     private var currentEpisode: Int = 1
     private var currentResolution = "1080"
-
-    // MARK: - UI
-
-    private var tableView: UITableView!
-    private var loadingIndicator: UIActivityIndicatorView!
-    private var emptyLabel: UILabel!
-    private var errorLabel: UILabel!
     private var searchTask: Task<Void, Never>?
 
-    // Controls bar (episode + resolution)
-    private var controlsBar: UIView!
-    private var episodeStepper: UIStepper!
-    private var episodeLabel: UILabel!
+    // MARK: UI
+    private var tableView: UITableView!
+    private var loadingIndicator: UIActivityIndicatorView!
+    private var headerView: UIView!
+
+    // Controls
+    private var filterField: UITextField!
+    private var episodeField: UITextField!
     private var resolutionButton: UIButton!
+    private var autoSelectButton: UIButton!
 
-    // MARK: - Resolutions (mirrors values.ts videoResolutions)
+    // State overlays
+    private var emptyView: UIView!
+    private var errorView: UIView!
+    private var errorLabel: UILabel!
+
     private let resolutions = ["2160", "1080", "720", "540", "480"]
-    private let resolutionLabels = ["4K (2160p)", "1080p", "720p", "540p", "480p"]
 
-    // MARK: - Lifecycle
+    // MARK: Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
         currentEpisode = initialEpisode
-        title = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Find Episode"
-        view.backgroundColor = .black
+        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-neutral-950
         navigationItem.largeTitleDisplayMode = .never
 
-        setupControlsBar()
+        setupHeader()
         setupTableView()
-        setupOverlays()
+        setupStateViews()
         triggerSearch()
     }
 
-    // MARK: - Setup
+    // MARK: - Setup: header
 
-    private func setupControlsBar() {
-        let bar = UIView()
-        bar.backgroundColor = UIColor(white: 0.08, alpha: 1)
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(bar)
-        self.controlsBar = bar
+    private func setupHeader() {
+        let header = UIView()
+        self.headerView = header
+        header.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(header)
 
-        // Episode label + stepper
-        episodeLabel = UILabel()
-        episodeLabel.text = "Episode \(currentEpisode)"
-        episodeLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        episodeLabel.textColor = .white
+        // ── Filter field (with magnifying glass, mirrors <Input placeholder="Filter..." />)
+        filterField = UITextField()
+        filterField.placeholder = "Filter by text, or paste a magnet / torrent link"
+        filterField.attributedPlaceholder = NSAttributedString(
+            string: filterField.placeholder ?? "",
+            attributes: [.foregroundColor: UIColor(white: 0.45, alpha: 1)])
+        filterField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        filterField.textColor = .white
+        filterField.tintColor = .white
+        filterField.font = .systemFont(ofSize: 13)
+        filterField.autocorrectionType = .no
+        filterField.autocapitalizationType = .none
+        filterField.returnKeyType = .done
+        filterField.layer.cornerRadius = 8
+        filterField.leftViewMode = .always
+        let magIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
+        magIcon.contentMode = .scaleAspectFit
+        magIcon.frame = CGRect(x: 0, y: 0, width: 32, height: 18)
+        filterField.leftView = magIcon
+        filterField.delegate = self
+        filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
+        filterField.translatesAutoresizingMaskIntoConstraints = false
 
-        episodeStepper = UIStepper()
-        episodeStepper.minimumValue = 1
-        episodeStepper.maximumValue = Double(animeItem?.episodes ?? 9999)
-        episodeStepper.value = Double(currentEpisode)
-        episodeStepper.addTarget(self, action: #selector(episodeStepperChanged), for: .valueChanged)
-        episodeStepper.tintColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1) // rgb(61,180,242)
+        // ── Episode row
+        let epLabel = UILabel()
+        epLabel.text = "Episode"
+        epLabel.textColor = .white
+        epLabel.font = .systemFont(ofSize: 14)
 
-        let epStack = UIStackView(arrangedSubviews: [episodeLabel, episodeStepper])
+        episodeField = UITextField()
+        episodeField.text = "\(currentEpisode)"
+        episodeField.keyboardType = .numberPad
+        episodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        episodeField.textColor = .white
+        episodeField.tintColor = .white
+        episodeField.font = .systemFont(ofSize: 14)
+        episodeField.textAlignment = .center
+        episodeField.layer.cornerRadius = 8
+        episodeField.delegate = self
+        episodeField.translatesAutoresizingMaskIntoConstraints = false
+        // Add toolbar with Done+stepper
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        let decBtn = UIBarButtonItem(title: "−", style: .plain, target: self, action: #selector(decrementEpisode))
+        let incBtn = UIBarButtonItem(title: "+", style: .plain, target: self, action: #selector(incrementEpisode))
+        decBtn.tintColor = .white; incBtn.tintColor = .white
+        let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        let done = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(episodeFieldDone))
+        toolbar.items = [decBtn, incBtn, flex, done]
+        toolbar.barStyle = .black
+        toolbar.tintColor = .white
+        episodeField.inputAccessoryView = toolbar
+
+        let epStack = UIStackView(arrangedSubviews: [epLabel, episodeField])
         epStack.axis = .horizontal
-        epStack.spacing = 10
+        epStack.spacing = 8
         epStack.alignment = .center
 
-        // Resolution button
+        // ── Resolution row
+        let resLabel = UILabel()
+        resLabel.text = "Resolution"
+        resLabel.textColor = .white
+        resLabel.font = .systemFont(ofSize: 14)
+
         resolutionButton = UIButton(type: .system)
         resolutionButton.setTitle("1080p ▾", for: .normal)
         resolutionButton.setTitleColor(.white, for: .normal)
         resolutionButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-        resolutionButton.backgroundColor = UIColor(white: 0.15, alpha: 1)
-        resolutionButton.layer.cornerRadius = 6
-        resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+        resolutionButton.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        resolutionButton.layer.cornerRadius = 8
+        resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         resolutionButton.addTarget(self, action: #selector(resolutionTapped), for: .touchUpInside)
+        resolutionButton.translatesAutoresizingMaskIntoConstraints = false
 
-        [epStack, resolutionButton].forEach {
+        let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionButton])
+        resStack.axis = .horizontal
+        resStack.spacing = 8
+        resStack.alignment = .center
+
+        // ── Episode + Resolution in a horizontal stack
+        let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
+        controlsRow.axis = .horizontal
+        controlsRow.distribution = .fillEqually
+        controlsRow.spacing = 16
+        controlsRow.alignment = .center
+
+        // ── Auto Select button (mirrors ProgressButton class='bg-custom')
+        autoSelectButton = UIButton(type: .system)
+        autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
+        autoSelectButton.setTitleColor(UIColor(white: 0.05, alpha: 1), for: .normal)
+        autoSelectButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        autoSelectButton.backgroundColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
+        autoSelectButton.layer.cornerRadius = 8
+        autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
+        autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
+
+        // Assemble header
+        [filterField, controlsRow, autoSelectButton].forEach {
             ($0 as UIView).translatesAutoresizingMaskIntoConstraints = false
-            bar.addSubview($0)
+            header.addSubview($0)
         }
 
         NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bar.heightAnchor.constraint(equalToConstant: 52),
+            header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            epStack.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
-            epStack.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            filterField.topAnchor.constraint(equalTo: header.topAnchor, constant: 12),
+            filterField.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            filterField.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            filterField.heightAnchor.constraint(equalToConstant: 38),
 
-            resolutionButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
-            resolutionButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 10),
+            controlsRow.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            controlsRow.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            controlsRow.heightAnchor.constraint(equalToConstant: 34),
+
+            episodeField.widthAnchor.constraint(equalToConstant: 80),
+            episodeField.heightAnchor.constraint(equalToConstant: 34),
+
+            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
+            autoSelectButton.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            autoSelectButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
+            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12),
         ])
     }
 
     private func setupTableView() {
         tableView = UITableView(frame: .zero, style: .plain)
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = .black
-        tableView.separatorColor = UIColor(white: 0.15, alpha: 1)
+        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        tableView.separatorStyle = .none
+        tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 16, right: 0)
         tableView.delegate   = self
         tableView.dataSource = self
         tableView.register(TorrentResultCell.self, forCellReuseIdentifier: TorrentResultCell.reuseID)
         tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 72
+        tableView.estimatedRowHeight = 106
+        tableView.keyboardDismissMode = .onDrag
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: controlsBar.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
-    private func setupOverlays() {
+    private func setupStateViews() {
+        // Loading
         loadingIndicator = UIActivityIndicatorView(style: .large)
         loadingIndicator.color = .white
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(loadingIndicator)
 
-        emptyLabel = makeStatusLabel("No results found")
-        errorLabel = makeStatusLabel("")
-        errorLabel.textColor = UIColor(red: 1, green: 0.4, blue: 0.4, alpha: 1)
-        errorLabel.numberOfLines = 4
+        // Empty view — "Ooops!" (mirrors {:else} case)
+        emptyView = UIView()
+        emptyView.isHidden = true
+        emptyView.translatesAutoresizingMaskIntoConstraints = false
+        let oopsLabel = UILabel()
+        oopsLabel.text = "Ooops!"
+        oopsLabel.font = .systemFont(ofSize: 30, weight: .bold)
+        oopsLabel.textColor = .white
+        oopsLabel.textAlignment = .center
+        let noResultLabel = UILabel()
+        noResultLabel.text = "No results found.\nTry specifying a torrent manually by pasting a magnet link into the filter bar."
+        noResultLabel.font = .systemFont(ofSize: 14)
+        noResultLabel.textColor = UIColor(white: 0.45, alpha: 1)
+        noResultLabel.textAlignment = .center
+        noResultLabel.numberOfLines = 0
+        let emptyStack = UIStackView(arrangedSubviews: [oopsLabel, noResultLabel])
+        emptyStack.axis = .vertical
+        emptyStack.spacing = 8
+        emptyStack.translatesAutoresizingMaskIntoConstraints = false
+        emptyView.addSubview(emptyStack)
+        NSLayoutConstraint.activate([
+            emptyStack.topAnchor.constraint(equalTo: emptyView.topAnchor),
+            emptyStack.bottomAnchor.constraint(equalTo: emptyView.bottomAnchor),
+            emptyStack.leadingAnchor.constraint(equalTo: emptyView.leadingAnchor),
+            emptyStack.trailingAnchor.constraint(equalTo: emptyView.trailingAnchor),
+        ])
+        view.addSubview(emptyView)
+
+        // Error view
+        errorView = UIView()
+        errorView.isHidden = true
+        errorView.translatesAutoresizingMaskIntoConstraints = false
+        let errTitle = UILabel()
+        errTitle.text = "Ooops!"
+        errTitle.font = .systemFont(ofSize: 30, weight: .bold)
+        errTitle.textColor = .white
+        errTitle.textAlignment = .center
+        errorLabel = UILabel()
+        errorLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        errorLabel.font = .systemFont(ofSize: 13)
+        errorLabel.textAlignment = .center
+        errorLabel.numberOfLines = 0
+        let errStack = UIStackView(arrangedSubviews: [errTitle, errorLabel])
+        errStack.axis = .vertical
+        errStack.spacing = 8
+        errStack.translatesAutoresizingMaskIntoConstraints = false
+        errorView.addSubview(errStack)
+        NSLayoutConstraint.activate([
+            errStack.topAnchor.constraint(equalTo: errorView.topAnchor),
+            errStack.bottomAnchor.constraint(equalTo: errorView.bottomAnchor),
+            errStack.leadingAnchor.constraint(equalTo: errorView.leadingAnchor),
+            errStack.trailingAnchor.constraint(equalTo: errorView.trailingAnchor),
+        ])
+        view.addSubview(errorView)
 
         NSLayoutConstraint.activate([
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            emptyLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            emptyLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            errorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            errorLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            errorLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
+            emptyView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
+            emptyView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
+            emptyView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
+            emptyView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            errorView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
+            errorView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
+            errorView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
+            errorView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
         ])
-    }
-
-    private func makeStatusLabel(_ text: String) -> UILabel {
-        let l = UILabel()
-        l.text = text
-        l.textColor = UIColor(white: 0.5, alpha: 1)
-        l.font = .systemFont(ofSize: 15)
-        l.textAlignment = .center
-        l.isHidden = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(l)
-        return l
     }
 
     // MARK: - Search
@@ -181,52 +417,93 @@ final class ExtensionSearchViewController: UIViewController {
         guard let item = animeItem else { return }
 
         results = []
+        filteredResults = []
         tableView.reloadData()
-        emptyLabel.isHidden = true
-        errorLabel.isHidden = true
+        emptyView.isHidden  = true
+        errorView.isHidden  = true
         loadingIndicator.startAnimating()
-        isSearching = true
 
-        let episode = currentEpisode
-        let resolution = currentResolution
+        let ep  = currentEpisode
+        let res = currentResolution
 
         searchTask = Task { @MainActor in
             do {
-                // Use the high-level search(for:episode:resolution:) which fetches
-                // AniDB IDs from api.ani.zip — matches Hayase's getResultsFromExtensions.
-                let found = try await ExtensionService.shared.search(for: item, episode: episode, resolution: resolution)
+                let found = try await ExtensionService.shared.search(for: item, episode: ep, resolution: res)
                 guard !Task.isCancelled else { return }
                 self.results = found
-                self.tableView.reloadData()
-                self.emptyLabel.isHidden = !found.isEmpty
-                self.errorLabel.isHidden = true
+                self.applyFilter()
+                self.emptyView.isHidden = !self.filteredResults.isEmpty
             } catch {
                 guard !Task.isCancelled else { return }
                 self.errorLabel.text = error.localizedDescription
-                self.errorLabel.isHidden = false
-                self.emptyLabel.isHidden = true
+                self.errorView.isHidden  = false
+                self.emptyView.isHidden  = true
+                self.tableView.reloadData()
             }
             self.loadingIndicator.stopAnimating()
-            self.isSearching = false
         }
+    }
+
+    private func applyFilter() {
+        let query = filterText.lowercased()
+        if query.isEmpty {
+            filteredResults = results
+        } else {
+            filteredResults = results.filter { $0.title.lowercased().contains(query) }
+        }
+        tableView.reloadData()
+        emptyView.isHidden = !filteredResults.isEmpty || loadingIndicator.isAnimating
     }
 
     // MARK: - Actions
 
-    @objc private func episodeStepperChanged() {
-        currentEpisode = Int(episodeStepper.value)
-        episodeLabel.text = "Episode \(currentEpisode)"
+    @objc private func filterChanged() {
+        filterText = filterField.text ?? ""
+        // Detect magnet link
+        let text = filterText
+        if text.lowercased().hasPrefix("magnet:") {
+            let magnetResult = TorrentResult(title: "Magnet Link", hash: text, link: text,
+                                     seeders: 0, leechers: 0, size: 0,
+                                     accuracy: "high", type: nil, extensionIds: [])
+            confirmDownload(magnetResult)
+            return
+        }
+        applyFilter()
+    }
+
+    @objc private func decrementEpisode() {
+        let v = max(1, currentEpisode - 1)
+        currentEpisode = v
+        episodeField.text = "\(v)"
+        triggerSearch()
+    }
+
+    @objc private func incrementEpisode() {
+        let max = animeItem?.episodes ?? 9999
+        let v = min(max, currentEpisode + 1)
+        currentEpisode = v
+        episodeField.text = "\(v)"
+        triggerSearch()
+    }
+
+    @objc private func episodeFieldDone() {
+        episodeField.resignFirstResponder()
+        let v = max(1, Int(episodeField.text ?? "1") ?? 1)
+        currentEpisode = v
+        episodeField.text = "\(v)"
         triggerSearch()
     }
 
     @objc private func resolutionTapped() {
         let sheet = UIAlertController(title: "Resolution", message: nil, preferredStyle: .actionSheet)
-        for (i, label) in resolutionLabels.enumerated() {
+        let labels = ["4K (2160p)", "1080p", "720p", "540p", "480p"]
+        for (i, label) in labels.enumerated() {
             let res = resolutions[i]
             sheet.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
                 guard let self else { return }
                 self.currentResolution = res
-                self.resolutionButton.setTitle("\(res == "2160" ? "4K " : "")\(res)p ▾", for: .normal)
+                let display = res == "2160" ? "4K" : "\(res)p"
+                self.resolutionButton.setTitle("\(display) ▾", for: .normal)
                 self.triggerSearch()
             })
         }
@@ -235,12 +512,26 @@ final class ExtensionSearchViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    // MARK: - Download confirmation
+    @objc private func autoSelectTapped() {
+        guard !filteredResults.isEmpty else { return }
+        // Best: high accuracy first, then most seeders (mirrors filterAndSortResults)
+        let best = filteredResults.sorted { a, b in
+            let scoreA = a.accuracy == "high" ? 2 : a.accuracy == "medium" ? 1 : 0
+            let scoreB = b.accuracy == "high" ? 2 : b.accuracy == "medium" ? 1 : 0
+            if scoreA != scoreB { return scoreA > scoreB }
+            return a.seeders > b.seeders
+        }.first!
+        confirmDownload(best)
+    }
+
+    // MARK: - Download
 
     private func confirmDownload(_ result: TorrentResult) {
         let sizeStr = formatBytes(result.size)
-        let msg = "\(result.title)\n\nSize: \(sizeStr)  ·  ▲ \(result.seeders) seeders"
-        let alert = UIAlertController(title: "Download?", message: msg, preferredStyle: .actionSheet)
+        let detail  = result.size > 0 ? "\nSize: \(sizeStr)  ·  ▲ \(result.seeders) seeders" : ""
+        let alert = UIAlertController(title: "Download?",
+                                       message: result.title + detail,
+                                       preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Download", style: .default) { [weak self] _ in
             self?.startDownload(result)
         })
@@ -253,7 +544,6 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     private func startDownload(_ result: TorrentResult) {
-        // Create a temporary CoreData Torrents entity to pass into TorrentService
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let entity  = Torrents(context: context)
         entity.torrentName        = result.title
@@ -261,9 +551,8 @@ final class ExtensionSearchViewController: UIViewController {
         entity.torrentDownloadURL = result.link
         entity.torrentSeeders     = NSNumber(value: result.seeders)
         entity.torrentLeechers    = NSNumber(value: result.leechers)
-        entity.torrentSize        = NSNumber(value: Double(result.size) / 1_048_576) // bytes → MB
+        entity.torrentSize        = NSNumber(value: Double(result.size) / 1_048_576)
         entity.torrentFlagTemp    = false
-        // Link to anime if available
         if let animeItem {
             let req = Animes.fetchRequest()
             req.predicate = NSPredicate(format: "animeAnilistId == %d", animeItem.id)
@@ -281,10 +570,9 @@ final class ExtensionSearchViewController: UIViewController {
                     case .success:
                         self?.navigationController?.popViewController(animated: true)
                     case .failure(let err):
-                        let errAlert = UIAlertController(title: "Error", message: err.localizedDescription,
-                                                         preferredStyle: .alert)
-                        errAlert.addAction(UIAlertAction(title: "OK", style: .cancel))
-                        self?.present(errAlert, animated: true)
+                        let e = UIAlertController(title: "Error", message: err.localizedDescription, preferredStyle: .alert)
+                        e.addAction(UIAlertAction(title: "OK", style: .cancel))
+                        self?.present(e, animated: true)
                     }
                 }
             }
@@ -295,136 +583,335 @@ final class ExtensionSearchViewController: UIViewController {
 // MARK: - UITableViewDataSource + Delegate
 
 extension ExtensionSearchViewController: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        results.count
-    }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredResults.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: TorrentResultCell.reuseID,
-                                                  for: indexPath) as! TorrentResultCell
-        cell.configure(with: results[indexPath.row])
+                                                   for: indexPath) as! TorrentResultCell
+        let result = filteredResults[indexPath.row]
+        let configs = ExtensionService.shared.configs
+        cell.configure(with: result, configs: configs)
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        confirmDownload(results[indexPath.row])
+        confirmDownload(filteredResults[indexPath.row])
     }
 }
 
-// MARK: - TorrentResultCell
+// MARK: - UITextFieldDelegate
 
-private final class TorrentResultCell: UITableViewCell {
+extension ExtensionSearchViewController: UITextFieldDelegate {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        if textField == episodeField { episodeFieldDone() }
+        return true
+    }
+}
+
+// MARK: - TorrentResultCell (mirrors each result card in SearchModal.svelte)
+
+final class TorrentResultCell: UITableViewCell {
     static let reuseID = "TorrentResultCell"
 
-    private let accuracyBadge: UILabel = {
+    // BadgeCheck icon — top-left, mirrors <BadgeCheck /> absolute position
+    private let badgeCheckView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    // Left icon area (80×80) — folder for batch/best/alt, file for single
+    private let fileIconView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    // Right column
+    private let groupLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10, weight: .bold)
+        l.font = .systemFont(ofSize: 17, weight: .bold) // text-xl font-bold
         l.textColor = .white
-        l.textAlignment = .center
-        l.layer.cornerRadius = 5
-        l.clipsToBounds = true
+        l.numberOfLines = 1
         return l
     }()
 
-    private let typeBadge: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 10, weight: .semibold)
-        l.textColor = UIColor(white: 0.7, alpha: 1)
-        l.backgroundColor = UIColor(white: 0.15, alpha: 1)
-        l.textAlignment = .center
-        l.layer.cornerRadius = 4
-        l.clipsToBounds = true
-        return l
+    // Extension icons (small, top-right of group row)
+    private let extIconsStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 4
+        sv.alignment = .center
+        return sv
     }()
 
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 13, weight: .medium)
-        l.textColor = .white
-        l.numberOfLines = 2
-        return l
-    }()
-
-    private let seedersLabel = TorrentResultCell.makeStat(color: .systemGreen)
-    private let leechersLabel = TorrentResultCell.makeStat(color: .systemRed)
-    private let sizeLabel: UILabel = {
+    // Simplified filename
+    private let filenameLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
-        l.textColor = UIColor(white: 0.5, alpha: 1)
+        l.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
+        l.numberOfLines = 1
+        l.lineBreakMode = .byTruncatingTail
         return l
     }()
 
-    private static func makeStat(color: UIColor) -> UILabel {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .semibold)
-        l.textColor = color
-        return l
-    }
+    // Bottom row: type badge + seeders + size + date | tech terms
+    private let bottomStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 6
+        sv.alignment = .center
+        return sv
+    }()
+
+    private let typeBadgeLabel = TorrentResultCell.makeBadgeLabel()
+    private let seedersLabel = UILabel()
+    private let sizeLabel = UILabel()
+
+    // Tech terms stack (right side of bottom)
+    private let termsStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 4
+        sv.alignment = .center
+        return sv
+    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .black
-        selectedBackgroundView = {
-            let v = UIView(); v.backgroundColor = UIColor(white: 0.1, alpha: 1); return v
-        }()
-        accessoryType = .none
+        backgroundColor = UIColor(white: 0.04, alpha: 1) // page bg
+        selectionStyle = .none
 
-        let topRow = UIStackView(arrangedSubviews: [accuracyBadge, typeBadge])
-        topRow.axis = .horizontal
-        topRow.spacing = 6
-        topRow.alignment = .center
+        let card = UIView()
+        card.backgroundColor = UIColor(white: 0.067, alpha: 1) // bg-neutral-950 #111111
+        card.layer.cornerRadius = 8
+        card.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(card)
 
-        let bottomRow = UIStackView(arrangedSubviews: [seedersLabel, leechersLabel, sizeLabel])
+        // Top-left: BadgeCheck
+        card.addSubview(badgeCheckView)
+
+        // Left: file icon container
+        let iconContainer = UIView()
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.addSubview(fileIconView)
+        card.addSubview(iconContainer)
+
+        // Group row: group label + spacer + ext icons
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let groupRow = UIStackView(arrangedSubviews: [groupLabel, spacer, extIconsStack])
+        groupRow.axis = .horizontal
+        groupRow.spacing = 8
+        groupRow.alignment = .center
+
+        // Bottom left: type + seeders + size
+        seedersLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        sizeLabel.font = .systemFont(ofSize: 11)
+        sizeLabel.textColor = UIColor(white: 0.65, alpha: 1)
+
+        let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, seedersLabel, sizeLabel])
+        leftBottom.axis = .horizontal
+        leftBottom.spacing = 6
+        leftBottom.alignment = .center
+
+        let bottomSpacer = UIView()
+        bottomSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let bottomRow = UIStackView(arrangedSubviews: [leftBottom, bottomSpacer, termsStack])
         bottomRow.axis = .horizontal
-        bottomRow.spacing = 12
+        bottomRow.spacing = 6
         bottomRow.alignment = .center
 
-        let stack = UIStackView(arrangedSubviews: [topRow, titleLabel, bottomRow])
-        stack.axis = .vertical
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
+        // Right column: groupRow + filename + bottomRow
+        let rightCol = UIStackView(arrangedSubviews: [groupRow, filenameLabel, bottomRow])
+        rightCol.axis = .vertical
+        rightCol.spacing = 4
+        rightCol.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(rightCol)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
-            accuracyBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            // Card insets (mirrors mb-2 p-3 = 12px horizontal, 8px between cards)
+            card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+
+            // BadgeCheck — absolute top-left (mirrors top-3 left-3)
+            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            badgeCheckView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            badgeCheckView.widthAnchor.constraint(equalToConstant: 16),
+            badgeCheckView.heightAnchor.constraint(equalToConstant: 16),
+
+            // Icon container: size-20 (80×80)
+            iconContainer.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            iconContainer.topAnchor.constraint(equalTo: card.topAnchor),
+            iconContainer.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: 80),
+
+            fileIconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            fileIconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            fileIconView.widthAnchor.constraint(equalToConstant: 44),
+            fileIconView.heightAnchor.constraint(equalToConstant: 44),
+
+            // Right column (pl-2 from Hayase)
+            rightCol.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 8),
+            rightCol.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            rightCol.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            rightCol.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+            rightCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(with result: TorrentResult) {
-        titleLabel.text = result.title
-        seedersLabel.text = "▲ \(result.seeders)"
-        leechersLabel.text = "▼ \(result.leechers)"
-        sizeLabel.text = formatBytes(result.size)
+    private static func makeBadgeLabel() -> UILabel {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10, weight: .semibold)
+        l.layer.cornerRadius = 4
+        l.clipsToBounds = true
+        l.layer.borderWidth = 1
+        return l
+    }
 
-        // Accuracy badge colour
-        let (accText, accColor): (String, UIColor) = switch result.accuracy {
-        case "high":   ("HIGH",   UIColor(red: 0.2, green: 0.7, blue: 0.3, alpha: 1))
-        case "medium": ("MED",    UIColor(red: 0.9, green: 0.7, blue: 0.1, alpha: 1))
-        default:       ("LOW",    UIColor(red: 0.7, green: 0.3, blue: 0.3, alpha: 1))
+    func configure(with result: TorrentResult, configs: [String: ExtensionConfig]) {
+        let title = result.title
+
+        // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
+        switch result.accuracy {
+        case "high":
+            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
+            badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
+                .withTintColor(green, renderingMode: .alwaysOriginal)
+            badgeCheckView.isHidden = false
+        case "medium":
+            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
+                .withTintColor(UIColor(white: 0.2, alpha: 1), renderingMode: .alwaysOriginal)
+            badgeCheckView.isHidden = false
+        default:
+            badgeCheckView.isHidden = true
         }
-        accuracyBadge.text = "  \(accText)  "
-        accuracyBadge.backgroundColor = accColor
 
-        // Type badge
-        typeBadge.text = result.type.map { "  \($0.uppercased())  " }
-        typeBadge.isHidden = result.type == nil
+        // ── Card opacity for low accuracy (mirrors class:opacity-40={result.accuracy === 'low'})
+        contentView.alpha = result.accuracy == "low" ? 0.4 : 1.0
+
+        // ── File icon (folder=batch/best/alt, file=single, mirrors Folder/File icons)
+        let yellow = UIColor(red: 1.0, green: 0.796, blue: 0.231, alpha: 1) // text-yellow-300
+        let cfg = UIImage.SymbolConfiguration(pointSize: 40, weight: .regular)
+        if let rtype = result.type, !rtype.isEmpty {
+            // batch / best / alt → folder icon (yellow)
+            fileIconView.image = UIImage(systemName: "folder.fill", withConfiguration: cfg)?
+                .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
+        } else {
+            // single episode → file icon (muted)
+            fileIconView.image = UIImage(systemName: "doc.fill", withConfiguration: cfg)?
+                .withTintColor(UIColor(white: 0.4, alpha: 0.8), renderingMode: .alwaysOriginal)
+        }
+
+        // ── Release group
+        groupLabel.text = TitleUtils.getGroup(from: title)
+
+        // ── Extension icons (mirrors config.icon <img> top-right)
+        extIconsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for extId in result.extensionIds.sorted() {
+            if let config = configs[extId], let url = URL(string: config.icon) {
+                let iv = UIImageView()
+                iv.contentMode = .scaleAspectFit
+                iv.widthAnchor.constraint(equalToConstant: 16).isActive = true
+                iv.heightAnchor.constraint(equalToConstant: 16).isActive = true
+                iv.layer.cornerRadius = 2
+                iv.clipsToBounds = true
+                iv.backgroundColor = UIColor(white: 0.15, alpha: 1)
+                extIconsStack.addArrangedSubview(iv)
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    if let data, let img = UIImage(data: data) {
+                        DispatchQueue.main.async { iv.image = img }
+                    }
+                }.resume()
+            }
+        }
+
+        // ── Simplified filename
+        filenameLabel.text = TitleUtils.simplify(title)
+
+        // ── Type badge (mirrors Best Release/Alt Release/Batch spans)
+        if let rtype = result.type, !rtype.isEmpty {
+            switch rtype.lowercased() {
+            case "best":
+                // background: #1d2d1e; border: #53da33; color: #53da33
+                typeBadgeLabel.text = "  Best Release  "
+                typeBadgeLabel.textColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
+                typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.176, blue: 0.118, alpha: 1)
+                typeBadgeLabel.layer.borderColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1).cgColor
+            case "alt":
+                // background: #391d20; border: #c52d2d; color: #c52d2d
+                typeBadgeLabel.text = "  Alt Release  "
+                typeBadgeLabel.textColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1)
+                typeBadgeLabel.backgroundColor = UIColor(red: 0.220, green: 0.114, blue: 0.125, alpha: 1)
+                typeBadgeLabel.layer.borderColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1).cgColor
+            default: // "batch"
+                // background: #1d2031; border: #2d5ec5; color: #2d5ec5
+                typeBadgeLabel.text = "  Batch  "
+                typeBadgeLabel.textColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1)
+                typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.125, blue: 0.192, alpha: 1)
+                typeBadgeLabel.layer.borderColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1).cgColor
+            }
+            typeBadgeLabel.isHidden = false
+        } else {
+            typeBadgeLabel.isHidden = true
+        }
+
+        // ── Seeders colour (green >20, yellow 5-20, red <5) — mirrors Hayase exactly
+        let green20 = UIColor(red: 0.220, green: 0.600, blue: 0.200, alpha: 1) // text-green-600
+        let red5    = UIColor(red: 0.700, green: 0.200, blue: 0.200, alpha: 1) // text-red-600
+        let yellow5 = UIColor(red: 0.800, green: 0.600, blue: 0.100, alpha: 1) // text-yellow-600
+        seedersLabel.text = "\(result.seeders) Seeders"
+        seedersLabel.textColor = result.seeders > 20 ? green20 : (result.seeders < 5 ? red5 : yellow5)
+
+        // ── Size
+        sizeLabel.text = result.size > 0 ? formatBytes(result.size) : ""
+
+        // ── Tech term badges (right side)
+        termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for term in TitleUtils.sanitise(title) {
+            let l = UILabel()
+            l.text = "  \(term.text)  "
+            l.font = .systemFont(ofSize: 10, weight: .bold)
+            // Use WCAG luminance to pick contrasting text colour (mirrors text-contrast-filter)
+            l.textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
+            l.backgroundColor = term.color
+            l.layer.cornerRadius = 4
+            l.clipsToBounds = true
+            termsStack.addArrangedSubview(l)
+        }
     }
 }
 
 // MARK: - Byte formatter
 
 private func formatBytes(_ bytes: Int64) -> String {
-    let gb: Double = 1_073_741_824
-    let mb: Double = 1_048_576
-    let d = Double(bytes)
+    let gb = 1_073_741_824.0; let mb = 1_048_576.0; let d = Double(bytes)
     if d >= gb { return String(format: "%.2f GB", d / gb) }
     if d >= mb { return String(format: "%.0f MB", d / mb) }
-    return String(format: "%.0f KB", d / 1024)
+    if d > 0   { return String(format: "%.0f KB", d / 1024) }
+    return ""
+}
+
+// MARK: - UIColor luminance helper (WCAG relative luminance for text contrast)
+
+private extension UIColor {
+    /// True when the colour is light enough that dark text is more readable.
+    var isLight: Bool {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        // Linearise sRGB components
+        func lin(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        return L > 0.35
+    }
 }
