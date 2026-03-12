@@ -2060,7 +2060,6 @@ extension AnimeDetailViewController {
             badge.textAlignment = .center
             let pad: CGFloat = 4
             badge.layoutMargins = UIEdgeInsets(top: pad, left: pad*2, bottom: pad, right: pad*2)
-            badge.isLayoutMarginsRelativeArrangement = false
             badge.translatesAutoresizingMaskIntoConstraints = false
             badgeStack.addArrangedSubview(badge)
         }
@@ -2069,6 +2068,7 @@ extension AnimeDetailViewController {
         card.addSubview(statsLabel)
         card.addSubview(footerLabel)
         card.addSubview(badgeStack)
+        statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
@@ -2082,7 +2082,6 @@ extension AnimeDetailViewController {
 
             statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
             statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal),
 
             footerLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
             footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
