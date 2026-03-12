@@ -517,8 +517,8 @@ final class ExtensionCell: UITableViewCell {
 
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
             mainRow.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
@@ -653,8 +653,8 @@ final class RepoCell: UITableViewCell {
 
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
             row.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),

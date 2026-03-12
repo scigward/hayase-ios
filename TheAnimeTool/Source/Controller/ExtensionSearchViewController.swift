@@ -146,6 +146,11 @@ final class ExtensionSearchViewController: UIViewController {
     private var loadingIndicator: UIActivityIndicatorView!
     private var headerView: UIView!
 
+    // Banner
+    private var bannerImageView: UIImageView!
+    private var bannerGradientLayer: CAGradientLayer!
+    private var animeTitleLabel: UILabel!
+
     // Controls
     private var filterField: UITextField!
     private var episodeField: UITextField!
@@ -164,8 +169,10 @@ final class ExtensionSearchViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         currentEpisode = initialEpisode
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-neutral-950
+        view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
+        // Hide nav bar title since we show the anime title in the banner area
+        navigationItem.title = nil
 
         setupHeader()
         setupTableView()
@@ -173,7 +180,18 @@ final class ExtensionSearchViewController: UIViewController {
         triggerSearch()
     }
 
-    // MARK: - Setup: header
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        bannerGradientLayer?.frame = bannerImageView?.bounds ?? .zero
+    }
+
+    // MARK: - Setup: header (mirrors SearchModal.svelte layout exactly)
+    // Layout top-to-bottom:
+    //   [144pt banner: cover image @ 40% opacity + gradient fade to black]
+    //   [Anime title — text-2xl font-bold, truncated]
+    //   [Filter textfield with magnifying glass icon]
+    //   [Episode field  |  Resolution button] (equal halves)
+    //   [Auto Select Torrent button — full width, accent blue]
 
     private func setupHeader() {
         let header = UIView()
@@ -182,7 +200,42 @@ final class ExtensionSearchViewController: UIViewController {
         header.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(header)
 
-        // ── Filter field (with magnifying glass, mirrors <Input placeholder="Filter..." />)
+        // ── Banner image (mirrors <Banner class='opacity-40' />)
+        bannerImageView = UIImageView()
+        bannerImageView.contentMode = .scaleAspectFill
+        bannerImageView.clipsToBounds = true
+        bannerImageView.alpha = 0.4 // matches opacity-40
+        bannerImageView.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        bannerImageView.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(bannerImageView)
+
+        // Gradient: transparent at top → black at bottom (mirrors bg-gradient-to-t from-black/80)
+        bannerGradientLayer = CAGradientLayer()
+        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
+        bannerGradientLayer.locations = [0.3, 1.0]
+        bannerImageView.layer.addSublayer(bannerGradientLayer)
+
+        // Load banner or cover image
+        let imageURLStr = animeItem?.bannerURL ?? animeItem?.coverURL
+        if let urlStr = imageURLStr, let url = URL(string: urlStr) {
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                if let data, let img = UIImage(data: data) {
+                    DispatchQueue.main.async { self?.bannerImageView.image = img }
+                }
+            }.resume()
+        }
+
+        // ── Anime title (mirrors <div class='text-2xl font-bold text-ellipsis text-nowrap'>{title(media)}</div>)
+        animeTitleLabel = UILabel()
+        animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Torrent Search"
+        animeTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        animeTitleLabel.textColor = .white
+        animeTitleLabel.numberOfLines = 1
+        animeTitleLabel.lineBreakMode = .byTruncatingTail
+        animeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(animeTitleLabel)
+
+        // ── Filter field (mirrors <Input placeholder="Filter by text..." /> with MagnifyingGlass icon)
         filterField = UITextField()
         filterField.placeholder = "Filter by text, or paste a magnet / torrent link"
         filterField.attributedPlaceholder = NSAttributedString(
@@ -205,8 +258,9 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.delegate = self
         filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
         filterField.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(filterField)
 
-        // ── Episode row
+        // ── Episode row (mirrors <div>Episode <Input type='number' /></div>)
         let epLabel = UILabel()
         epLabel.text = "Episode"
         epLabel.textColor = .white
@@ -223,7 +277,6 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.layer.cornerRadius = 8
         episodeField.delegate = self
         episodeField.translatesAutoresizingMaskIntoConstraints = false
-        // Add toolbar with Done+stepper
         let toolbar = UIToolbar()
         toolbar.sizeToFit()
         let decBtn = UIBarButtonItem(title: "−", style: .plain, target: self, action: #selector(decrementEpisode))
@@ -241,7 +294,7 @@ final class ExtensionSearchViewController: UIViewController {
         epStack.spacing = 8
         epStack.alignment = .center
 
-        // ── Resolution row
+        // ── Resolution row (mirrors <div>Resolution <SingleCombo /></div>)
         let resLabel = UILabel()
         resLabel.text = "Resolution"
         resLabel.textColor = .white
@@ -262,14 +315,16 @@ final class ExtensionSearchViewController: UIViewController {
         resStack.spacing = 8
         resStack.alignment = .center
 
-        // ── Episode + Resolution in a horizontal stack
+        // Episode + Resolution in equal-halves horizontal stack (mirrors justify-around flex-wrap)
         let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
         controlsRow.axis = .horizontal
         controlsRow.distribution = .fillEqually
         controlsRow.spacing = 16
         controlsRow.alignment = .center
+        controlsRow.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(controlsRow)
 
-        // ── Auto Select button (mirrors ProgressButton class='bg-custom')
+        // ── Auto Select button (mirrors <ProgressButton class='w-full font-bold bg-custom'>)
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(UIColor(white: 0.05, alpha: 1), for: .normal)
@@ -278,23 +333,31 @@ final class ExtensionSearchViewController: UIViewController {
         autoSelectButton.layer.cornerRadius = 8
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
-
-        // Assemble header
-        [filterField, controlsRow, autoSelectButton].forEach {
-            ($0 as UIView).translatesAutoresizingMaskIntoConstraints = false
-            header.addSubview($0)
-        }
+        header.addSubview(autoSelectButton)
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            filterField.topAnchor.constraint(equalTo: header.topAnchor, constant: 12),
+            // Banner: 144pt tall (max-h-36 = 144pt), full width
+            bannerImageView.topAnchor.constraint(equalTo: header.topAnchor),
+            bannerImageView.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            bannerImageView.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            bannerImageView.heightAnchor.constraint(equalToConstant: 144),
+
+            // Anime title — below banner, 16pt padding
+            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: 10),
+            animeTitleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            animeTitleLabel.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+
+            // Filter field — below title
+            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 12),
             filterField.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             filterField.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
 
+            // Episode + resolution controls row
             controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 10),
             controlsRow.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             controlsRow.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
@@ -303,6 +366,7 @@ final class ExtensionSearchViewController: UIViewController {
             episodeField.widthAnchor.constraint(equalToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
+            // Auto Select button
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
             autoSelectButton.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             autoSelectButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
@@ -686,22 +750,22 @@ final class TorrentResultCell: UITableViewCell {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // page bg
         selectionStyle = .none
 
+        // Card: bg-neutral-950 (#111111), 8px radius, mb-2 p-3
+        // Hayase px-4 sm:px-6 on the container → we use 16px card inset
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.067, alpha: 1) // bg-neutral-950 #111111
+        card.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
         card.layer.cornerRadius = 8
         card.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(card)
 
-        // Top-left: BadgeCheck
+        // BadgeCheck absolute top-left (mirrors absolute top-4 left-4)
         card.addSubview(badgeCheckView)
 
-        // Left: file icon container
-        let iconContainer = UIView()
-        iconContainer.translatesAutoresizingMaskIntoConstraints = false
-        iconContainer.addSubview(fileIconView)
-        card.addSubview(iconContainer)
+        // NOTE: Hayase shows the left Folder/File icon only on {#if $breakpoints.md} (≥768pt).
+        // iOS phones are always <768pt wide, so we hide the left icon — matching Hayase mobile.
+        // fileIconView is kept on the model for accuracy-badge toggle but not added to layout.
 
-        // Group row: group label + spacer + ext icons
+        // Group row: [groupLabel ········· extIconsStack]
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let groupRow = UIStackView(arrangedSubviews: [groupLabel, spacer, extIconsStack])
@@ -709,7 +773,7 @@ final class TorrentResultCell: UITableViewCell {
         groupRow.spacing = 8
         groupRow.alignment = .center
 
-        // Bottom left: type + seeders + size
+        // Bottom-left: type badge + seeders + size
         seedersLabel.font = .systemFont(ofSize: 11, weight: .medium)
         sizeLabel.font = .systemFont(ofSize: 11)
         sizeLabel.textColor = UIColor(white: 0.65, alpha: 1)
@@ -719,6 +783,7 @@ final class TorrentResultCell: UITableViewCell {
         leftBottom.spacing = 6
         leftBottom.alignment = .center
 
+        // Bottom-right: tech term badges
         let bottomSpacer = UIView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let bottomRow = UIStackView(arrangedSubviews: [leftBottom, bottomSpacer, termsStack])
@@ -726,43 +791,32 @@ final class TorrentResultCell: UITableViewCell {
         bottomRow.spacing = 6
         bottomRow.alignment = .center
 
-        // Right column: groupRow + filename + bottomRow
-        let rightCol = UIStackView(arrangedSubviews: [groupRow, filenameLabel, bottomRow])
-        rightCol.axis = .vertical
-        rightCol.spacing = 4
-        rightCol.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(rightCol)
+        // Content column (no left icon on mobile — matches Hayase mobile layout)
+        let contentCol = UIStackView(arrangedSubviews: [groupRow, filenameLabel, bottomRow])
+        contentCol.axis = .vertical
+        contentCol.spacing = 4
+        contentCol.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(contentCol)
 
         NSLayoutConstraint.activate([
-            // Card insets (mirrors mb-2 p-3 = 12px horizontal, 8px between cards)
+            // Card: mb-2 (4pt top/bottom gap) + px-4 (16pt side inset matching Hayase container)
             card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
-            // BadgeCheck — absolute top-left (mirrors top-3 left-3)
-            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            // BadgeCheck — absolute top-left (mirrors top-4 left-4)
+            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
             badgeCheckView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
             badgeCheckView.widthAnchor.constraint(equalToConstant: 16),
             badgeCheckView.heightAnchor.constraint(equalToConstant: 16),
 
-            // Icon container: size-20 (80×80)
-            iconContainer.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            iconContainer.topAnchor.constraint(equalTo: card.topAnchor),
-            iconContainer.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-            iconContainer.widthAnchor.constraint(equalToConstant: 80),
-
-            fileIconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            fileIconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
-            fileIconView.widthAnchor.constraint(equalToConstant: 44),
-            fileIconView.heightAnchor.constraint(equalToConstant: 44),
-
-            // Right column (pl-2 from Hayase)
-            rightCol.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 8),
-            rightCol.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            rightCol.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            rightCol.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
-            rightCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            // Content column: p-3 (12pt), pl-6 to clear the BadgeCheck (mirrors pl-6 md:pl-0)
+            contentCol.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 36),
+            contentCol.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            contentCol.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+            contentCol.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
+            contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
         ])
     }
 
