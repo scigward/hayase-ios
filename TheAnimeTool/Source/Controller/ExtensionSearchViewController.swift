@@ -222,9 +222,6 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         // Banner: AniList bannerImage first → coverURL fallback.
-        // (Hayase SearchModal uses <Banner> which on mobile uses coverImage.extraLarge,
-        //  but since iOS 18+ layout may show the banner in a wide viewport at times,
-        //  prefer the landscape bannerImage when available for best visual.)
         let imageURLStr = animeItem?.bannerURL ?? animeItem?.coverURL
         if let urlStr = imageURLStr, let url = URL(string: urlStr) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -235,13 +232,10 @@ final class ExtensionSearchViewController: UIViewController {
         }
 
         // ── Compute accent colour from AniList coverImage.color (mirrors --custom in Hayase)
-        // Hayase: style:--custom={media.coverImage?.color ?? '#fff'}
-        // bg-custom = background in the anime's dominant color; text-contrast = black or white
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
 
-        // ── Anime title (mirrors <div class='text-2xl font-bold text-ellipsis text-nowrap'>)
-        // Positioned at top+32pt (pt-8), overlapping the banner's lower portion.
+        // ── Anime title (mirrors <div class='text-2xl font-bold'>)
         animeTitleLabel = UILabel()
         animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Torrent Search"
         animeTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -331,7 +325,7 @@ final class ExtensionSearchViewController: UIViewController {
         resStack.spacing = 8
         resStack.alignment = .center
 
-        // Episode + Resolution in equal-halves horizontal stack (mirrors justify-around flex-wrap)
+        // Episode + Resolution in equal-halves horizontal stack
         let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
         controlsRow.axis = .horizontal
         controlsRow.distribution = .fillEqually
@@ -340,8 +334,7 @@ final class ExtensionSearchViewController: UIViewController {
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(controlsRow)
 
-        // ── Auto Select button (mirrors <ProgressButton class='w-full font-bold bg-custom text-contrast'>)
-        // bg-custom = anime's coverImage.color; text-contrast = black or white based on luminance
+        // ── Auto Select button (bg-custom = anime accent color)
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(contrastColor, for: .normal)
@@ -352,7 +345,7 @@ final class ExtensionSearchViewController: UIViewController {
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(autoSelectButton)
 
-        // Send banner to back so all content renders on top of it
+        // Banner behind content
         header.sendSubviewToBack(bannerImageView)
 
         NSLayoutConstraint.activate([
@@ -360,27 +353,25 @@ final class ExtensionSearchViewController: UIViewController {
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            // Banner: absolute at top-0, h=144pt (max-h-36 = 9rem = 144pt)
-            // Sent to back above — content overlaps from top+32pt onward
+            // Banner: fills top, 144pt tall, content flows below it (no overlap)
             bannerImageView.topAnchor.constraint(equalTo: header.topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: header.trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: 144),
 
-            // Content column starts at top+32pt (pt-8), overlapping the banner.
-            // The banner gradient fades to black/85 so text is readable.
-            animeTitleLabel.topAnchor.constraint(equalTo: header.topAnchor, constant: 32),
+            // Title below banner
+            animeTitleLabel.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: 12),
             animeTitleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             animeTitleLabel.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
 
-            // Filter field — space-y-4 = 16pt below title
-            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 16),
+            // Filter field below title
+            filterField.topAnchor.constraint(equalTo: animeTitleLabel.bottomAnchor, constant: 12),
             filterField.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             filterField.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
 
-            // Episode + resolution controls row — space-y-4 = 16pt below filter
-            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
+            // Controls row below filter
+            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 12),
             controlsRow.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             controlsRow.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             controlsRow.heightAnchor.constraint(equalToConstant: 34),
@@ -388,12 +379,12 @@ final class ExtensionSearchViewController: UIViewController {
             episodeField.widthAnchor.constraint(equalToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
-            // Auto Select button — space-y-4 = 16pt below controls
-            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
+            // Auto Select below controls
+            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 12),
             autoSelectButton.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
             autoSelectButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
-            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -16),
+            autoSelectButton.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12),
         ])
     }
 

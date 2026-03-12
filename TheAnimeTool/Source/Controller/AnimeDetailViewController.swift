@@ -18,6 +18,8 @@ struct AniZipEpisode {
     let imageURL: String?
     let airDate: String?
     let runtime: Int        // minutes; 0 if unknown
+    let rating: Double?     // from ani.zip "rating" field (e.g. "8.9256") — shown as ★ badge
+    let isFiller: Bool      // from ani.zip "filler" field — yellow ring + Filler badge
 }
 
 // MARK: - EpisodeCell
@@ -57,6 +59,34 @@ private final class EpisodeCell: UITableViewCell {
         l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
         l.layer.cornerRadius = 3
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+
+    // Rating badge: absolute bottom-right of thumb, ★ + rating value
+    // Mirrors Hayase EpisodesList: <Star class='text-yellow-400' />  {rating}
+    private let ratingBadge: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.98, alpha: 1)
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
+        l.layer.cornerRadius = 3
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+
+    // Filler badge: absolute bottom-right of card content, bg-yellow-400, rounded-tl
+    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 absolute bottom-0 right-0'>Filler</div>
+    private let fillerBadge: UILabel = {
+        let l = UILabel()
+        l.text = "  Filler  "
+        l.font = .systemFont(ofSize: 9.6, weight: .bold)
+        l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
+        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
+        l.layer.cornerRadius = 4
+        l.layer.maskedCorners = [.layerMinXMinYCorner] // rounded-tl only
         l.clipsToBounds = true
         l.isHidden = true
         return l
@@ -123,10 +153,12 @@ private final class EpisodeCell: UITableViewCell {
         cardView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardView)
 
-        [thumbImageView, runtimeBadge].forEach {
+        [thumbImageView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             cardView.addSubview($0)
         }
+        fillerBadge.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(fillerBadge)
 
         // Progress bar: thin 2pt line
         progressBar.translatesAutoresizingMaskIntoConstraints = false
@@ -165,6 +197,10 @@ private final class EpisodeCell: UITableViewCell {
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
+            // Rating badge: bottom-right of thumb (Hayase: absolute bottom-1 right-1)
+            ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
+            ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
+
             // Text stack: right of thumbnail, with 16pt padding
             textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -8),
@@ -173,6 +209,10 @@ private final class EpisodeCell: UITableViewCell {
 
             // Progress bar height: h-0.5 = 2pt
             progressBar.heightAnchor.constraint(equalToConstant: 2),
+
+            // Filler badge: absolute bottom-right of card (rounded-tl only — set via maskedCorners)
+            fillerBadge.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+            fillerBadge.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
         ])
     }
 
@@ -205,6 +245,36 @@ private final class EpisodeCell: UITableViewCell {
             runtimeBadge.isHidden = false
         } else {
             runtimeBadge.isHidden = true
+        }
+
+        // Rating badge: ★ icon (yellow) + rating value — Hayase EpisodesList.svelte
+        if let rating = episode.rating {
+            let ratingStr = String(format: "%.2f", rating)
+            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 9.6)])
+            padded.append(NSAttributedString(string: "★ ", attributes: [
+                .foregroundColor: UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), // yellow-400
+                .font: UIFont.systemFont(ofSize: 9.6)
+            ]))
+            padded.append(NSAttributedString(string: "\(ratingStr) ", attributes: [
+                .foregroundColor: UIColor(white: 0.98, alpha: 1),
+                .font: UIFont.systemFont(ofSize: 9.6)
+            ]))
+            ratingBadge.attributedText = padded
+            ratingBadge.isHidden = false
+        } else {
+            ratingBadge.isHidden = true
+        }
+
+        // Filler: yellow ring (ring-yellow-400 ring-1) + "Filler" badge
+        // Mirrors Hayase: filler && '!ring-yellow-400 ring-1' on card + <div class='rounded-tl bg-yellow-400'>Filler</div>
+        if episode.isFiller {
+            cardView.layer.borderWidth = 1
+            cardView.layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor // yellow-400
+            fillerBadge.isHidden = false
+        } else {
+            cardView.layer.borderWidth = 0
+            cardView.layer.borderColor = UIColor.clear.cgColor
+            fillerBadge.isHidden = true
         }
 
         currentImageURL = episode.imageURL
@@ -245,6 +315,10 @@ private final class EpisodeCell: UITableViewCell {
         overviewLabel.text = nil
         metaLabel.text = nil
         runtimeBadge.isHidden = true
+        ratingBadge.isHidden = true
+        fillerBadge.isHidden = true
+        cardView.layer.borderWidth = 0
+        cardView.layer.borderColor = UIColor.clear.cgColor
         progressBar.isHidden = true
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
@@ -1162,6 +1236,96 @@ private final class AnimeInfoHeaderView: UIView {
     }
 }
 
+// MARK: - HTabBar
+// Custom horizontal tab bar matching Hayase's tabs-list.svelte shape exactly.
+// Container: bg-muted (#27272a), rounded-lg (8pt), p-1 (4pt padding).
+// Each tab: rounded-md (6pt), active = accent bg + contrast text, inactive = muted text.
+// Shape is NOT a pill — iOS UISegmentedControl has cornerRadius = height/2 (pill).
+// HTabBar uses cornerRadius = 8 (rounded-lg) on container, 6 (rounded-md) on tabs.
+
+private final class HTabBar: UIView {
+    var onChange: ((Int) -> Void)?
+    var selectedIndex: Int = 0 { didSet { updateSelection() } }
+    var accentColor: UIColor = UIColor(white: 0.98, alpha: 1) { didSet { updateSelection() } }
+
+    private let scrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsHorizontalScrollIndicator = false
+        sv.bounces = false
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+    private let stack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 2
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+    private var buttons: [UIButton] = []
+
+    init(titles: [String]) {
+        super.init(frame: .zero)
+        // bg-muted = #27272a (neutral-800)
+        backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        layer.cornerRadius = 8   // rounded-lg
+        clipsToBounds = true
+
+        addSubview(scrollView)
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+
+        for (i, title) in titles.enumerated() {
+            let btn = UIButton(type: .system)
+            btn.setTitle(title, for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+            btn.layer.cornerRadius = 6   // rounded-md
+            btn.clipsToBounds = true
+            btn.tag = i
+            btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(btn)
+            buttons.append(btn)
+        }
+        updateSelection()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func tabTapped(_ sender: UIButton) {
+        selectedIndex = sender.tag
+        onChange?(sender.tag)
+    }
+
+    private func updateSelection() {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        accentColor.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let contrastColor: UIColor = luminance > 0.5 ? UIColor(white: 0.04, alpha: 1) : .white
+        for (i, btn) in buttons.enumerated() {
+            if i == selectedIndex {
+                btn.backgroundColor = accentColor
+                btn.setTitleColor(contrastColor, for: .normal)
+            } else {
+                btn.backgroundColor = .clear
+                btn.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal) // text-muted-foreground
+            }
+        }
+    }
+}
+
 // MARK: - AnimeDetailViewController
 
 class AnimeDetailViewController: UIViewController {
@@ -1179,39 +1343,33 @@ class AnimeDetailViewController: UIViewController {
     private var statusDistribution: [AnimeStatusCount] = []
     private var episodeFetchTask: URLSessionDataTask?
 
-    // Active tab for the segmented control (Episodes | Relations | Characters | Staff | Stats)
+    // Active tab for the segmented control (Episodes | Relations | Threads | Themes)
     private var activeSection: Section = .episodes
 
-    // Tabs.List: bg-muted (#27272a), inline-flex (centered, not full-width).
-    // Active tab: bg-custom (coverImage.color) + text-contrast. Inactive: muted-foreground.
-    private lazy var segControl: UISegmentedControl = {
-        let sc = UISegmentedControl(items: ["Episodes", "Relations", "Threads", "Themes"])
-        sc.selectedSegmentIndex = 0
-        // Tabs.List bg: --muted = #27272a
-        sc.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        // Default active: white (overridden per-anime in setupHeaderView when coverColor available)
-        sc.selectedSegmentTintColor = UIColor(white: 0.98, alpha: 1)
-        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.649, alpha: 1)], for: .normal)
-        sc.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.04, alpha: 1),
-                                   .font: UIFont.systemFont(ofSize: 13, weight: .bold)], for: .selected)
-        sc.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
-        return sc
+    // Custom HTabBar — replaces UISegmentedControl.
+    // Shape: bg-muted container rounded-lg (8pt), tabs rounded-md (6pt). NOT a pill.
+    // Position: full-width with 16pt horizontal inset (reverted from centered).
+    private lazy var tabBar: HTabBar = {
+        let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes"])
+        bar.onChange = { [weak self] index in
+            self?.tabChanged(to: index)
+        }
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        return bar
     }()
 
-    private lazy var segControlContainer: UIView = {
+    private lazy var tabBarContainer: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
-        segControl.translatesAutoresizingMaskIntoConstraints = false
-        v.addSubview(segControl)
-        // Hayase Tabs.List is `inline-flex` centered (not full-width).
-        // Use greaterThan/lessThan anchors so the control is only as wide as its content,
-        // centered horizontally, matching Hayase's `flex justify-center` wrapper.
+        tabBar.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(tabBar)
+        // Full-width tab bar with 16pt inset on each side.
         NSLayoutConstraint.activate([
-            segControl.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
-            segControl.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
-            segControl.centerXAnchor.constraint(equalTo: v.centerXAnchor),
-            segControl.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 16),
-            segControl.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16),
+            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
+            tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+            tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
+            tabBar.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
+            tabBar.heightAnchor.constraint(equalToConstant: 36), // h-9 = 36pt
         ])
         return v
     }()
@@ -1286,13 +1444,10 @@ class AnimeDetailViewController: UIViewController {
         if let item = animeItem {
             headerView.configure(with: item)
             // Hayase +page.svelte: data-[state=active]:bg-custom data-[state=active]:text-contrast
-            // Apply coverImage.color as the active tab tint color (same as badge/button theming).
-            let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? UIColor(white: 0.98, alpha: 1)
-            let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
-            segControl.selectedSegmentTintColor = accent
-            segControl.setTitleTextAttributes([.foregroundColor: contrast,
-                                               .font: UIFont.systemFont(ofSize: 13, weight: .bold)],
-                                              for: .selected)
+            // Apply coverImage.color as the active tab tint color.
+            if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
+                tabBar.accentColor = accent
+            }
         } else {
             headerView.configure(with: animeEntity)
         }
@@ -1327,27 +1482,24 @@ class AnimeDetailViewController: UIViewController {
             self?.openExtensionSearch(episode: 1)
         }
 
-        // Wrap AnimeInfoHeaderView + segControlContainer in one container so the tab bar
+        // Wrap AnimeInfoHeaderView + tabBarContainer in one container so the tab bar
         // scrolls WITH the content (Hayase: Tabs.Root is inside the scrollable div, not sticky).
-        // With .plain UITableView, viewForHeaderInSection views are sticky; embedding in
-        // tableHeaderView avoids stickiness entirely.
         let container = UIView()
         container.backgroundColor = .clear
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        segControlContainer.translatesAutoresizingMaskIntoConstraints = false
+        tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerView)
-        container.addSubview(segControlContainer)
+        container.addSubview(tabBarContainer)
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: container.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            segControlContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            segControlContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            segControlContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            segControlContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            tabBarContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            tabBarContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            tabBarContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            tabBarContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
-        // using systemLayoutSizeFitting, which is the standard UITableView header sizing pattern.
         container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
         tableView.tableHeaderView = container
     }
@@ -1396,9 +1548,16 @@ class AnimeDetailViewController: UIViewController {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let imageURL = info["image"] as? String
                 let airDate = info["airdate"] as? String ?? info["airDate"] as? String
-                let runtime = info["length"] as? Int ?? info["runtime"] as? Int ?? 0
+                let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
+                // Rating: ani.zip returns it as a String ("8.9256") or Number
+                let ratingRaw = info["rating"]
+                let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
+                    ?? (ratingRaw as? String).flatMap(Double.init)
+                // Filler: ani.zip "filler" boolean field
+                let isFiller = info["filler"] as? Bool ?? false
                 parsed.append(AniZipEpisode(number: num, title: title, overview: overview,
-                                            imageURL: imageURL, airDate: airDate, runtime: runtime))
+                                            imageURL: imageURL, airDate: airDate, runtime: runtime,
+                                            rating: rating, isFiller: isFiller))
             }
             parsed.sort { $0.number < $1.number }
 
@@ -1440,10 +1599,10 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
-    // MARK: - Segment control
+    // MARK: - Tab bar
 
-    @objc private func segmentChanged() {
-        guard let sec = Section(rawValue: segControl.selectedSegmentIndex) else { return }
+    private func tabChanged(to index: Int) {
+        guard let sec = Section(rawValue: index) else { return }
         activeSection = sec
         tableView.reloadSections(IndexSet(integersIn: 0..<Section.allCases.count), with: .automatic)
     }
