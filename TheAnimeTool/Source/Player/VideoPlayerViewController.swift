@@ -316,9 +316,9 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Streaming setup
 
     /// Creates a TorrentStreamer for the active file if the torrent is still downloading.
-    /// The streamer uses deadline-based piece management (no sequential download) so that
-    /// only the narrow buffer window near the playback position is fetched — matching the
-    /// Hayase approach of downloading only what's directly needed for playback.
+    /// The streamer enables sequential download as the base strategy, with deadline-based
+    /// priority boosts for critical pieces near the playback position — matching the
+    /// Hayase approach of sequential download with urgency overrides.
     private func setupStreamer() {
         // Stop any previous streamer
         streamer?.stop()

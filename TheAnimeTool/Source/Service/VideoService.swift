@@ -176,18 +176,30 @@ public class VideoService: NSObject {
         handle.setFilePriority(priority, at: Int(index))
     }
 
-    /// Hayase approach: focus all download bandwidth on one episode.
+    /// Hayase approach: focus download bandwidth on the selected episode.
     /// Sets every other file in the torrent to dontDownload so libtorrent
-    /// dedicates all piece-picking to the file the user wants to watch.
-    /// Sequential download is NOT enabled — TorrentStreamer uses pure
-    /// deadline-based piece management so only the narrow playback buffer
-    /// window is fetched, saving bandwidth and reducing swarm strain.
+    /// dedicates piece-picking to the file the user wants to watch.
+    /// Subtitle and font files (.srt, .ass, .ssa, .ttf, .otf, etc.) are
+    /// kept enabled so MPV can use them immediately without waiting for
+    /// the full torrent to finish downloading.
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
         for entry in handle.snapshot.files {
-            let priority: FileEntry.Priority = entry.index == Int(fileIndex) ? .defaultPriority : .dontDownload
+            let isTargetVideo = entry.index == Int(fileIndex)
+            let isSubtitleOrFont = Self.isSubtitleOrFontFile(entry.name)
+            let priority: FileEntry.Priority = (isTargetVideo || isSubtitleOrFont) ? .defaultPriority : .dontDownload
             handle.setFilePriority(priority, at: Int(entry.index))
         }
+    }
+
+    // MARK: - File type helpers
+
+    private static let subtitleExtensions: Set<String> = ["srt", "ass", "ssa", "sub", "idx", "sup", "vtt"]
+    private static let fontExtensions: Set<String> = ["ttf", "otf", "woff", "woff2"]
+
+    private static func isSubtitleOrFontFile(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return subtitleExtensions.contains(ext) || fontExtensions.contains(ext)
     }
 
     func UpdateTorrentFileInfos() {
