@@ -149,6 +149,7 @@ final class ExtensionSearchViewController: UIViewController {
     // Banner
     private var bannerImageView: UIImageView!
     private var bannerGradientLayer: CAGradientLayer!
+    private var animeTitleLabel: UILabel!
 
     // Controls
     private var filterField: UITextField!
@@ -233,6 +234,21 @@ final class ExtensionSearchViewController: UIViewController {
         bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
+        // Anime title — small single-line label at the bottom of the banner
+        // Sits on the dark gradient zone → always readable. One line, truncated.
+        animeTitleLabel = UILabel()
+        animeTitleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
+        animeTitleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        animeTitleLabel.textColor = .white
+        animeTitleLabel.numberOfLines = 1
+        animeTitleLabel.lineBreakMode = .byTruncatingTail
+        animeTitleLabel.layer.shadowColor = UIColor.black.cgColor
+        animeTitleLabel.layer.shadowOpacity = 0.8
+        animeTitleLabel.layer.shadowRadius = 3
+        animeTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
+        animeTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        bannerView.addSubview(animeTitleLabel)
+
         // Load banner image (AniList bannerImage → coverURL fallback)
         if let urlStr = animeItem?.bannerURL ?? animeItem?.coverURL,
            let url = URL(string: urlStr) {
@@ -255,6 +271,11 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
             bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
+
+            // Title label: pinned to bottom-left of banner (dark gradient area)
+            animeTitleLabel.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 16),
+            animeTitleLabel.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor, constant: -16),
+            animeTitleLabel.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor, constant: -10),
         ])
 
         // ── 2. CONTROLS VIEW — EXPLICIT height 156pt, pinned to bannerView.bottom ───
