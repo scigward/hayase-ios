@@ -46,11 +46,12 @@ final class LocalStreamServer {
 
     init(torrentHandle: TorrentHandle, fileIndex: UInt, filePath: String) {
         self.torrentHandle = torrentHandle
-        self.fileIndex = Int(fileIndex)
+        let idx = Int(fileIndex)
+        self.fileIndex = idx
         self.filePath = filePath
 
         torrentHandle.updateSnapshot()
-        let entry = torrentHandle.snapshot.files.first(where: { $0.index == self.fileIndex })
+        let entry = torrentHandle.snapshot.files.first(where: { $0.index == idx })
         self.fileSize = entry?.size ?? 0
         self.totalPieces = Int(entry?.num_pieces ?? 0)
         self.beginPiece = Int(entry?.begin_idx ?? 0)
