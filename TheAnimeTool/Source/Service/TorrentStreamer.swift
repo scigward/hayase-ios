@@ -69,6 +69,14 @@ final class TorrentStreamer {
     /// Deadline step per piece during seek (ms).
     private let seekDeadlineStep: Int32 = 30
 
+    // -- Head pieces for MKV header --
+
+    /// Number of pieces from the START of the file to request with tight deadlines.
+    /// MKV containers store SeekHead, Info (duration), and Track definitions
+    /// (subtitle/audio codecs) in the first few pieces. Without these, MPV cannot
+    /// determine video duration or discover subtitle tracks at stream start.
+    private let headPieceCount = 8
+
     // -- Tail pieces for MKV index --
 
     /// Number of pieces from the END of the file to request with tight deadlines.
@@ -149,6 +157,9 @@ final class TorrentStreamer {
         }
 
         print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total)")
+
+        // Request head pieces for MKV SeekHead/Info/Tracks (duration + subtitle defs).
+        requestHeadPieces()
 
         // Request tail pieces for MKV Cues/SeekHead/subtitle index.
         requestTailPieces()
@@ -369,8 +380,24 @@ final class TorrentStreamer {
         activeWindowStart = start
         activeWindowEnd = windowEnd
 
-        // Always keep tail pieces active (MKV Cues/index).
+        // Always keep head + tail pieces active (MKV metadata).
+        requestHeadPieces()
         requestTailPieces()
+    }
+
+    /// Requests the first few pieces of the file with tight deadlines.
+    /// MKV containers store SeekHead, Info (video duration), and Track
+    /// definitions (subtitle/audio codec info) in the first few pieces.
+    /// Without these, MPV cannot determine the video length or discover
+    /// subtitle tracks when the stream first opens.
+    private func requestHeadPieces() {
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
+        for piece in beginPiece...headEnd {
+            torrentHandle.setPiecePriority(piece, priority: 7) // top priority
+            let offset = Int32(piece - beginPiece)
+            let deadline = criticalDeadlineBase + offset * criticalDeadlineStep
+            torrentHandle.setPieceDeadline(piece, deadline: deadline)
+        }
     }
 
     /// Requests the last few pieces of the file with tight deadlines.
@@ -387,15 +414,65 @@ final class TorrentStreamer {
         }
     }
 
+    // MARK: - Metadata pre-wait
+
+    /// Blocks the calling thread until the head pieces (first `headPieceCount`
+    /// pieces of the file) are downloaded, or until `timeout` seconds elapse.
+    /// This ensures MKV header data (SeekHead, Info, Tracks) is on disk before
+    /// MPV opens the stream, so video duration and subtitle tracks are available
+    /// immediately.
+    ///
+    /// - Returns: `true` if head pieces are ready, `false` on timeout or stop.
+    func waitForMetadataPieces(timeout: TimeInterval = 30) -> Bool {
+        guard isActive, totalFilePieces > 0 else { return false }
+
+        let headEnd = min(headPieceCount - 1, totalFilePieces - 1) // local indices
+        let startTime = Date()
+        let pollInterval: TimeInterval = 0.25
+
+        while isActive {
+            torrentHandle.updateSnapshot()
+            guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+                  let pieces = entry.pieces as? [NSNumber] else {
+                Thread.sleep(forTimeInterval: pollInterval)
+                continue
+            }
+
+            var allReady = true
+            for i in 0...headEnd {
+                if i < pieces.count && !pieces[i].boolValue {
+                    allReady = false
+                    break
+                }
+            }
+
+            if allReady {
+                print("TorrentStreamer: head pieces ready (\(Date().timeIntervalSince(startTime))s)")
+                return true
+            }
+
+            if Date().timeIntervalSince(startTime) > timeout {
+                print("TorrentStreamer: metadata wait timeout after \(timeout)s")
+                return false
+            }
+
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
+        return false
+    }
+
     /// Resets piece priorities and deadlines for the previous active window so
     /// libtorrent truly stops downloading those pieces. setPiecePriority(0) is
     /// required because resetPieceDeadline alone only removes urgency — pieces
     /// would still be downloaded via libtorrent's rarest-first picker.
-    /// Tail pieces are NOT reset — they must stay active for MKV index access.
+    /// Head and tail pieces are NOT reset — they must stay active for MKV metadata.
     private func resetActiveWindow() {
         guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in activeWindowStart...activeWindowEnd {
+            // Don't reset head pieces — they must stay active for MKV header.
+            if piece <= headEnd { continue }
             // Don't reset tail pieces — they must stay active for MKV Cues/index.
             if piece >= tailStart { continue }
             torrentHandle.setPiecePriority(piece, priority: 0)
