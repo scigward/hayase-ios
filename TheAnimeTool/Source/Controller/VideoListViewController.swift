@@ -134,6 +134,10 @@ class VideoListViewController: UIViewController {
     // MARK: - Properties
 
     var torrentEntity: Torrents?
+    /// The episode number the user searched for. When set, the resolver
+    /// automatically picks the matching file from a batch torrent so only
+    /// that episode is downloaded.
+    var targetEpisode: Int?
 
     private var videoResultsController: NSFetchedResultsController<Videos>?
     private var videoService: VideoService?
@@ -143,6 +147,7 @@ class VideoListViewController: UIViewController {
     private var stopUpdating = false
     private var updateTimer: Timer?
     private var pendingAutoOpenIndexPath: IndexPath?
+    private var didAutoResolve = false
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -309,6 +314,35 @@ class VideoListViewController: UIViewController {
         let count = videoResultsController?.sections?.first?.objects?.count ?? 0
         emptyLabel.text = count == 0 ? "No video files found" : ""
         emptyLabel.isHidden = count > 0
+
+        // Auto-resolve: when files arrive for the first time and we have a target
+        // episode, use TorrentBatchResolver to pick the correct file and start
+        // streaming it immediately (skip the manual file-selection step).
+        if !didAutoResolve, count > 1, let ep = targetEpisode, let vs = videoService,
+           let handle = vs.torrentHandle, handle.snapshot.hasMetadata {
+            didAutoResolve = true
+            let resolver = TorrentBatchResolver()
+            if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: ep) {
+                let fileIdx = UInt(match.entry.index)
+                vs.selectFileForStreaming(fileIdx)
+                tableView.reloadData()
+
+                // Find the matching IndexPath so we can auto-open the player
+                if let allVids = videoResultsController?.fetchedObjects {
+                    for (row, vid) in allVids.enumerated() {
+                        if vid.videoIndex?.intValue == match.entry.index {
+                            let ip = IndexPath(row: row, section: 0)
+                            if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
+                                presentPlayer(at: ip)
+                            } else {
+                                pendingAutoOpenIndexPath = ip
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        }
 
         if let pending = pendingAutoOpenIndexPath,
            let video = videoResultsController?.object(at: pending),

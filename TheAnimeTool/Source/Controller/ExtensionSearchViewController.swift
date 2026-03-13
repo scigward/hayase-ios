@@ -679,6 +679,7 @@ final class ExtensionSearchViewController: UIViewController {
                         // instead of popping back to the anime detail screen.
                         let videoList = VideoListViewController()
                         videoList.torrentEntity = entity
+                        videoList.targetEpisode = self?.currentEpisode
                         self?.navigationController?.pushViewController(videoList, animated: true)
                     case .failure(let err):
                         let e = UIAlertController(title: "Error", message: err.localizedDescription, preferredStyle: .alert)

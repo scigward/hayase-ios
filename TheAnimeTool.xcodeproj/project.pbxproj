@@ -40,6 +40,7 @@
 		A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AB1D72FC2F006D39D0 /* TorrentService.swift */; };
 		TSTRM02TSTRM02TSTRM02 /* TorrentStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */; };
 		LSRV02LSRV02LSRV0002 /* LocalStreamServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */; };
+		BRES02BRES02BRES0002 /* TorrentBatchResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */; };
 		A96106B71D72FC2F006D39D0 /* VideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AC1D72FC2F006D39D0 /* VideoService.swift */; };
 		A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */; };
 		DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */; };
@@ -205,6 +206,7 @@
 		A96106AB1D72FC2F006D39D0 /* TorrentService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentService.swift; sourceTree = "<group>"; };
 		TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentStreamer.swift; sourceTree = "<group>"; };
 		LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LocalStreamServer.swift; sourceTree = "<group>"; };
+		BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentBatchResolver.swift; sourceTree = "<group>"; };
 		A96106AC1D72FC2F006D39D0 /* VideoService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoService.swift; sourceTree = "<group>"; };
 		A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeCollectionViewCell.swift; sourceTree = "<group>"; };
 		DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
@@ -519,6 +521,7 @@
 				A96106AB1D72FC2F006D39D0 /* TorrentService.swift */,
 				TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */,
 				LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */,
+				BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */,
 				A96106AC1D72FC2F006D39D0 /* VideoService.swift */,
 				DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */,
 				EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */,
@@ -795,6 +798,7 @@
 				A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */,
 				TSTRM02TSTRM02TSTRM02 /* TorrentStreamer.swift in Sources */,
 				LSRV02LSRV02LSRV0002 /* LocalStreamServer.swift in Sources */,
+				BRES02BRES02BRES0002 /* TorrentBatchResolver.swift in Sources */,
 				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
 				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
 				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
