@@ -284,22 +284,17 @@ final class LocalStreamServer {
 
             if isStopped { break }
 
-            // Read from file with retry — pieces may be in libtorrent's write
-            // cache and not yet flushed to the filesystem.
+            // Read from file — flushCache() in waitForLocalPieces ensures data
+            // is on disk. Keep a single retry as a safety net.
             let readLength = Int(readEnd - currentOffset + 1)
-            var data = Data()
-            let maxRetries = 5
-            for attempt in 0..<maxRetries {
+            fileHandle.seek(toFileOffset: currentOffset)
+            var data = fileHandle.readData(ofLength: readLength)
+            if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
+                // Safety retry: flush again and re-read
+                torrentHandle.flushCache()
+                Thread.sleep(forTimeInterval: 0.05)
                 fileHandle.seek(toFileOffset: currentOffset)
                 data = fileHandle.readData(ofLength: readLength)
-                // If we got data and it's not all zeros, we're good.
-                // An all-zero read likely means the write cache hasn't flushed.
-                if !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
-                    break
-                }
-                if attempt < maxRetries - 1 {
-                    Thread.sleep(forTimeInterval: 0.05) // 50ms between retries
-                }
             }
 
             if data.isEmpty { break }
@@ -386,10 +381,10 @@ final class LocalStreamServer {
             }
 
             if allReady {
-                // Brief pause to let libtorrent flush its disk write cache.
-                // Piece status "downloaded" means hash-verified, but the data
-                // may still be in the write cache and not yet on the filesystem.
-                Thread.sleep(forTimeInterval: 0.02) // 20ms
+                // Flush libtorrent's disk write cache so piece data is on the
+                // filesystem before we read it with FileHandle. Without this,
+                // hash-verified pieces may still be in memory, causing zero reads.
+                torrentHandle.flushCache()
                 return
             }
 
