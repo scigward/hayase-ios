@@ -414,9 +414,10 @@ final class LocalStreamServer {
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
-    /// (inclusive, 0-based) are downloaded. Sets priority AND deadline to ensure
-    /// libtorrent actually fetches them — libtorrent ignores deadlines on
-    /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
+    /// (inclusive, 0-based) are downloaded. For pieces not yet on disk, sets priority
+    /// 7 AND deadline to ensure libtorrent fetches them with top urgency.
+    /// Re-boosts priority every ~500ms to counter TorrentStreamer's resetActiveWindow()
+    /// which may lower our pieces' priority during the wait.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     ///
     /// - Returns: `true` if all pieces were already downloaded (no waiting),
@@ -428,6 +429,29 @@ final class LocalStreamServer {
         let safeLast = min(lastLocal, totalPieces > 0 ? totalPieces - 1 : 0)
 
         guard safeFirst <= safeLast else { return true }
+
+        // Quick check: are all pieces already on disk?
+        var alreadyReady = true
+        snapshotQueue.sync {
+            torrentHandle.updateSnapshot()
+            if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+               let pieces = entry.pieces as? [NSNumber] {
+                for localIdx in safeFirst...safeLast {
+                    guard localIdx < pieces.count else { continue }
+                    if !pieces[localIdx].boolValue {
+                        alreadyReady = false
+                        break
+                    }
+                }
+            } else {
+                alreadyReady = false
+            }
+        }
+
+        if alreadyReady {
+            // All pieces already on disk — no flush needed, no priority changes.
+            return true
+        }
 
         // Set priority THEN deadline on the needed pieces.
         // Priority must be > 0 or libtorrent ignores the deadline entirely.
@@ -443,7 +467,7 @@ final class LocalStreamServer {
         let pollInterval: TimeInterval = 0.05 // 50ms
         let maxWait: TimeInterval = 120.0 // Must match MPV's network-timeout in VideoPlayerViewController
         let startTime = Date()
-        var isFirstCheck = true
+        var reboostCounter = 0
 
         while !isStopped {
             var allReady = true
@@ -452,36 +476,39 @@ final class LocalStreamServer {
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
                     for localIdx in safeFirst...safeLast {
-                        guard localIdx < pieces.count else {
-                            // Beyond pieces array — can't verify, treat as ready.
-                            // The data read retry loop handles stale cache.
-                            continue
-                        }
+                        guard localIdx < pieces.count else { continue }
                         if !pieces[localIdx].boolValue {
                             allReady = false
                             break
                         }
                     }
                 } else {
-                    // Can't read piece status — not ready.
                     allReady = false
                 }
             }
 
             if allReady {
                 // Flush libtorrent's disk write cache so piece data is on the
-                // filesystem before we read it with FileHandle. Without this,
-                // hash-verified pieces may still be in memory, causing zero reads.
+                // filesystem before we read it with FileHandle.
                 torrentHandle.flushCache()
-                // Give libtorrent's disk I/O thread time to complete the flush.
-                // flushCache() posts a job asynchronously — data may not be in
-                // the OS page cache yet when it returns. 50ms handles typical
-                // I/O latency; the double-read in streamBody catches edge cases.
                 Thread.sleep(forTimeInterval: 0.05)
-                return isFirstCheck
+                return false
             }
 
-            isFirstCheck = false
+            // Re-boost priority every ~500ms (every 10 poll iterations).
+            // TorrentStreamer.resetActiveWindow() may have lowered the priority
+            // of our pieces while we were waiting. Re-setting priority 7 ensures
+            // libtorrent continues to fetch them with top urgency.
+            reboostCounter += 1
+            if reboostCounter % 10 == 0 {
+                for localIdx in safeFirst...safeLast {
+                    let globalIdx = beginPiece + localIdx
+                    torrentHandle.setPiecePriority(globalIdx, priority: 7)
+                    let offset = min(localIdx - safeFirst, 1000)
+                    let deadline = Int32(5 + offset * 20)
+                    torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+                }
+            }
 
             if Date().timeIntervalSince(startTime) > maxWait {
                 print("LocalStreamServer: timeout waiting for pieces \(firstLocal)-\(lastLocal)")
