@@ -292,12 +292,7 @@ final class LocalStreamServer {
 
             // Which pieces cover this byte range?
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
-            let rawLastPiece = localPieceIndex(forByteOffset: readEnd)
-            // Add +1 margin: the approximate piece mapping formula can
-            // underestimate by 1 because LibTorrent-Swift's num_pieces may
-            // miss the last partial piece. This ensures we always wait for
-            // the piece that actually contains the data we're about to read.
-            let lastLocalPiece = min(rawLastPiece + 1, maxLocalPiece)
+            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd)
 
             // Wait for ALL required pieces to be downloaded
             waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
@@ -356,13 +351,8 @@ final class LocalStreamServer {
     /// Maps a byte offset within the file to a local piece index (0-based).
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
         guard totalPieces > 0, fileSize > 0 else { return 0 }
-        // localIndex = offset * totalPieces / fileSize
-        // Using integer math to avoid overflow.
-        // Note: totalPieces (num_pieces) may underestimate by 1 for files that
-        // don't end on a piece boundary, so this formula can underestimate.
-        // The caller adds a +1 margin to handle this.
         let index = Int((offset * UInt64(totalPieces)) / fileSize)
-        return min(index, maxLocalPiece)
+        return min(index, totalPieces - 1)
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
@@ -383,9 +373,11 @@ final class LocalStreamServer {
     /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
-        // Clamp to valid range
+        // Clamp to valid piece array range
         let safeFirst = max(firstLocal, 0)
-        let safeLast = min(lastLocal, maxLocalPiece)
+        let safeLast = min(lastLocal, totalPieces > 0 ? totalPieces - 1 : 0)
+
+        guard safeFirst <= safeLast else { return }
 
         // Set priority THEN deadline on the needed pieces.
         // Priority must be > 0 or libtorrent ignores the deadline entirely.
@@ -409,23 +401,14 @@ final class LocalStreamServer {
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
                     for localIdx in safeFirst...safeLast {
-                        if localIdx < pieces.count {
-                            if !pieces[localIdx].boolValue {
-                                allReady = false
-                                break
-                            }
-                        } else {
-                            // This piece index is beyond the file's pieces array
-                            // (off-by-one in LibTorrent-Swift's num_pieces calculation).
-                            // We can't check it directly from the array.
-                            // Use byte-level progress: if the file isn't fully downloaded,
-                            // this last piece might not be ready yet.
-                            // The tail piece handler already requests endPiece with high
-                            // priority, so it will be downloaded soon.
-                            if entry.downloaded < entry.size {
-                                allReady = false
-                                break
-                            }
+                        guard localIdx < pieces.count else {
+                            // Beyond pieces array — can't verify, treat as ready.
+                            // The data read retry loop handles stale cache.
+                            continue
+                        }
+                        if !pieces[localIdx].boolValue {
+                            allReady = false
+                            break
                         }
                     }
                 } else {
