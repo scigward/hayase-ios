@@ -321,6 +321,8 @@ final class VideoPlayerViewController: UIViewController {
         }
 
         let pollInterval: TimeInterval = 0.2
+        // 8 seconds balances UX (not too long to wait) against network speed:
+        // 16 tail pieces × 256 KB/piece ≈ 4 MB, reachable in < 8s on most connections.
         let maxWait: TimeInterval = 8.0
         var remainingPolls = Int(maxWait / pollInterval)
 
