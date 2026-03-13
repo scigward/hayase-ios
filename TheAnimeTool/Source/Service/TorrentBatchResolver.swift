@@ -150,7 +150,9 @@ struct TorrentBatchResolver {
         let digits = episodeStr.prefix(while: { $0.isNumber })
         if let num = Int(digits), num > 0 { return num }
 
-        return Int(episodeStr)
+        // Final fallback: pure numeric string
+        if let num = Int(episodeStr), num > 0 { return num }
+        return nil
     }
 
     /// Returns true if the filename looks like an OP, ED, preview, or other non-episode content.
