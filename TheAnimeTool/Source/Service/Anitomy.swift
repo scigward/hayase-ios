@@ -640,7 +640,7 @@ private final class AnitomyTokenizer {
                     continue
                 }
                 if isSingleCharToken(next) {
-                    if let p = prev, isUnknownToken(p) {
+                    if let p = prev {
                         tokens[p].content += tokens[idx].content
                         tokens[idx].category = .invalid
                         tokens[p].content += tokens[next!].content
@@ -1106,7 +1106,7 @@ private final class AnitomyParser {
 
     private func searchForEquivalentNumbers(_ tokenIndices: inout [Int]) -> Bool {
         for tokenIndex in tokenIndices {
-            guard isTokenIsolated(tokenIndex),
+            guard !isTokenIsolated(tokenIndex),
                   isValidEpisodeNumber(tokens[tokenIndex].content) else { continue }
 
             guard let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter),
@@ -1380,9 +1380,8 @@ private final class AnitomyParser {
         let episodeTitle = elements.get(.episodeTitle)
 
         var i = 0
-        let pairs = elements.pairs
-        while i < pairs.count {
-            let pair = pairs[i]
+        while i < elements.count {
+            let pair = elements.pairs[i]
             if pair.0 == .animeType {
                 if episodeTitle.range(of: pair.1, options: .caseInsensitive) != nil {
                     if episodeTitle.count == pair.1.count {
@@ -1439,9 +1438,7 @@ private final class AnitomyParser {
                     }
                 }
             }
-        }
-
-        if chars.count >= minHeightSize + 1 {
+        } else if chars.count >= minHeightSize + 1 {
             if chars.last == "p" || chars.last == "P" {
                 let allNumeric = chars.dropLast().allSatisfy { isNumericChar($0) }
                 if allNumeric { return true }
