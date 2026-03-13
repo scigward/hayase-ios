@@ -286,6 +286,31 @@ final class VideoPlayerViewController: UIViewController {
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
 
+        // If streaming, wait for MKV metadata pieces (head + tail) before
+        // loading the URL in MPV. Without these, MPV can't determine video
+        // duration or discover embedded subtitle/audio tracks.
+        if let s = streamer, s.isActive {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let ready = s.waitForMetadataPieces(timeout: 30)
+                if !ready {
+                    print("VideoPlayer: metadata pieces timed out, loading anyway")
+                }
+                DispatchQueue.main.async {
+                    self?.loadVideoURL()
+                }
+            }
+        } else {
+            loadVideoURL()
+        }
+    }
+
+    /// Actually loads the video URL into MPV. Called after metadata pieces
+    /// are ready (for streaming) or immediately (for local files).
+    private func loadVideoURL() {
+        guard let entity = videoEntity else { return }
+        let path = entity.videoPath ?? ""
+        guard !path.isEmpty else { return }
+
         let url: URL
         let preset: PlayerPreset
         if let server = streamServer {
