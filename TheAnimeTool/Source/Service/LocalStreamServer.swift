@@ -304,28 +304,56 @@ final class LocalStreamServer {
             let readEnd = min(currentOffset + chunkSize - 1, end)
 
             // Which pieces cover this byte range?
-            let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
-            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd)
+            // Add ±1 safety margin to account for piece-mapping approximation.
+            // localPieceIndex uses fileSize/totalPieces as piece length, which
+            // differs from the actual torrent piece length. At piece boundaries,
+            // this can map to the wrong piece by ±1, causing reads from pieces
+            // we didn't wait for (zeros/corruption). The margin is clamped in
+            // waitForLocalPieces so out-of-bounds indices are safe.
+            let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset) - 1
+            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
 
-            // Wait for ALL required pieces to be downloaded
-            waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
+            // Wait for ALL required pieces to be downloaded.
+            // Returns true if pieces were already on disk (no waiting needed).
+            let alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
 
             // Exit if a newer request superseded this one during the wait.
             if isStopped || generation != requestGeneration { break }
 
-            // Read from file — flushCache() + delay in waitForLocalPieces ensures
-            // data is on disk. Retry with flush if we still read all zeros (rare
-            // edge case where the OS write cache hasn't fully settled).
+            // Read from file. For freshly-downloaded pieces, verify data
+            // stability with a double-read to detect partial flushes.
             let readLength = Int(readEnd - currentOffset + 1)
             fileHandle.seek(toFileOffset: currentOffset)
             var data = fileHandle.readData(ofLength: readLength)
+
             if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
+                // All zeros: piece data not flushed at all. Retry with flush.
                 for _ in 0..<5 {
                     torrentHandle.flushCache()
                     Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
                     data = fileHandle.readData(ofLength: readLength)
                     if data.isEmpty || !data.allSatisfy({ $0 == 0 }) { break }
+                }
+            }
+
+            // Double-read verification for freshly-downloaded data.
+            // If libtorrent's disk thread is still writing when we read,
+            // a second read after a brief delay may return different (more
+            // complete) data. Skip for pieces already on disk (stable).
+            if !alreadyOnDisk && !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
+                Thread.sleep(forTimeInterval: 0.015)
+                fileHandle.seek(toFileOffset: currentOffset)
+                let verifyData = fileHandle.readData(ofLength: readLength)
+                if verifyData != data {
+                    // Data changed — flush was still in progress. Use newer
+                    // read and give one more chance for it to stabilize.
+                    data = verifyData
+                    torrentHandle.flushCache()
+                    Thread.sleep(forTimeInterval: 0.03)
+                    fileHandle.seek(toFileOffset: currentOffset)
+                    let finalData = fileHandle.readData(ofLength: readLength)
+                    if !finalData.isEmpty { data = finalData }
                 }
             }
 
@@ -380,12 +408,16 @@ final class LocalStreamServer {
     /// libtorrent actually fetches them — libtorrent ignores deadlines on
     /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
-    private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
+    ///
+    /// - Returns: `true` if all pieces were already downloaded (no waiting),
+    ///   `false` if we had to wait for at least one piece.
+    @discardableResult
+    private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) -> Bool {
         // Clamp to valid piece array range
         let safeFirst = max(firstLocal, 0)
         let safeLast = min(lastLocal, totalPieces > 0 ? totalPieces - 1 : 0)
 
-        guard safeFirst <= safeLast else { return }
+        guard safeFirst <= safeLast else { return true }
 
         // Set priority THEN deadline on the needed pieces.
         // Priority must be > 0 or libtorrent ignores the deadline entirely.
@@ -401,6 +433,7 @@ final class LocalStreamServer {
         let pollInterval: TimeInterval = 0.05 // 50ms
         let maxWait: TimeInterval = 120.0 // Must match MPV's network-timeout in VideoPlayerViewController
         let startTime = Date()
+        var isFirstCheck = true
 
         while !isStopped {
             var allReady = true
@@ -430,20 +463,23 @@ final class LocalStreamServer {
                 // filesystem before we read it with FileHandle. Without this,
                 // hash-verified pieces may still be in memory, causing zero reads.
                 torrentHandle.flushCache()
-                // Brief delay to let the OS complete the write-back from
-                // libtorrent's write cache to the filesystem. Without this,
-                // partially-flushed data (mix of real data and zeros) gets served
-                // to MPV, causing video decoding artifacts (blocky corruption).
-                Thread.sleep(forTimeInterval: 0.02)
-                return
+                // Give libtorrent's disk I/O thread time to complete the flush.
+                // flushCache() posts a job asynchronously — data may not be in
+                // the OS page cache yet when it returns. 50ms handles typical
+                // I/O latency; the double-read in streamBody catches edge cases.
+                Thread.sleep(forTimeInterval: 0.05)
+                return isFirstCheck
             }
+
+            isFirstCheck = false
 
             if Date().timeIntervalSince(startTime) > maxWait {
                 print("LocalStreamServer: timeout waiting for pieces \(firstLocal)-\(lastLocal)")
-                return
+                return false
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
         }
+        return false
     }
 }
