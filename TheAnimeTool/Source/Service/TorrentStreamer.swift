@@ -329,11 +329,17 @@ final class TorrentStreamer {
     /// pieces — tail pieces (Cues) are downloaded in the background and
     /// MPV will read them via the HTTP server when it needs to seek.
     /// Periodically re-boosts head piece priority to counter any interference.
-    /// Returns true if head pieces are ready, false on timeout.
+    /// Returns true if head pieces are ready, false on timeout or if stopped.
     func waitForMetadataPieces(timeout: TimeInterval = 30) -> Bool {
         let start = Date()
         var reboostCounter = 0
         while !areHeadPiecesReady() {
+            // Exit early if the streamer has been stopped (e.g. user
+            // navigated away or changed episodes while we were waiting).
+            guard isActive else {
+                print("TorrentStreamer: metadata wait aborted — streamer stopped")
+                return false
+            }
             if Date().timeIntervalSince(start) > timeout {
                 print("TorrentStreamer: metadata wait timed out after \(timeout)s")
                 return false

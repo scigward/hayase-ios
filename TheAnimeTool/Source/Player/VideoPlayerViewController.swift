@@ -307,7 +307,12 @@ final class VideoPlayerViewController: UIViewController {
                     print("VideoPlayerViewController: head pieces not ready after 30s, loading anyway")
                 }
                 DispatchQueue.main.async { [weak self] in
-                    self?.loadVideoURL()
+                    guard let self = self else { return }
+                    // Guard against stale callbacks: if the streamer has changed
+                    // (e.g. user changed episode during the wait), don't load the
+                    // old URL. The new loadCurrentVideo() call will handle it.
+                    guard self.streamer === s else { return }
+                    self.loadVideoURL()
                 }
             }
         } else {
