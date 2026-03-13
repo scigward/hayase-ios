@@ -59,6 +59,7 @@ final class VideoPlayerViewController: UIViewController {
     private var hideWork: DispatchWorkItem?
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
+    private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
 
     // MARK: - Lifecycle
 
@@ -327,6 +328,7 @@ final class VideoPlayerViewController: UIViewController {
         guard let saved = WatchProgressService.shared.getProgress(videoPath: path),
               saved.isInProgress, saved.currentTime > 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.lastSeekTime = Date()
             self?.surface.mpv.seek(to: saved.currentTime)
         }
     }
@@ -346,9 +348,12 @@ final class VideoPlayerViewController: UIViewController {
         streamer = nil
 
         guard let handle = torrentHandle else { return }
-        let snap = handle.snapshot
         // Only create a streamer when the file is not yet fully downloaded.
-        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+        // Use byte-level file progress instead of snap.progress, which only
+        // counts "wanted" pieces (priority > 0). TorrentStreamer sets most
+        // pieces to priority 0, so snap.progress can falsely report 1.0
+        // when only a handful of pieces have been downloaded.
+        guard !isFileFullyDownloaded() else { return }
 
         let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
         s.start()
@@ -374,9 +379,8 @@ final class VideoPlayerViewController: UIViewController {
 
     private func startStatsTimer() {
         statsTimer?.invalidate()
-        guard let handle = torrentHandle else { return }
-        let snap = handle.snapshot
-        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+        guard torrentHandle != nil else { return }
+        guard !isFileFullyDownloaded() else { return }
         statsLabel.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -387,7 +391,12 @@ final class VideoPlayerViewController: UIViewController {
     private func updateStats() {
         guard let handle = torrentHandle else { return }
         let snap = handle.snapshot
-        if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
+        // Use byte-level file progress instead of snap.progress, which only
+        // counts "wanted" pieces. Since TorrentStreamer sets most pieces to
+        // priority 0, snap.progress can falsely report 1.0 when only a few
+        // pieces are downloaded — causing the streamer to be stopped and
+        // all subsequent seeks to fail (no pieces requested).
+        if isFileFullyDownloaded() {
             statsTimer?.invalidate()
             statsLabel.isHidden = true
             // Stop the streamer — piece management is no longer needed.
@@ -400,13 +409,20 @@ final class VideoPlayerViewController: UIViewController {
             return
         }
         let speed = fmtSpeed(snap.downloadRate)
+        // Show file-level download fraction for accurate progress display.
+        let fileFraction: Double
+        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }), entry.size > 0 {
+            fileFraction = Double(entry.downloaded) / Double(entry.size)
+        } else {
+            fileFraction = Double(snap.progress)
+        }
         // When streaming, show buffer seconds ahead of playback.
         if let s = streamer, s.isActive, duration > 0 {
             let fraction = currentTime / duration
             let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
-            statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", snap.progress * 100))"
+            statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", fileFraction * 100))"
         } else {
-            statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", snap.progress * 100))"
+            statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", fileFraction * 100))"
         }
     }
 
@@ -416,6 +432,23 @@ final class VideoPlayerViewController: UIViewController {
         if bps >= 1_048_576    { return String(format: "%.1f MB/s", Double(bps) / 1_048_576) }
         if bps >= 1_024        { return String(format: "%.0f KB/s", Double(bps) / 1_024) }
         return "\(bps) B/s"
+    }
+
+    /// Checks whether the target file is fully downloaded using byte-level
+    /// progress from libtorrent's file_progress(). This is immune to the
+    /// "wanted pieces" issue where snap.progress falsely reports 1.0 when
+    /// TorrentStreamer has set most pieces to priority 0.
+    private func isFileFullyDownloaded() -> Bool {
+        guard let handle = torrentHandle else { return true }
+        handle.updateSnapshot()
+        let snap = handle.snapshot
+        // isSeed means the entire torrent is downloaded — always reliable.
+        if snap.isSeed { return true }
+        // Check byte-level progress for the specific file we're playing.
+        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
+            return entry.size > 0 && entry.downloaded >= entry.size
+        }
+        return false
     }
 
     // MARK: - Watch progress
@@ -555,6 +588,7 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func seekEnded() {
         let seekFraction = Double(seekBar.value)
         isSeeking = false
+        lastSeekTime = Date()
 
         // Tell the streamer to prioritize pieces at the new position.
         // The HTTP server will block MPV's byte-range requests until
@@ -707,8 +741,18 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             streamer?.updatePlaybackPosition(fraction: position / duration, videoDuration: duration)
         }
         
-        // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event)
-        if duration > 0 && position > 0 && position >= duration - 0.5 {
+        // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
+        // Guard against false EOF triggers after a seek: when the server serves
+        // partially-downloaded data, MPV may briefly report a position near the
+        // end of the file before settling at the correct position. A 5-second
+        // cooldown after the last seek prevents this from triggering handleFileEnded().
+        let seekCooldownActive: Bool
+        if let seekTime = lastSeekTime {
+            seekCooldownActive = Date().timeIntervalSince(seekTime) < 5.0
+        } else {
+            seekCooldownActive = false
+        }
+        if duration > 0 && position > 0 && position >= duration - 0.5 && !seekCooldownActive {
             if !isEOFTriggered {
                 isEOFTriggered = true
                 handleFileEnded()

@@ -141,7 +141,11 @@ final class DownloadCell: UITableViewCell {
         let progress = Float(snap.progress)
         progressView.progress = progress
 
-        let isComplete = snap.isFinished || snap.isSeed || progress >= 1.0
+        // Use snap.isSeed for completion: snap.isFinished and snap.progress
+        // only count "wanted" pieces (priority > 0), which is unreliable when
+        // TorrentStreamer has set most pieces to priority 0 for streaming.
+        // snap.isSeed means the entire torrent is truly downloaded and seeding.
+        let isComplete = snap.isSeed
         if isComplete {
             percentLabel.text = "100%"
             percentLabel.textColor = .systemGreen

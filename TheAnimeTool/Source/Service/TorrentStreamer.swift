@@ -156,11 +156,25 @@ final class TorrentStreamer {
         setDeadlinesFrom(pieceIndex: beginPiece, force: true)
     }
 
-    /// Stops streaming management and resets all outstanding deadlines.
+    /// Stops streaming management and restores piece priorities.
+    /// All file pieces are restored to default priority so libtorrent
+    /// resumes normal downloading and the torrent's progress metrics
+    /// (snap.progress, snap.isFinished) return to accuracy. Without
+    /// this, the Downloads view shows 100% even when barely downloaded
+    /// because only "wanted" (priority > 0) pieces count toward progress.
     func stop() {
         guard isActive else { return }
         isActive = false
         resetActiveWindow()
+        // Restore all file pieces to default priority so libtorrent resumes
+        // normal downloading. This fixes the false "100% downloaded" display
+        // in the Downloads view caused by most pieces being at priority 0
+        // (which makes libtorrent's progress metric count only the few
+        // high-priority pieces that were downloaded).
+        for piece in beginPiece...endPiece {
+            torrentHandle.setPiecePriority(piece, priority: 4) // default
+            torrentHandle.resetPieceDeadline(piece)
+        }
         lastDeadlinePiece = -1
         print("TorrentStreamer: stopped")
     }

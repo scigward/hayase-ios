@@ -29,6 +29,16 @@ final class LocalStreamServer {
     /// Global piece index where this file starts (FileEntry.begin_idx).
     private let beginPiece: Int
 
+    /// Global piece index for the end of the file (FileEntry.end_idx).
+    /// May be the last piece containing file data (non-aligned) or one
+    /// past it (aligned). Used to derive the maximum valid local piece index.
+    private let endPiece: Int
+
+    /// Maximum valid local piece index (0-based). This is `endPiece - beginPiece`,
+    /// which may be equal to `totalPieces` when LibTorrent-Swift's num_pieces
+    /// underestimates by 1 for files that don't end on a piece boundary.
+    private let maxLocalPiece: Int
+
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "LocalStreamServer", qos: .userInitiated)
     /// Serial queue to protect torrentHandle.updateSnapshot() calls.
@@ -57,6 +67,11 @@ final class LocalStreamServer {
         self.fileSize = entry?.size ?? 0
         self.totalPieces = Int(entry?.num_pieces ?? 0)
         self.beginPiece = Int(entry?.begin_idx ?? 0)
+        self.endPiece = Int(entry?.end_idx ?? 0)
+        // endPiece - beginPiece may be 1 more than totalPieces when the file
+        // doesn't end on a piece boundary (LibTorrent-Swift's num_pieces
+        // uses integer division which truncates the partial last piece).
+        self.maxLocalPiece = max(Int(entry?.end_idx ?? 0) - Int(entry?.begin_idx ?? 0), self.totalPieces > 0 ? self.totalPieces - 1 : 0)
     }
 
     // MARK: - Start / Stop
@@ -277,7 +292,12 @@ final class LocalStreamServer {
 
             // Which pieces cover this byte range?
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
-            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd)
+            let rawLastPiece = localPieceIndex(forByteOffset: readEnd)
+            // Add +1 margin: the approximate piece mapping formula can
+            // underestimate by 1 because LibTorrent-Swift's num_pieces may
+            // miss the last partial piece. This ensures we always wait for
+            // the piece that actually contains the data we're about to read.
+            let lastLocalPiece = min(rawLastPiece + 1, maxLocalPiece)
 
             // Wait for ALL required pieces to be downloaded
             waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
@@ -294,9 +314,12 @@ final class LocalStreamServer {
                 // Retry loop: flush cache and re-read until we get real data.
                 // libtorrent marks pieces as complete before the OS write cache
                 // is fully flushed, so multiple attempts may be needed.
-                for _ in 0..<4 {
+                // Use more retries with a longer interval for robustness,
+                // especially for the off-by-one edge case where the piece
+                // may still be in-flight from libtorrent.
+                for _ in 0..<8 {
                     torrentHandle.flushCache()
-                    Thread.sleep(forTimeInterval: 0.05)
+                    Thread.sleep(forTimeInterval: 0.1)
                     fileHandle.seek(toFileOffset: currentOffset)
                     data = fileHandle.readData(ofLength: readLength)
                     if data.isEmpty || !data.allSatisfy({ $0 == 0 }) { break }
@@ -334,9 +357,12 @@ final class LocalStreamServer {
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
         guard totalPieces > 0, fileSize > 0 else { return 0 }
         // localIndex = offset * totalPieces / fileSize
-        // Using integer math to avoid overflow
+        // Using integer math to avoid overflow.
+        // Note: totalPieces (num_pieces) may underestimate by 1 for files that
+        // don't end on a piece boundary, so this formula can underestimate.
+        // The caller adds a +1 margin to handle this.
         let index = Int((offset * UInt64(totalPieces)) / fileSize)
-        return min(index, totalPieces - 1)
+        return min(index, maxLocalPiece)
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
@@ -357,12 +383,16 @@ final class LocalStreamServer {
     /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
+        // Clamp to valid range
+        let safeFirst = max(firstLocal, 0)
+        let safeLast = min(lastLocal, maxLocalPiece)
+
         // Set priority THEN deadline on the needed pieces.
         // Priority must be > 0 or libtorrent ignores the deadline entirely.
-        for localIdx in firstLocal...lastLocal {
+        for localIdx in safeFirst...safeLast {
             let globalIdx = beginPiece + localIdx
             torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
-            let offset = min(localIdx - firstLocal, 1000) // Clamp to avoid Int32 overflow
+            let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
             let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
             torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
         }
@@ -378,10 +408,24 @@ final class LocalStreamServer {
                 torrentHandle.updateSnapshot()
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
-                    for localIdx in firstLocal...lastLocal {
-                        if localIdx < pieces.count && !pieces[localIdx].boolValue {
-                            allReady = false
-                            break
+                    for localIdx in safeFirst...safeLast {
+                        if localIdx < pieces.count {
+                            if !pieces[localIdx].boolValue {
+                                allReady = false
+                                break
+                            }
+                        } else {
+                            // This piece index is beyond the file's pieces array
+                            // (off-by-one in LibTorrent-Swift's num_pieces calculation).
+                            // We can't check it directly from the array.
+                            // Use byte-level progress: if the file isn't fully downloaded,
+                            // this last piece might not be ready yet.
+                            // The tail piece handler already requests endPiece with high
+                            // priority, so it will be downloaded soon.
+                            if entry.downloaded < entry.size {
+                                allReady = false
+                                break
+                            }
                         }
                     }
                 } else {

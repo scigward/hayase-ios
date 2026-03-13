@@ -128,8 +128,11 @@ class VideoPlayerController: AVPlayerViewController {
     private func setupDownloadStatsOverlay() {
         guard let handle = torrentHandle else { return }
         let snap = handle.snapshot
-        // Only show overlay if the torrent is still actively downloading
-        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+        // Only show overlay if the torrent is still actively downloading.
+        // Use snap.isSeed instead of snap.isFinished because the latter
+        // only counts "wanted" pieces — unreliable when priorities are
+        // manipulated for streaming.
+        guard !snap.isSeed else { return }
 
         let label = UILabel()
         label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
@@ -155,7 +158,7 @@ class VideoPlayerController: AVPlayerViewController {
     private func updateStats() {
         guard let handle = torrentHandle, let label = statsOverlay else { return }
         let snap = handle.snapshot
-        if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
+        if snap.isSeed {
             // Download complete — hide the overlay
             statsTimer?.invalidate()
             statsTimer = nil
