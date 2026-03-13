@@ -284,48 +284,7 @@ final class VideoPlayerViewController: UIViewController {
         updateChapterMarkers()
 
         // Set up torrent streaming if the file is still downloading.
-        // TorrentStreamer.start() immediately requests head pieces (first 8,
-        // MKV SeekHead/Info/Tracks for duration + subtitle definitions) and
-        // tail pieces (last 16, MKV Cues for seek index) at priority 7 with
-        // tight deadlines.
         setupStreamer()
-
-        // If streaming, wait for head pieces to be downloaded BEFORE loading
-        // the URL into MPV. Head pieces contain the MKV EBML header, Segment
-        // header, SeekHead, Info (video duration), and Tracks (subtitle/audio
-        // track definitions). Without these, MPV cannot determine video length
-        // or discover embedded subtitle tracks.
-        //
-        // This wait ensures MPV gets the header data immediately when it opens
-        // the URL, rather than relying on the HTTP server blocking (which may
-        // hit demuxer timeouts or cache issues). Tail pieces (MKV Cues for
-        // seeking) download in the background and are served when MPV probes.
-        if let s = streamer {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let ready = s.waitForMetadataPieces(timeout: 30)
-                if !ready {
-                    print("VideoPlayerViewController: head pieces not ready after 30s, loading anyway")
-                }
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    // Guard against stale callbacks: if the streamer has changed
-                    // (e.g. user changed episode during the wait), don't load the
-                    // old URL. The new loadCurrentVideo() call will handle it.
-                    guard self.streamer === s else { return }
-                    self.loadVideoURL()
-                }
-            }
-        } else {
-            // No streaming (file fully downloaded or local file) — load immediately.
-            loadVideoURL()
-        }
-    }
-
-    /// Actually loads the video URL into MPV.
-    private func loadVideoURL() {
-        guard let entity = videoEntity else { return }
-        let path = entity.videoPath ?? ""
-        guard !path.isEmpty else { return }
 
         let url: URL
         let preset: PlayerPreset
@@ -334,14 +293,9 @@ final class VideoPlayerViewController: UIViewController {
             // buffering and seeking natively. The server blocks responses
             // until the required pieces are downloaded.
             url = server.url
-            // MPV streaming configuration:
-            // - cache=yes: enables stream cache so MPV can buffer ahead
-            // - force-seekable=yes is set in MPVWrapper.start() so MPV treats
-            //   the HTTP stream as seekable and will seek to read MKV Cues
-            // - demuxer-mkv-probe-video-duration=yes is set in MPVWrapper.start()
-            //   as an init option so the MKV demuxer always seeks to the end to
-            //   read Cues for accurate duration and subtitle track discovery
-            // - network-timeout=120: matches the server's 120s piece wait timeout
+            // Enable MPV's stream cache for the HTTP stream. Without this,
+            // MPV reads synchronously and can't buffer ahead, causing stalls.
+            // These are set per-load so they don't affect local file playback.
             preset = PlayerPreset(commands: [
                 ["set", "cache", "yes"],
                 ["set", "cache-secs", "120"],
@@ -395,6 +349,10 @@ final class VideoPlayerViewController: UIViewController {
 
         guard let handle = torrentHandle else { return }
         // Only create a streamer when the file is not yet fully downloaded.
+        // Use byte-level file progress instead of snap.progress, which only
+        // counts "wanted" pieces (priority > 0). TorrentStreamer sets most
+        // pieces to priority 0, so snap.progress can falsely report 1.0
+        // when only a handful of pieces have been downloaded.
         guard !isFileFullyDownloaded() else { return }
 
         let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
@@ -433,7 +391,11 @@ final class VideoPlayerViewController: UIViewController {
     private func updateStats() {
         guard let handle = torrentHandle else { return }
         let snap = handle.snapshot
-        // Check byte-level file progress for reliable completion detection.
+        // Use byte-level file progress instead of snap.progress, which only
+        // counts "wanted" pieces. Since TorrentStreamer sets most pieces to
+        // priority 0, snap.progress can falsely report 1.0 when only a few
+        // pieces are downloaded — causing the streamer to be stopped and
+        // all subsequent seeks to fail (no pieces requested).
         if isFileFullyDownloaded() {
             statsTimer?.invalidate()
             statsLabel.isHidden = true

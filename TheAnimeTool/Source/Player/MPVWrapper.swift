@@ -192,23 +192,6 @@ final class MPVWrapper {
         // giving up on seeking in partially-downloaded local files.
         checkError(mpv_set_option_string(handle, "force-seekable", "yes"))
 
-        // MKV metadata options — set here (before mpv_initialize) to guarantee
-        // they're applied before any file is opened. Setting these via the "set"
-        // command after initialization may fail silently for demuxer sub-options.
-        //
-        // probe-video-duration: Makes the MKV demuxer seek to the end of the
-        // file to read Cues (seek index) and determine accurate video duration.
-        // Without this, MPV only gets duration from the Info element (which some
-        // MKV files omit) and never reads Cues, so seeking and subtitle discovery
-        // don't work until more of the file is downloaded.
-        checkError(mpv_set_option_string(handle, "demuxer-mkv-probe-video-duration", "yes"))
-
-        // subtitle-preroll: Pre-reads subtitle packets from before the current
-        // seek position so subtitles are visible immediately after seeking or
-        // when starting playback mid-stream. Ensures embedded subtitle tracks
-        // display correctly from the start of streaming.
-        checkError(mpv_set_option_string(handle, "demuxer-mkv-subtitle-preroll", "yes"))
-
         // Initialize mpv
         let initStatus = mpv_initialize(handle)
         guard initStatus >= 0 else {
