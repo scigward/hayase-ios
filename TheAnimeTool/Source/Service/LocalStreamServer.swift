@@ -318,10 +318,11 @@ final class LocalStreamServer {
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
     /// (inclusive, 0-based) are downloaded. Sets urgent deadlines to prioritize them.
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
-        // Set urgent deadlines on the needed pieces
+        // Set urgent deadlines on the needed pieces (clamped to avoid overflow)
         for localIdx in firstLocal...lastLocal {
             let globalIdx = beginPiece + localIdx
-            let deadline = Int32(5 + (localIdx - firstLocal) * 20) // 5ms base + 20ms/piece
+            let offset = min(localIdx - firstLocal, 1000) // Clamp to avoid Int32 overflow
+            let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
             torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
         }
 
