@@ -84,7 +84,6 @@ final class VideoPlayerViewController: UIViewController {
         saveProgress()
         statsTimer?.invalidate()
         seekPollTimer?.invalidate()
-        tailPieceTimer?.invalidate()
         streamer?.stop()
         surface.stop()
     }
@@ -273,8 +272,6 @@ final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Video loading
 
-    private var tailPieceTimer: Timer?
-
     private func loadCurrentVideo() {
         guard let entity = videoEntity else { return }
         let path = entity.videoPath ?? ""
@@ -284,77 +281,25 @@ final class VideoPlayerViewController: UIViewController {
         isEOFTriggered = false
         chapters.removeAll()
         updateChapterMarkers()
-        tailPieceTimer?.invalidate()
 
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
         
         let url = path.starts(with: "http") ? URL(string: path)! : URL(fileURLWithPath: path)
+        surface.mpv.load(url: url, with: PlayerPreset())
+        
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0
         nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
-
-        // When streaming, wait for the tail pieces (MKV Cues / seek index)
-        // before loading the file in MPV.  Without Cues MPV's MKV demuxer
-        // cannot seek forward to unvisited positions.
-        if let s = streamer, s.isActive {
-            waitForTailPiecesAndLoad(url: url, path: path, streamer: s)
-        } else {
-            surface.mpv.load(url: url, with: PlayerPreset())
-            restoreProgress(path: path)
-        }
+        restoreProgress(path: path)
         startStatsTimer()
-    }
-
-    /// Polls until the file's tail pieces are downloaded (or a timeout fires),
-    /// then loads the file in MPV.  Tail pieces contain the MKV Cues element
-    /// that enables efficient forward seeking.
-    private func waitForTailPiecesAndLoad(url: URL, path: String, streamer: TorrentStreamer) {
-        tailPieceTimer?.invalidate()
-
-        // Already ready — load immediately.
-        if streamer.areTailPiecesReady() {
-            surface.mpv.load(url: url, with: PlayerPreset())
-            restoreProgress(path: path)
-            return
-        }
-
-        let pollInterval: TimeInterval = 0.2
-        let maxWait: TimeInterval = 8.0
-        var remainingPolls = Int(maxWait / pollInterval)
-
-        tailPieceTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] timer in
-            guard let self = self else { timer.invalidate(); return }
-            remainingPolls -= 1
-
-            let ready = self.streamer?.areTailPiecesReady() ?? true
-            if ready || remainingPolls <= 0 {
-                timer.invalidate()
-                self.tailPieceTimer = nil
-                self.surface.mpv.load(url: url, with: PlayerPreset())
-                self.restoreProgress(path: path)
-                if !ready {
-                    print("TorrentStreamer: tail pieces not ready after \(maxWait)s — loading anyway")
-                }
-            }
-        }
     }
 
     private func restoreProgress(path: String) {
         guard let saved = WatchProgressService.shared.getProgress(videoPath: path),
               saved.isInProgress, saved.currentTime > 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            guard let self = self else { return }
-            let fraction = self.duration > 0 ? saved.currentTime / self.duration : 0
-            // If streaming, set deadlines at the restore position and wait for pieces.
-            if fraction > 0 {
-                self.streamer?.seekTo(fraction: fraction)
-            }
-            if let s = self.streamer, s.isActive, fraction > 0 {
-                self.waitForPiecesAndSeek(fraction: fraction)
-            } else {
-                self.surface.mpv.seek(to: saved.currentTime)
-            }
+            self?.surface.mpv.seek(to: saved.currentTime)
         }
     }
 
@@ -557,14 +502,10 @@ final class VideoPlayerViewController: UIViewController {
         let seekFraction = Double(seekBar.value)
         isSeeking = false
 
-        // Set piece deadlines BEFORE sending the seek to MPV.
-        // This gives libtorrent a head start on fetching pieces at the
-        // new position so they're more likely to be on disk when MPV reads.
-        streamer?.seekTo(fraction: seekFraction)
-
         if let s = streamer, s.isActive {
-            // Streaming: wait for critical pieces at the seek target before
-            // telling MPV to seek, so it doesn't read undownloaded (zero) data.
+            // Streaming: tell libtorrent to fetch pieces at the new position,
+            // then wait for them before sending seek to MPV.
+            s.seekTo(fraction: seekFraction)
             waitForPiecesAndSeek(fraction: seekFraction)
         } else {
             // Fully downloaded or no streamer: seek immediately.
