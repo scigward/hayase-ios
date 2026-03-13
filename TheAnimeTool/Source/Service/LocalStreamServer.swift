@@ -495,12 +495,12 @@ final class LocalStreamServer {
                 return false
             }
 
-            // Re-boost priority every ~500ms (every 10 poll iterations).
+            // Re-boost priority every ~250ms (every 5 poll iterations).
             // TorrentStreamer.resetActiveWindow() may have lowered the priority
             // of our pieces while we were waiting. Re-setting priority 7 ensures
             // libtorrent continues to fetch them with top urgency.
             reboostCounter += 1
-            if reboostCounter % 10 == 0 {
+            if reboostCounter % 5 == 0 {
                 for localIdx in safeFirst...safeLast {
                     let globalIdx = beginPiece + localIdx
                     torrentHandle.setPiecePriority(globalIdx, priority: 7)

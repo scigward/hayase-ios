@@ -39,6 +39,9 @@ final class TorrentStreamer {
     private let minCriticalPieces = 8
 
     /// Minimum total buffer pieces (critical + look-ahead floor).
+    /// 75 pieces ≈ 75MB at typical 1MB piece size, covering ~2 minutes at
+    /// 5 Mbps anime bitrate. Larger than the previous 30 to give libtorrent
+    /// more pieces to request from the swarm in parallel.
     private let minBufferPieces = 75
 
     /// Deadline in milliseconds for the very first critical piece.
