@@ -23,6 +23,11 @@ final class LocalStreamServer {
     private let filePath: String
     private let fileSize: UInt64
 
+    /// Actual torrent piece length in bytes (from TorrentHandleSnapshot.pieceLength).
+    /// This is the real value from libtorrent's torrent_info::piece_length(),
+    /// not an approximation. Used for exact byte-offset-to-piece mapping.
+    private let pieceLength: Int
+
     /// Number of pieces for this file (from FileEntry.num_pieces).
     private let totalPieces: Int
 
@@ -70,6 +75,7 @@ final class LocalStreamServer {
         torrentHandle.updateSnapshot()
         let entry = torrentHandle.snapshot.files.first(where: { $0.index == idx })
         self.fileSize = entry?.size ?? 0
+        self.pieceLength = Int(torrentHandle.snapshot.pieceLength)
         self.totalPieces = Int(entry?.num_pieces ?? 0)
         self.beginPiece = Int(entry?.begin_idx ?? 0)
         self.endPiece = Int(entry?.end_idx ?? 0)
@@ -294,23 +300,22 @@ final class LocalStreamServer {
         }
         defer { fileHandle.closeFile() }
 
-        // Approximate piece length (bytes per piece for this file)
-        let approxPieceLength: UInt64 = totalPieces > 0 ? max(fileSize / UInt64(totalPieces), 1) : 65536
-        // Read in chunks of ~1 piece
-        let chunkSize = approxPieceLength
+        // Use the actual torrent piece length for chunk sizing.
+        // Previously this was approximated as fileSize/totalPieces which differs
+        // from the real piece length and caused ±1 mapping errors at boundaries.
+        let chunkSize = UInt64(pieceLength > 0 ? pieceLength : 65536)
 
         var currentOffset = offset
         while currentOffset <= end && !isStopped && generation == requestGeneration {
             let readEnd = min(currentOffset + chunkSize - 1, end)
 
-            // Which pieces cover this byte range?
-            // Add ±1 safety margin to account for piece-mapping approximation.
-            // localPieceIndex uses fileSize/totalPieces as piece length, which
-            // differs from the actual torrent piece length. At piece boundaries,
-            // this can map to the wrong piece by ±1, causing reads from pieces
-            // we didn't wait for (zeros/corruption). The margin is clamped in
-            // waitForLocalPieces so out-of-bounds indices are safe.
-            let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset) - 1
+            // Which local pieces cover this byte range?
+            // Uses exact pieceLength for mapping: localPiece = offset / pieceLength.
+            // This is exact for single-file torrents (fileOffset=0). For multi-file
+            // torrents where the file starts mid-piece, the actual piece may be 1
+            // higher than our estimate, so we add +1 to lastLocalPiece as a safety
+            // margin. The margin is clamped in waitForLocalPieces.
+            let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
             let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
 
             // Wait for ALL required pieces to be downloaded.
@@ -385,9 +390,13 @@ final class LocalStreamServer {
     // MARK: - Piece mapping & availability
 
     /// Maps a byte offset within the file to a local piece index (0-based).
+    /// Uses the actual torrent piece length for exact mapping.
+    /// For single-file torrents (beginPiece == 0), this is exact.
+    /// For multi-file torrents, the result may be off by +1 when the file
+    /// starts mid-piece; callers should add a +1 margin on lastLocalPiece.
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
-        guard totalPieces > 0, fileSize > 0 else { return 0 }
-        let index = Int((offset * UInt64(totalPieces)) / fileSize)
+        guard pieceLength > 0 else { return 0 }
+        let index = Int(offset / UInt64(pieceLength))
         return min(index, totalPieces - 1)
     }
 
