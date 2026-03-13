@@ -318,21 +318,37 @@ final class TorrentStreamer {
     }
 
     /// Returns true if both head and tail metadata pieces are downloaded.
-    /// Call this before loading the URL in MPV to ensure video duration and
-    /// subtitle tracks are available immediately.
+    /// Head pieces contain video duration and track definitions.
+    /// Tail pieces contain Cues (seek index) for seeking support.
     func areMetadataPiecesReady() -> Bool {
         return areHeadPiecesReady() && areTailPiecesReady()
     }
 
-    /// Blocks the calling thread until head and tail metadata pieces are
-    /// downloaded, or until `timeout` seconds elapse. Returns true if the
-    /// pieces are ready, false on timeout.
+    /// Blocks the calling thread until head pieces (duration, tracks) are
+    /// downloaded, or until `timeout` seconds elapse. Only waits for HEAD
+    /// pieces — tail pieces (Cues) are downloaded in the background and
+    /// MPV will read them via the HTTP server when it needs to seek.
+    /// Periodically re-boosts head piece priority to counter any interference.
+    /// Returns true if head pieces are ready, false on timeout.
     func waitForMetadataPieces(timeout: TimeInterval = 30) -> Bool {
         let start = Date()
-        while !areMetadataPiecesReady() {
-            if Date().timeIntervalSince(start) > timeout { return false }
+        var reboostCounter = 0
+        while !areHeadPiecesReady() {
+            if Date().timeIntervalSince(start) > timeout {
+                print("TorrentStreamer: metadata wait timed out after \(timeout)s")
+                return false
+            }
+            // Re-boost head piece priority every ~500ms (every 5 iterations)
+            // to ensure they stay at top priority even if resetActiveWindow
+            // runs on another thread.
+            reboostCounter += 1
+            if reboostCounter % 5 == 0 {
+                requestHeadPieces()
+                requestTailPieces()
+            }
             Thread.sleep(forTimeInterval: 0.1)
         }
+        print("TorrentStreamer: head pieces ready in \(String(format: "%.1f", Date().timeIntervalSince(start)))s, tail ready: \(areTailPiecesReady())")
         return true
     }
 

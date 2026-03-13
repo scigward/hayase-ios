@@ -284,28 +284,18 @@ final class VideoPlayerViewController: UIViewController {
         updateChapterMarkers()
 
         // Set up torrent streaming if the file is still downloading.
+        // TorrentStreamer.start() immediately requests head pieces (first 8,
+        // MKV SeekHead/Info/Tracks for duration + subtitle definitions) and
+        // tail pieces (last 16, MKV Cues for seek index) at priority 7 with
+        // tight deadlines. These download in parallel with MPV opening the URL.
+        // The LocalStreamServer blocks HTTP responses until required pieces
+        // are on disk, so MPV will naturally wait for metadata without needing
+        // an explicit pre-load delay.
         setupStreamer()
-
-        // If streaming, wait for MKV metadata pieces (head + tail) before
-        // loading the URL in MPV. Without these, MPV can't determine video
-        // duration or discover embedded subtitle/audio tracks.
-        if let s = streamer, s.isActive {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let ready = s.waitForMetadataPieces(timeout: 30)
-                if !ready {
-                    print("VideoPlayer: metadata pieces timed out, loading anyway")
-                }
-                DispatchQueue.main.async {
-                    self?.loadVideoURL()
-                }
-            }
-        } else {
-            loadVideoURL()
-        }
+        loadVideoURL()
     }
 
-    /// Actually loads the video URL into MPV. Called after metadata pieces
-    /// are ready (for streaming) or immediately (for local files).
+    /// Actually loads the video URL into MPV.
     private func loadVideoURL() {
         guard let entity = videoEntity else { return }
         let path = entity.videoPath ?? ""
@@ -318,15 +308,23 @@ final class VideoPlayerViewController: UIViewController {
             // buffering and seeking natively. The server blocks responses
             // until the required pieces are downloaded.
             url = server.url
-            // Enable MPV's stream cache for the HTTP stream. Without this,
-            // MPV reads synchronously and can't buffer ahead, causing stalls.
-            // These are set per-load so they don't affect local file playback.
+            // MPV streaming configuration:
+            // - cache=yes: enables stream cache so MPV can buffer ahead
+            // - force-seekable=yes is set in MPVWrapper.start() so MPV treats
+            //   the HTTP stream as seekable and will seek to read MKV Cues
+            // - demuxer-mkv-probe-video-duration=yes: tells MPV to actively
+            //   probe for video duration, seeking to the end of the file to
+            //   read Cues if needed. This ensures video length and subtitle
+            //   track info are discovered immediately rather than waiting for
+            //   sequential data to arrive at those positions
+            // - network-timeout=120: matches the server's 120s piece wait timeout
             preset = PlayerPreset(commands: [
                 ["set", "cache", "yes"],
                 ["set", "cache-secs", "120"],
                 ["set", "cache-pause-wait", "3"],
                 ["set", "demuxer-max-bytes", "150MiB"],
                 ["set", "demuxer-max-back-bytes", "50MiB"],
+                ["set", "demuxer-mkv-probe-video-duration", "yes"],
                 ["set", "network-timeout", "120"],
             ])
         } else if path.starts(with: "http") {
