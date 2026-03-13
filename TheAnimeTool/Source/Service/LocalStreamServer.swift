@@ -46,6 +46,11 @@ final class LocalStreamServer {
     private var connections: [NWConnection] = []
     private var isStopped = false
 
+    /// Incremented each time a new GET request arrives. Old streamBody loops
+    /// check this and exit early when it changes, preventing them from
+    /// re-requesting pieces for the OLD position at priority 7 after a seek.
+    private var requestGeneration: Int = 0
+
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
 
@@ -260,17 +265,25 @@ final class LocalStreamServer {
         let contentLength = rangeEnd - rangeStart + 1
         sendHeaders(connection: connection, rangeStart: rangeStart, rangeEnd: rangeEnd, hasRange: hasRange, bodyLength: contentLength)
 
+        // Increment the generation so any previous streamBody loop exits early.
+        // This prevents old streams from re-requesting stale pieces at priority 7
+        // after a seek, which would steal bandwidth from the new seek position.
+        requestGeneration += 1
+        let myGeneration = requestGeneration
+
         // Stream body in chunks. Each chunk is read from the file only after
         // the pieces covering those bytes are confirmed downloaded.
         // Use a background queue so we don't block the NWListener queue.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd)
+            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd, generation: myGeneration)
         }
     }
 
     /// Streams file bytes from `offset` to `end` in chunks, waiting for each
     /// chunk's pieces to be available before reading from disk.
-    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64) {
+    /// Exits early if a newer request arrives (generation mismatch) to avoid
+    /// re-requesting stale pieces and stealing bandwidth after a seek.
+    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64, generation: Int) {
         guard !isStopped else { return }
 
         // Open the file
@@ -287,7 +300,7 @@ final class LocalStreamServer {
         let chunkSize = approxPieceLength
 
         var currentOffset = offset
-        while currentOffset <= end && !isStopped {
+        while currentOffset <= end && !isStopped && generation == requestGeneration {
             let readEnd = min(currentOffset + chunkSize - 1, end)
 
             // Which pieces cover this byte range?
@@ -297,24 +310,19 @@ final class LocalStreamServer {
             // Wait for ALL required pieces to be downloaded
             waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
 
-            if isStopped { break }
+            // Exit if a newer request superseded this one during the wait.
+            if isStopped || generation != requestGeneration { break }
 
-            // Read from file — flushCache() in waitForLocalPieces ensures data
-            // is on disk. Retry with flush if we read all zeros (data may still
-            // be in libtorrent's write cache on first attempt).
+            // Read from file — flushCache() + delay in waitForLocalPieces ensures
+            // data is on disk. Retry with flush if we still read all zeros (rare
+            // edge case where the OS write cache hasn't fully settled).
             let readLength = Int(readEnd - currentOffset + 1)
             fileHandle.seek(toFileOffset: currentOffset)
             var data = fileHandle.readData(ofLength: readLength)
             if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
-                // Retry loop: flush cache and re-read until we get real data.
-                // libtorrent marks pieces as complete before the OS write cache
-                // is fully flushed, so multiple attempts may be needed.
-                // Use more retries with a longer interval for robustness,
-                // especially for the off-by-one edge case where the piece
-                // may still be in-flight from libtorrent.
-                for _ in 0..<8 {
+                for _ in 0..<5 {
                     torrentHandle.flushCache()
-                    Thread.sleep(forTimeInterval: 0.1)
+                    Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
                     data = fileHandle.readData(ofLength: readLength)
                     if data.isEmpty || !data.allSatisfy({ $0 == 0 }) { break }
@@ -422,6 +430,11 @@ final class LocalStreamServer {
                 // filesystem before we read it with FileHandle. Without this,
                 // hash-verified pieces may still be in memory, causing zero reads.
                 torrentHandle.flushCache()
+                // Brief delay to let the OS complete the write-back from
+                // libtorrent's write cache to the filesystem. Without this,
+                // partially-flushed data (mix of real data and zeros) gets served
+                // to MPV, causing video decoding artifacts (blocky corruption).
+                Thread.sleep(forTimeInterval: 0.02)
                 return
             }
 

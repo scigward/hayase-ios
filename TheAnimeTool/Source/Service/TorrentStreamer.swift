@@ -58,9 +58,10 @@ final class TorrentStreamer {
 
     // -- Seek-specific settings --
 
-    /// Number of critical pieces to request after a seek. Larger than normal
-    /// so MPV has enough data to resume playback at the new position quickly.
-    private let seekCriticalPieceCount = 24
+    /// Number of critical pieces to request after a seek. Enough for MPV to
+    /// start decoding at the new position quickly without requesting too many
+    /// pieces that would dilute per-peer request bandwidth.
+    private let seekCriticalPieceCount = 12
 
     /// Very tight deadline base for seek operations (ms).
     private let seekDeadlineBase: Int32 = 5
@@ -327,7 +328,10 @@ final class TorrentStreamer {
 
         if isSeek {
             critCount = seekCriticalPieceCount
-            bufTotal  = seekCriticalPieceCount + max(minBufferPieces, piecesForSeconds(targetBufferSeconds))
+            // On seek, minimize look-ahead to concentrate all bandwidth on the
+            // critical pieces MPV needs to resume playback. The normal look-ahead
+            // will kick in once playback advances past the critical window.
+            bufTotal  = seekCriticalPieceCount
             critBase  = seekDeadlineBase
             critStep  = seekDeadlineStep
         } else {
