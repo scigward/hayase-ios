@@ -313,8 +313,9 @@ final class LocalStreamServer {
             // Uses exact pieceLength for mapping: localPiece = offset / pieceLength.
             // This is exact for single-file torrents (fileOffset=0). For multi-file
             // torrents where the file starts mid-piece, the actual piece may be 1
-            // higher than our estimate, so we add +1 to lastLocalPiece as a safety
-            // margin. The margin is clamped in waitForLocalPieces.
+            // higher than our estimate, so we add +1 to lastLocalPiece. This margin
+            // is harmless for single-file torrents (just waits for one extra piece)
+            // and is clamped in waitForLocalPieces so out-of-bounds indices are safe.
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
             let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
 
