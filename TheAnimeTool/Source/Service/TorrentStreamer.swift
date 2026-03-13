@@ -242,6 +242,28 @@ final class TorrentStreamer {
         return Double(pieces) * secondsPerPiece
     }
 
+    /// Returns true if the tail pieces of the file (which contain MKV Cues,
+    /// seek index, and subtitle track info) have been downloaded. These pieces
+    /// are critical for seeking: without them MPV's MKV demuxer cannot seek
+    /// forward to unvisited positions.
+    func areTailPiecesReady() -> Bool {
+        guard isActive, totalFilePieces > 0 else { return false }
+
+        torrentHandle.updateSnapshot()
+        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+              let pieces = entry.pieces as? [NSNumber], !pieces.isEmpty else { return false }
+
+        // Check the last `tailPieceCount` entries in the file's local piece array.
+        // Using pieces.count directly avoids any ambiguity with endPiece being
+        // inclusive vs exclusive.
+        let count = pieces.count
+        let tailStart = max(0, count - tailPieceCount)
+        for i in tailStart..<count {
+            if !pieces[i].boolValue { return false }
+        }
+        return true
+    }
+
     /// Returns the fraction (0–1) of the file that has been downloaded.
     func downloadedFraction() -> Double {
         guard isActive, totalFilePieces > 0 else { return 0 }

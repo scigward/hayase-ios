@@ -84,6 +84,7 @@ final class VideoPlayerViewController: UIViewController {
         saveProgress()
         statsTimer?.invalidate()
         seekPollTimer?.invalidate()
+        tailPieceTimer?.invalidate()
         streamer?.stop()
         surface.stop()
     }
@@ -272,6 +273,8 @@ final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Video loading
 
+    private var tailPieceTimer: Timer?
+
     private func loadCurrentVideo() {
         guard let entity = videoEntity else { return }
         let path = entity.videoPath ?? ""
@@ -281,18 +284,61 @@ final class VideoPlayerViewController: UIViewController {
         isEOFTriggered = false
         chapters.removeAll()
         updateChapterMarkers()
+        tailPieceTimer?.invalidate()
 
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
         
         let url = path.starts(with: "http") ? URL(string: path)! : URL(fileURLWithPath: path)
-        surface.mpv.load(url: url, with: PlayerPreset())
-        
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0
         nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
-        restoreProgress(path: path)
+
+        // When streaming, wait for the tail pieces (MKV Cues / seek index)
+        // before loading the file in MPV.  Without Cues MPV's MKV demuxer
+        // cannot seek forward to unvisited positions, which is the root
+        // cause of "can't seek forward" in partially-downloaded files.
+        if let s = streamer, s.isActive {
+            waitForTailPiecesAndLoad(url: url, path: path, streamer: s)
+        } else {
+            surface.mpv.load(url: url, with: PlayerPreset())
+            restoreProgress(path: path)
+        }
         startStatsTimer()
+    }
+
+    /// Polls until the file's tail pieces are downloaded (or a timeout fires),
+    /// then loads the file in MPV.  Tail pieces contain the MKV Cues element
+    /// that enables efficient forward seeking.
+    private func waitForTailPiecesAndLoad(url: URL, path: String, streamer: TorrentStreamer) {
+        tailPieceTimer?.invalidate()
+
+        // Already ready — load immediately.
+        if streamer.areTailPiecesReady() {
+            surface.mpv.load(url: url, with: PlayerPreset())
+            restoreProgress(path: path)
+            return
+        }
+
+        let pollInterval: TimeInterval = 0.2
+        let maxWait: TimeInterval = 8.0
+        var remainingPolls = Int(maxWait / pollInterval)
+
+        tailPieceTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            remainingPolls -= 1
+
+            let ready = self.streamer?.areTailPiecesReady() ?? true
+            if ready || remainingPolls <= 0 {
+                timer.invalidate()
+                self.tailPieceTimer = nil
+                self.surface.mpv.load(url: url, with: PlayerPreset())
+                self.restoreProgress(path: path)
+                if !ready {
+                    print("TorrentStreamer: tail pieces not ready after \(maxWait)s — loading anyway")
+                }
+            }
+        }
     }
 
     private func restoreProgress(path: String) {

@@ -188,6 +188,20 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
 
+        // Streaming-friendly options — ensure MPV handles partially-downloaded
+        // files correctly (torrent streaming scenario).
+        //   force-seekable: always treat the stream as seekable so MPV doesn't
+        //                   give up on seeking if it detects issues.
+        //   cache:          enable the stream cache so MPV can buffer data and
+        //                   handle temporary read stalls in sparse files.
+        //   cache-secs:     maximum seconds to cache ahead of playback.
+        //   cache-pause-wait: seconds to wait before pausing when buffer empties
+        //                     (shows "buffering" instead of playing corrupt data).
+        checkError(mpv_set_option_string(handle, "force-seekable", "yes"))
+        checkError(mpv_set_option_string(handle, "cache", "yes"))
+        checkError(mpv_set_option_string(handle, "cache-secs", "120"))
+        checkError(mpv_set_option_string(handle, "cache-pause-wait", "3"))
+
         // Initialize mpv
         let initStatus = mpv_initialize(handle)
         guard initStatus >= 0 else {
