@@ -136,6 +136,17 @@ public class TorrentService: NSObject, SessionDelegate {
         "udp://tracker.openbittorrent.com:6969/announce",
     ]
 
+    /// Append public fallback trackers to a handle so every torrent benefits from
+    /// well-known announce endpoints even when the magnet URI / .torrent file
+    /// doesn't include tracker parameters. libtorrent de-duplicates trackers
+    /// internally, so calling this is safe even if the extension already provided
+    /// the same URLs via `&tr=` parameters.
+    private func addPublicTrackers(to handle: TorrentHandle) {
+        for url in TorrentService.publicTrackers {
+            handle.addTracker(url)
+        }
+    }
+
     // MARK: - Public API
 
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
@@ -222,6 +233,9 @@ public class TorrentService: NSObject, SessionDelegate {
                     torrentEntity.torrentHashString = hex
                     try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
                 }
+                // Append well-known public trackers so peer discovery doesn't depend
+                // solely on the trackers the extension included (if any).
+                self.addPublicTrackers(to: handle)
                 // Force-reannounce immediately so trackers are contacted right away
                 // instead of waiting for libtorrent's default announce interval.
                 // MagnetURI.configureAfterAdded: is a no-op, so we must do this ourselves.
@@ -300,6 +314,9 @@ public class TorrentService: NSObject, SessionDelegate {
                 }
                 if let handle = self.session.addTorrent(torrentFile) {
                     self.handles[hexHash] = handle
+                    // Append well-known public trackers as fallback for peer discovery.
+                    self.addPublicTrackers(to: handle)
+                    handle.forceReannounce()
                     completion(.success(handle))
                     return
                 }
