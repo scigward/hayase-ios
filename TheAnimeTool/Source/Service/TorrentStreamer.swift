@@ -447,12 +447,12 @@ final class TorrentStreamer {
             }
 
             if allReady {
-                print("TorrentStreamer: head pieces ready (\(Date().timeIntervalSince(startTime))s)")
+                print("TorrentStreamer: head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
                 return true
             }
 
             if Date().timeIntervalSince(startTime) > timeout {
-                print("TorrentStreamer: metadata wait timeout after \(timeout)s")
+                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s")
                 return false
             }
 
