@@ -164,24 +164,45 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Add the torrent (from magnet URI or .torrent file) to the LibTorrent session.
     /// Prefers the magnet URI stored in torrentDownloadURL.
     /// Falls back to downloading the .torrent binary when given an HTTP(S) URL.
+    /// If the URL is missing or unsupported, constructs a magnet URI from the
+    /// info-hash (covers extensions like Seadex that only provide a hash).
     /// Calls `completion` on the main thread with a TorrentHandle or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
                                         completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
-        guard let urlString = torrentEntity.torrentDownloadURL,
-              let url = URL(string: urlString) else {
+        // Try to parse the stored download URL.
+        let url: URL? = torrentEntity.torrentDownloadURL
+            .flatMap { $0.isEmpty ? nil : URL(string: $0) }
+
+        if let url, url.scheme == "magnet" {
+            addMagnetToSession(url, torrentEntity: torrentEntity, completion: completion)
+        } else if let url, url.scheme == "http" || url.scheme == "https" {
+            downloadTorrentFile(from: url, torrentEntity: torrentEntity, completion: completion)
+        } else if let magnetURL = magnetURLFromHash(torrentEntity.torrentHashString) {
+            // No usable link — build a magnet URI from the info-hash.
+            // This covers extensions (e.g. Seadex) that return only an info-hash
+            // without a magnet URI or .torrent download URL.
+            print("TorrentService: no usable link, constructed magnet from hash")
+            addMagnetToSession(magnetURL, torrentEntity: torrentEntity, completion: completion)
+        } else {
             DispatchQueue.main.async {
                 completion(.failure(NSError(domain: "TorrentService", code: 0,
                     userInfo: [NSLocalizedDescriptionKey:
-                        "No download URL available for this torrent."])))
+                        "No download URL or info-hash available for this torrent."])))
             }
-            return
         }
+    }
 
-        if url.scheme == "magnet" {
-            addMagnetToSession(url, torrentEntity: torrentEntity, completion: completion)
-        } else {
-            downloadTorrentFile(from: url, torrentEntity: torrentEntity, completion: completion)
+    /// Build a `magnet:?xt=urn:btih:HASH&tr=...` URL from a hex info-hash,
+    /// appending public trackers for better peer discovery.
+    private func magnetURLFromHash(_ hash: String?) -> URL? {
+        guard let hash, !hash.isEmpty else { return nil }
+        var components = "magnet:?xt=urn:btih:\(hash)"
+        for tracker in TorrentService.publicTrackers {
+            if let encoded = tracker.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                components += "&tr=\(encoded)"
+            }
         }
+        return URL(string: components)
     }
 
     /// Add a magnet URI to the LibTorrent session.
