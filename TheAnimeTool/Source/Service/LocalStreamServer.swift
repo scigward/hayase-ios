@@ -414,9 +414,9 @@ final class LocalStreamServer {
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
-    /// (inclusive, 0-based) are downloaded. Sets priority AND deadline to ensure
-    /// libtorrent actually fetches them — libtorrent ignores deadlines on
-    /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
+    /// (inclusive, 0-based) are downloaded. Sets priority 7 AND deadline to ensure
+    /// libtorrent fetches them urgently. TorrentStreamer starts all pieces at
+    /// priority 1 (low), so this boosts the needed pieces to top priority.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     ///
     /// - Returns: `true` if all pieces were already downloaded (no waiting),
