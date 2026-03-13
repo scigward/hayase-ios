@@ -32,6 +32,9 @@ struct TorrentBatchResolver {
         "mkv", "mp4", "avi", "webm", "mov", "flv", "wmv", "m4v", "ts", "mpg", "mpeg", "ogm"
     ]
 
+    /// Upper bound for valid episode numbers (sanity check for regex captures).
+    private static let maxEpisodeNumber = 10000
+
     /// Non-episode media types to exclude (OP, ED, previews, etc.)
     private static let typeExclusions: Set<String> = [
         "ED", "ENDING", "NCED", "NCOP", "OP", "OPENING", "PREVIEW", "PV",
@@ -60,9 +63,8 @@ struct TorrentBatchResolver {
     /// Detects non-episode content (OP, ED, NCOP, NCED, PV, etc.)
     private static let exclusionPattern: NSRegularExpression? = {
         let joined = typeExclusions.joined(separator: "|")
-        return try? NSRegularExpression(
-            pattern: #"(?:^|[\s_\[\(])(?:\#(joined))(?:\d*)?(?:[\s_\]\).]|$)"#,
-            options: .caseInsensitive)
+        let pattern = "(?:^|[\\s_\\[\\(])(?:" + joined + ")(?:\\d*)?(?:[\\s_\\]\\).]|$)"
+        return try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
     }()
 
     // MARK: - Public API
@@ -100,9 +102,9 @@ struct TorrentBatchResolver {
         // If parsed episodes look like absolute numbering (e.g. 13-24 for S2),
         // try matching by position in the sorted episode list.
         let sorted = parsed.sorted { $0.episode < $1.episode }
-        if !sorted.isEmpty {
-            let minEp = sorted.first!.episode
-            let maxEp = sorted.last!.episode
+        if let first = sorted.first, let last = sorted.last {
+            let minEp = first.episode
+            let maxEp = last.episode
             let batchSize = sorted.count
 
             // Offset mapping: if episodes are 13-24 and user wants episode 1,
@@ -164,7 +166,7 @@ struct TorrentBatchResolver {
                match.numberOfRanges > 1,
                let captureRange = Range(match.range(at: 1), in: name) {
                 let numStr = String(name[captureRange])
-                if let num = Int(numStr), num > 0, num < 10000 {
+                if let num = Int(numStr), num > 0, num < maxEpisodeNumber {
                     return num
                 }
             }
