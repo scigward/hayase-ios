@@ -344,7 +344,6 @@ final class TorrentStreamer {
             reboostCounter += 1
             if reboostCounter % 5 == 0 {
                 requestHeadPieces()
-                requestTailPieces()
             }
             Thread.sleep(forTimeInterval: 0.1)
         }

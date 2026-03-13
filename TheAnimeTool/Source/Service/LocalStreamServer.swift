@@ -396,7 +396,7 @@ final class LocalStreamServer {
     /// For multi-file torrents, the result may be off by +1 when the file
     /// starts mid-piece; callers should add a +1 margin on lastLocalPiece.
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
-        guard pieceLength > 0 else { return 0 }
+        guard pieceLength > 0, totalPieces > 0 else { return 0 }
         let index = Int(offset / UInt64(pieceLength))
         return min(index, totalPieces - 1)
     }
