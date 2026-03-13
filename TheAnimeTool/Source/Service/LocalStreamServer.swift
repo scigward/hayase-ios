@@ -285,16 +285,22 @@ final class LocalStreamServer {
             if isStopped { break }
 
             // Read from file — flushCache() in waitForLocalPieces ensures data
-            // is on disk. Keep a single retry as a safety net.
+            // is on disk. Retry with flush if we read all zeros (data may still
+            // be in libtorrent's write cache on first attempt).
             let readLength = Int(readEnd - currentOffset + 1)
             fileHandle.seek(toFileOffset: currentOffset)
             var data = fileHandle.readData(ofLength: readLength)
             if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
-                // Safety retry: flush again and re-read
-                torrentHandle.flushCache()
-                Thread.sleep(forTimeInterval: 0.05)
-                fileHandle.seek(toFileOffset: currentOffset)
-                data = fileHandle.readData(ofLength: readLength)
+                // Retry loop: flush cache and re-read until we get real data.
+                // libtorrent marks pieces as complete before the OS write cache
+                // is fully flushed, so multiple attempts may be needed.
+                for _ in 0..<4 {
+                    torrentHandle.flushCache()
+                    Thread.sleep(forTimeInterval: 0.05)
+                    fileHandle.seek(toFileOffset: currentOffset)
+                    data = fileHandle.readData(ofLength: readLength)
+                    if data.isEmpty || !data.allSatisfy({ $0 == 0 }) { break }
+                }
             }
 
             if data.isEmpty { break }
@@ -346,12 +352,16 @@ final class LocalStreamServer {
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
-    /// (inclusive, 0-based) are downloaded. Sets urgent deadlines to prioritize them.
+    /// (inclusive, 0-based) are downloaded. Sets priority AND deadline to ensure
+    /// libtorrent actually fetches them — libtorrent ignores deadlines on
+    /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
-        // Set urgent deadlines on the needed pieces (clamped to avoid overflow)
+        // Set priority THEN deadline on the needed pieces.
+        // Priority must be > 0 or libtorrent ignores the deadline entirely.
         for localIdx in firstLocal...lastLocal {
             let globalIdx = beginPiece + localIdx
+            torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
             let offset = min(localIdx - firstLocal, 1000) // Clamp to avoid Int32 overflow
             let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
             torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)

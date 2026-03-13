@@ -390,8 +390,11 @@ final class VideoPlayerViewController: UIViewController {
         if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
             statsTimer?.invalidate()
             statsLabel.isHidden = true
-            streamServer?.stop()
-            streamServer = nil
+            // Stop the streamer — piece management is no longer needed.
+            // Do NOT stop streamServer here: MPV is still reading from the
+            // HTTP URL. Stopping the server mid-playback causes read errors
+            // and playback failure. The server is stopped in viewWillDisappear
+            // and prev/next episode transitions.
             streamer?.stop()
             streamer = nil
             return
