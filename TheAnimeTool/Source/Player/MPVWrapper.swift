@@ -627,16 +627,14 @@ final class MPVWrapper {
         guard let handle = mpv else { return }
         let clamped = max(0, seconds)
         cachedPosition = clamped
-        commandSync(handle, ["seek", String(clamped), "absolute"])
+        command(handle, ["seek", String(clamped), "absolute"])
     }
-
-
 
     func seek(by seconds: Double) {
         guard let handle = mpv else { return }
         let newPosition = max(0, cachedPosition + seconds)
         cachedPosition = newPosition
-        commandSync(handle, ["seek", String(seconds), "relative"])
+        command(handle, ["seek", String(seconds), "relative"])
     }
     
     /// Sync timebase - no-op for vo_avfoundation (mpv handles timing)
