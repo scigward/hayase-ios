@@ -330,7 +330,7 @@ class VideoListViewController: UIViewController {
                     // Find the matching IndexPath so we can auto-open the player
                     if let allVids = videoResultsController?.fetchedObjects {
                         for (row, vid) in allVids.enumerated() {
-                            if vid.videoIndex?.intValue == match.entry.index {
+                            if let vidIdx = vid.videoIndex?.intValue, vidIdx == Int(match.entry.index) {
                                 let ip = IndexPath(row: row, section: 0)
                                 if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
                                     presentPlayer(at: ip)

@@ -3,8 +3,10 @@
 //  TheAnimeTool
 //
 //  Resolves which file in a multi-file (batch) torrent corresponds to a
-//  target episode number. Mirrors the logic in resolver.ts from the
-//  scigward/interface web client, adapted for the iOS native stack.
+//  target episode number. Uses the Anitomy parser (a faithful port of
+//  erengy/anitomy) for robust anime filename parsing, handling all common
+//  naming conventions including Japanese counters, fractional episodes,
+//  multi-episode ranges, season+episode patterns, and more.
 //
 //  Usage:
 //      let resolver = TorrentBatchResolver()
@@ -15,7 +17,7 @@
 import Foundation
 import LibTorrent
 
-/// Lightweight anime filename parser + episode matcher for torrent batches.
+/// Anime filename parser + episode matcher for torrent batches.
 /// Only downloads the single episode the user selected instead of the entire batch.
 struct TorrentBatchResolver {
 
@@ -29,43 +31,15 @@ struct TorrentBatchResolver {
     // MARK: - Video / exclusion sets
 
     private static let videoExtensions: Set<String> = [
-        "mkv", "mp4", "avi", "webm", "mov", "flv", "wmv", "m4v", "ts", "mpg", "mpeg", "ogm"
+        "mkv", "mp4", "avi", "webm", "mov", "flv", "wmv", "m4v", "ts", "mpg", "mpeg",
+        "ogm", "3gp", "m2ts", "rmvb", "divx", "rm"
     ]
-
-    /// Upper bound for valid episode numbers (sanity check for regex captures).
-    private static let maxEpisodeNumber = 10000
 
     /// Non-episode media types to exclude (OP, ED, previews, etc.)
     private static let typeExclusions: Set<String> = [
         "ED", "ENDING", "NCED", "NCOP", "OP", "OPENING", "PREVIEW", "PV",
         "MENU", "EXTRA", "BONUS", "SPECIAL", "TRAILER", "CM", "CREDITLESS"
     ]
-
-    // MARK: - Regex patterns for episode number extraction
-
-    /// Ordered from most specific to least specific. First match wins.
-    private static let episodePatterns: [NSRegularExpression] = {
-        let patterns = [
-            // [Group] Title - 05 (1080p).mkv  or  Title - S01E05.mkv
-            #"[_\s]-[_\s](?:S\d+E)?(\d{1,4})(?:v\d+)?(?:[_\s]|\[|\(|\.(?:mkv|mp4|avi|webm))"#,
-            // Episode 05 or Ep.05 or Ep 05
-            #"(?:Episode|Ep\.?)[_\s]*(\d{1,4})"#,
-            // S01E05 format
-            #"S\d+E(\d{1,4})"#,
-            // E05 standalone
-            #"(?:^|[\s_\[\(])E(\d{1,4})(?:v\d+)?(?:[\s_\]\).]|$)"#,
-            // Bare number between separators: " 05 " or "_05_" or " 05."
-            #"(?:^|[\s_])(\d{2,4})(?:v\d+)?(?:[\s_.]|$)"#,
-        ]
-        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
-    }()
-
-    /// Detects non-episode content (OP, ED, NCOP, NCED, PV, etc.)
-    private static let exclusionPattern: NSRegularExpression? = {
-        let joined = typeExclusions.joined(separator: "|")
-        let pattern = "(?:^|[\\s_\\[\\(])(?:" + joined + ")(?:\\d*)?(?:[\\s_\\]\\).]|$)"
-        return try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-    }()
 
     // MARK: - Public API
 
@@ -85,7 +59,7 @@ struct TorrentBatchResolver {
             return ResolvedFile(entry: videoFiles[0], episode: ep)
         }
 
-        // Parse all video files and extract episode numbers, excluding OP/ED/etc.
+        // Parse all video files using Anitomy, excluding OP/ED/etc.
         var parsed: [ResolvedFile] = []
         for entry in videoFiles {
             guard !Self.isExcludedType(entry.name) else { continue }
@@ -155,30 +129,42 @@ struct TorrentBatchResolver {
         return videoExtensions.contains(ext)
     }
 
-    /// Extracts the most likely episode number from an anime filename.
+    /// Extracts the most likely episode number from an anime filename using Anitomy.
     static func extractEpisodeNumber(from filename: String) -> Int? {
-        // Work with the filename component only (strip directory path)
         let name = (filename as NSString).lastPathComponent
+        let anitomy = Anitomy()
+        anitomy.parse(name)
 
-        for regex in episodePatterns {
-            let range = NSRange(name.startIndex..., in: name)
-            if let match = regex.firstMatch(in: name, range: range),
-               match.numberOfRanges > 1,
-               let captureRange = Range(match.range(at: 1), in: name) {
-                let numStr = String(name[captureRange])
-                if let num = Int(numStr), num > 0, num < maxEpisodeNumber {
-                    return num
-                }
+        let episodeStr = anitomy.get(.episodeNumber)
+        guard !episodeStr.isEmpty else { return nil }
+
+        // Handle fractional episodes like "07.5" → 7
+        if episodeStr.contains(".") {
+            if let dotIdx = episodeStr.firstIndex(of: ".") {
+                let intPart = String(episodeStr[episodeStr.startIndex..<dotIdx])
+                if let num = Int(intPart), num > 0 { return num }
             }
         }
-        return nil
+
+        // Handle partial episodes like "4a" → 4
+        let digits = episodeStr.prefix(while: { $0.isNumber })
+        if let num = Int(digits), num > 0 { return num }
+
+        return Int(episodeStr)
     }
 
     /// Returns true if the filename looks like an OP, ED, preview, or other non-episode content.
     static func isExcludedType(_ name: String) -> Bool {
-        guard let pattern = exclusionPattern else { return false }
         let basename = (name as NSString).lastPathComponent
-        let range = NSRange(basename.startIndex..., in: basename)
-        return pattern.firstMatch(in: basename, range: range) != nil
+        let anitomy = Anitomy()
+        anitomy.parse(basename)
+
+        for typeStr in anitomy.getAll(.animeType) {
+            if typeExclusions.contains(typeStr.uppercased()) {
+                return true
+            }
+        }
+
+        return false
     }
 }
