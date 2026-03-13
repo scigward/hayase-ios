@@ -286,18 +286,35 @@ final class VideoPlayerViewController: UIViewController {
         setupStreamer()
 
         let url: URL
+        let preset: PlayerPreset
         if let server = streamServer {
             // Streaming: serve the file via local HTTP so MPV handles
             // buffering and seeking natively. The server blocks responses
             // until the required pieces are downloaded.
             url = server.url
+            // Enable MPV's stream cache for the HTTP stream. Without this,
+            // MPV reads synchronously and can't buffer ahead, causing stalls.
+            // These are set per-load so they don't affect local file playback.
+            preset = PlayerPreset(commands: [
+                ["set", "cache", "yes"],
+                ["set", "cache-secs", "120"],
+                ["set", "cache-pause-wait", "3"],
+                ["set", "demuxer-max-bytes", "150MiB"],
+                ["set", "demuxer-max-back-bytes", "50MiB"],
+                ["set", "network-timeout", "120"],
+            ])
         } else if path.starts(with: "http") {
             url = URL(string: path)!
+            preset = PlayerPreset()
         } else {
             url = URL(fileURLWithPath: path)
+            // Reset cache options in case they were set by a previous streaming load.
+            preset = PlayerPreset(commands: [
+                ["set", "cache", "no"],
+            ])
         }
 
-        surface.mpv.load(url: url, with: PlayerPreset())
+        surface.mpv.load(url: url, with: preset)
         
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0

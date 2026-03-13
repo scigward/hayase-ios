@@ -31,6 +31,8 @@ final class LocalStreamServer {
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "LocalStreamServer", qos: .userInitiated)
+    /// Serial queue to protect torrentHandle.updateSnapshot() calls.
+    private let snapshotQueue = DispatchQueue(label: "LocalStreamServer.snapshot")
     private var connections: [NWConnection] = []
     private var isStopped = false
 
@@ -108,9 +110,25 @@ final class LocalStreamServer {
     // MARK: - Connection handling
 
     private func handleConnection(_ connection: NWConnection) {
-        connections.append(connection)
+        queue.async { [weak self] in
+            self?.connections.append(connection)
+        }
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed, .cancelled:
+                self?.removeConnection(connection)
+            default:
+                break
+            }
+        }
         connection.start(queue: queue)
         receiveRequest(connection)
+    }
+
+    private func removeConnection(_ connection: NWConnection) {
+        queue.async { [weak self] in
+            self?.connections.removeAll(where: { $0 === connection })
+        }
     }
 
     private func receiveRequest(_ connection: NWConnection) {
@@ -266,10 +284,23 @@ final class LocalStreamServer {
 
             if isStopped { break }
 
-            // Read from file
+            // Read from file with retry — pieces may be in libtorrent's write
+            // cache and not yet flushed to the filesystem.
             let readLength = Int(readEnd - currentOffset + 1)
-            fileHandle.seek(toFileOffset: currentOffset)
-            let data = fileHandle.readData(ofLength: readLength)
+            var data = Data()
+            let maxRetries = 5
+            for attempt in 0..<maxRetries {
+                fileHandle.seek(toFileOffset: currentOffset)
+                data = fileHandle.readData(ofLength: readLength)
+                // If we got data and it's not all zeros, we're good.
+                // An all-zero read likely means the write cache hasn't flushed.
+                if !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
+                    break
+                }
+                if attempt < maxRetries - 1 {
+                    Thread.sleep(forTimeInterval: 0.05) // 50ms between retries
+                }
+            }
 
             if data.isEmpty { break }
 
@@ -308,16 +339,20 @@ final class LocalStreamServer {
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
+    /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func isLocalPieceDownloaded(_ localIndex: Int) -> Bool {
-        torrentHandle.updateSnapshot()
-        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-              let pieces = entry.pieces as? [NSNumber],
-              localIndex >= 0, localIndex < pieces.count else { return true } // Default to true if can't check
-        return pieces[localIndex].boolValue
+        snapshotQueue.sync {
+            torrentHandle.updateSnapshot()
+            guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+                  let pieces = entry.pieces as? [NSNumber],
+                  localIndex >= 0, localIndex < pieces.count else { return false }
+            return pieces[localIndex].boolValue
+        }
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
     /// (inclusive, 0-based) are downloaded. Sets urgent deadlines to prioritize them.
+    /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) {
         // Set urgent deadlines on the needed pieces (clamped to avoid overflow)
         for localIdx in firstLocal...lastLocal {
@@ -329,27 +364,38 @@ final class LocalStreamServer {
 
         // Poll until all pieces are available
         let pollInterval: TimeInterval = 0.05 // 50ms
-        let maxWait: TimeInterval = 60.0 // 60s timeout
+        let maxWait: TimeInterval = 120.0 // Must match MPV's network-timeout in VideoPlayerViewController
         let startTime = Date()
 
         while !isStopped {
             var allReady = true
-            torrentHandle.updateSnapshot()
-            if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-               let pieces = entry.pieces as? [NSNumber] {
-                for localIdx in firstLocal...lastLocal {
-                    if localIdx < pieces.count && !pieces[localIdx].boolValue {
-                        allReady = false
-                        break
+            snapshotQueue.sync {
+                torrentHandle.updateSnapshot()
+                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+                   let pieces = entry.pieces as? [NSNumber] {
+                    for localIdx in firstLocal...lastLocal {
+                        if localIdx < pieces.count && !pieces[localIdx].boolValue {
+                            allReady = false
+                            break
+                        }
                     }
+                } else {
+                    // Can't read piece status — not ready.
+                    allReady = false
                 }
             }
 
-            if allReady { return }
+            if allReady {
+                // Brief pause to let libtorrent flush its disk write cache.
+                // Piece status "downloaded" means hash-verified, but the data
+                // may still be in the write cache and not yet on the filesystem.
+                Thread.sleep(forTimeInterval: 0.02) // 20ms
+                return
+            }
 
             if Date().timeIntervalSince(startTime) > maxWait {
                 print("LocalStreamServer: timeout waiting for pieces \(firstLocal)-\(lastLocal)")
-                return // Serve what we have — may contain zeros but better than hanging forever
+                return
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
