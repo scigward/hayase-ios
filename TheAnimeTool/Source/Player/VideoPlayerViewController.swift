@@ -287,12 +287,33 @@ final class VideoPlayerViewController: UIViewController {
         // TorrentStreamer.start() immediately requests head pieces (first 8,
         // MKV SeekHead/Info/Tracks for duration + subtitle definitions) and
         // tail pieces (last 16, MKV Cues for seek index) at priority 7 with
-        // tight deadlines. These download in parallel with MPV opening the URL.
-        // The LocalStreamServer blocks HTTP responses until required pieces
-        // are on disk, so MPV will naturally wait for metadata without needing
-        // an explicit pre-load delay.
+        // tight deadlines.
         setupStreamer()
-        loadVideoURL()
+
+        // If streaming, wait for head pieces to be downloaded BEFORE loading
+        // the URL into MPV. Head pieces contain the MKV EBML header, Segment
+        // header, SeekHead, Info (video duration), and Tracks (subtitle/audio
+        // track definitions). Without these, MPV cannot determine video length
+        // or discover embedded subtitle tracks.
+        //
+        // This wait ensures MPV gets the header data immediately when it opens
+        // the URL, rather than relying on the HTTP server blocking (which may
+        // hit demuxer timeouts or cache issues). Tail pieces (MKV Cues for
+        // seeking) download in the background and are served when MPV probes.
+        if let s = streamer {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let ready = s.waitForMetadataPieces(timeout: 30)
+                if !ready {
+                    print("VideoPlayerViewController: head pieces not ready after 30s, loading anyway")
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.loadVideoURL()
+                }
+            }
+        } else {
+            // No streaming (file fully downloaded or local file) — load immediately.
+            loadVideoURL()
+        }
     }
 
     /// Actually loads the video URL into MPV.
@@ -312,11 +333,9 @@ final class VideoPlayerViewController: UIViewController {
             // - cache=yes: enables stream cache so MPV can buffer ahead
             // - force-seekable=yes is set in MPVWrapper.start() so MPV treats
             //   the HTTP stream as seekable and will seek to read MKV Cues
-            // - demuxer-mkv-probe-video-duration=yes: tells MPV to actively
-            //   probe for video duration, seeking to the end of the file to
-            //   read Cues if needed. This ensures video length and subtitle
-            //   track info are discovered immediately rather than waiting for
-            //   sequential data to arrive at those positions
+            // - demuxer-mkv-probe-video-duration=yes is set in MPVWrapper.start()
+            //   as an init option so the MKV demuxer always seeks to the end to
+            //   read Cues for accurate duration and subtitle track discovery
             // - network-timeout=120: matches the server's 120s piece wait timeout
             preset = PlayerPreset(commands: [
                 ["set", "cache", "yes"],
@@ -324,7 +343,6 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "cache-pause-wait", "3"],
                 ["set", "demuxer-max-bytes", "150MiB"],
                 ["set", "demuxer-max-back-bytes", "50MiB"],
-                ["set", "demuxer-mkv-probe-video-duration", "yes"],
                 ["set", "network-timeout", "120"],
             ])
         } else if path.starts(with: "http") {
