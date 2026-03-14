@@ -137,7 +137,11 @@ public class TorrentService: NSObject, SessionDelegate {
         "udp://exodus.desync.com:6969/announce",
         "udp://tracker.torrent.eu.org:451/announce",
         "udp://tracker.openbittorrent.com:6969/announce",
-        // Anime-specific trackers — significantly improve peer discovery for anime releases
+        // Anime-specific trackers — significantly improve peer discovery for anime releases.
+        // These use HTTP (not HTTPS) because anime tracker announce endpoints don't offer
+        // HTTPS. This is standard for BitTorrent: tracker announces only exchange peer
+        // IP/port lists, and the torrent protocol itself verifies data integrity via
+        // piece hashes.
         "http://nyaa.tracker.wf:7777/announce",
         "http://open.acgnxtracker.com:80/announce",
         "http://anidex.moe:6969/announce",

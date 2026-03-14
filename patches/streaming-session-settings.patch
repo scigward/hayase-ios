@@ -1,8 +1,8 @@
 diff --git a/LibTorrent/Core/SessionSettings/SessionSettings.mm b/LibTorrent/Core/SessionSettings/SessionSettings.mm
-index 9c0cf32..15438b0 100644
+index 9c0cf32..29742e3 100644
 --- a/LibTorrent/Core/SessionSettings/SessionSettings.mm
 +++ b/LibTorrent/Core/SessionSettings/SessionSettings.mm
-@@ -102,6 +102,40 @@ lt::settings_pack::proxy_type_t proxyTypeConverter(SessionSettings *pack) {
+@@ -102,6 +102,41 @@ lt::settings_pack::proxy_type_t proxyTypeConverter(SessionSettings *pack) {
          settings.set_bool(lt::settings_pack::proxy_hostnames, true);
      }
  
@@ -21,8 +21,9 @@ index 9c0cf32..15438b0 100644
 +    //
 +    // min_reconnect_time: seconds before reconnecting to a peer after
 +    // disconnect. Default is 60s which is too slow for streaming — if a
-+    // peer disconnects during playback, we want to reconnect quickly.
-+    settings.set_int(lt::settings_pack::min_reconnect_time, 1);
++    // peer disconnects during playback, we want to reconnect reasonably
++    // fast without causing connection thrashing.
++    settings.set_int(lt::settings_pack::min_reconnect_time, 5);
 +    //
 +    // peer_connect_timeout: seconds to wait for a TCP handshake. Default 15s;
 +    // reduce to 7s so we fail over to other peers faster during streaming.
