@@ -380,10 +380,8 @@ final class VideoPlayerViewController: UIViewController {
 
         guard let handle = torrentHandle else { return }
         // Only create a streamer when the file is not yet fully downloaded.
-        // Use byte-level file progress instead of snap.progress, which only
-        // counts "wanted" pieces (priority > 0). TorrentStreamer sets most
-        // pieces to priority 0, so snap.progress can falsely report 1.0
-        // when only a handful of pieces have been downloaded.
+        // Use byte-level file progress (entry.downloaded >= entry.size) which
+        // is accurate regardless of piece priority settings.
         guard !isFileFullyDownloaded() else { return }
 
         let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)

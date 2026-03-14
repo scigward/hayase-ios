@@ -462,10 +462,10 @@ final class TorrentStreamer {
             let now = Date()
 
             // Re-boost head+tail piece priorities periodically.
-            // libtorrent's update_piece_priorities (triggered by set_file_priority
-            // or set_sequential_download) can reset our piece-level overrides back
-            // to the file-level default (4). Re-requesting every second ensures
-            // head/tail stay at priority 7 with time-critical deadlines.
+            // libtorrent's update_piece_priorities (triggered by set_file_priority)
+            // can reset our piece-level overrides back to the file-level default (4).
+            // Re-requesting every second ensures head/tail stay at priority 7 with
+            // time-critical deadlines.
             if now.timeIntervalSince(lastReinforceTime) >= reinforceInterval {
                 requestHeadPieces()
                 requestTailPieces()
