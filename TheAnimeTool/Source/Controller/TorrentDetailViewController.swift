@@ -143,7 +143,10 @@ final class TorrentDetailViewController: UIViewController {
         hashLabel.text = hexHash.isEmpty ? snap.name : hexHash
 
         let progress = Float(snap.progress)
-        let isComplete = snap.isFinished || snap.isSeed || progress >= 1.0
+        // Use snap.isSeed for completion: snap.isFinished and snap.progress
+        // only count "wanted" pieces (priority > 0), which is unreliable when
+        // TorrentStreamer has set most pieces to priority 0 for streaming.
+        let isComplete = snap.isSeed
         let isPaused   = snap.isPaused && !isComplete
 
         if isComplete {

@@ -18,6 +18,11 @@ final class VideoPlayerViewController: UIViewController {
 
     private let surface = MPVSurfaceView()
 
+    // MARK: - Streaming
+
+    private var streamer: TorrentStreamer?
+    private var streamServer: LocalStreamServer?
+
     // MARK: - Overlay
 
     private let overlay       = UIView()
@@ -54,6 +59,7 @@ final class VideoPlayerViewController: UIViewController {
     private var hideWork: DispatchWorkItem?
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
+    private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
 
     // MARK: - Lifecycle
 
@@ -78,6 +84,8 @@ final class VideoPlayerViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         statsTimer?.invalidate()
+        streamServer?.stop()
+        streamer?.stop()
         surface.stop()
     }
 
@@ -274,9 +282,71 @@ final class VideoPlayerViewController: UIViewController {
         isEOFTriggered = false
         chapters.removeAll()
         updateChapterMarkers()
-        
-        let url = path.starts(with: "http") ? URL(string: path)! : URL(fileURLWithPath: path)
-        surface.mpv.load(url: url, with: PlayerPreset())
+
+        // Set up torrent streaming if the file is still downloading.
+        setupStreamer()
+
+        // If streaming, wait for head pieces on a background thread before
+        // loading the URL. This ensures MKV header data (SeekHead, Info with
+        // duration, Track definitions with subtitles) is on disk before MPV
+        // opens the stream. Without this wait, MPV sees incomplete data and
+        // cannot determine duration or discover subtitle tracks.
+        if let currentStreamer = streamer, currentStreamer.isActive {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                // Wait for head pieces (up to 30s timeout).
+                _ = currentStreamer.waitForMetadataPieces(timeout: 30)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    // Guard against stale callbacks: if the user changed episodes
+                    // while we were waiting, the streamer instance will differ.
+                    guard self.streamer === currentStreamer else { return }
+                    self.loadVideoURL()
+                }
+            }
+        } else {
+            // File is fully downloaded or no streaming needed — load immediately.
+            loadVideoURL()
+        }
+    }
+
+    /// Builds the URL and preset, loads the video into MPV, and starts stats.
+    /// Separated from loadCurrentVideo() so it can be called after an async
+    /// metadata pre-wait without duplicating the URL-building logic.
+    private func loadVideoURL() {
+        guard let entity = videoEntity else { return }
+        let path = entity.videoPath ?? ""
+        guard !path.isEmpty else { return }
+
+        let url: URL
+        let preset: PlayerPreset
+        if let server = streamServer {
+            // Streaming: serve the file via local HTTP so MPV handles
+            // buffering and seeking natively. The server blocks responses
+            // until the required pieces are downloaded.
+            url = server.url
+            // Enable MPV's stream cache for the HTTP stream. Without this,
+            // MPV reads synchronously and can't buffer ahead, causing stalls.
+            // These are set per-load so they don't affect local file playback.
+            preset = PlayerPreset(commands: [
+                ["set", "cache", "yes"],
+                ["set", "cache-secs", "120"],
+                ["set", "cache-pause-wait", "3"],
+                ["set", "demuxer-max-bytes", "150MiB"],
+                ["set", "demuxer-max-back-bytes", "50MiB"],
+                ["set", "network-timeout", "120"],
+            ])
+        } else if path.starts(with: "http") {
+            url = URL(string: path)!
+            preset = PlayerPreset()
+        } else {
+            url = URL(fileURLWithPath: path)
+            // Reset cache options in case they were set by a previous streaming load.
+            preset = PlayerPreset(commands: [
+                ["set", "cache", "no"],
+            ])
+        }
+
+        surface.mpv.load(url: url, with: preset)
         
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0
@@ -289,7 +359,48 @@ final class VideoPlayerViewController: UIViewController {
         guard let saved = WatchProgressService.shared.getProgress(videoPath: path),
               saved.isInProgress, saved.currentTime > 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.lastSeekTime = Date()
             self?.surface.mpv.seek(to: saved.currentTime)
+        }
+    }
+
+    // MARK: - Streaming setup
+
+    /// Creates a TorrentStreamer and LocalStreamServer for the active file
+    /// if the torrent is still downloading. The streamer manages piece deadlines
+    /// for proactive prefetching. The HTTP server serves the file to MPV,
+    /// blocking byte-range responses until the required pieces are downloaded.
+    /// This lets MPV handle buffering and seeking natively — no polling needed.
+    private func setupStreamer() {
+        // Stop any previous streamer / server
+        streamServer?.stop()
+        streamServer = nil
+        streamer?.stop()
+        streamer = nil
+
+        guard let handle = torrentHandle else { return }
+        // Only create a streamer when the file is not yet fully downloaded.
+        // Use byte-level file progress (entry.downloaded >= entry.size) which
+        // is accurate regardless of piece priority settings.
+        guard !isFileFullyDownloaded() else { return }
+
+        let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
+        s.start()
+        streamer = s
+
+        // Start a local HTTP server so MPV reads from HTTP instead of a
+        // file with holes. The server gates responses on piece availability.
+        let path = videoEntity?.videoPath ?? ""
+        guard !path.isEmpty else { return }
+
+        let server = LocalStreamServer(torrentHandle: handle, fileIndex: fileIndex, filePath: path)
+        do {
+            try server.start()
+            streamServer = server
+            print("LocalStreamServer: started for file \(fileIndex) at \(server.url)")
+        } catch {
+            print("LocalStreamServer: failed to start — \(error)")
+            // Fall back to direct file path (original behavior)
         }
     }
 
@@ -297,9 +408,8 @@ final class VideoPlayerViewController: UIViewController {
 
     private func startStatsTimer() {
         statsTimer?.invalidate()
-        guard let handle = torrentHandle else { return }
-        let snap = handle.snapshot
-        guard !snap.isFinished, !snap.isSeed, snap.progress < 1.0 else { return }
+        guard torrentHandle != nil else { return }
+        guard !isFileFullyDownloaded() else { return }
         statsLabel.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -310,13 +420,39 @@ final class VideoPlayerViewController: UIViewController {
     private func updateStats() {
         guard let handle = torrentHandle else { return }
         let snap = handle.snapshot
-        if snap.isFinished || snap.isSeed || snap.progress >= 1.0 {
+        // Use byte-level file progress instead of snap.progress, which only
+        // counts "wanted" pieces. Since TorrentStreamer sets most pieces to
+        // priority 0, snap.progress can falsely report 1.0 when only a few
+        // pieces are downloaded — causing the streamer to be stopped and
+        // all subsequent seeks to fail (no pieces requested).
+        if isFileFullyDownloaded() {
             statsTimer?.invalidate()
             statsLabel.isHidden = true
+            // Stop the streamer — piece management is no longer needed.
+            // Do NOT stop streamServer here: MPV is still reading from the
+            // HTTP URL. Stopping the server mid-playback causes read errors
+            // and playback failure. The server is stopped in viewWillDisappear
+            // and prev/next episode transitions.
+            streamer?.stop()
+            streamer = nil
             return
         }
         let speed = fmtSpeed(snap.downloadRate)
-        statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", snap.progress * 100))"
+        // Show file-level download fraction for accurate progress display.
+        let fileFraction: Double
+        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }), entry.size > 0 {
+            fileFraction = Double(entry.downloaded) / Double(entry.size)
+        } else {
+            fileFraction = Double(snap.progress)
+        }
+        // When streaming, show buffer seconds ahead of playback.
+        if let s = streamer, s.isActive, duration > 0 {
+            let fraction = currentTime / duration
+            let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
+            statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", fileFraction * 100))"
+        } else {
+            statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", fileFraction * 100))"
+        }
     }
 
     private func fmtSpeed(_ bps: UInt64) -> String {
@@ -325,6 +461,23 @@ final class VideoPlayerViewController: UIViewController {
         if bps >= 1_048_576    { return String(format: "%.1f MB/s", Double(bps) / 1_048_576) }
         if bps >= 1_024        { return String(format: "%.0f KB/s", Double(bps) / 1_024) }
         return "\(bps) B/s"
+    }
+
+    /// Checks whether the target file is fully downloaded using byte-level
+    /// progress from libtorrent's file_progress(). This is immune to the
+    /// "wanted pieces" issue where snap.progress falsely reports 1.0 when
+    /// TorrentStreamer has set most pieces to priority 0.
+    private func isFileFullyDownloaded() -> Bool {
+        guard let handle = torrentHandle else { return true }
+        handle.updateSnapshot()
+        let snap = handle.snapshot
+        // isSeed means the entire torrent is downloaded — always reliable.
+        if snap.isSeed { return true }
+        // Check byte-level progress for the specific file we're playing.
+        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
+            return entry.size > 0 && entry.downloaded >= entry.size
+        }
+        return false
     }
 
     // MARK: - Watch progress
@@ -409,6 +562,10 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func prevTapped() {
         guard currentVideoIndex > 0 else { return }
         saveProgress()
+        streamServer?.stop()
+        streamServer = nil
+        streamer?.stop()
+        streamer = nil
         currentVideoIndex -= 1
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
@@ -425,6 +582,10 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func nextTapped() {
         guard currentVideoIndex < allVideos.count - 1 else { return }
         saveProgress()
+        streamServer?.stop()
+        streamServer = nil
+        streamer?.stop()
+        streamer = nil
         currentVideoIndex += 1
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
@@ -454,8 +615,15 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func seekEnded() {
-        surface.mpv.seek(to: Double(seekBar.value) * duration)
+        let seekFraction = Double(seekBar.value)
         isSeeking = false
+        lastSeekTime = Date()
+
+        // Tell the streamer to prioritize pieces at the new position.
+        // The HTTP server will block MPV's byte-range requests until
+        // the required pieces are downloaded, so we can seek immediately.
+        streamer?.seekTo(fraction: seekFraction)
+        surface.mpv.seek(to: seekFraction * duration)
         scheduleHide()
     }
 
@@ -594,9 +762,26 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.currentTime = position
         self.duration    = duration
         updateTimeUI()
+
+        // Feed playback position to the streamer so it can set piece deadlines
+        // ahead of the current position. Pass duration so the streamer can check
+        // whether the buffer is already sufficient and skip unnecessary requests.
+        if duration > 0 {
+            streamer?.updatePlaybackPosition(fraction: position / duration, videoDuration: duration)
+        }
         
-        // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event)
-        if duration > 0 && position > 0 && position >= duration - 0.5 {
+        // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
+        // Guard against false EOF triggers after a seek: when the server serves
+        // partially-downloaded data, MPV may briefly report a position near the
+        // end of the file before settling at the correct position. A 5-second
+        // cooldown after the last seek prevents this from triggering handleFileEnded().
+        let seekCooldownActive: Bool
+        if let seekTime = lastSeekTime {
+            seekCooldownActive = Date().timeIntervalSince(seekTime) < 5.0
+        } else {
+            seekCooldownActive = false
+        }
+        if duration > 0 && position > 0 && position >= duration - 0.5 && !seekCooldownActive {
             if !isEOFTriggered {
                 isEOFTriggered = true
                 handleFileEnded()

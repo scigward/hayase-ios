@@ -176,15 +176,111 @@ public class VideoService: NSObject {
         handle.setFilePriority(priority, at: Int(index))
     }
 
-    /// Hayase approach: focus all download bandwidth on one episode.
+    /// Hayase approach: focus download bandwidth on the selected episode.
     /// Sets every other file in the torrent to dontDownload so libtorrent
-    /// dedicates all piece-picking to the file the user wants to watch.
+    /// dedicates piece-picking to the file the user wants to watch.
+    /// Subtitle and font files (.srt, .ass, .ssa, .ttf, .otf, etc.) are
+    /// kept enabled so MPV can use them immediately without waiting for
+    /// the full torrent to finish downloading.
+    ///
+    /// Also immediately requests head/tail metadata pieces with priority 7
+    /// + tight deadlines and enables sequential download. This is critical
+    /// because the VideoPlayerViewController (which creates TorrentStreamer)
+    /// only opens AFTER some bytes are downloaded. Without early piece
+    /// requests, libtorrent downloads pieces in default order and the MKV
+    /// header pieces might not arrive first.
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
+
+        // Refresh snapshot so we have up-to-date file entries and piece indices.
+        handle.updateSnapshot()
+
         for entry in handle.snapshot.files {
-            let priority: FileEntry.Priority = entry.index == Int(fileIndex) ? .defaultPriority : .dontDownload
+            let isTargetVideo = entry.index == Int(fileIndex)
+            let isSubtitleOrFont = Self.isSubtitleOrFontFile(entry.name)
+            let priority: FileEntry.Priority = (isTargetVideo || isSubtitleOrFont) ? .defaultPriority : .dontDownload
             handle.setFilePriority(priority, at: Int(entry.index))
         }
+
+        // Enable sequential download so libtorrent biases toward beginning
+        // pieces, naturally fetching MKV header/metadata first.
+        handle.setSequentialDownload(true)
+
+        // Override all target-file pieces to priority 1 at the PIECE level.
+        // setFilePriority(.defaultPriority) sets them to 4 at the file level,
+        // but we want the gap between metadata pieces (7) and everything else
+        // to be as large as possible so libtorrent strongly prefers metadata.
+        // Without this, the priority-4 pieces compete with priority-7 head/tail
+        // pieces for bandwidth on low-seeder torrents with few peers.
+        if let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
+            let begin = Int(entry.begin_idx)
+            let end = Int(entry.end_idx)
+            for piece in begin...end {
+                handle.setPiecePriority(piece, priority: 1)
+            }
+        }
+
+        // Immediately request head + tail pieces for MKV metadata.
+        // Head pieces contain SeekHead/Info(duration)/Tracks(subtitle defs).
+        // Tail pieces contain Cues (seek index). Requesting these NOW — before
+        // the player opens — gives them maximum download time.
+        // These MUST be set AFTER the priority-1 loop above so they override
+        // the low priority with priority 7 + tight deadlines.
+        requestMetadataPieces(handle: handle, fileIndex: fileIndex)
+
+        // Force re-announce to all trackers so we discover peers immediately.
+        handle.forceReannounce()
+    }
+
+    /// Number of pieces from file start to request for MKV header metadata.
+    /// MKV SeekHead + Info + Tracks typically fit within the first 1–2 MB.
+    /// With typical piece sizes of 256 KB–1 MB, 8 pieces is a safe margin.
+    private static let headPieceCount = 8
+    /// Number of pieces from file end to request for MKV Cues/seek index.
+    /// The Cues element can be several MB for long files with many seek points.
+    private static let tailPieceCount = 16
+    /// Deadline base in milliseconds for the first metadata piece.
+    private static let metadataDeadlineBase: Int32 = 10
+    /// Deadline increment per additional metadata piece (ms).
+    private static let metadataDeadlineStep: Int32 = 50
+
+    /// Requests the head and tail pieces of a file with priority 7 and tight
+    /// deadlines. These contain MKV metadata (SeekHead, Info, Tracks, Cues)
+    /// that MPV needs to display duration and subtitle tracks at stream start.
+    private func requestMetadataPieces(handle: TorrentHandle, fileIndex: UInt) {
+        handle.updateSnapshot()
+        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) else { return }
+
+        let beginPiece = Int(entry.begin_idx)
+        let endPiece = Int(entry.end_idx)
+
+        // Head pieces (MKV SeekHead/Info/Tracks)
+        let headEnd = min(beginPiece + Self.headPieceCount - 1, endPiece)
+        for piece in beginPiece...headEnd {
+            handle.setPiecePriority(piece, priority: 7)
+            let deadline = Self.metadataDeadlineBase + Int32(piece - beginPiece) * Self.metadataDeadlineStep
+            handle.setPieceDeadline(piece, deadline: deadline)
+        }
+
+        // Tail pieces (MKV Cues/seek index)
+        let tailStart = max(endPiece - Self.tailPieceCount + 1, beginPiece)
+        for piece in tailStart...endPiece {
+            handle.setPiecePriority(piece, priority: 7)
+            let deadline = Self.metadataDeadlineBase + Int32(piece - tailStart) * Self.metadataDeadlineStep
+            handle.setPieceDeadline(piece, deadline: deadline)
+        }
+
+        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd), tail=\(tailStart)–\(endPiece)")
+    }
+
+    // MARK: - File type helpers
+
+    private static let subtitleExtensions: Set<String> = ["srt", "ass", "ssa", "sub", "idx", "sup", "vtt"]
+    private static let fontExtensions: Set<String> = ["ttf", "otf", "woff", "woff2"]
+
+    private static func isSubtitleOrFontFile(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return subtitleExtensions.contains(ext) || fontExtensions.contains(ext)
     }
 
     func UpdateTorrentFileInfos() {

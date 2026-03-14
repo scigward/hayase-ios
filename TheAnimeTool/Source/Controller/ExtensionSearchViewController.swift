@@ -646,20 +646,8 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: - Download
 
     private func confirmDownload(_ result: TorrentResult) {
-        let sizeStr = formatBytes(result.size)
-        let detail  = result.size > 0 ? "\nSize: \(sizeStr)  ·  ▲ \(result.seeders) seeders" : ""
-        let alert = UIAlertController(title: "Download?",
-                                       message: result.title + detail,
-                                       preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "Download", style: .default) { [weak self] _ in
-            self?.startDownload(result)
-        })
-        alert.addAction(UIAlertAction(title: "Copy Link", style: .default) { _ in
-            UIPasteboard.general.string = result.link
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.popoverPresentationController?.sourceView = view
-        present(alert, animated: true)
+        // Skip confirmation — start streaming immediately.
+        startDownload(result)
     }
 
     private func startDownload(_ result: TorrentResult) {
@@ -687,7 +675,12 @@ final class ExtensionSearchViewController: UIViewController {
                 hud.dismiss(animated: false) {
                     switch res {
                     case .success:
-                        self?.navigationController?.popViewController(animated: true)
+                        // Navigate to the video list for immediate streaming
+                        // instead of popping back to the anime detail screen.
+                        let videoList = VideoListViewController()
+                        videoList.torrentEntity = entity
+                        videoList.targetEpisode = self?.currentEpisode
+                        self?.navigationController?.pushViewController(videoList, animated: true)
                     case .failure(let err):
                         let e = UIAlertController(title: "Error", message: err.localizedDescription, preferredStyle: .alert)
                         e.addAction(UIAlertAction(title: "OK", style: .cancel))

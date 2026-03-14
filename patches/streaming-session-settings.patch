@@ -1,0 +1,46 @@
+diff --git a/LibTorrent/Core/SessionSettings/SessionSettings.mm b/LibTorrent/Core/SessionSettings/SessionSettings.mm
+index 9c0cf32..29742e3 100644
+--- a/LibTorrent/Core/SessionSettings/SessionSettings.mm
++++ b/LibTorrent/Core/SessionSettings/SessionSettings.mm
+@@ -102,6 +102,41 @@ lt::settings_pack::proxy_type_t proxyTypeConverter(SessionSettings *pack) {
+         settings.set_bool(lt::settings_pack::proxy_hostnames, true);
+     }
+ 
++    // Streaming-optimized peer/connection settings.
++    // These improve peer discovery and piece availability for low-seeder
++    // torrents — critical for anime streaming where seeders may be few.
++    //
++    // connections_limit: max simultaneous peer connections across all torrents.
++    // Default is 200; we keep it explicit for clarity.
++    settings.set_int(lt::settings_pack::connections_limit, 200);
++    //
++    // allow_multiple_connections_per_ip: seedboxes and VPN users often share
++    // an IP. Allowing multiple connections per IP lets us use all available
++    // peers in these scenarios.
++    settings.set_bool(lt::settings_pack::allow_multiple_connections_per_ip, true);
++    //
++    // min_reconnect_time: seconds before reconnecting to a peer after
++    // disconnect. Default is 60s which is too slow for streaming — if a
++    // peer disconnects during playback, we want to reconnect reasonably
++    // fast without causing connection thrashing.
++    settings.set_int(lt::settings_pack::min_reconnect_time, 5);
++    //
++    // peer_connect_timeout: seconds to wait for a TCP handshake. Default 15s;
++    // reduce to 7s so we fail over to other peers faster during streaming.
++    settings.set_int(lt::settings_pack::peer_connect_timeout, 7);
++    //
++    // request_timeout: seconds before re-requesting a piece block from a
++    // different peer. Default 60s; reduce to 20s so stalled requests are
++    // retried sooner. Too low (< 10s) causes premature timeouts on slow but
++    // valid peers.
++    settings.set_int(lt::settings_pack::request_timeout, 20);
++    //
++    // whole_pieces_threshold: number of blocks before libtorrent prefers to
++    // finish the current piece rather than start a new one. Higher values
++    // reduce piece fragmentation which is important for streaming (we need
++    // complete pieces before the player can read them).
++    settings.set_int(lt::settings_pack::whole_pieces_threshold, 20);
++
+     return settings;
+ }
+ 
