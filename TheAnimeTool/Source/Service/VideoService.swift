@@ -182,6 +182,13 @@ public class VideoService: NSObject {
     /// Subtitle and font files (.srt, .ass, .ssa, .ttf, .otf, etc.) are
     /// kept enabled so MPV can use them immediately without waiting for
     /// the full torrent to finish downloading.
+    ///
+    /// Also immediately requests head/tail metadata pieces with priority 7
+    /// + tight deadlines and enables sequential download. This is critical
+    /// because the VideoPlayerViewController (which creates TorrentStreamer)
+    /// only opens AFTER some bytes are downloaded. Without early piece
+    /// requests, libtorrent downloads pieces in default order and the MKV
+    /// header pieces might not arrive first.
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
         for entry in handle.snapshot.files {
@@ -190,6 +197,53 @@ public class VideoService: NSObject {
             let priority: FileEntry.Priority = (isTargetVideo || isSubtitleOrFont) ? .defaultPriority : .dontDownload
             handle.setFilePriority(priority, at: Int(entry.index))
         }
+
+        // Enable sequential download so libtorrent biases toward beginning
+        // pieces, naturally fetching MKV header/metadata first.
+        handle.setSequentialDownload(true)
+
+        // Immediately request head + tail pieces for MKV metadata.
+        // Head pieces contain SeekHead/Info(duration)/Tracks(subtitle defs).
+        // Tail pieces contain Cues (seek index). Requesting these NOW — before
+        // the player opens — gives them maximum download time.
+        requestMetadataPieces(handle: handle, fileIndex: fileIndex)
+
+        // Force re-announce to all trackers so we discover peers immediately.
+        handle.forceReannounce()
+    }
+
+    /// Number of pieces from file start to request for MKV header metadata.
+    private static let headPieceCount = 8
+    /// Number of pieces from file end to request for MKV Cues/seek index.
+    private static let tailPieceCount = 16
+
+    /// Requests the head and tail pieces of a file with priority 7 and tight
+    /// deadlines. These contain MKV metadata (SeekHead, Info, Tracks, Cues)
+    /// that MPV needs to display duration and subtitle tracks at stream start.
+    private func requestMetadataPieces(handle: TorrentHandle, fileIndex: UInt) {
+        handle.updateSnapshot()
+        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) else { return }
+
+        let beginPiece = Int(entry.begin_idx)
+        let endPiece = Int(entry.end_idx)
+
+        // Head pieces (MKV SeekHead/Info/Tracks)
+        let headEnd = min(beginPiece + Self.headPieceCount - 1, endPiece)
+        for piece in beginPiece...headEnd {
+            handle.setPiecePriority(piece, priority: 7)
+            let deadline = Int32(10 + (piece - beginPiece) * 50)
+            handle.setPieceDeadline(piece, deadline: deadline)
+        }
+
+        // Tail pieces (MKV Cues/seek index)
+        let tailStart = max(endPiece - Self.tailPieceCount + 1, beginPiece)
+        for piece in tailStart...endPiece {
+            handle.setPiecePriority(piece, priority: 7)
+            let deadline = Int32(10 + (piece - tailStart) * 50)
+            handle.setPieceDeadline(piece, deadline: deadline)
+        }
+
+        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd), tail=\(tailStart)–\(endPiece)")
     }
 
     // MARK: - File type helpers
