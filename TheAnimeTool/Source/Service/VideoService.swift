@@ -213,9 +213,16 @@ public class VideoService: NSObject {
     }
 
     /// Number of pieces from file start to request for MKV header metadata.
+    /// MKV SeekHead + Info + Tracks typically fit within the first 1–2 MB.
+    /// With typical piece sizes of 256 KB–1 MB, 8 pieces is a safe margin.
     private static let headPieceCount = 8
     /// Number of pieces from file end to request for MKV Cues/seek index.
+    /// The Cues element can be several MB for long files with many seek points.
     private static let tailPieceCount = 16
+    /// Deadline base in milliseconds for the first metadata piece.
+    private static let metadataDeadlineBase: Int32 = 10
+    /// Deadline increment per additional metadata piece (ms).
+    private static let metadataDeadlineStep: Int32 = 50
 
     /// Requests the head and tail pieces of a file with priority 7 and tight
     /// deadlines. These contain MKV metadata (SeekHead, Info, Tracks, Cues)
@@ -231,7 +238,7 @@ public class VideoService: NSObject {
         let headEnd = min(beginPiece + Self.headPieceCount - 1, endPiece)
         for piece in beginPiece...headEnd {
             handle.setPiecePriority(piece, priority: 7)
-            let deadline = Int32(10 + (piece - beginPiece) * 50)
+            let deadline = Self.metadataDeadlineBase + Int32(piece - beginPiece) * Self.metadataDeadlineStep
             handle.setPieceDeadline(piece, deadline: deadline)
         }
 
@@ -239,7 +246,7 @@ public class VideoService: NSObject {
         let tailStart = max(endPiece - Self.tailPieceCount + 1, beginPiece)
         for piece in tailStart...endPiece {
             handle.setPiecePriority(piece, priority: 7)
-            let deadline = Int32(10 + (piece - tailStart) * 50)
+            let deadline = Self.metadataDeadlineBase + Int32(piece - tailStart) * Self.metadataDeadlineStep
             handle.setPieceDeadline(piece, deadline: deadline)
         }
 
