@@ -51,11 +51,6 @@ final class LocalStreamServer {
     private var connections: [NWConnection] = []
     private var isStopped = false
 
-    /// Incremented each time a new GET request arrives. Old streamBody loops
-    /// check this and exit early when it changes, preventing them from
-    /// re-requesting pieces for the OLD position at priority 7 after a seek.
-    private var requestGeneration: Int = 0
-
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
 
@@ -271,25 +266,24 @@ final class LocalStreamServer {
         let contentLength = rangeEnd - rangeStart + 1
         sendHeaders(connection: connection, rangeStart: rangeStart, rangeEnd: rangeEnd, hasRange: hasRange, bodyLength: contentLength)
 
-        // Increment the generation so any previous streamBody loop exits early.
-        // This prevents old streams from re-requesting stale pieces at priority 7
-        // after a seek, which would steal bandwidth from the new seek position.
-        requestGeneration += 1
-        let myGeneration = requestGeneration
-
-        // Stream body in chunks. Each chunk is read from the file only after
+        // Stream body in chunks on a background queue so we don't block
+        // the NWListener queue. Each chunk is read from the file only after
         // the pieces covering those bytes are confirmed downloaded.
-        // Use a background queue so we don't block the NWListener queue.
+        // Each connection's streamBody runs independently — MPV may open
+        // multiple connections for parallel range requests (e.g., one for
+        // the beginning of the file and one for the end to probe MKV Cues).
+        // Using a global "generation" counter to cancel old streams would
+        // kill the main data stream when the probe request arrives.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd, generation: myGeneration)
+            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd)
         }
     }
 
     /// Streams file bytes from `offset` to `end` in chunks, waiting for each
     /// chunk's pieces to be available before reading from disk.
-    /// Exits early if a newer request arrives (generation mismatch) to avoid
-    /// re-requesting stale pieces and stealing bandwidth after a seek.
-    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64, generation: Int) {
+    /// Exits when the full range has been sent, the connection is closed by
+    /// the client, or the server is stopped.
+    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64) {
         guard !isStopped else { return }
 
         // Open the file
@@ -306,7 +300,7 @@ final class LocalStreamServer {
         let chunkSize = UInt64(pieceLength > 0 ? pieceLength : 65536)
 
         var currentOffset = offset
-        while currentOffset <= end && !isStopped && generation == requestGeneration {
+        while currentOffset <= end && !isStopped {
             let readEnd = min(currentOffset + chunkSize - 1, end)
 
             // Which local pieces cover this byte range?
@@ -323,8 +317,7 @@ final class LocalStreamServer {
             // Returns true if pieces were already on disk (no waiting needed).
             let alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
 
-            // Exit if a newer request superseded this one during the wait.
-            if isStopped || generation != requestGeneration { break }
+            if isStopped { break }
 
             // Read from file. For freshly-downloaded pieces, verify data
             // stability with a double-read to detect partial flushes.
@@ -365,7 +358,9 @@ final class LocalStreamServer {
 
             if data.isEmpty { break }
 
-            // Send synchronously (block until sent)
+            // Send synchronously (block until sent).
+            // If the client (MPV) closes the connection (e.g., on seek),
+            // the send will fail and we exit the loop naturally.
             let semaphore = DispatchSemaphore(value: 0)
             var sendError: NWError?
 
@@ -380,8 +375,12 @@ final class LocalStreamServer {
             currentOffset = readEnd + 1
         }
 
-        // After serving the range, wait for next request (keep-alive)
-        if !isStopped {
+        // Only wait for the next request if we successfully served the full
+        // range. If we exited early (send error, server stopped, empty read),
+        // the response is incomplete and the client won't send another request
+        // on this connection — trying to receiveRequest would hang.
+        let completedFullRange = currentOffset > end
+        if !isStopped && completedFullRange {
             queue.async { [weak self] in
                 self?.receiveRequest(connection)
             }
