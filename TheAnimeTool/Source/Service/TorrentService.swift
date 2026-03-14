@@ -125,15 +125,23 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     // MARK: - Public trackers
-    // Well-known public BitTorrent announce endpoints. These can be appended to magnet
-    // URIs produced by extensions that don't include tracker parameters, improving peer
-    // discovery when DHT alone is slow. None of these are nyaa-specific.
+    // Well-known public BitTorrent announce endpoints. Appended to every torrent so peer
+    // discovery works even when the magnet URI / .torrent file includes no tracker params.
+    // Includes anime-specific trackers (nyaa, acgnxtracker, anidex, anirena) that are
+    // critical for finding peers on low-seeder anime torrents — these are the same
+    // trackers used by Hayase's torrent-client for reliable streaming.
     static let publicTrackers = [
+        // General public trackers
         "udp://open.stealth.si:80/announce",
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://exodus.desync.com:6969/announce",
         "udp://tracker.torrent.eu.org:451/announce",
         "udp://tracker.openbittorrent.com:6969/announce",
+        // Anime-specific trackers — significantly improve peer discovery for anime releases
+        "http://nyaa.tracker.wf:7777/announce",
+        "http://open.acgnxtracker.com:80/announce",
+        "http://anidex.moe:6969/announce",
+        "http://tracker.anirena.com:80/announce",
     ]
 
     /// Append public fallback trackers to a handle so every torrent benefits from
