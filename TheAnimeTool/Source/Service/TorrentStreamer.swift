@@ -443,7 +443,7 @@ final class TorrentStreamer {
     /// MPV opens the stream, so video duration and subtitle tracks are available
     /// immediately.
     ///
-    /// Periodically re-boosts head piece priorities every ~3 seconds during the
+    /// Periodically re-boosts head piece priorities every ~1 second during the
     /// wait. This handles edge cases where libtorrent's internal recalculations
     /// (e.g., update_piece_priorities from set_file_priority) might reset our
     /// piece-level overrides back to the file-level default.
@@ -455,11 +455,22 @@ final class TorrentStreamer {
         let headEnd = min(headPieceCount - 1, totalFilePieces - 1) // local indices
         let startTime = Date()
         let pollInterval: TimeInterval = 0.25
-        let reinforceInterval: TimeInterval = 3.0
-        var lastReinforceTime = Date()
+        let reinforceInterval: TimeInterval = 1.0
+        var lastReinforceTime = Date.distantPast // trigger immediate first reinforcement
 
         while isActive {
             let now = Date()
+
+            // Re-boost head+tail piece priorities periodically.
+            // libtorrent's update_piece_priorities (triggered by set_file_priority
+            // or set_sequential_download) can reset our piece-level overrides back
+            // to the file-level default (4). Re-requesting every second ensures
+            // head/tail stay at priority 7 with time-critical deadlines.
+            if now.timeIntervalSince(lastReinforceTime) >= reinforceInterval {
+                requestHeadPieces()
+                requestTailPieces()
+                lastReinforceTime = now
+            }
 
             torrentHandle.updateSnapshot()
             guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
@@ -468,11 +479,20 @@ final class TorrentStreamer {
                 continue
             }
 
-            var allReady = true
-            for i in 0...headEnd {
-                if i < pieces.count && !pieces[i].boolValue {
-                    allReady = false
-                    break
+            // Verify ALL head pieces are downloaded.
+            // If the pieces array is shorter than expected (snapshot not fully
+            // populated or stale), treat the missing entries as NOT ready.
+            // Previous code used `i < pieces.count && !pieces[i].boolValue`
+            // which silently skipped out-of-bounds indices, causing this function
+            // to return true when pieces weren't actually downloaded (e.g., when
+            // pieces was empty → allReady stayed true → MPV loaded with no data).
+            var allReady = pieces.count > headEnd // array must cover all head pieces
+            if allReady {
+                for i in 0...headEnd {
+                    if !pieces[i].boolValue {
+                        allReady = false
+                        break
+                    }
                 }
             }
 
@@ -482,18 +502,8 @@ final class TorrentStreamer {
             }
 
             if now.timeIntervalSince(startTime) > timeout {
-                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s")
+                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1)")
                 return false
-            }
-
-            // Periodically re-boost head+tail piece priorities.
-            // libtorrent's update_piece_priorities (triggered by set_file_priority)
-            // can reset our piece-level overrides to the file-level default (4).
-            // Re-requesting ensures head/tail stay at priority 7 with deadlines.
-            if now.timeIntervalSince(lastReinforceTime) >= reinforceInterval {
-                requestHeadPieces()
-                requestTailPieces()
-                lastReinforceTime = Date()
             }
 
             Thread.sleep(forTimeInterval: pollInterval)

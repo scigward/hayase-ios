@@ -453,9 +453,12 @@ final class LocalStreamServer {
                    let pieces = entry.pieces as? [NSNumber] {
                     for localIdx in safeFirst...safeLast {
                         guard localIdx < pieces.count else {
-                            // Beyond pieces array — can't verify, treat as ready.
-                            // The data read retry loop handles stale cache.
-                            continue
+                            // Beyond pieces array — can't verify download status.
+                            // Treat as NOT ready to prevent reading incomplete data.
+                            // This can happen when the snapshot is stale or the
+                            // pieces array hasn't been fully populated yet.
+                            allReady = false
+                            break
                         }
                         if !pieces[localIdx].boolValue {
                             allReady = false
