@@ -191,6 +191,10 @@ public class VideoService: NSObject {
     /// header pieces might not arrive first.
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
+
+        // Refresh snapshot so we have up-to-date file entries and piece indices.
+        handle.updateSnapshot()
+
         for entry in handle.snapshot.files {
             let isTargetVideo = entry.index == Int(fileIndex)
             let isSubtitleOrFont = Self.isSubtitleOrFontFile(entry.name)
@@ -202,10 +206,26 @@ public class VideoService: NSObject {
         // pieces, naturally fetching MKV header/metadata first.
         handle.setSequentialDownload(true)
 
+        // Override all target-file pieces to priority 1 at the PIECE level.
+        // setFilePriority(.defaultPriority) sets them to 4 at the file level,
+        // but we want the gap between metadata pieces (7) and everything else
+        // to be as large as possible so libtorrent strongly prefers metadata.
+        // Without this, the priority-4 pieces compete with priority-7 head/tail
+        // pieces for bandwidth on low-seeder torrents with few peers.
+        if let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
+            let begin = Int(entry.begin_idx)
+            let end = Int(entry.end_idx)
+            for piece in begin...end {
+                handle.setPiecePriority(piece, priority: 1)
+            }
+        }
+
         // Immediately request head + tail pieces for MKV metadata.
         // Head pieces contain SeekHead/Info(duration)/Tracks(subtitle defs).
         // Tail pieces contain Cues (seek index). Requesting these NOW — before
         // the player opens — gives them maximum download time.
+        // These MUST be set AFTER the priority-1 loop above so they override
+        // the low priority with priority 7 + tight deadlines.
         requestMetadataPieces(handle: handle, fileIndex: fileIndex)
 
         // Force re-announce to all trackers so we discover peers immediately.

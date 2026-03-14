@@ -151,14 +151,20 @@ final class TorrentStreamer {
         // the sequential order, so seeking still works correctly.
         torrentHandle.setSequentialDownload(true)
 
-        // Set ALL file pieces to priority 1 (low but wanted).
+        // Set non-metadata file pieces to priority 1 (low but wanted).
         // This is critical for low-seeder torrents: with priority 0,
         // libtorrent excludes those pieces from the pick list entirely,
         // meaning peers that only have those pieces can't contribute to
         // the swarm at all. With priority 1, ALL peers have something
         // they can upload, keeping connections active and healthy.
-        // The active window + head + tail get boosted to priority 7.
+        // IMPORTANT: Skip head and tail pieces — VideoService's early
+        // requestMetadataPieces() may have already set them to priority 7
+        // with time-critical deadlines. Resetting them to 1 (even briefly)
+        // can disrupt libtorrent's time-critical piece list.
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in beginPiece...endPiece {
+            if piece <= headEnd || piece >= tailStart { continue }
             torrentHandle.setPiecePriority(piece, priority: 1)
         }
 
@@ -437,6 +443,11 @@ final class TorrentStreamer {
     /// MPV opens the stream, so video duration and subtitle tracks are available
     /// immediately.
     ///
+    /// Periodically re-boosts head piece priorities every ~3 seconds during the
+    /// wait. This handles edge cases where libtorrent's internal recalculations
+    /// (e.g., update_piece_priorities from set_file_priority) might reset our
+    /// piece-level overrides back to the file-level default.
+    ///
     /// - Returns: `true` if head pieces are ready, `false` on timeout or stop.
     func waitForMetadataPieces(timeout: TimeInterval = 30) -> Bool {
         guard isActive, totalFilePieces > 0 else { return false }
@@ -444,6 +455,8 @@ final class TorrentStreamer {
         let headEnd = min(headPieceCount - 1, totalFilePieces - 1) // local indices
         let startTime = Date()
         let pollInterval: TimeInterval = 0.25
+        let reinforceInterval: TimeInterval = 3.0
+        var lastReinforceTime = Date()
 
         while isActive {
             torrentHandle.updateSnapshot()
@@ -469,6 +482,16 @@ final class TorrentStreamer {
             if Date().timeIntervalSince(startTime) > timeout {
                 print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s")
                 return false
+            }
+
+            // Periodically re-boost head+tail piece priorities.
+            // libtorrent's update_piece_priorities (triggered by set_file_priority)
+            // can reset our piece-level overrides to the file-level default (4).
+            // Re-requesting ensures head/tail stay at priority 7 with deadlines.
+            if Date().timeIntervalSince(lastReinforceTime) >= reinforceInterval {
+                requestHeadPieces()
+                requestTailPieces()
+                lastReinforceTime = Date()
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
