@@ -459,6 +459,8 @@ final class TorrentStreamer {
         var lastReinforceTime = Date()
 
         while isActive {
+            let now = Date()
+
             torrentHandle.updateSnapshot()
             guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                   let pieces = entry.pieces as? [NSNumber] else {
@@ -479,7 +481,7 @@ final class TorrentStreamer {
                 return true
             }
 
-            if Date().timeIntervalSince(startTime) > timeout {
+            if now.timeIntervalSince(startTime) > timeout {
                 print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s")
                 return false
             }
@@ -488,7 +490,7 @@ final class TorrentStreamer {
             // libtorrent's update_piece_priorities (triggered by set_file_priority)
             // can reset our piece-level overrides to the file-level default (4).
             // Re-requesting ensures head/tail stay at priority 7 with deadlines.
-            if Date().timeIntervalSince(lastReinforceTime) >= reinforceInterval {
+            if now.timeIntervalSince(lastReinforceTime) >= reinforceInterval {
                 requestHeadPieces()
                 requestTailPieces()
                 lastReinforceTime = Date()
