@@ -362,19 +362,17 @@ final class TorrentStreamer {
     }
 
     /// Sets piece deadlines for a window starting at `pieceIndex`.
-    /// - Normal playback: ~10s critical + ~60s look-ahead (dynamically computed)
+    /// - Normal playback: ~10s critical + ~90s look-ahead (dynamically computed)
     /// - Seek mode: larger critical window with tighter deadlines
-    /// Pieces outside the window are reset to priority 1 (low but still wanted)
-    /// so libtorrent continues downloading them at low priority while concentrating
-    /// bandwidth on the active window. Head and tail pieces keep priority 7.
+    /// Only pieces that fall OUTSIDE the new window are reset to background
+    /// priority. Pieces that overlap between the old and new windows keep their
+    /// boosted state — this avoids a priority gap that disrupts libtorrent's
+    /// download scheduling and causes stutters.
     private func setDeadlinesFrom(pieceIndex: Int, force: Bool = false, isSeek: Bool = false) {
         let start = max(pieceIndex, beginPiece)
 
         if !force && start == lastDeadlinePiece { return }
         lastDeadlinePiece = start
-
-        // Reset deadline boosts for the previous active window.
-        resetActiveWindow()
 
         // Compute dynamic piece counts from video duration.
         let critCount: Int
@@ -407,30 +405,39 @@ final class TorrentStreamer {
         // Look-ahead count is the total buffer minus critical pieces.
         let lookCount = max(0, bufTotal - critCount)
         let totalWindow = critCount + lookCount
-        let windowEnd = min(start + totalWindow - 1, endPiece)
+        let newWindowEnd = min(start + totalWindow - 1, endPiece)
 
-        // Critical buffer: pieces needed for immediate playback.
-        // Priority must be set BEFORE deadline — libtorrent ignores deadlines
-        // on priority-0 pieces.
+        // Reset only pieces that fall OUTSIDE the new window.
+        // This preserves priority/deadline on overlapping pieces, preventing
+        // libtorrent from canceling in-flight requests and causing download
+        // gaps that lead to playback stutters.
+        resetPiecesOutsideWindow(newStart: start, newEnd: newWindowEnd)
+
+        // All pieces in the buffer window get priority 7 (top).
+        // Using uniform priority prevents libtorrent from starving look-ahead
+        // pieces: with priority 4 look-ahead vs priority 7 critical, bandwidth
+        // concentrates on critical pieces while look-ahead pieces fall behind.
+        // When playback catches up, those pieces aren't ready → stutter.
+        // Deadlines alone provide sufficient ordering (tighter for critical,
+        // relaxed for look-ahead) without needing a priority split.
         for i in 0..<critCount {
             let piece = start + i
             guard piece <= endPiece else { break }
-            torrentHandle.setPiecePriority(piece, priority: 7) // top priority
+            torrentHandle.setPiecePriority(piece, priority: 7)
             let deadline = critBase + Int32(i) * critStep
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        // Look-ahead buffer: pieces needed in the near future.
         for i in critCount..<totalWindow {
             let piece = start + i
             guard piece <= endPiece else { break }
-            torrentHandle.setPiecePriority(piece, priority: 4) // default priority
+            torrentHandle.setPiecePriority(piece, priority: 7)
             let deadline = lookAheadDeadlineBase + Int32(i - critCount) * lookAheadDeadlineStep
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
         activeWindowStart = start
-        activeWindowEnd = windowEnd
+        activeWindowEnd = newWindowEnd
 
         // Always keep head + tail pieces active (MKV metadata).
         requestHeadPieces()
@@ -583,21 +590,39 @@ final class TorrentStreamer {
         return false
     }
 
-    /// Resets piece priorities and deadlines for the previous active window.
-    /// In normal mode: pieces are set to priority 1 (low but still wanted) so
-    /// libtorrent continues downloading them at low priority.
-    /// In streamed download mode: pieces are set to priority 0 (not wanted) so
-    /// libtorrent stops downloading them entirely, saving bandwidth.
-    /// Head and tail pieces are NOT reset — they must stay at priority 7 for MKV metadata.
+    /// Resets piece priorities/deadlines for pieces in the OLD active window
+    /// that fall OUTSIDE the NEW window. Pieces that overlap between old and
+    /// new windows are left untouched so libtorrent doesn't cancel in-flight
+    /// requests or deprioritize them.
+    ///
+    /// In normal mode: evicted pieces go to priority 1 (low but still wanted).
+    /// In streamed download mode: evicted pieces go to priority 0 (not wanted).
+    /// Head and tail pieces are never reset.
+    private func resetPiecesOutsideWindow(newStart: Int, newEnd: Int) {
+        guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
+        let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
+        for piece in activeWindowStart...activeWindowEnd {
+            // Skip pieces that are inside the new window — they stay boosted.
+            if piece >= newStart && piece <= newEnd { continue }
+            // Don't reset head pieces — they must stay active for MKV header.
+            if piece <= headEnd { continue }
+            // Don't reset tail pieces — they must stay active for MKV Cues/index.
+            if piece >= tailStart { continue }
+            torrentHandle.setPiecePriority(piece, priority: bgPriority)
+            torrentHandle.resetPieceDeadline(piece)
+        }
+    }
+
+    /// Resets ALL pieces in the active window (used on stop/seek).
     private func resetActiveWindow() {
         guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
         let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in activeWindowStart...activeWindowEnd {
-            // Don't reset head pieces — they must stay active for MKV header.
             if piece <= headEnd { continue }
-            // Don't reset tail pieces — they must stay active for MKV Cues/index.
             if piece >= tailStart { continue }
             torrentHandle.setPiecePriority(piece, priority: bgPriority)
             torrentHandle.resetPieceDeadline(piece)
