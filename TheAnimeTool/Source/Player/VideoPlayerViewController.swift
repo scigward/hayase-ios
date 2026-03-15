@@ -297,32 +297,21 @@ final class VideoPlayerViewController: UIViewController {
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
 
-        // If streaming, wait for head pieces on a background thread before
-        // loading the URL.
-        // must be on disk so MPV can parse immediately.
-        if let currentStreamer = streamer, currentStreamer.isActive {
-            StreamingLogger.shared.info("Waiting for head pieces (metadata)…")
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let ready = currentStreamer.waitForMetadataPieces(timeout: 60)
-                if !ready {
-                    StreamingLogger.shared.warn("Metadata wait timed out after 60s — loading anyway")
-                    print("VideoPlayerViewController: metadata wait timed out; continuing anyway")
-                }
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    guard self.streamer === currentStreamer else { return }
-                    self.loadVideoURL()
-                }
-            }
-        } else {
-            // File fully downloaded or streaming not needed — load immediately.
-            loadVideoURL()
+        // Load MPV immediately — the LocalStreamServer blocks HTTP responses
+        // until the required pieces are downloaded, so MPV naturally waits for
+        // head data (MKV header) without needing a separate pre-wait. This
+        // removes the fixed 60 s metadata timeout: for low-seeder torrents the
+        // player simply stays in its buffering state while the streaming logger
+        // shows peer/seed counts, giving the user visibility into the
+        // connection status. MPV's network-timeout (600 s) is the effective
+        // upper bound.
+        if let s = streamer, s.isActive {
+            StreamingLogger.shared.info("Streaming — waiting for head pieces…")
         }
+        loadVideoURL()
     }
 
     /// Builds the URL and preset, loads the video into MPV, and starts stats.
-    /// Separated from loadCurrentVideo() so it can be called after an async
-    /// metadata pre-wait without duplicating the URL-building logic.
     private func loadVideoURL() {
         guard let entity = videoEntity else { return }
         let path = entity.videoPath ?? ""
@@ -363,7 +352,7 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "cache-pause-wait", "3"],
                 ["set", "demuxer-max-bytes", "150MiB"],
                 ["set", "demuxer-max-back-bytes", "50MiB"],
-                ["set", "network-timeout", "120"],
+                ["set", "network-timeout", "600"],
             ])
         } else if path.starts(with: "http") {
             url = URL(string: path)!

@@ -573,6 +573,7 @@ final class LocalStreamServer {
         var lastStatusLog = startTime
         let reboostInterval: TimeInterval = 5.0
         let statusInterval: TimeInterval = 15.0
+        var lastPeerLog = startTime
         var isFirstCheck = true
 
         while !isStopped {
@@ -674,6 +675,23 @@ final class LocalStreamServer {
                 StreamingLogger.shared.warn("Waiting \(waited)s for pieces \(safeFirst)–\(safeLast)\(missingDesc)")
                 print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)")
                 lastStatusLog = now
+            }
+            // Log peer/seed count every 5 s so users can see connection status
+            // for low-seeder torrents via the streaming logger overlay.
+            if now.timeIntervalSince(lastPeerLog) >= 5.0 {
+                var peers = 0
+                var seeds = 0
+                var dlMB = "0.0"
+                snapshotQueue.sync {
+                    let snap = torrentHandle.snapshot
+                    peers = Int(snap.numberOfPeers)
+                    seeds = Int(snap.numberOfSeeds)
+                    if let entry = snap.files.first(where: { $0.index == fileIndex }) {
+                        dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
+                    }
+                }
+                StreamingLogger.shared.info("Waiting for pieces… peers=\(peers) seeds=\(seeds) dl=\(dlMB) MB")
+                lastPeerLog = now
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
