@@ -662,7 +662,24 @@ final class ExtensionSearchViewController: UIViewController {
 
     private func startDownload(_ result: TorrentResult) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let entity  = Torrents(context: context)
+
+        // Re-use an existing Torrents entity with the same info-hash so that
+        // the linked Videos (and their videoPath keys) are preserved. This
+        // keeps WatchProgressService lookups working across re-opens.
+        let entity: Torrents
+        if !result.hash.isEmpty {
+            let existReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+            existReq.predicate = NSPredicate(format: "torrentHashString == %@", result.hash)
+            existReq.fetchLimit = 1
+            if let existing = (try? context.fetch(existReq))?.first {
+                entity = existing
+            } else {
+                entity = Torrents(context: context)
+            }
+        } else {
+            entity = Torrents(context: context)
+        }
+
         entity.torrentName        = result.title
         entity.torrentHashString  = result.hash
         entity.torrentDownloadURL = result.link
@@ -673,7 +690,24 @@ final class ExtensionSearchViewController: UIViewController {
         if let animeItem {
             let req = Animes.fetchRequest()
             req.predicate = NSPredicate(format: "animeAnilistId == %d", animeItem.id)
-            entity.animes = (try? context.fetch(req))?.first as? Animes
+            if let existing = (try? context.fetch(req))?.first as? Animes {
+                entity.animes = existing
+            } else {
+                // Animes entity doesn't exist yet — create it from the
+                // AnimeItem so the player can show the anime title and
+                // episode count instead of falling back to the torrent name.
+                let anime = Animes(context: context)
+                anime.animeAnilistId      = NSNumber(value: animeItem.id)
+                anime.animeTitleEnglish   = animeItem.titleEnglish
+                anime.animeTitleJapanese  = animeItem.titleRomaji
+                anime.animeTotalEps       = animeItem.episodes.map { NSNumber(value: $0) }
+                anime.animeScore          = animeItem.score.map { NSNumber(value: $0) }
+                anime.animeStatus         = animeItem.status
+                anime.animeDescription    = animeItem.description
+                anime.animeImgL           = animeItem.coverURL
+                anime.animeImgM           = animeItem.coverURL
+                entity.animes = anime
+            }
         }
         try? context.save()
 
@@ -770,7 +804,7 @@ final class ExtensionSearchViewController: UIViewController {
 
         if videos.count == 1 {
             targetVideo = videos[0]
-            targetIndex = UInt(targetVideo!.videoIndex?.intValue ?? 0)
+            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
         } else if let handle = vs.torrentHandle {
             let resolver = TorrentBatchResolver()
             if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode) {
@@ -781,8 +815,8 @@ final class ExtensionSearchViewController: UIViewController {
 
         // Fallback to first video if no match found.
         if targetVideo == nil {
-            targetVideo = videos[0]
-            targetIndex = UInt(targetVideo!.videoIndex?.intValue ?? 0)
+            targetVideo = videos.first
+            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
         }
 
         guard let video = targetVideo else { return }

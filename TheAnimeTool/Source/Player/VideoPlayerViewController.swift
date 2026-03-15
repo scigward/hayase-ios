@@ -497,8 +497,15 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func restoreProgress(path: String) {
-        guard let saved = WatchProgressService.shared.getProgress(videoPath: path),
-              saved.isInProgress, saved.currentTime > 5 else { return }
+        // Primary: look up by exact video path.
+        var saved = WatchProgressService.shared.getProgress(videoPath: path)
+        // Fallback: look up by anilistID + episode (covers re-added torrents
+        // where the Torrents / Videos entities were recreated with different
+        // paths while the user had already watched part of the episode).
+        if saved == nil, anilistID > 0 {
+            saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episodeNumber)
+        }
+        guard let saved, saved.isInProgress, saved.currentTime > 5 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.lastSeekTime = Date()
             self?.surface.mpv.seek(to: saved.currentTime)
@@ -610,11 +617,11 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     /// Returns the episode description for the episode label.
-    /// Hayase: `mediaInfo.session.description = "Episode 5 / 28"`.
+    /// Hayase format: "1/24" (episode / total).
     private func episodeDescriptionText() -> String {
         let totalEps = videoEntity?.torrents?.animes?.animeTotalEps?.intValue ?? 0
         if totalEps > 0 {
-            return "Episode \(episodeNumber) / \(totalEps)"
+            return "\(episodeNumber)/\(totalEps)"
         }
         return "Episode \(episodeNumber)"
     }
