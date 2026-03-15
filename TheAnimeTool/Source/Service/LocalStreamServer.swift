@@ -349,8 +349,14 @@ final class LocalStreamServer {
             var alreadyOnDisk: Bool
             if bytesCoveredByProgress {
                 // Byte-level progress says data is on disk — skip piece wait.
-                // Data is from unverified pieces, so we must still do zero-check
-                // and double-read verification below.
+                // Flush libtorrent's write cache BEFORE reading. file_progress()
+                // includes bytes that are still in memory write buffers — without
+                // this flush, FileHandle reads zeros/stale data and we serve
+                // corrupted frames to MPV (the zero-data fallback only catches
+                // ALL-zero reads, not partially-written data with zero holes).
+                // This matches the flush in waitForLocalPieces()'s byte-level path.
+                torrentHandle.flushCache()
+                Thread.sleep(forTimeInterval: 0.05)
                 alreadyOnDisk = false
             } else {
                 // Wait for pieces to be downloaded and hash-verified, OR for
