@@ -146,8 +146,16 @@ final class TorrentStreamer {
         }
 
         beginPiece = Int(entry.begin_idx)
-        endPiece = Int(entry.end_idx)
         totalFilePieces = Int(entry.num_pieces)
+
+        // LibTorrent-Swift computes endIdx = (fileOffset+fileSize)/pieceLength
+        // using integer division. For piece-aligned files this gives one PAST
+        // the last piece (e.g. 1125 when valid pieces are 0–1124). Clamp to
+        // the torrent's actual piece count to avoid setting priority/deadline
+        // on non-existent piece indices.
+        let rawEndPiece = Int(entry.end_idx)
+        let totalTorrentPieces = torrentHandle.snapshot.pieces?.count ?? rawEndPiece
+        endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware metadata piece counts from the actual piece size.
         // Fixed counts (8 head + 16 tail) cause excessive download requirements
@@ -479,7 +487,7 @@ final class TorrentStreamer {
     /// piece-level overrides back to the file-level default.
     ///
     /// - Returns: `true` if head pieces are ready, `false` on timeout or stop.
-    func waitForMetadataPieces(timeout: TimeInterval = 30) -> Bool {
+    func waitForMetadataPieces(timeout: TimeInterval = 60) -> Bool {
         guard isActive, totalFilePieces > 0 else { return false }
 
         let headEnd = min(headPieceCount - 1, totalFilePieces - 1) // local indices
@@ -487,6 +495,7 @@ final class TorrentStreamer {
         let pollInterval: TimeInterval = 0.25
         let reinforceInterval: TimeInterval = 1.0
         var lastReinforceTime = Date.distantPast // trigger immediate first reinforcement
+        var lastPeerLog = Date.distantPast
 
         // Byte-level threshold: minimum bytes at the start of the file for MPV
         // to parse the MKV header (SeekHead + Info + Tracks). This is the
@@ -509,10 +518,21 @@ final class TorrentStreamer {
             }
 
             torrentHandle.updateSnapshot()
-            guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+            let snap = torrentHandle.snapshot
+            guard let entry = snap.files.first(where: { $0.index == fileIndex }),
                   let pieces = entry.pieces as? [NSNumber] else {
                 Thread.sleep(forTimeInterval: pollInterval)
                 continue
+            }
+
+            // Log peer count periodically so the user can see connection status
+            // for low-seeder torrents via the streaming logger.
+            if now.timeIntervalSince(lastPeerLog) >= 5.0 {
+                let peers = snap.numberOfPeers
+                let seeds = snap.numberOfSeeds
+                let dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
+                StreamingLogger.shared.info("Waiting for metadata… peers=\(peers) seeds=\(seeds) dl=\(dlMB) MB")
+                lastPeerLog = now
             }
 
             // Check 1: piece-level verification (most reliable).
@@ -551,8 +571,10 @@ final class TorrentStreamer {
 
             if now.timeIntervalSince(startTime) > timeout {
                 let dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
-                StreamingLogger.shared.error("Metadata wait timeout after \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, downloaded=\(dlMB) MB")
-                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1), downloaded=\(dlMB) MB")
+                let peers = snap.numberOfPeers
+                let seeds = snap.numberOfSeeds
+                StreamingLogger.shared.error("Metadata timeout \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, dl=\(dlMB) MB, peers=\(peers) seeds=\(seeds)")
+                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1), downloaded=\(dlMB) MB, peers=\(peers), seeds=\(seeds)")
                 return false
             }
 

@@ -195,10 +195,15 @@ final class LogOverlayView: UIView {
 
     // MARK: - Update
 
+    /// Whether the user wants the logger permanently visible (Settings toggle).
+    private var alwaysVisible: Bool {
+        UserDefaults.standard.bool(forKey: "pref_showLogger")
+    }
+
     @objc private func onEntriesChanged() {
         let entries = StreamingLogger.shared.entries
         guard !entries.isEmpty else {
-            isHidden = true
+            if !alwaysVisible { isHidden = true }
             return
         }
 
@@ -225,9 +230,15 @@ final class LogOverlayView: UIView {
         }
         textView.attributedText = attributed
         isHidden = false
+        alpha = 1.0
 
-        // Auto-hide delay based on the highest severity in the visible entries.
-        scheduleAutoHide(forLevel: highestLevel)
+        // When "Show Streaming Logger" is ON, never auto-hide.
+        if alwaysVisible {
+            autoHideWork?.cancel()
+        } else {
+            // Auto-hide delay based on the highest severity in the visible entries.
+            scheduleAutoHide(forLevel: highestLevel)
+        }
     }
 
     private func scheduleAutoHide(forLevel level: StreamingLogEntry.Level) {

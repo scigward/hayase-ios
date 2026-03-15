@@ -94,6 +94,9 @@ class SettingsViewController: UIViewController {
             Row(title: "Minimal UI",
                 description: "Forces minimalistic player UI, hides controls.",
                 kind: .toggle(userDefaultsKey: "pref_minimalUI", defaultValue: false)),
+            Row(title: "Show Streaming Logger",
+                description: "Keeps the streaming log overlay visible during playback instead of auto-hiding.",
+                kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),
         ]),
         // Extensions
         Section(header: "Extensions", rows: [

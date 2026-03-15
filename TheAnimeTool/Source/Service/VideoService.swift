@@ -214,7 +214,11 @@ public class VideoService: NSObject {
         // pieces for bandwidth on low-seeder torrents with few peers.
         if let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
             let begin = Int(entry.begin_idx)
-            let end = Int(entry.end_idx)
+            // Clamp endIdx: LibTorrent-Swift uses integer division which can
+            // give one-past-the-last for piece-aligned files.
+            let rawEnd = Int(entry.end_idx)
+            let totalTorrentPieces = handle.snapshot.pieces?.count ?? rawEnd
+            let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
             for piece in begin...end {
                 handle.setPiecePriority(piece, priority: 1)
             }
@@ -259,7 +263,10 @@ public class VideoService: NSObject {
         guard let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) else { return }
 
         let beginPiece = Int(entry.begin_idx)
-        let endPiece = Int(entry.end_idx)
+        // Clamp endIdx for piece-aligned files (see selectFileForStreaming).
+        let rawEndPiece = Int(entry.end_idx)
+        let totalTorrentPieces = handle.snapshot.pieces?.count ?? rawEndPiece
+        let endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware piece counts from the actual torrent piece size.
         let pl = max(Int(handle.snapshot.pieceLength), 1)

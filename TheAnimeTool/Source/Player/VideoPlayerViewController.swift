@@ -303,9 +303,9 @@ final class VideoPlayerViewController: UIViewController {
         if let currentStreamer = streamer, currentStreamer.isActive {
             StreamingLogger.shared.info("Waiting for head pieces (metadata)…")
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let ready = currentStreamer.waitForMetadataPieces(timeout: 30)
+                let ready = currentStreamer.waitForMetadataPieces(timeout: 60)
                 if !ready {
-                    StreamingLogger.shared.warn("Metadata wait timed out after 30s — loading anyway")
+                    StreamingLogger.shared.warn("Metadata wait timed out after 60s — loading anyway")
                     print("VideoPlayerViewController: metadata wait timed out; continuing anyway")
                 }
                 DispatchQueue.main.async { [weak self] in

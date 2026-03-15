@@ -68,16 +68,26 @@ final class LocalStreamServer {
         self.filePath = filePath
 
         torrentHandle.updateSnapshot()
-        let entry = torrentHandle.snapshot.files.first(where: { $0.index == idx })
+        let snap = torrentHandle.snapshot
+        let entry = snap.files.first(where: { $0.index == idx })
         self.fileSize = entry?.size ?? 0
-        self.pieceLength = Int(torrentHandle.snapshot.pieceLength)
+        self.pieceLength = Int(snap.pieceLength)
         self.totalPieces = Int(entry?.num_pieces ?? 0)
         self.beginPiece = Int(entry?.begin_idx ?? 0)
-        self.endPiece = Int(entry?.end_idx ?? 0)
+
+        // LibTorrent-Swift computes endIdx = (fileOffset+fileSize)/pieceLength
+        // using integer division. For piece-aligned files this gives one PAST
+        // the last piece (e.g. 1125 when valid pieces are 0–1124). Clamp to
+        // the torrent's actual piece count so we never set priority/deadline
+        // on a non-existent piece index.
+        let rawEndPiece = Int(entry?.end_idx ?? 0)
+        let totalTorrentPieces = snap.pieces?.count ?? rawEndPiece
+        self.endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
+
         // endPiece - beginPiece may be 1 more than totalPieces when the file
         // doesn't end on a piece boundary (LibTorrent-Swift's num_pieces
         // uses integer division which truncates the partial last piece).
-        self.maxLocalPiece = max(Int(entry?.end_idx ?? 0) - Int(entry?.begin_idx ?? 0), self.totalPieces > 0 ? self.totalPieces - 1 : 0)
+        self.maxLocalPiece = max(self.endPiece - self.beginPiece, self.totalPieces > 0 ? self.totalPieces - 1 : 0)
     }
 
     // MARK: - Start / Stop
@@ -370,6 +380,26 @@ final class LocalStreamServer {
                 }
             }
 
+            // Safety net: if data is STILL all zeros after flush retries, the
+            // byte-level progress bypass was wrong — the bytes at this offset
+            // haven't actually been downloaded. This happens after seeks when
+            // entry.downloaded (a TOTAL, not contiguous-from-start) includes
+            // bytes from pieces at the seek target, making the bypass think
+            // intermediate offsets are on disk when they're not.
+            // Fall back to piece-level wait which blocks until the actual
+            // pieces covering this range are hash-verified.
+            if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
+                let fallbackFirst = localPieceIndex(forByteOffset: currentOffset)
+                let fallbackLast = localPieceIndex(forByteOffset: readEnd) + 1
+                StreamingLogger.shared.warn("Zero data at offset \(currentOffset) — waiting for pieces \(fallbackFirst)–\(fallbackLast)")
+                waitForLocalPieces(from: fallbackFirst, to: fallbackLast)
+                if isStopped { break }
+                torrentHandle.flushCache()
+                Thread.sleep(forTimeInterval: 0.05)
+                fileHandle.seek(toFileOffset: currentOffset)
+                data = fileHandle.readData(ofLength: readLength)
+            }
+
             // Double-read verification for freshly-downloaded data.
             // If libtorrent's disk thread is still writing when we read,
             // a second read after a brief delay may return different (more
@@ -490,6 +520,13 @@ final class LocalStreamServer {
 
         guard safeFirst <= safeLast else { return true }
 
+        // Number of extra pieces to boost beyond the requested range so
+        // libtorrent downloads them in parallel. Without this, the server
+        // only boosts the current chunk's 1-2 pieces — the rest of the
+        // minute's worth of data sits at priority 1 with no deadlines,
+        // causing sequential one-by-one fetching and heavy buffering.
+        let readAheadCount = 30
+
         func applyPriorityBoost() {
             // Set priority THEN deadline on the needed pieces.
             // Priority must be > 0 or libtorrent ignores the deadline entirely.
@@ -499,6 +536,32 @@ final class LocalStreamServer {
                 let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
                 let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
                 torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+            }
+
+            // Read-ahead: also boost pieces beyond the current chunk so
+            // libtorrent can request them from peers in parallel. This
+            // converts piece-by-piece serial fetching into parallel
+            // downloading, dramatically reducing buffering. The deadlines
+            // are slightly relaxed (500ms base) compared to the immediate
+            // pieces (5ms base) so libtorrent still prioritises the chunk
+            // the server is blocked on.
+            let upperBound: Int
+            if maxLocalPiece > 0 {
+                upperBound = maxLocalPiece
+            } else if totalPieces > 0 {
+                upperBound = totalPieces - 1
+            } else {
+                upperBound = safeLast
+            }
+            let readAheadEnd = min(safeLast + readAheadCount, upperBound)
+            if readAheadEnd > safeLast {
+                for localIdx in (safeLast + 1)...readAheadEnd {
+                    let globalIdx = beginPiece + localIdx
+                    torrentHandle.setPiecePriority(globalIdx, priority: 7)
+                    let offset = min(localIdx - safeFirst, 1000)
+                    let deadline = Int32(500 + offset * 50) // 500ms base + 50ms/piece
+                    torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+                }
             }
         }
         applyPriorityBoost()
