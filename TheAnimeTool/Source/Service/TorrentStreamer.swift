@@ -128,6 +128,21 @@ final class TorrentStreamer {
     /// Used to dynamically compute piece window sizes.
     private var lastKnownDuration: Double = 0
 
+    /// After a seek, the piece index that playback must reach before
+    /// `updatePlaybackPosition` is allowed to expand the buffer window.
+    /// MPV often seeks to the nearest keyframe, which can be several pieces
+    /// before the requested seek position. Without suppression, the position
+    /// difference exceeds `minPieceUpdateDistance` and triggers
+    /// `setDeadlinesFrom()` with the full normal window (50+ pieces),
+    /// overwriting the tight 12-piece seek window and diluting bandwidth
+    /// across many more pieces than needed for immediate playback.
+    private var seekPieceTarget: Int = -1
+
+    /// Timestamp of the last seek, used as a safety valve to clear
+    /// `seekPieceTarget` suppression after a timeout even if playback
+    /// hasn't reached the target (e.g., MPV stuck at a pre-seek keyframe).
+    private var seekStartTime: Date?
+
     // MARK: - Init
 
     init(torrentHandle: TorrentHandle, fileIndex: UInt) {
@@ -223,6 +238,8 @@ final class TorrentStreamer {
     func stop() {
         guard isActive else { return }
         isActive = false
+        seekPieceTarget = -1
+        seekStartTime = nil
         resetActiveWindow()
         // Restore all file pieces to default priority so libtorrent resumes
         // normal downloading. This fixes the false "100% downloaded" display
@@ -249,6 +266,29 @@ final class TorrentStreamer {
         let clampedFraction = max(0, min(1, fraction))
         let currentPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
+        // After a seek, suppress normal window expansion until playback
+        // reaches the seek target. MPV's keyframe-seeking often reports a
+        // position several pieces before the requested seek position. The
+        // difference exceeds minPieceUpdateDistance, triggering
+        // setDeadlinesFrom() with the full normal window (50+ pieces).
+        // This overwrites the tight 12-piece seek window, diluting
+        // bandwidth across many pieces and significantly slowing the
+        // initial piece fetch at the seek target. We suppress until:
+        // (a) playback reaches/passes the seek target, or
+        // (b) a safety timeout expires (prevents indefinite suppression
+        //     if MPV is stuck before the target).
+        if seekPieceTarget >= 0 {
+            if currentPiece >= seekPieceTarget {
+                seekPieceTarget = -1
+                seekStartTime = nil
+            } else if let seekTime = seekStartTime, Date().timeIntervalSince(seekTime) > 15.0 {
+                seekPieceTarget = -1
+                seekStartTime = nil
+            } else {
+                return
+            }
+        }
+
         // Only update deadlines when the playback front has moved at least
         // minPieceUpdateDistance pieces since the last update. This gates
         // how often we call into libtorrent while still ensuring the
@@ -273,6 +313,11 @@ final class TorrentStreamer {
 
         let clampedFraction = max(0, min(1, fraction))
         let targetPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
+
+        // Suppress normal window expansion until playback reaches this target.
+        // See seekPieceTarget declaration for rationale.
+        seekPieceTarget = targetPiece
+        seekStartTime = Date()
 
         // Force-update with aggressive seek deadlines and a larger window.
         setDeadlinesFrom(pieceIndex: targetPiece, force: true, isSeek: true)
