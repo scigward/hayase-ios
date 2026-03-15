@@ -571,10 +571,13 @@ final class LocalStreamServer {
         let startTime = Date()
         var lastPriorityBoost = startTime
         var lastStatusLog = startTime
+        var lastReannounce = startTime
         let reboostInterval: TimeInterval = 5.0
-        let statusInterval: TimeInterval = 15.0
+        let statusInterval: TimeInterval = 5.0
+        let reannounceInterval: TimeInterval = 60.0
         var lastPeerLog = startTime
         var isFirstCheck = true
+        var didLogInitialWait = false
 
         while !isStopped {
             var allReady = true
@@ -664,10 +667,25 @@ final class LocalStreamServer {
 
             isFirstCheck = false
 
+            // Log which pieces we're waiting for on the first failed check.
+            if !didLogInitialWait {
+                didLogInitialWait = true
+                StreamingLogger.shared.info("Buffering pieces \(safeFirst)–\(safeLast)…")
+            }
+
             let now = Date()
             if now.timeIntervalSince(lastPriorityBoost) >= reboostInterval {
                 applyPriorityBoost()
                 lastPriorityBoost = now
+            }
+            // Re-announce to trackers periodically to discover new peers.
+            // Critical for low-seeder torrents: peers may come and go, and
+            // the initial announce at TorrentStreamer.start() may have found
+            // zero or few seeds. Re-announcing brings in fresh connections
+            // that can supply the pieces we're stuck on.
+            if now.timeIntervalSince(lastReannounce) >= reannounceInterval {
+                torrentHandle.forceReannounce()
+                lastReannounce = now
             }
             if now.timeIntervalSince(lastStatusLog) >= statusInterval {
                 let waited = String(format: "%.1f", now.timeIntervalSince(startTime))
