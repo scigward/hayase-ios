@@ -468,7 +468,7 @@ final class LocalStreamServer {
         // libtorrent downloads them in parallel. In streamed download mode,
         // reduce this to minimize bandwidth usage beyond immediate playback.
         let streamedMode = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
-        let readAheadCount = streamedMode ? 5 : 30
+        let readAheadCount = streamedMode ? 5 : 50
 
         func applyPriorityBoost() {
             // Set priority THEN deadline on the needed pieces.

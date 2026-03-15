@@ -348,9 +348,9 @@ final class VideoPlayerViewController: UIViewController {
             preset = PlayerPreset(commands: [
                 ["set", "demuxer-mkv-probe-video-duration", "no"],
                 ["set", "cache", "yes"],
-                ["set", "cache-secs", "120"],
-                ["set", "cache-pause-wait", "3"],
-                ["set", "demuxer-max-bytes", "150MiB"],
+                ["set", "cache-secs", "180"],
+                ["set", "cache-pause-wait", "5"],
+                ["set", "demuxer-max-bytes", "250MiB"],
                 ["set", "demuxer-max-back-bytes", "50MiB"],
                 ["set", "network-timeout", "600"],
             ])

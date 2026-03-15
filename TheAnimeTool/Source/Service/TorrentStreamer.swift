@@ -28,7 +28,8 @@ final class TorrentStreamer {
 
     /// Target ongoing buffer in seconds of video.
     /// Hayase: "Maintains 30-60 seconds or more ahead of playback"
-    private let targetBufferSeconds: Double = 60.0
+    /// Set to 90s to provide deeper look-ahead and prevent stutters.
+    private let targetBufferSeconds: Double = 90.0
 
     /// Critical buffer in seconds — pieces needed RIGHT NOW for playback.
     /// Hayase: "Critical (immediate): Pieces needed in next 10 seconds"
@@ -38,7 +39,7 @@ final class TorrentStreamer {
     private let minCriticalPieces = 8
 
     /// Minimum total buffer pieces (critical + look-ahead floor).
-    private let minBufferPieces = 30
+    private let minBufferPieces = 50
 
     /// Deadline in milliseconds for the very first critical piece.
     private let criticalDeadlineBase: Int32 = 10
@@ -47,10 +48,10 @@ final class TorrentStreamer {
     private let criticalDeadlineStep: Int32 = 50
 
     /// Deadline in milliseconds for the first look-ahead piece.
-    private let lookAheadDeadlineBase: Int32 = 1000
+    private let lookAheadDeadlineBase: Int32 = 500
 
     /// Deadline step per piece in the look-ahead range (ms).
-    private let lookAheadDeadlineStep: Int32 = 200
+    private let lookAheadDeadlineStep: Int32 = 100
 
     /// Minimum piece distance before we re-evaluate deadlines. Prevents
     /// excessive libtorrent calls when playback advances smoothly.
@@ -248,18 +249,15 @@ final class TorrentStreamer {
         let clampedFraction = max(0, min(1, fraction))
         let currentPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
-        // If we already have enough buffer ahead, skip requesting more.
-        // In streamed download mode, the threshold is smaller (critical buffer only).
-        if videoDuration > 0 {
-            let bufSec = bufferedSeconds(fromFraction: clampedFraction, videoDuration: videoDuration)
-            let threshold = streamedDownloadMode ? criticalBufferSeconds : targetBufferSeconds
-            if bufSec >= threshold && lastDeadlinePiece >= 0 {
-                return
-            }
-        }
-
         // Only update deadlines when the playback front has moved at least
-        // minPieceUpdateDistance pieces since the last update.
+        // minPieceUpdateDistance pieces since the last update. This gates
+        // how often we call into libtorrent while still ensuring the
+        // look-ahead window continuously advances as playback progresses.
+        // We deliberately do NOT skip based on buffered seconds — doing so
+        // would stall the look-ahead window while the buffer is healthy,
+        // causing pieces beyond the window to have no deadline boosts.
+        // When the buffer eventually depletes, those pieces aren't ready
+        // and playback stutters.
         if lastDeadlinePiece >= 0 && abs(currentPiece - lastDeadlinePiece) < minPieceUpdateDistance {
             return
         }
