@@ -51,11 +51,6 @@ final class LocalStreamServer {
     private var connections: [NWConnection] = []
     private var isStopped = false
 
-    /// Incremented each time a new GET request arrives. Old streamBody loops
-    /// check this and exit early when it changes, preventing them from
-    /// re-requesting pieces for the OLD position at priority 7 after a seek.
-    private var requestGeneration: Int = 0
-
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
 
@@ -271,25 +266,24 @@ final class LocalStreamServer {
         let contentLength = rangeEnd - rangeStart + 1
         sendHeaders(connection: connection, rangeStart: rangeStart, rangeEnd: rangeEnd, hasRange: hasRange, bodyLength: contentLength)
 
-        // Increment the generation so any previous streamBody loop exits early.
-        // This prevents old streams from re-requesting stale pieces at priority 7
-        // after a seek, which would steal bandwidth from the new seek position.
-        requestGeneration += 1
-        let myGeneration = requestGeneration
-
-        // Stream body in chunks. Each chunk is read from the file only after
+        // Stream body in chunks on a background queue so we don't block
+        // the NWListener queue. Each chunk is read from the file only after
         // the pieces covering those bytes are confirmed downloaded.
-        // Use a background queue so we don't block the NWListener queue.
+        // Each connection's streamBody runs independently — MPV may open
+        // multiple connections for parallel range requests (e.g., one for
+        // the beginning of the file and one for the end to probe MKV Cues).
+        // Using a global "generation" counter to cancel old streams would
+        // kill the main data stream when the probe request arrives.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd, generation: myGeneration)
+            self?.streamBody(connection: connection, offset: rangeStart, end: rangeEnd)
         }
     }
 
     /// Streams file bytes from `offset` to `end` in chunks, waiting for each
     /// chunk's pieces to be available before reading from disk.
-    /// Exits early if a newer request arrives (generation mismatch) to avoid
-    /// re-requesting stale pieces and stealing bandwidth after a seek.
-    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64, generation: Int) {
+    /// Exits when the full range has been sent, the connection is closed by
+    /// the client, or the server is stopped.
+    private func streamBody(connection: NWConnection, offset: UInt64, end: UInt64) {
         guard !isStopped else { return }
 
         // Open the file
@@ -306,7 +300,7 @@ final class LocalStreamServer {
         let chunkSize = UInt64(pieceLength > 0 ? pieceLength : 65536)
 
         var currentOffset = offset
-        while currentOffset <= end && !isStopped && generation == requestGeneration {
+        while currentOffset <= end && !isStopped {
             let readEnd = min(currentOffset + chunkSize - 1, end)
 
             // Which local pieces cover this byte range?
@@ -323,8 +317,7 @@ final class LocalStreamServer {
             // Returns true if pieces were already on disk (no waiting needed).
             let alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
 
-            // Exit if a newer request superseded this one during the wait.
-            if isStopped || generation != requestGeneration { break }
+            if isStopped { break }
 
             // Read from file. For freshly-downloaded pieces, verify data
             // stability with a double-read to detect partial flushes.
@@ -365,7 +358,9 @@ final class LocalStreamServer {
 
             if data.isEmpty { break }
 
-            // Send synchronously (block until sent)
+            // Send synchronously (block until sent).
+            // If the client (MPV) closes the connection (e.g., on seek),
+            // the send will fail and we exit the loop naturally.
             let semaphore = DispatchSemaphore(value: 0)
             var sendError: NWError?
 
@@ -380,8 +375,12 @@ final class LocalStreamServer {
             currentOffset = readEnd + 1
         }
 
-        // After serving the range, wait for next request (keep-alive)
-        if !isStopped {
+        // Only wait for the next request if we successfully served the full
+        // range. If we exited early (send error, server stopped, empty read),
+        // the response is incomplete and the client won't send another request
+        // on this connection — trying to receiveRequest would hang.
+        let completedFullRange = currentOffset > end
+        if !isStopped && completedFullRange {
             queue.async { [weak self] in
                 self?.receiveRequest(connection)
             }
@@ -398,7 +397,10 @@ final class LocalStreamServer {
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
         guard pieceLength > 0 else { return 0 }
         let index = Int(offset / UInt64(pieceLength))
-        return min(index, totalPieces - 1)
+        if maxLocalPiece <= 0 {
+            return max(0, min(index, totalPieces - 1))
+        }
+        return min(index, maxLocalPiece)
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
@@ -414,9 +416,9 @@ final class LocalStreamServer {
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
-    /// (inclusive, 0-based) are downloaded. Sets priority AND deadline to ensure
-    /// libtorrent actually fetches them — libtorrent ignores deadlines on
-    /// priority-0 pieces, and TorrentStreamer starts all pieces at priority 0.
+    /// (inclusive, 0-based) are downloaded. Sets priority 7 AND deadline to ensure
+    /// libtorrent fetches them urgently. TorrentStreamer starts all pieces at
+    /// priority 1 (low), so this boosts the needed pieces to top priority.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     ///
     /// - Returns: `true` if all pieces were already downloaded (no waiting),
@@ -425,40 +427,60 @@ final class LocalStreamServer {
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) -> Bool {
         // Clamp to valid piece array range
         let safeFirst = max(firstLocal, 0)
-        let safeLast = min(lastLocal, totalPieces > 0 ? totalPieces - 1 : 0)
+        let lastBound: Int
+        if maxLocalPiece > 0 {
+            lastBound = maxLocalPiece
+        } else if totalPieces > 0 {
+            lastBound = totalPieces - 1
+        } else {
+            lastBound = 0
+        }
+        let safeLast = min(lastLocal, lastBound)
 
         guard safeFirst <= safeLast else { return true }
 
-        // Set priority THEN deadline on the needed pieces.
-        // Priority must be > 0 or libtorrent ignores the deadline entirely.
-        for localIdx in safeFirst...safeLast {
-            let globalIdx = beginPiece + localIdx
-            torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
-            let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
-            let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
-            torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+        func applyPriorityBoost() {
+            // Set priority THEN deadline on the needed pieces.
+            // Priority must be > 0 or libtorrent ignores the deadline entirely.
+            for localIdx in safeFirst...safeLast {
+                let globalIdx = beginPiece + localIdx
+                torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
+                let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
+                let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
+                torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+            }
         }
+        applyPriorityBoost()
 
         // Poll until all pieces are available
         let pollInterval: TimeInterval = 0.05 // 50ms
-        let maxWait: TimeInterval = 120.0 // Must match MPV's network-timeout in VideoPlayerViewController
         let startTime = Date()
+        var lastPriorityBoost = startTime
+        var lastStatusLog = startTime
+        let reboostInterval: TimeInterval = 5.0
+        let statusInterval: TimeInterval = 15.0
         var isFirstCheck = true
 
         while !isStopped {
             var allReady = true
+            var missingPieces = 0
             snapshotQueue.sync {
                 torrentHandle.updateSnapshot()
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
                     for localIdx in safeFirst...safeLast {
                         guard localIdx < pieces.count else {
-                            // Beyond pieces array — can't verify, treat as ready.
-                            // The data read retry loop handles stale cache.
-                            continue
+                            // Beyond pieces array — can't verify download status.
+                            // Treat as NOT ready to prevent reading incomplete data.
+                            // This can happen when the snapshot is stale or the
+                            // pieces array hasn't been fully populated yet.
+                            allReady = false
+                            missingPieces = safeLast - max(localIdx, safeFirst) + 1
+                            break
                         }
                         if !pieces[localIdx].boolValue {
                             allReady = false
+                            missingPieces += 1
                             break
                         }
                     }
@@ -483,9 +505,16 @@ final class LocalStreamServer {
 
             isFirstCheck = false
 
-            if Date().timeIntervalSince(startTime) > maxWait {
-                print("LocalStreamServer: timeout waiting for pieces \(firstLocal)-\(lastLocal)")
-                return false
+            let now = Date()
+            if now.timeIntervalSince(lastPriorityBoost) >= reboostInterval {
+                applyPriorityBoost()
+                lastPriorityBoost = now
+            }
+            if now.timeIntervalSince(lastStatusLog) >= statusInterval {
+                let waited = String(format: "%.1f", now.timeIntervalSince(startTime))
+                let missingDesc = missingPieces > 0 ? " missing~\(missingPieces)" : ""
+                print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)")
+                lastStatusLog = now
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
