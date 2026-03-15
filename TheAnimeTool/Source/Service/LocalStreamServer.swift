@@ -397,7 +397,10 @@ final class LocalStreamServer {
     private func localPieceIndex(forByteOffset offset: UInt64) -> Int {
         guard pieceLength > 0 else { return 0 }
         let index = Int(offset / UInt64(pieceLength))
-        return min(index, totalPieces - 1)
+        if maxLocalPiece <= 0 {
+            return max(0, min(index, totalPieces - 1))
+        }
+        return min(index, maxLocalPiece)
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
@@ -424,7 +427,15 @@ final class LocalStreamServer {
     private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) -> Bool {
         // Clamp to valid piece array range
         let safeFirst = max(firstLocal, 0)
-        let safeLast = min(lastLocal, totalPieces > 0 ? totalPieces - 1 : 0)
+        let lastBound: Int
+        if maxLocalPiece > 0 {
+            lastBound = maxLocalPiece
+        } else if totalPieces > 0 {
+            lastBound = totalPieces - 1
+        } else {
+            lastBound = 0
+        }
+        let safeLast = min(lastLocal, lastBound)
 
         guard safeFirst <= safeLast else { return true }
 
