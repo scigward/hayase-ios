@@ -77,6 +77,11 @@ final class VideoPlayerViewController: UIViewController {
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
+    /// Pending playback position (seconds) to restore once MPV reports a valid
+    /// duration. Using a stored value + event-driven trigger instead of a fixed
+    /// delay ensures the seek works for both local files and HTTP streams (where
+    /// MPV can take several seconds to buffer enough data to start playback).
+    private var pendingRestoreTime: Double?
 
     // MARK: - Lifecycle
 
@@ -408,6 +413,7 @@ final class VideoPlayerViewController: UIViewController {
         
         // Reset states for new file
         isEOFTriggered = false
+        pendingRestoreTime = nil
         chapters.removeAll()
         updateChapterMarkers()
 
@@ -506,10 +512,11 @@ final class VideoPlayerViewController: UIViewController {
             saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episodeNumber)
         }
         guard let saved, saved.isInProgress, saved.currentTime > 5 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.lastSeekTime = Date()
-            self?.surface.mpv.seek(to: saved.currentTime)
-        }
+        // Store the target time and apply it once MPV reports a valid duration
+        // in didUpdatePosition. This works for both local files (where MPV is
+        // ready almost immediately) and HTTP streams (where header buffering
+        // can take several seconds or more).
+        pendingRestoreTime = saved.currentTime
     }
 
     // MARK: - Streaming setup
@@ -957,6 +964,14 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.currentTime = position
         self.duration    = duration
         updateTimeUI()
+
+        // Apply deferred progress-restore seek once MPV reports a valid duration,
+        // meaning the file/stream is loaded and seeking is possible.
+        if let restoreTime = pendingRestoreTime, duration > 0 {
+            pendingRestoreTime = nil
+            lastSeekTime = Date()
+            surface.mpv.seek(to: restoreTime)
+        }
 
         // Feed playback position to the streamer so it can set piece deadlines
         // ahead of the current position. Pass duration so the streamer can check
