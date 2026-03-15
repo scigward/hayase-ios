@@ -116,6 +116,12 @@ final class LogOverlayView: UIView {
     /// How long error/warn entries stay visible before auto-fading (seconds).
     private let autoHideDelay: TimeInterval = 8.0
 
+    /// Estimated height per monospaced log line (points).
+    private static let lineHeight: CGFloat = 14
+
+    /// Vertical padding above and below the text content (points).
+    private static let verticalPadding: CGFloat = 8
+
     private let textView = UITextView()
     private var isExpanded = false
     private var autoHideWork: DispatchWorkItem?
@@ -177,8 +183,8 @@ final class LogOverlayView: UIView {
 
     // MARK: - Layout helpers
 
-    private var collapsedHeight: CGFloat { CGFloat(collapsedLineCount) * 14 + 8 }
-    private var expandedHeight: CGFloat  { CGFloat(expandedLineCount) * 14 + 8 }
+    private var collapsedHeight: CGFloat { CGFloat(collapsedLineCount) * Self.lineHeight + Self.verticalPadding }
+    private var expandedHeight: CGFloat  { CGFloat(expandedLineCount) * Self.lineHeight + Self.verticalPadding }
 
     // MARK: - Update
 
