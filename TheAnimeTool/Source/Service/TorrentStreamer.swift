@@ -70,6 +70,11 @@ final class TorrentStreamer {
     /// Deadline step per piece during seek (ms).
     private let seekDeadlineStep: Int32 = 30
 
+    /// Maximum time (seconds) to suppress normal window expansion after a seek.
+    /// Acts as a safety valve: if playback hasn't reached the seek target after
+    /// this period, resume normal buffer window updates anyway.
+    private let seekSuppressionTimeout: TimeInterval = 15.0
+
     // -- Head pieces for MKV header --
 
     /// Target bytes from the START of the file to request for MKV header metadata.
@@ -281,7 +286,7 @@ final class TorrentStreamer {
             if currentPiece >= seekPieceTarget {
                 seekPieceTarget = -1
                 seekStartTime = nil
-            } else if let seekTime = seekStartTime, Date().timeIntervalSince(seekTime) > 15.0 {
+            } else if let seekTime = seekStartTime, Date().timeIntervalSince(seekTime) > seekSuppressionTimeout {
                 seekPieceTarget = -1
                 seekStartTime = nil
             } else {
