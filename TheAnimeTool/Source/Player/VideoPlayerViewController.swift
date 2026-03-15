@@ -286,27 +286,9 @@ final class VideoPlayerViewController: UIViewController {
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
 
-        // If streaming, wait for head pieces on a background thread before
-        // loading the URL. This ensures MKV header data (SeekHead, Info with
-        // duration, Track definitions with subtitles) is on disk before MPV
-        // opens the stream. Without this wait, MPV sees incomplete data and
-        // cannot determine duration or discover subtitle tracks.
-        if let currentStreamer = streamer, currentStreamer.isActive {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                // Wait for head pieces (up to 30s timeout).
-                _ = currentStreamer.waitForMetadataPieces(timeout: 30)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    // Guard against stale callbacks: if the user changed episodes
-                    // while we were waiting, the streamer instance will differ.
-                    guard self.streamer === currentStreamer else { return }
-                    self.loadVideoURL()
-                }
-            }
-        } else {
-            // File is fully downloaded or no streaming needed — load immediately.
-            loadVideoURL()
-        }
+        // Immediately load the video; streaming pieces continue downloading
+        // in the background without forcing a 30-second pre-wait.
+        loadVideoURL()
     }
 
     /// Builds the URL and preset, loads the video into MPV, and starts stats.
