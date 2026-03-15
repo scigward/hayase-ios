@@ -181,7 +181,7 @@ final class TorrentStreamer {
         // IMPORTANT: Skip head and tail pieces — VideoService's early
         // requestMetadataPieces() may have already set them to priority 7
         // with time-critical deadlines.
-        let bgPriority: Int32 = streamedDownloadMode ? 0 : 1
+        let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in beginPiece...endPiece {
@@ -593,7 +593,7 @@ final class TorrentStreamer {
     /// Head and tail pieces are NOT reset — they must stay at priority 7 for MKV metadata.
     private func resetActiveWindow() {
         guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
-        let bgPriority: Int32 = streamedDownloadMode ? 0 : 1
+        let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in activeWindowStart...activeWindowEnd {
