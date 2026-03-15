@@ -518,11 +518,13 @@ final class TorrentStreamer {
             }
 
             if allReady {
+                StreamingLogger.shared.info("Head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
                 print("TorrentStreamer: head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
                 return true
             }
 
             if now.timeIntervalSince(startTime) > timeout {
+                StreamingLogger.shared.error("Metadata wait timeout after \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, have \(pieces.count)")
                 print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1)")
                 return false
             }

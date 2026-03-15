@@ -263,8 +263,7 @@ final class MPVWrapper {
         startPosition: Double? = nil,
         externalSubtitles: [String]? = nil,
         initialSubtitleId: Int? = nil,
-        initialAudioId: Int? = nil,
-        fileLocalOptions: String? = nil
+        initialAudioId: Int? = nil
     ) {
         currentPreset = preset
         currentURL = url
@@ -308,15 +307,7 @@ final class MPVWrapper {
                 self.disableSubtitles()
             }
             let target = url.isFileURL ? url.path : url.absoluteString
-            // Pass file-local options to loadfile when provided.
-            // This allows per-load overrides of demuxer options (e.g.,
-            // disabling demuxer-mkv-probe-video-duration for streaming
-            // to prevent MPV from blocking on tail data).
-            var loadArgs = ["loadfile", target, "replace"]
-            if let opts = fileLocalOptions, !opts.isEmpty {
-                loadArgs.append(opts)
-            }
-            self.command(handle, loadArgs)
+            self.command(handle, ["loadfile", target, "replace"])
         }
     }
     
@@ -905,10 +896,19 @@ final class MPVWrapper {
     }
 }
 
-// Dummy logger
+// Dummy logger — forwards errors/warnings to StreamingLogger for in-player display.
 final class Logger {
     static let shared = Logger()
     func log(_ message: String, type: String) {
         print("[\(type)] \(message)")
+        // Forward to StreamingLogger so errors/warnings appear in the player overlay.
+        switch type.lowercased() {
+        case "error":
+            StreamingLogger.shared.error(message)
+        case "warn":
+            StreamingLogger.shared.warn(message)
+        default:
+            break
+        }
     }
 }

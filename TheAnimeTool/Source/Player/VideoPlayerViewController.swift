@@ -28,6 +28,7 @@ final class VideoPlayerViewController: UIViewController {
     private let overlay       = UIView()
     private let topBar        = UIView()
     private let bottomBar     = UIView()
+    private let logOverlay    = LogOverlayView()
 
     // Top bar
     private let backButton    = UIButton(type: .system)
@@ -121,6 +122,16 @@ final class VideoPlayerViewController: UIViewController {
         ])
         setupTopBar()
         setupBottomBar()
+
+        // Log overlay — shows streaming errors/warnings at the bottom-left.
+        // Tap to expand, long-press to copy all logs to clipboard.
+        logOverlay.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(logOverlay)
+        NSLayoutConstraint.activate([
+            logOverlay.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            logOverlay.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            logOverlay.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.5),
+        ])
     }
 
     private func setupTopBar() {
@@ -290,9 +301,11 @@ final class VideoPlayerViewController: UIViewController {
         // loading the URL.
         // must be on disk so MPV can parse immediately.
         if let currentStreamer = streamer, currentStreamer.isActive {
+            StreamingLogger.shared.info("Waiting for head pieces (metadata)…")
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let ready = currentStreamer.waitForMetadataPieces(timeout: 30)
                 if !ready {
+                    StreamingLogger.shared.warn("Metadata wait timed out after 30s — loading anyway")
                     print("VideoPlayerViewController: metadata wait timed out; continuing anyway")
                 }
                 DispatchQueue.main.async { [weak self] in
@@ -317,7 +330,6 @@ final class VideoPlayerViewController: UIViewController {
 
         let url: URL
         let preset: PlayerPreset
-        var fileLocalOptions: String? = nil
         if let server = streamServer {
             // Streaming: serve the file via local HTTP so MPV handles
             // buffering and seeking natively. The server blocks responses
@@ -326,7 +338,26 @@ final class VideoPlayerViewController: UIViewController {
             // Enable MPV's stream cache for the HTTP stream. Without this,
             // MPV reads synchronously and can't buffer ahead, causing stalls.
             // These are set per-load so they don't affect local file playback.
+            //
+            // Disable MKV duration probing for streaming via preset command.
+            // probe-video-duration=yes (set at MPV init) causes MPV to seek to
+            // the end of the file to read MKV Cues before starting playback.
+            // For streaming, this blocks until ALL tail pieces are downloaded,
+            // which with large piece sizes and low seeds means waiting for
+            // 20–60%+ of the file. Disabling the probe lets MPV start playback
+            // immediately from the MKV header in the first piece(s). Duration
+            // is still available from the MKV Info element in the header.
+            // Seeking works via force-seekable=yes; MPV fetches Cues on-demand
+            // when the user seeks (LocalStreamServer blocks until the required
+            // tail pieces are downloaded).
+            //
+            // NOTE: This uses a preset "set" command (not loadfile file-local
+            // options) because mpv 0.36+ changed the loadfile signature to
+            // `loadfile url flags index options` — the 4th arg is an integer
+            // index, not options. File-local options at position 4 get silently
+            // consumed as the index parameter and never take effect.
             preset = PlayerPreset(commands: [
+                ["set", "demuxer-mkv-probe-video-duration", "no"],
                 ["set", "cache", "yes"],
                 ["set", "cache-secs", "120"],
                 ["set", "cache-pause-wait", "3"],
@@ -334,30 +365,21 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "demuxer-max-back-bytes", "50MiB"],
                 ["set", "network-timeout", "120"],
             ])
-            // Disable MKV duration probing for streaming via file-local option.
-            // probe-video-duration=yes (set at MPV init) causes MPV to seek to
-            // the end of the file to read MKV Cues before starting playback.
-            // For streaming, this blocks until ALL tail pieces are downloaded,
-            // which with large piece sizes (2–4 MB) and low seeds means waiting
-            // for 20–60%+ of the file. Disabling the probe lets MPV start
-            // playback immediately after reading the MKV header from the first
-            // few pieces. Duration is still available from the MKV Info element
-            // in the header. Seeking works because force-seekable=yes is set,
-            // and MPV fetches Cues on-demand when the user seeks (the
-            // LocalStreamServer serves them from already-downloaded tail pieces).
-            fileLocalOptions = "demuxer-mkv-probe-video-duration=no"
         } else if path.starts(with: "http") {
             url = URL(string: path)!
             preset = PlayerPreset()
         } else {
             url = URL(fileURLWithPath: path)
-            // Reset cache options in case they were set by a previous streaming load.
+            // Reset cache + re-enable MKV probing for local files.
+            // probe-video-duration=yes gives accurate duration + seek index
+            // for fully-downloaded files with no blocking risk.
             preset = PlayerPreset(commands: [
+                ["set", "demuxer-mkv-probe-video-duration", "yes"],
                 ["set", "cache", "no"],
             ])
         }
 
-        surface.mpv.load(url: url, with: preset, fileLocalOptions: fileLocalOptions)
+        surface.mpv.load(url: url, with: preset)
         
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0
@@ -398,6 +420,7 @@ final class VideoPlayerViewController: UIViewController {
         let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
         s.start()
         streamer = s
+        StreamingLogger.shared.info("Streamer started — pieces \(s.beginPiece)–\(s.endPiece) (\(s.totalFilePieces) total)")
 
         // Start a local HTTP server so MPV reads from HTTP instead of a
         // file with holes. The server gates responses on piece availability.
@@ -410,6 +433,7 @@ final class VideoPlayerViewController: UIViewController {
             streamServer = server
             print("LocalStreamServer: started for file \(fileIndex) at \(server.url)")
         } catch {
+            StreamingLogger.shared.error("Stream server failed: \(error.localizedDescription)")
             print("LocalStreamServer: failed to start — \(error)")
             // Fall back to direct file path (original behavior)
         }

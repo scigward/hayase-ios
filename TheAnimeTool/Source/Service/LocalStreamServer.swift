@@ -288,6 +288,7 @@ final class LocalStreamServer {
 
         // Open the file
         guard let fileHandle = FileHandle(forReadingAtPath: filePath) else {
+            StreamingLogger.shared.error("Cannot open file at \(filePath)")
             print("LocalStreamServer: cannot open file at \(filePath)")
             connection.cancel()
             return
@@ -469,19 +470,36 @@ final class LocalStreamServer {
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
                     for localIdx in safeFirst...safeLast {
-                        guard localIdx < pieces.count else {
-                            // Beyond pieces array — can't verify download status.
-                            // Treat as NOT ready to prevent reading incomplete data.
-                            // This can happen when the snapshot is stale or the
-                            // pieces array hasn't been fully populated yet.
-                            allReady = false
-                            missingPieces = safeLast - max(localIdx, safeFirst) + 1
-                            break
-                        }
-                        if !pieces[localIdx].boolValue {
-                            allReady = false
-                            missingPieces += 1
-                            break
+                        if localIdx < pieces.count {
+                            // Normal case: check the file's local piece array.
+                            if !pieces[localIdx].boolValue {
+                                allReady = false
+                                missingPieces += 1
+                                break
+                            }
+                        } else {
+                            // Beyond the file's local piece array. This happens
+                            // for multi-file/batch torrents where the file doesn't
+                            // end on a piece boundary — the boundary piece is shared
+                            // with the next file and num_pieces (integer division)
+                            // underestimates by 1. Fall back to the GLOBAL torrent
+                            // piece status array to check if it's downloaded.
+                            // Without this fallback, the server would block forever
+                            // on the boundary piece (pieces[OOB] → allReady=false).
+                            let globalIdx = beginPiece + localIdx
+                            if let globalPieces = torrentHandle.snapshot.pieces as? [NSNumber],
+                               globalIdx >= 0, globalIdx < globalPieces.count {
+                                if !globalPieces[globalIdx].boolValue {
+                                    allReady = false
+                                    missingPieces += 1
+                                    break
+                                }
+                            } else {
+                                // Can't verify via global array either — not ready.
+                                allReady = false
+                                missingPieces += 1
+                                break
+                            }
                         }
                     }
                 } else {
@@ -513,6 +531,7 @@ final class LocalStreamServer {
             if now.timeIntervalSince(lastStatusLog) >= statusInterval {
                 let waited = String(format: "%.1f", now.timeIntervalSince(startTime))
                 let missingDesc = missingPieces > 0 ? " missing~\(missingPieces)" : ""
+                StreamingLogger.shared.warn("Waiting \(waited)s for pieces \(safeFirst)–\(safeLast)\(missingDesc)")
                 print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)")
                 lastStatusLog = now
             }

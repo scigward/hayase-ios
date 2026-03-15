@@ -102,6 +102,7 @@
 		PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */; };
 		PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */; };
 		PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */; };
+		PLAYER09PLAYER09PLAYER09 /* StreamingLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -227,6 +228,7 @@
 		PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVWrapper.swift; sourceTree = "<group>"; };
 		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
 		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
+		PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = StreamingLogger.swift; sourceTree = "<group>"; };
 		A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
@@ -548,6 +550,7 @@
 				PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */,
 				PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */,
 				PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */,
+				PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */,
 			);
 			path = Player;
 			sourceTree = "<group>";
@@ -819,6 +822,7 @@
 				PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */,
 				PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */,
 				PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */,
+				PLAYER09PLAYER09PLAYER09 /* StreamingLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
