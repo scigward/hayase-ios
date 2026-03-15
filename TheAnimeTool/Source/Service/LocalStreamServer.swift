@@ -465,11 +465,10 @@ final class LocalStreamServer {
         guard safeFirst <= safeLast else { return true }
 
         // Number of extra pieces to boost beyond the requested range so
-        // libtorrent downloads them in parallel. Without this, the server
-        // only boosts the current chunk's 1-2 pieces — the rest of the
-        // minute's worth of data sits at priority 1 with no deadlines,
-        // causing sequential one-by-one fetching and heavy buffering.
-        let readAheadCount = 30
+        // libtorrent downloads them in parallel. In streamed download mode,
+        // reduce this to minimize bandwidth usage beyond immediate playback.
+        let streamedMode = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
+        let readAheadCount = streamedMode ? 5 : 30
 
         func applyPriorityBoost() {
             // Set priority THEN deadline on the needed pieces.

@@ -98,6 +98,15 @@ class SettingsViewController: UIViewController {
                 description: "Keeps the streaming log overlay visible during playback instead of auto-hiding.",
                 kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),
         ]),
+        // Client Settings — matches Hayase settings/client/+page.svelte
+        Section(header: "Client Settings", rows: [
+            Row(title: "Persist Files",
+                description: "Keeps torrents files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
+                kind: .toggle(userDefaultsKey: "pref_persistFiles", defaultValue: false)),
+            Row(title: "Streamed Download",
+                description: "Only downloads the data that's directly needed for playback, down to the minute, instead of downloading an entire batch of episodes. Will not buffer ahead more than a few seconds, and will stop downloading once the few second buffer is filled. Saves bandwidth and reduces strain on the peer swarm.",
+                kind: .toggle(userDefaultsKey: "pref_streamedDownload", defaultValue: false)),
+        ]),
         // Extensions
         Section(header: "Extensions", rows: [
             Row(title: "Manage Extensions",

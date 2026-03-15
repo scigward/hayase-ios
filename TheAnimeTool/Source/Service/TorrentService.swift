@@ -159,6 +159,17 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
+    /// Removes all active torrents (and their downloaded files) except the one
+    /// matching `exceptHash`. Called when "Persist Files" is OFF to clean up
+    /// previous torrents before a new one starts playing.
+    private func removeOtherTorrents(exceptHash: String) {
+        let toRemove = handles.filter { $0.key != exceptHash }
+        for (hex, handle) in toRemove {
+            print("TorrentService: persist OFF — removing torrent \(hex)")
+            session.removeTorrent(handle, deleteFiles: true)
+        }
+    }
+
     // MARK: - Public API
 
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
@@ -181,6 +192,15 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Calls `completion` on the main thread with a TorrentHandle or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
                                         completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
+        // When "Persist Files" is OFF (default), remove all existing torrents and
+        // their files before adding the new one. This matches Hayase's behavior:
+        // only one torrent at a time, old data is cleaned up automatically.
+        let persistFiles = UserDefaults.standard.bool(forKey: "pref_persistFiles")
+        if !persistFiles {
+            let newHash = torrentEntity.torrentHashString ?? ""
+            removeOtherTorrents(exceptHash: newHash)
+        }
+
         // Try to parse the stored download URL.
         let url: URL? = torrentEntity.torrentDownloadURL
             .flatMap { $0.isEmpty ? nil : URL(string: $0) }

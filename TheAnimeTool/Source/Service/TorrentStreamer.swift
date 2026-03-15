@@ -98,6 +98,11 @@ final class TorrentStreamer {
     private let torrentHandle: TorrentHandle
     private let fileIndex: Int
 
+    /// When true, only download data needed for immediate playback.
+    /// Non-window pieces get priority 0 (not wanted) and the buffer window
+    /// is much smaller. Read from UserDefaults at start() time.
+    private var streamedDownloadMode: Bool = false
+
     /// First piece index belonging to the target file.
     private(set) var beginPiece: Int = 0
 
@@ -139,6 +144,9 @@ final class TorrentStreamer {
         guard !isActive else { return }
         isActive = true
 
+        // Read streamed download mode at start time.
+        streamedDownloadMode = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
+
         torrentHandle.updateSnapshot()
         guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else {
             print("TorrentStreamer: file index \(fileIndex) not found in snapshot")
@@ -158,48 +166,33 @@ final class TorrentStreamer {
         endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware metadata piece counts from the actual piece size.
-        // Fixed counts (8 head + 16 tail) cause excessive download requirements
-        // for torrents with large piece sizes (2–4 MB pieces are common in anime
-        // releases): 24 pieces × 4 MB = 96 MB of metadata must download before
-        // streaming can start. With low seeds, these download one-at-a-time,
-        // delaying streaming until a significant fraction of the file is done.
-        // Byte-aware counts adapt: large pieces → fewer pieces requested, keeping
-        // the total metadata bytes small (~2 MB head + ~4 MB tail) regardless of
-        // piece size.
         let pl = max(Int(torrentHandle.snapshot.pieceLength), 1)
         headPieceCount = max(1, min(8, Self.headByteTarget / pl))
         tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
         // Enable sequential download — Hayase streaming model.
-        // Sequential mode biases libtorrent to download pieces from the
-        // beginning of the file, which naturally fetches MKV header/metadata
-        // first. Combined with priority + deadline management, the active
-        // playback window still gets top priority — sequential mode only
-        // affects the order of low-priority background pieces.
-        // On seek, the new window gets priority 7 + deadlines which override
-        // the sequential order, so seeking still works correctly.
         torrentHandle.setSequentialDownload(true)
 
-        // Set non-metadata file pieces to priority 1 (low but wanted).
-        // This is critical for low-seeder torrents: with priority 0,
-        // libtorrent excludes those pieces from the pick list entirely,
-        // meaning peers that only have those pieces can't contribute to
-        // the swarm at all. With priority 1, ALL peers have something
-        // they can upload, keeping connections active and healthy.
+        // Set non-metadata file pieces to a background priority.
+        // In streamed download mode: priority 0 (not wanted) — only download
+        // what's needed for playback to save bandwidth.
+        // In normal mode: priority 1 (low but wanted) — keeps all peers
+        // connected and contributing even for pieces not yet needed.
         // IMPORTANT: Skip head and tail pieces — VideoService's early
         // requestMetadataPieces() may have already set them to priority 7
-        // with time-critical deadlines. Resetting them to 1 (even briefly)
-        // can disrupt libtorrent's time-critical piece list.
+        // with time-critical deadlines.
+        let bgPriority: Int32 = streamedDownloadMode ? 0 : 1
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in beginPiece...endPiece {
             if piece <= headEnd || piece >= tailStart { continue }
-            torrentHandle.setPiecePriority(piece, priority: 1)
+            torrentHandle.setPiecePriority(piece, priority: bgPriority)
         }
 
         let plMB = String(format: "%.1f", Double(pl) / 1_048_576)
-        StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount)")
-        print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount)")
+        let modeStr = streamedDownloadMode ? " [streamed]" : ""
+        StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount)\(modeStr)")
+        print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount) streamedDownload=\(streamedDownloadMode)")
 
         // Force re-announce to all trackers so we discover peers immediately.
         // This is critical for low-seeder torrents: the torrent may have been
@@ -256,9 +249,11 @@ final class TorrentStreamer {
         let currentPiece = beginPiece + Int(clampedFraction * Double(totalFilePieces))
 
         // If we already have enough buffer ahead, skip requesting more.
+        // In streamed download mode, the threshold is smaller (critical buffer only).
         if videoDuration > 0 {
             let bufSec = bufferedSeconds(fromFraction: clampedFraction, videoDuration: videoDuration)
-            if bufSec >= targetBufferSeconds && lastDeadlinePiece >= 0 {
+            let threshold = streamedDownloadMode ? criticalBufferSeconds : targetBufferSeconds
+            if bufSec >= threshold && lastDeadlinePiece >= 0 {
                 return
             }
         }
@@ -397,6 +392,13 @@ final class TorrentStreamer {
             bufTotal  = seekCriticalPieceCount
             critBase  = seekDeadlineBase
             critStep  = seekDeadlineStep
+        } else if streamedDownloadMode {
+            // Streamed download: minimal buffer — only a few seconds of playback.
+            // No look-ahead beyond the critical window.
+            critCount = max(4, piecesForSeconds(criticalBufferSeconds))
+            bufTotal  = critCount
+            critBase  = criticalDeadlineBase
+            critStep  = criticalDeadlineStep
         } else {
             critCount = max(minCriticalPieces, piecesForSeconds(criticalBufferSeconds))
             bufTotal  = max(minBufferPieces, piecesForSeconds(targetBufferSeconds))
@@ -584,13 +586,14 @@ final class TorrentStreamer {
     }
 
     /// Resets piece priorities and deadlines for the previous active window.
-    /// Pieces are set to priority 1 (low but still wanted) so libtorrent continues
-    /// downloading them at low priority — this keeps all peers connected and
-    /// contributing to the swarm. Deadlines are removed so libtorrent doesn't
-    /// treat them as urgent.
+    /// In normal mode: pieces are set to priority 1 (low but still wanted) so
+    /// libtorrent continues downloading them at low priority.
+    /// In streamed download mode: pieces are set to priority 0 (not wanted) so
+    /// libtorrent stops downloading them entirely, saving bandwidth.
     /// Head and tail pieces are NOT reset — they must stay at priority 7 for MKV metadata.
     private func resetActiveWindow() {
         guard activeWindowStart >= 0, activeWindowEnd >= activeWindowStart else { return }
+        let bgPriority: Int32 = streamedDownloadMode ? 0 : 1
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in activeWindowStart...activeWindowEnd {
@@ -598,7 +601,7 @@ final class TorrentStreamer {
             if piece <= headEnd { continue }
             // Don't reset tail pieces — they must stay active for MKV Cues/index.
             if piece >= tailStart { continue }
-            torrentHandle.setPiecePriority(piece, priority: 1)
+            torrentHandle.setPiecePriority(piece, priority: bgPriority)
             torrentHandle.resetPieceDeadline(piece)
         }
         activeWindowStart = -1
