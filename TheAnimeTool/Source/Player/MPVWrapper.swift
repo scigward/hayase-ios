@@ -272,7 +272,6 @@ final class MPVWrapper {
         pendingExternalSubtitles = externalSubtitles ?? []
         self.initialSubtitleId = initialSubtitleId
         self.initialAudioId = initialAudioId
-        let pendingOptions = fileLocalOptions
         queue.async { [weak self] in
             guard let self else { return }
             self.isLoading = true
@@ -314,7 +313,7 @@ final class MPVWrapper {
             // disabling demuxer-mkv-probe-video-duration for streaming
             // to prevent MPV from blocking on tail data).
             var loadArgs = ["loadfile", target, "replace"]
-            if let opts = pendingOptions, !opts.isEmpty {
+            if let opts = fileLocalOptions, !opts.isEmpty {
                 loadArgs.append(opts)
             }
             self.command(handle, loadArgs)
