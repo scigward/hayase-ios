@@ -260,7 +260,7 @@ final class VideoPlayerViewController: UIViewController {
         seekBar.maximumValue = 1
         seekBar.minimumTrackTintColor = .white
         seekBar.maximumTrackTintColor = UIColor(white: 0.85, alpha: 0.4) // rgba(217,217,217,0.4)
-        seekBar.setThumbImage(circleThumb(diameter: 0), for: .normal)   // No thumb — Hayase uses bar only
+        seekBar.setThumbImage(UIImage(), for: .normal)   // No visible thumb at rest — Hayase uses bar only
         seekBar.setThumbImage(circleThumb(diameter: 14), for: .highlighted)
         seekBar.addTarget(self, action: #selector(seekBegan),   for: .touchDown)
         seekBar.addTarget(self, action: #selector(seekChanged), for: .valueChanged)
@@ -280,8 +280,9 @@ final class VideoPlayerViewController: UIViewController {
         prevButton.setImage(UIImage(systemName: "backward.end.fill"),  for: .normal)
         playPauseButton.setImage(UIImage(systemName: "pause.fill"),    for: .normal)
         nextButton.setImage(UIImage(systemName: "forward.end.fill"),   for: .normal)
-        optionsButton.setImage(UIImage(systemName: "ellipsis"),        for: .normal)
-        optionsButton.transform = CGAffineTransform(rotationAngle: .pi / 2) // Vertical ellipsis like Hayase
+        optionsButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        // Rotate to vertical orientation, matching Hayase's EllipsisVertical icon
+        optionsButton.transform = CGAffineTransform(rotationAngle: .pi / 2)
 
         prevButton.addTarget(self,      action: #selector(prevTapped),      for: .touchUpInside)
         playPauseButton.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
