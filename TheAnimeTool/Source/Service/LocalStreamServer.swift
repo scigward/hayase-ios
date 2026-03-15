@@ -439,24 +439,31 @@ final class LocalStreamServer {
 
         guard safeFirst <= safeLast else { return true }
 
-        // Set priority THEN deadline on the needed pieces.
-        // Priority must be > 0 or libtorrent ignores the deadline entirely.
-        for localIdx in safeFirst...safeLast {
-            let globalIdx = beginPiece + localIdx
-            torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
-            let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
-            let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
-            torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+        func applyPriorityBoost() {
+            // Set priority THEN deadline on the needed pieces.
+            // Priority must be > 0 or libtorrent ignores the deadline entirely.
+            for localIdx in safeFirst...safeLast {
+                let globalIdx = beginPiece + localIdx
+                torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
+                let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
+                let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
+                torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
+            }
         }
+        applyPriorityBoost()
 
         // Poll until all pieces are available
         let pollInterval: TimeInterval = 0.05 // 50ms
-        let maxWait: TimeInterval = 120.0 // Must match MPV's network-timeout in VideoPlayerViewController
         let startTime = Date()
+        var lastPriorityBoost = startTime
+        var lastStatusLog = startTime
+        let reboostInterval: TimeInterval = 5.0
+        let statusInterval: TimeInterval = 15.0
         var isFirstCheck = true
 
         while !isStopped {
             var allReady = true
+            var missingPieces = 0
             snapshotQueue.sync {
                 torrentHandle.updateSnapshot()
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
@@ -468,10 +475,12 @@ final class LocalStreamServer {
                             // This can happen when the snapshot is stale or the
                             // pieces array hasn't been fully populated yet.
                             allReady = false
+                            missingPieces = safeLast - max(localIdx, safeFirst) + 1
                             break
                         }
                         if !pieces[localIdx].boolValue {
                             allReady = false
+                            missingPieces += 1
                             break
                         }
                     }
@@ -496,9 +505,16 @@ final class LocalStreamServer {
 
             isFirstCheck = false
 
-            if Date().timeIntervalSince(startTime) > maxWait {
-                print("LocalStreamServer: timeout waiting for pieces \(firstLocal)-\(lastLocal)")
-                return false
+            let now = Date()
+            if now.timeIntervalSince(lastPriorityBoost) >= reboostInterval {
+                applyPriorityBoost()
+                lastPriorityBoost = now
+            }
+            if now.timeIntervalSince(lastStatusLog) >= statusInterval {
+                let waited = String(format: "%.1f", now.timeIntervalSince(startTime))
+                let missingDesc = missingPieces > 0 ? " missing~\(missingPieces)" : ""
+                print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)")
+                lastStatusLog = now
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
