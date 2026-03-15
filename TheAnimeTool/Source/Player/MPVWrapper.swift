@@ -340,7 +340,12 @@ final class MPVWrapper {
     
     private func clearProperty(name: String) {
         guard let handle = mpv else { return }
-        let status = mpv_set_property(handle, name, MPV_FORMAT_NONE, nil)
+        // Use mpv_set_property_string with empty string to reset the property.
+        // The previous approach (MPV_FORMAT_NONE) was invalid — mpv doesn't
+        // support setting properties with FORMAT_NONE, returning error -9
+        // (MPV_ERROR_PROPERTY_FORMAT). Empty string works for both string and
+        // list properties (like http-header-fields).
+        let status = mpv_set_property_string(handle, name, "")
         if status < 0 {
             Logger.shared.log("Failed to clear property \(name) (\(status))", type: "Warn")
         }
