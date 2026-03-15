@@ -317,6 +317,7 @@ final class VideoPlayerViewController: UIViewController {
 
         let url: URL
         let preset: PlayerPreset
+        var fileLocalOptions: String? = nil
         if let server = streamServer {
             // Streaming: serve the file via local HTTP so MPV handles
             // buffering and seeking natively. The server blocks responses
@@ -333,6 +334,18 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "demuxer-max-back-bytes", "50MiB"],
                 ["set", "network-timeout", "120"],
             ])
+            // Disable MKV duration probing for streaming via file-local option.
+            // probe-video-duration=yes (set at MPV init) causes MPV to seek to
+            // the end of the file to read MKV Cues before starting playback.
+            // For streaming, this blocks until ALL tail pieces are downloaded,
+            // which with large piece sizes (2–4 MB) and low seeds means waiting
+            // for 20–60%+ of the file. Disabling the probe lets MPV start
+            // playback immediately after reading the MKV header from the first
+            // few pieces. Duration is still available from the MKV Info element
+            // in the header. Seeking works because force-seekable=yes is set,
+            // and MPV fetches Cues on-demand when the user seeks (the
+            // LocalStreamServer serves them from already-downloaded tail pieces).
+            fileLocalOptions = "demuxer-mkv-probe-video-duration=no"
         } else if path.starts(with: "http") {
             url = URL(string: path)!
             preset = PlayerPreset()
@@ -344,7 +357,7 @@ final class VideoPlayerViewController: UIViewController {
             ])
         }
 
-        surface.mpv.load(url: url, with: preset)
+        surface.mpv.load(url: url, with: preset, fileLocalOptions: fileLocalOptions)
         
         titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
         prevButton.isEnabled = currentVideoIndex > 0

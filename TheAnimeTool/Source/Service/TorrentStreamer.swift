@@ -71,19 +71,27 @@ final class TorrentStreamer {
 
     // -- Head pieces for MKV header --
 
-    /// Number of pieces from the START of the file to request with tight deadlines.
-    /// MKV containers store SeekHead, Info (duration), and Track definitions
-    /// (subtitle/audio codecs) in the first few pieces. Without these, MPV cannot
-    /// determine video duration or discover subtitle tracks at stream start.
-    private let headPieceCount = 8
+    /// Target bytes from the START of the file to request for MKV header metadata.
+    /// MKV SeekHead + Info + Tracks typically fit within the first 1–2 MB.
+    /// The actual piece count is computed in `start()` based on the torrent's
+    /// piece size: `max(1, min(8, headByteTarget / pieceLength))`. This adapts
+    /// to piece size so large-piece torrents (2–4 MB pieces) don't require
+    /// downloading 32–64 MB of head data before streaming can start.
+    private static let headByteTarget = 2 * 1024 * 1024 // 2 MB
+
+    /// Computed at `start()` — number of pieces from the START of the file.
+    private var headPieceCount = 8
 
     // -- Tail pieces for MKV index --
 
-    /// Number of pieces from the END of the file to request with tight deadlines.
-    /// MKV containers store Cues (seek index) and subtitle track index near the
-    /// end. Without these, MPV cannot seek properly and cannot discover subtitle
-    /// tracks until the file is fully downloaded.
-    private let tailPieceCount = 16
+    /// Target bytes from the END of the file to request for MKV Cues/seek index.
+    /// MKV Cues are typically 100 KB–3 MB depending on file duration and keyframe
+    /// density. The actual piece count is computed in `start()` based on the
+    /// torrent's piece size: `max(1, min(16, tailByteTarget / pieceLength))`.
+    private static let tailByteTarget = 4 * 1024 * 1024 // 4 MB
+
+    /// Computed at `start()` — number of pieces from the END of the file.
+    private var tailPieceCount = 16
 
     // MARK: - State
 
@@ -141,6 +149,19 @@ final class TorrentStreamer {
         endPiece = Int(entry.end_idx)
         totalFilePieces = Int(entry.num_pieces)
 
+        // Compute byte-aware metadata piece counts from the actual piece size.
+        // Fixed counts (8 head + 16 tail) cause excessive download requirements
+        // for torrents with large piece sizes (2–4 MB pieces are common in anime
+        // releases): 24 pieces × 4 MB = 96 MB of metadata must download before
+        // streaming can start. With low seeds, these download one-at-a-time,
+        // delaying streaming until a significant fraction of the file is done.
+        // Byte-aware counts adapt: large pieces → fewer pieces requested, keeping
+        // the total metadata bytes small (~2 MB head + ~4 MB tail) regardless of
+        // piece size.
+        let pl = max(Int(torrentHandle.snapshot.pieceLength), 1)
+        headPieceCount = max(1, min(8, Self.headByteTarget / pl))
+        tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
+
         // Enable sequential download — Hayase streaming model.
         // Sequential mode biases libtorrent to download pieces from the
         // beginning of the file, which naturally fetches MKV header/metadata
@@ -168,7 +189,7 @@ final class TorrentStreamer {
             torrentHandle.setPiecePriority(piece, priority: 1)
         }
 
-        print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total)")
+        print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount)")
 
         // Force re-announce to all trackers so we discover peers immediately.
         // This is critical for low-seeder torrents: the torrent may have been

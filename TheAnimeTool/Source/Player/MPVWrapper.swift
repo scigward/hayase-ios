@@ -263,7 +263,8 @@ final class MPVWrapper {
         startPosition: Double? = nil,
         externalSubtitles: [String]? = nil,
         initialSubtitleId: Int? = nil,
-        initialAudioId: Int? = nil
+        initialAudioId: Int? = nil,
+        fileLocalOptions: String? = nil
     ) {
         currentPreset = preset
         currentURL = url
@@ -271,6 +272,7 @@ final class MPVWrapper {
         pendingExternalSubtitles = externalSubtitles ?? []
         self.initialSubtitleId = initialSubtitleId
         self.initialAudioId = initialAudioId
+        let pendingOptions = fileLocalOptions
         queue.async { [weak self] in
             guard let self else { return }
             self.isLoading = true
@@ -307,7 +309,15 @@ final class MPVWrapper {
                 self.disableSubtitles()
             }
             let target = url.isFileURL ? url.path : url.absoluteString
-            self.command(handle, ["loadfile", target, "replace"])
+            // Pass file-local options to loadfile when provided.
+            // This allows per-load overrides of demuxer options (e.g.,
+            // disabling demuxer-mkv-probe-video-duration for streaming
+            // to prevent MPV from blocking on tail data).
+            var loadArgs = ["loadfile", target, "replace"]
+            if let opts = pendingOptions, !opts.isEmpty {
+                loadArgs.append(opts)
+            }
+            self.command(handle, loadArgs)
         }
     }
     
