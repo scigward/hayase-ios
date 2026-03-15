@@ -305,11 +305,12 @@ final class LocalStreamServer {
         }
         defer { fileHandle.closeFile() }
 
-        // Cap chunk size to avoid blocking on huge pieces. With 16+ MB pieces,
-        // using pieceLength as chunkSize means we can't serve ANY data until the
-        // entire piece is hash-verified — which may take minutes on low-seed
-        // torrents. Capping at 512 KB lets us serve data incrementally as it
-        // becomes available via the byte-level progress bypass below.
+        // Cap chunk size to avoid serving huge responses. With 16+ MB pieces,
+        // using pieceLength as chunkSize means the server sends up to 16 MB per
+        // chunk — wasteful for seeks and unnecessary for streaming. Capping at
+        // 512 KB lets us serve data incrementally once a piece is hash-verified:
+        // the first chunk within a verified piece is served immediately, followed
+        // by the remaining chunks from the same verified piece without re-waiting.
         let maxChunkSize = 512 * 1024
         let chunkSize = UInt64(pieceLength > 0 ? min(pieceLength, maxChunkSize) : 65536)
 
