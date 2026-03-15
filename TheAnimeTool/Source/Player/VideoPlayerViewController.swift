@@ -1,4 +1,5 @@
 import UIKit
+import AVKit
 import LibTorrent
 
 final class VideoPlayerViewController: UIViewController {
@@ -33,7 +34,14 @@ final class VideoPlayerViewController: UIViewController {
     // Top bar
     private let backButton    = UIButton(type: .system)
     private let titleLabel    = UILabel()
-    private let statsLabel    = UILabel()
+
+    // Hayase speed.svelte — dedicated speed control button
+    private let speedButton   = UIButton(type: .system)
+    // Hayase airplay — route picker button
+    private let airPlayPicker = AVRoutePickerView()
+
+    // Hayase downloadstats.svelte — floating HUD separate from the top bar
+    private let statsHUD      = UILabel()
 
     // Bottom bar
     private let timeLabel     = UILabel()
@@ -157,6 +165,27 @@ final class VideoPlayerViewController: UIViewController {
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         topBar.addSubview(backButton)
 
+        // Hayase speed.svelte — 46×30pt button with monospace label and UIMenu
+        speedButton.translatesAutoresizingMaskIntoConstraints = false
+        speedButton.setTitle("1×", for: .normal)
+        speedButton.titleLabel?.font = .monospacedSystemFont(ofSize: 14, weight: .semibold)
+        speedButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        speedButton.tintColor = .white
+        speedButton.layer.cornerRadius = 6
+        speedButton.clipsToBounds = true
+        speedButton.showsMenuAsPrimaryAction = true
+        speedButton.menu = buildSpeedMenu()
+        topBar.addSubview(speedButton)
+
+        // Hayase airplay — AVRoutePickerView next to speed button
+        airPlayPicker.translatesAutoresizingMaskIntoConstraints = false
+        airPlayPicker.activeTintColor = .systemIndigo
+        airPlayPicker.tintColor = .white
+        airPlayPicker.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        airPlayPicker.layer.cornerRadius = 6
+        airPlayPicker.clipsToBounds = true
+        topBar.addSubview(airPlayPicker)
+
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textColor = .white
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -164,26 +193,65 @@ final class VideoPlayerViewController: UIViewController {
         titleLabel.text = videoEntity?.videoName ?? "Playing"
         topBar.addSubview(titleLabel)
 
-        statsLabel.translatesAutoresizingMaskIntoConstraints = false
-        statsLabel.textColor = .white
-        statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        statsLabel.textAlignment = .right
-        statsLabel.isHidden = true
-        topBar.addSubview(statsLabel)
-
         NSLayoutConstraint.activate([
             backButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
             backButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
 
+            speedButton.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
+            speedButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            speedButton.widthAnchor.constraint(equalToConstant: 46),
+            speedButton.heightAnchor.constraint(equalToConstant: 30),
+
+            airPlayPicker.leadingAnchor.constraint(equalTo: speedButton.trailingAnchor, constant: 8),
+            airPlayPicker.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            airPlayPicker.widthAnchor.constraint(equalToConstant: 36),
+            airPlayPicker.heightAnchor.constraint(equalToConstant: 30),
+
             titleLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: airPlayPicker.trailingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: topBar.trailingAnchor, constant: -16),
+        ])
 
-            statsLabel.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            statsLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            statsLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
+        // Hayase downloadstats.svelte — floating HUD in the top-right corner
+        // (outside the overlay so it persists when controls auto-hide)
+        setupStatsHUD()
+    }
+
+    /// Builds the UIMenu for the speed button (Hayase speed.svelte).
+    private func buildSpeedMenu() -> UIMenu {
+        let speeds: [(String, Double)] = [
+            ("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
+            ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0),
+        ]
+        let actions = speeds.map { label, rate -> UIAction in
+            UIAction(title: label, state: rate == self.playbackRate ? .on : .off) { [weak self] _ in
+                self?.playbackRate = rate
+                self?.surface.mpv.setSpeed(rate)
+                self?.speedButton.setTitle(label, for: .normal)
+            }
+        }
+        return UIMenu(title: "Playback Speed", children: actions.reversed())
+    }
+
+    /// Hayase downloadstats.svelte — floating HUD at top-right showing download
+    /// speed + buffer seconds + file progress. Added directly to view (not the
+    /// overlay) so it stays visible when controls auto-hide.
+    private func setupStatsHUD() {
+        statsHUD.translatesAutoresizingMaskIntoConstraints = false
+        statsHUD.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        statsHUD.textColor = .white
+        statsHUD.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        statsHUD.layer.cornerRadius = 5
+        statsHUD.clipsToBounds = true
+        statsHUD.textAlignment = .center
+        statsHUD.isHidden = true
+        view.addSubview(statsHUD)
+        NSLayoutConstraint.activate([
+            statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            statsHUD.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
         ])
     }
 
@@ -440,7 +508,7 @@ final class VideoPlayerViewController: UIViewController {
         statsTimer?.invalidate()
         guard torrentHandle != nil else { return }
         guard !isFileFullyDownloaded() else { return }
-        statsLabel.isHidden = false
+        statsHUD.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStats()
@@ -457,7 +525,7 @@ final class VideoPlayerViewController: UIViewController {
         // all subsequent seeks to fail (no pieces requested).
         if isFileFullyDownloaded() {
             statsTimer?.invalidate()
-            statsLabel.isHidden = true
+            statsHUD.isHidden = true
             // Stop the streamer — piece management is no longer needed.
             // Do NOT stop streamServer here: MPV is still reading from the
             // HTTP URL. Stopping the server mid-playback causes read errors
@@ -479,9 +547,9 @@ final class VideoPlayerViewController: UIViewController {
         if let s = streamer, s.isActive, duration > 0 {
             let fraction = currentTime / duration
             let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
-            statsLabel.text = "↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", fileFraction * 100))"
+            statsHUD.text = "  ↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", fileFraction * 100))  "
         } else {
-            statsLabel.text = "↓ \(speed)  \(String(format: "%.1f%%", fileFraction * 100))"
+            statsHUD.text = "  ↓ \(speed)  \(String(format: "%.1f%%", fileFraction * 100))  "
         }
     }
 
@@ -752,7 +820,8 @@ final class VideoPlayerViewController: UIViewController {
             let mark = rate == playbackRate ? "✓ " : ""
             picker.addAction(UIAlertAction(title: mark + label, style: .default) { [weak self] _ in
                 self?.playbackRate = rate
-                self?.surface.mpv.setSpeed(rate) // Adapted to use setSpeed
+                self?.surface.mpv.setSpeed(rate)
+                self?.speedButton.setTitle(label, for: .normal)
                 self?.scheduleHide()
             })
         }

@@ -32,11 +32,11 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 | `/app/anime/[id]` (stats tab) | ✅ ~85% | `StatsCell` | `ScoreBarChartView` bar chart + `UIProgressView` status breakdown |
 | `/app/settings` (settings page) | ✅ ~70% | `SettingsViewController` | 6 grouped sections, toggles + UserDefaults persistence |
 | `ui/torrentclient/overview.svelte` | ✅ ~95% | `TorrentDetailViewController` | Full replica: progress+%, speed↓/↑, ETA, elapsed, seeders/leechers/peers |
-| `ui/torrentclient/files/table.svelte` | ✅ ~65% | `VideoListViewController` + `VideoTableViewCell` | Downloaded/total size ("3.2 MB / 1.2 GB"), progress bar, play/skip |
-| `/app/player` (video player) | ✅ ~85% | `VideoPlayerController` | PiP, episode title, download-stats HUD, speed control (0.5×–2×), AirPlay |
-| `ui/player/downloadstats.svelte` | ✅ ~85% | `VideoPlayerController.statsOverlay` | Live ↓ speed + buffer % HUD; auto-hides on download completion |
-| `ui/player/speed.svelte` | ✅ ~90% | `VideoPlayerController.setupSpeedControl()` | UIMenu speed picker (0.5×…2×); applied to AVPlayer.rate |
-| `ui/player/airplay` | ✅ ~90% | `AVRoutePickerView` overlay | Standard iOS route picker, indigo active tint |
+| `ui/torrentclient/files/table.svelte` | ✅ ~65% | `VideoListViewController` + `VideoTableViewCell` | Downloaded/total size ("3.2 MB / 1.2 GB"), progress bar, play/skip; bypassed from extension search (direct-to-player) |
+| `/app/player` (video player) | ✅ ~95% | `VideoPlayerViewController` | PiP, episode title, download-stats floating HUD, speed control button (0.5×–2×), AirPlay route picker |
+| `ui/player/downloadstats.svelte` | ✅ ~95% | `VideoPlayerViewController.statsHUD` | Floating top-right HUD: ↓ speed + buffer + %; auto-hides on completion |
+| `ui/player/speed.svelte` | ✅ ~95% | `VideoPlayerViewController.speedButton` | Dedicated 46×30pt button with UIMenu (0.5×…2×); monospace label |
+| `ui/player/airplay` | ✅ ~95% | `AVRoutePickerView` in top bar | 36×30pt, indigo active tint, next to speed button |
 | `ui/profile/` | ❌ 0% | — | Not yet started |
 | `/app/w2g` (Watch2Gether) | ❌ 0% | — | Not applicable for iOS MVP |
 | `/app/chat` | ❌ 0% | — | Not applicable for iOS MVP |
