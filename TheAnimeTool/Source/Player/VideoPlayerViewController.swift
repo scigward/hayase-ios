@@ -27,31 +27,32 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Overlay
 
     private let overlay       = UIView()
-    private let topBar        = UIView()
     private let bottomBar     = UIView()
+    private let bottomGradient = CAGradientLayer()
     private let logOverlay    = LogOverlayView()
 
-    // Top bar
+    // Floating back button (top-left, no background bar — matches Hayase)
     private let backButton    = UIButton(type: .system)
-    private let titleLabel    = UILabel()
 
-    // Hayase speed.svelte — dedicated speed control button
-    private let speedButton   = UIButton(type: .system)
-    // Hayase airplay — route picker button
-    private let airPlayPicker = AVRoutePickerView()
-
-    // Hayase downloadstats.svelte — floating HUD separate from the top bar
+    // Hayase downloadstats.svelte — floating HUD at top center
     private let statsHUD      = UILabel()
 
-    // Bottom bar
+    // Bottom bar — above seekbar row
+    private let titleLabel    = UILabel()
+    private let chapterLabel  = UILabel()
     private let timeLabel     = UILabel()
+
+    // Bottom bar — seekbar row
     private let seekBar       = UISlider()
-    private let durationLabel = UILabel()
     private let chapterLayer  = UIView()
-    private let prevButton    = UIButton(type: .system)
+
+    // Bottom bar — controls row
+    private let prevButton      = UIButton(type: .system)
     private let playPauseButton = UIButton(type: .system)
-    private let nextButton    = UIButton(type: .system)
-    private let optionsButton = UIButton(type: .system)
+    private let nextButton      = UIButton(type: .system)
+    private let speedLabel      = UILabel()
+    private let optionsButton   = UIButton(type: .system)
+    private let airPlayPicker   = AVRoutePickerView()
 
     // MARK: - State
 
@@ -93,6 +94,17 @@ final class VideoPlayerViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateChapterMarkers()
+        // Apply gradient to bottom bar (Hayase gradient: black → transparent)
+        bottomGradient.frame = bottomBar.bounds
+        if bottomGradient.superlayer == nil {
+            bottomGradient.colors = [
+                UIColor.clear.cgColor,
+                UIColor.black.withAlphaComponent(0.7).cgColor,
+                UIColor.black.withAlphaComponent(0.85).cgColor,
+            ]
+            bottomGradient.locations = [0.0, 0.35, 1.0]
+            bottomBar.layer.insertSublayer(bottomGradient, at: 0)
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -134,7 +146,12 @@ final class VideoPlayerViewController: UIViewController {
             overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
-        setupTopBar()
+
+        // Floating back button — top-left, no background bar (Hayase style)
+        setupBackButton()
+        // Download stats — top center (Hayase downloadstats.svelte)
+        setupStatsHUD()
+        // Bottom overlay with gradient
         setupBottomBar()
 
         // Log overlay — shows streaming errors/warnings at the bottom-left.
@@ -148,116 +165,52 @@ final class VideoPlayerViewController: UIViewController {
         ])
     }
 
-    private func setupTopBar() {
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-        topBar.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        overlay.addSubview(topBar)
-        NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: view.topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: 54),
-        ])
-
+    /// Floating back button at top-left (no top bar). Matches Hayase mobile
+    /// layout where options/back is a floating button, not a bar.
+    private func setupBackButton() {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         backButton.tintColor = .white
+        backButton.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        backButton.layer.cornerRadius = 22
+        backButton.clipsToBounds = true
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        topBar.addSubview(backButton)
-
-        // Hayase speed.svelte — 46×30pt button with monospace label and UIMenu
-        speedButton.translatesAutoresizingMaskIntoConstraints = false
-        speedButton.setTitle("1×", for: .normal)
-        speedButton.titleLabel?.font = .monospacedSystemFont(ofSize: 14, weight: .semibold)
-        speedButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        speedButton.tintColor = .white
-        speedButton.layer.cornerRadius = 6
-        speedButton.clipsToBounds = true
-        speedButton.showsMenuAsPrimaryAction = true
-        speedButton.menu = buildSpeedMenu()
-        topBar.addSubview(speedButton)
-
-        // Hayase airplay — AVRoutePickerView next to speed button
-        airPlayPicker.translatesAutoresizingMaskIntoConstraints = false
-        airPlayPicker.activeTintColor = .systemIndigo
-        airPlayPicker.tintColor = .white
-        airPlayPicker.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        airPlayPicker.layer.cornerRadius = 6
-        airPlayPicker.clipsToBounds = true
-        topBar.addSubview(airPlayPicker)
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.textColor = .white
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        titleLabel.textAlignment = .center
-        titleLabel.text = videoEntity?.videoName ?? "Playing"
-        topBar.addSubview(titleLabel)
-
+        overlay.addSubview(backButton)
         NSLayoutConstraint.activate([
-            backButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            backButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
-
-            speedButton.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
-            speedButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            speedButton.widthAnchor.constraint(equalToConstant: 46),
-            speedButton.heightAnchor.constraint(equalToConstant: 30),
-
-            airPlayPicker.leadingAnchor.constraint(equalTo: speedButton.trailingAnchor, constant: 8),
-            airPlayPicker.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            airPlayPicker.widthAnchor.constraint(equalToConstant: 36),
-            airPlayPicker.heightAnchor.constraint(equalToConstant: 30),
-
-            titleLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: airPlayPicker.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: topBar.trailingAnchor, constant: -16),
         ])
-
-        // Hayase downloadstats.svelte — floating HUD in the top-right corner
-        // (outside the overlay so it persists when controls auto-hide)
-        setupStatsHUD()
     }
 
-    /// Builds the UIMenu for the speed button (Hayase speed.svelte).
-    private func buildSpeedMenu() -> UIMenu {
-        let speeds: [(String, Double)] = [
-            ("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
-            ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0),
-        ]
-        let actions = speeds.map { label, rate -> UIAction in
-            UIAction(title: label, state: rate == self.playbackRate ? .on : .off) { [weak self] _ in
-                self?.playbackRate = rate
-                self?.surface.mpv.setSpeed(rate)
-                self?.speedButton.setTitle(label, for: .normal)
-            }
-        }
-        return UIMenu(title: "Playback Speed", children: actions.reversed())
-    }
-
-    /// Hayase downloadstats.svelte — floating HUD at top-right showing download
-    /// speed + buffer seconds + file progress. Added directly to view (not the
-    /// overlay) so it stays visible when controls auto-hide.
+    /// Hayase downloadstats.svelte — floating HUD at top center showing
+    /// peers, download speed + buffer seconds + file progress.
+    /// Positioned at top center like the Hayase web player.
+    /// Added directly to view (not the overlay) so it stays visible when
+    /// controls auto-hide.
     private func setupStatsHUD() {
         statsHUD.translatesAutoresizingMaskIntoConstraints = false
-        statsHUD.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        statsHUD.font = .systemFont(ofSize: 14, weight: .bold)
         statsHUD.textColor = .white
-        statsHUD.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        statsHUD.layer.cornerRadius = 5
-        statsHUD.clipsToBounds = true
         statsHUD.textAlignment = .center
         statsHUD.isHidden = true
+        // Text shadow via layer (matches Hayase text-shadow-lg)
+        statsHUD.layer.shadowColor = UIColor.black.cgColor
+        statsHUD.layer.shadowOffset = .zero
+        statsHUD.layer.shadowOpacity = 0.8
+        statsHUD.layer.shadowRadius = 4
         view.addSubview(statsHUD)
         NSLayoutConstraint.activate([
-            statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            statsHUD.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            statsHUD.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         ])
     }
 
     private func setupBottomBar() {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
-        bottomBar.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        // Gradient background applied in viewDidLayoutSubviews
+        bottomBar.clipsToBounds = true
         overlay.addSubview(bottomBar)
         NSLayoutConstraint.activate([
             bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -265,20 +218,50 @@ final class VideoPlayerViewController: UIViewController {
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
+        // --- Row 1: Title (left) + Chapter & Time (right) ---
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        titleLabel.textAlignment = .left
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.text = videoEntity?.videoName ?? "Playing"
+        // Text shadow (Hayase text-shadow-lg)
+        titleLabel.layer.shadowColor = UIColor.black.cgColor
+        titleLabel.layer.shadowOffset = .zero
+        titleLabel.layer.shadowOpacity = 0.8
+        titleLabel.layer.shadowRadius = 3
+        bottomBar.addSubview(titleLabel)
+
+        chapterLabel.translatesAutoresizingMaskIntoConstraints = false
+        chapterLabel.textColor = UIColor(white: 0.85, alpha: 0.6) // rgba(217,217,217,0.6)
+        chapterLabel.font = .systemFont(ofSize: 12, weight: .light)
+        chapterLabel.textAlignment = .right
+        chapterLabel.lineBreakMode = .byTruncatingTail
+        chapterLabel.text = ""
+        bottomBar.addSubview(chapterLabel)
+
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.textColor = .white
-        timeLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        timeLabel.text = "0:00"
+        timeLabel.font = .systemFont(ofSize: 13, weight: .light)
+        timeLabel.textAlignment = .right
+        timeLabel.text = "0:00 / 0:00"
         timeLabel.isUserInteractionEnabled = true
         timeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleTimeFormat)))
+        // Text shadow
+        timeLabel.layer.shadowColor = UIColor.black.cgColor
+        timeLabel.layer.shadowOffset = .zero
+        timeLabel.layer.shadowOpacity = 0.8
+        timeLabel.layer.shadowRadius = 3
         bottomBar.addSubview(timeLabel)
 
+        // --- Row 2: Seekbar (full width) ---
         seekBar.translatesAutoresizingMaskIntoConstraints = false
         seekBar.minimumValue = 0
         seekBar.maximumValue = 1
         seekBar.minimumTrackTintColor = .white
-        seekBar.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
-        seekBar.setThumbImage(circleThumb(diameter: 14), for: .normal)
+        seekBar.maximumTrackTintColor = UIColor(white: 0.85, alpha: 0.4) // rgba(217,217,217,0.4)
+        seekBar.setThumbImage(circleThumb(diameter: 0), for: .normal)   // No thumb — Hayase uses bar only
+        seekBar.setThumbImage(circleThumb(diameter: 14), for: .highlighted)
         seekBar.addTarget(self, action: #selector(seekBegan),   for: .touchDown)
         seekBar.addTarget(self, action: #selector(seekChanged), for: .valueChanged)
         seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside])
@@ -288,12 +271,8 @@ final class VideoPlayerViewController: UIViewController {
         chapterLayer.isUserInteractionEnabled = false
         bottomBar.addSubview(chapterLayer)
 
-        durationLabel.translatesAutoresizingMaskIntoConstraints = false
-        durationLabel.textColor = UIColor.white.withAlphaComponent(0.7)
-        durationLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        durationLabel.text = "0:00"
-        bottomBar.addSubview(durationLabel)
-
+        // --- Row 3: Controls ---
+        // Left side: play/pause, prev, next
         [prevButton, playPauseButton, nextButton, optionsButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.tintColor = .white
@@ -301,48 +280,91 @@ final class VideoPlayerViewController: UIViewController {
         prevButton.setImage(UIImage(systemName: "backward.end.fill"),  for: .normal)
         playPauseButton.setImage(UIImage(systemName: "pause.fill"),    for: .normal)
         nextButton.setImage(UIImage(systemName: "forward.end.fill"),   for: .normal)
-        optionsButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        optionsButton.setImage(UIImage(systemName: "ellipsis"),        for: .normal)
+        optionsButton.transform = CGAffineTransform(rotationAngle: .pi / 2) // Vertical ellipsis like Hayase
 
-        prevButton.addTarget(self,    action: #selector(prevTapped),      for: .touchUpInside)
+        prevButton.addTarget(self,      action: #selector(prevTapped),      for: .touchUpInside)
         playPauseButton.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
-        nextButton.addTarget(self,    action: #selector(nextTapped),      for: .touchUpInside)
-        optionsButton.addTarget(self, action: #selector(optionsTapped),   for: .touchUpInside)
+        nextButton.addTarget(self,      action: #selector(nextTapped),      for: .touchUpInside)
+        optionsButton.addTarget(self,   action: #selector(optionsTapped),   for: .touchUpInside)
 
-        prevButton.isEnabled    = allVideos.count > 1 && currentVideoIndex > 0
-        nextButton.isEnabled    = allVideos.count > 1 && currentVideoIndex < allVideos.count - 1
+        prevButton.isEnabled  = allVideos.count > 1 && currentVideoIndex > 0
+        nextButton.isEnabled  = allVideos.count > 1 && currentVideoIndex < allVideos.count - 1
 
-        let btnStack = UIStackView(arrangedSubviews: [prevButton, playPauseButton, nextButton])
-        btnStack.translatesAutoresizingMaskIntoConstraints = false
-        btnStack.axis = .horizontal
-        btnStack.spacing = 36
-        bottomBar.addSubview(btnStack)
-        bottomBar.addSubview(optionsButton)
+        let leftStack = UIStackView(arrangedSubviews: [playPauseButton, prevButton, nextButton])
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+        leftStack.axis = .horizontal
+        leftStack.spacing = 4
+        bottomBar.addSubview(leftStack)
 
+        // Right side: speed label, options, AirPlay
+        speedLabel.translatesAutoresizingMaskIntoConstraints = false
+        speedLabel.textColor = .white
+        speedLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        speedLabel.textAlignment = .center
+        speedLabel.text = "" // Hidden when 1x
+        speedLabel.isUserInteractionEnabled = true
+        speedLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(speedLabelTapped)))
+        bottomBar.addSubview(speedLabel)
+
+        airPlayPicker.translatesAutoresizingMaskIntoConstraints = false
+        airPlayPicker.activeTintColor = .systemIndigo
+        airPlayPicker.tintColor = .white
+        bottomBar.addSubview(airPlayPicker)
+
+        let rightStack = UIStackView(arrangedSubviews: [speedLabel, optionsButton, airPlayPicker])
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.axis = .horizontal
+        rightStack.spacing = 4
+        rightStack.alignment = .center
+        bottomBar.addSubview(rightStack)
+
+        let pad: CGFloat = 16
         NSLayoutConstraint.activate([
-            timeLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 14),
-            timeLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 10),
+            // Row 1: title + time/chapter
+            titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad + 8),
+            titleLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chapterLabel.leadingAnchor, constant: -12),
 
-            seekBar.leadingAnchor.constraint(equalTo: timeLabel.trailingAnchor, constant: 8),
-            seekBar.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
-            seekBar.centerYAnchor.constraint(equalTo: timeLabel.centerYAnchor),
+            chapterLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
+            chapterLabel.bottomAnchor.constraint(equalTo: timeLabel.topAnchor, constant: -2),
+
+            timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
+            timeLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+
+            // Row 2: seekbar
+            seekBar.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
+            seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
+            seekBar.topAnchor.constraint(equalTo: timeLabel.bottomAnchor, constant: 0),
+            seekBar.heightAnchor.constraint(equalToConstant: 32),
 
             chapterLayer.leadingAnchor.constraint(equalTo: seekBar.leadingAnchor),
             chapterLayer.trailingAnchor.constraint(equalTo: seekBar.trailingAnchor),
             chapterLayer.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
             chapterLayer.heightAnchor.constraint(equalToConstant: 4),
 
-            durationLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -14),
-            durationLabel.centerYAnchor.constraint(equalTo: timeLabel.centerYAnchor),
+            // Row 3: controls
+            leftStack.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
+            leftStack.topAnchor.constraint(equalTo: seekBar.bottomAnchor, constant: 0),
+            leftStack.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -10),
+            leftStack.heightAnchor.constraint(equalToConstant: 44),
 
-            btnStack.centerXAnchor.constraint(equalTo: bottomBar.centerXAnchor),
-            btnStack.topAnchor.constraint(equalTo: seekBar.bottomAnchor, constant: 6),
-            btnStack.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -10),
-            btnStack.heightAnchor.constraint(equalToConstant: 44),
+            rightStack.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
+            rightStack.centerYAnchor.constraint(equalTo: leftStack.centerYAnchor),
+            rightStack.heightAnchor.constraint(equalToConstant: 44),
 
-            optionsButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -14),
-            optionsButton.centerYAnchor.constraint(equalTo: btnStack.centerYAnchor),
-            optionsButton.widthAnchor.constraint(equalToConstant: 44),
-            optionsButton.heightAnchor.constraint(equalToConstant: 44),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 48),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 48),
+            prevButton.widthAnchor.constraint(equalToConstant: 48),
+            prevButton.heightAnchor.constraint(equalToConstant: 48),
+            nextButton.widthAnchor.constraint(equalToConstant: 48),
+            nextButton.heightAnchor.constraint(equalToConstant: 48),
+
+            speedLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
+            optionsButton.widthAnchor.constraint(equalToConstant: 48),
+            optionsButton.heightAnchor.constraint(equalToConstant: 48),
+            airPlayPicker.widthAnchor.constraint(equalToConstant: 48),
+            airPlayPicker.heightAnchor.constraint(equalToConstant: 48),
         ])
     }
 
@@ -535,30 +557,20 @@ final class VideoPlayerViewController: UIViewController {
             streamer = nil
             return
         }
-        let speed = fmtSpeed(snap.downloadRate)
-        // Show file-level download fraction for accurate progress display.
-        let fileFraction: Double
-        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }), entry.size > 0 {
-            fileFraction = Double(entry.downloaded) / Double(entry.size)
-        } else {
-            fileFraction = Double(snap.progress)
-        }
-        // When streaming, show buffer seconds ahead of playback.
-        if let s = streamer, s.isActive, duration > 0 {
-            let fraction = currentTime / duration
-            let bufSec = s.bufferedSeconds(fromFraction: fraction, videoDuration: duration)
-            statsHUD.text = "  ↓ \(speed)  buf \(String(format: "%.0fs", bufSec))  \(String(format: "%.1f%%", fileFraction * 100))  "
-        } else {
-            statsHUD.text = "  ↓ \(speed)  \(String(format: "%.1f%%", fileFraction * 100))  "
-        }
+        // Hayase downloadstats.svelte format: peers ↓speed ↑speed
+        let peers = snap.numberOfSeeds
+        let downBits = fmtBits(snap.downloadRate * 8)
+        let upBits = fmtBits(snap.uploadRate * 8)
+        statsHUD.text = "👤 \(peers)    ↓ \(downBits)/s    ↑ \(upBits)/s"
     }
 
-    private func fmtSpeed(_ bps: UInt64) -> String {
-        if bps == 0            { return "0 B/s" }
-        if bps >= 1_073_741_824 { return String(format: "%.1f GB/s", Double(bps) / 1_073_741_824) }
-        if bps >= 1_048_576    { return String(format: "%.1f MB/s", Double(bps) / 1_048_576) }
-        if bps >= 1_024        { return String(format: "%.0f KB/s", Double(bps) / 1_024) }
-        return "\(bps) B/s"
+    /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).
+    private func fmtBits(_ bps: UInt64) -> String {
+        if bps == 0              { return "0 b" }
+        if bps >= 1_000_000_000  { return String(format: "%.1f Gb", Double(bps) / 1_000_000_000) }
+        if bps >= 1_000_000      { return String(format: "%.1f Mb", Double(bps) / 1_000_000) }
+        if bps >= 1_000          { return String(format: "%.0f Kb", Double(bps) / 1_000) }
+        return "\(bps) b"
     }
 
     /// Checks whether the target file is fully downloaded using byte-level
@@ -609,10 +621,18 @@ final class VideoPlayerViewController: UIViewController {
     private func updateTimeUI() {
         guard !isSeeking else { return }
         seekBar.value = duration > 0 ? Float(currentTime / duration) : 0
-        timeLabel.text = showRemainingTime
-            ? "-" + fmtTime(max(0, duration - currentTime))
-            : fmtTime(currentTime)
-        durationLabel.text = fmtTime(duration)
+        // Hayase format: "current / total" or "-remaining / total"
+        if showRemainingTime {
+            timeLabel.text = "-\(fmtTime(max(0, duration - currentTime))) / \(fmtTime(duration))"
+        } else {
+            timeLabel.text = "\(fmtTime(currentTime)) / \(fmtTime(duration))"
+        }
+        // Update chapter label if chapters are available
+        if let ch = chapters.last(where: { $0.time <= currentTime }) {
+            chapterLabel.text = ch.title
+        } else {
+            chapterLabel.text = ""
+        }
     }
 
     private func fmtTime(_ secs: Double) -> String {
@@ -714,7 +734,11 @@ final class VideoPlayerViewController: UIViewController {
 
     @objc private func seekChanged() {
         let t = Double(seekBar.value) * duration
-        timeLabel.text = showRemainingTime ? "-" + fmtTime(max(0, duration - t)) : fmtTime(t)
+        if showRemainingTime {
+            timeLabel.text = "-\(fmtTime(max(0, duration - t))) / \(fmtTime(duration))"
+        } else {
+            timeLabel.text = "\(fmtTime(t)) / \(fmtTime(duration))"
+        }
     }
 
     @objc private func seekEnded() {
@@ -733,6 +757,20 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func optionsTapped() {
         hideWork?.cancel()
         showOptionsSheet()
+    }
+
+    @objc private func speedLabelTapped() {
+        hideWork?.cancel()
+        showSpeedPicker()
+    }
+
+    /// Updates the speed label text. Hayase shows "x1.5" only when rate ≠ 1.
+    private func updateSpeedLabel() {
+        if playbackRate != 1.0 && playbackRate != 0.0 {
+            speedLabel.text = "x\(String(format: "%g", playbackRate))"
+        } else {
+            speedLabel.text = ""
+        }
     }
 
     // MARK: - Options sheet
@@ -821,7 +859,7 @@ final class VideoPlayerViewController: UIViewController {
             picker.addAction(UIAlertAction(title: mark + label, style: .default) { [weak self] _ in
                 self?.playbackRate = rate
                 self?.surface.mpv.setSpeed(rate)
-                self?.speedButton.setTitle(label, for: .normal)
+                self?.updateSpeedLabel()
                 self?.scheduleHide()
             })
         }
