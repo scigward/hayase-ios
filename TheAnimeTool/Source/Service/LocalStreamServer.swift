@@ -515,9 +515,9 @@ final class LocalStreamServer {
         var lastPriorityBoost = startTime
         var lastStatusLog = startTime
         var lastReannounce = startTime
-        let reboostInterval: TimeInterval = 5.0
+        let reboostInterval: TimeInterval = 1.0
         let statusInterval: TimeInterval = 5.0
-        let reannounceInterval: TimeInterval = 60.0
+        let reannounceInterval: TimeInterval = 30.0
         var lastPeerLog = startTime
         var isFirstCheck = true
         var didLogInitialWait = false

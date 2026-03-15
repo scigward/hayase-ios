@@ -276,6 +276,14 @@ final class TorrentStreamer {
 
         // Force-update with aggressive seek deadlines and a larger window.
         setDeadlinesFrom(pieceIndex: targetPiece, force: true, isSeek: true)
+
+        // Re-announce to trackers immediately so we discover peers that
+        // have the seek-target pieces. When seeking far forward at low
+        // download %, connected peers may only have earlier pieces. A
+        // fresh announce can surface seeders or peers with the tail of
+        // the file, significantly reducing the time to start playback
+        // at the new position.
+        torrentHandle.forceReannounce()
     }
 
     // MARK: - Buffer metrics
