@@ -189,6 +189,8 @@ final class TorrentStreamer {
             torrentHandle.setPiecePriority(piece, priority: 1)
         }
 
+        let plMB = String(format: "%.1f", Double(pl) / 1_048_576)
+        StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount)")
         print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount)")
 
         // Force re-announce to all trackers so we discover peers immediately.
@@ -464,6 +466,13 @@ final class TorrentStreamer {
     /// MPV opens the stream, so video duration and subtitle tracks are available
     /// immediately.
     ///
+    /// For large-piece torrents (16+ MB pieces), also accepts byte-level progress
+    /// as an alternative to piece hash verification. MKV headers typically fit
+    /// within 2 MB, so if `file_progress()` reports enough downloaded bytes,
+    /// the header data is on disk from libtorrent's block-level writes even
+    /// though the piece hasn't been fully hash-verified. Sequential download
+    /// mode ensures these bytes are contiguous from the file's start.
+    ///
     /// Periodically re-boosts head piece priorities every ~1 second during the
     /// wait. This handles edge cases where libtorrent's internal recalculations
     /// (e.g., update_piece_priorities from set_file_priority) might reset our
@@ -478,6 +487,12 @@ final class TorrentStreamer {
         let pollInterval: TimeInterval = 0.25
         let reinforceInterval: TimeInterval = 1.0
         var lastReinforceTime = Date.distantPast // trigger immediate first reinforcement
+
+        // Byte-level threshold: minimum bytes at the start of the file for MPV
+        // to parse the MKV header (SeekHead + Info + Tracks). This is the
+        // fallback for large-piece torrents where piece verification takes too
+        // long. Sequential download mode guarantees these bytes are contiguous.
+        let byteThreshold = UInt64(Self.headByteTarget) // 2 MB
 
         while isActive {
             let now = Date()
@@ -500,32 +515,44 @@ final class TorrentStreamer {
                 continue
             }
 
-            // Verify ALL head pieces are downloaded.
+            // Check 1: piece-level verification (most reliable).
             // If the pieces array is shorter than expected (snapshot not fully
             // populated or stale), treat the missing entries as NOT ready.
-            // Previous code used `i < pieces.count && !pieces[i].boolValue`
-            // which silently skipped out-of-bounds indices, causing this function
-            // to return true when pieces weren't actually downloaded (e.g., when
-            // pieces was empty → allReady stayed true → MPV loaded with no data).
-            var allReady = pieces.count > headEnd // array must cover all head pieces
-            if allReady {
+            var piecesReady = pieces.count > headEnd // array must cover all head pieces
+            if piecesReady {
                 for i in 0...headEnd {
                     if !pieces[i].boolValue {
-                        allReady = false
+                        piecesReady = false
                         break
                     }
                 }
             }
 
-            if allReady {
+            if piecesReady {
                 StreamingLogger.shared.info("Head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
                 print("TorrentStreamer: head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
                 return true
             }
 
+            // Check 2: byte-level progress (fallback for large-piece torrents).
+            // file_progress() without flags includes bytes from partial (unverified)
+            // pieces. If enough bytes have been downloaded at the start of the file,
+            // the MKV header is on disk and MPV can parse it via the local HTTP
+            // server (which has its own byte-level bypass). This prevents the
+            // common scenario where a 16+ MB piece takes minutes to fully download
+            // and verify, but the first 2 MB (containing the MKV header) arrives
+            // in seconds.
+            if entry.downloaded >= byteThreshold {
+                let dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
+                StreamingLogger.shared.info("Head bytes ready (\(dlMB) MB in \(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
+                print("TorrentStreamer: head bytes ready (downloaded=\(dlMB) MB, piece not yet verified)")
+                return true
+            }
+
             if now.timeIntervalSince(startTime) > timeout {
-                StreamingLogger.shared.error("Metadata wait timeout after \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, have \(pieces.count)")
-                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1)")
+                let dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
+                StreamingLogger.shared.error("Metadata wait timeout after \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, downloaded=\(dlMB) MB")
+                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1), downloaded=\(dlMB) MB")
                 return false
             }
 

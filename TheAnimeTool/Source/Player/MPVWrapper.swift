@@ -152,12 +152,10 @@ final class MPVWrapper {
         }
         mpv = handle
 
-        // Logging - only warnings and errors in release, verbose in debug
-        #if DEBUG
+        // Logging — capture warnings and errors in both debug and release.
+        // Previously release used "no" which silenced all mpv log messages,
+        // preventing errors from reaching the StreamingLogger overlay.
         checkError(mpv_request_log_messages(handle, "warn"))
-        #else
-        checkError(mpv_request_log_messages(handle, "no"))
-        #endif
 
         // Pass the AVSampleBufferDisplayLayer to mpv via --wid
         // The vo_avfoundation driver expects this
@@ -379,7 +377,17 @@ final class MPVWrapper {
     private func apply(commands: [[String]], on handle: OpaquePointer) {
         for command in commands {
             guard !command.isEmpty else { continue }
-            self.command(handle, command)
+            // Intercept "set" commands and use the synchronous property API
+            // instead of mpv_command_async. mpv_command_async with reply_id=0
+            // silently ignores errors, so "set" commands can fail without any
+            // indication. mpv_set_property_string is synchronous, reports
+            // errors via Logger, and guarantees the property is changed before
+            // subsequent commands (like loadfile) execute.
+            if command.count == 3 && command[0] == "set" {
+                setProperty(name: command[1], value: command[2])
+            } else {
+                self.command(handle, command)
+            }
         }
     }
     

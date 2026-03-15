@@ -113,14 +113,19 @@ final class LogOverlayView: UIView {
     /// Maximum visible lines in expanded mode.
     private let expandedLineCount = 15
 
-    /// How long error/warn entries stay visible before auto-fading (seconds).
-    private let autoHideDelay: TimeInterval = 8.0
+    /// Auto-hide delay per level: errors persist, warnings 15s, info 5s.
+    private static let errorAutoHideDelay: TimeInterval = 30.0
+    private static let warnAutoHideDelay: TimeInterval = 15.0
+    private static let infoAutoHideDelay: TimeInterval = 5.0
 
     /// Estimated height per monospaced log line (points).
     private static let lineHeight: CGFloat = 14
 
     /// Vertical padding above and below the text content (points).
     private static let verticalPadding: CGFloat = 8
+
+    /// Minimum overlay width so it's always tappable / visible.
+    private static let minWidth: CGFloat = 240
 
     private let textView = UITextView()
     private var isExpanded = false
@@ -162,6 +167,8 @@ final class LogOverlayView: UIView {
             textView.leadingAnchor.constraint(equalTo: leadingAnchor),
             textView.trailingAnchor.constraint(equalTo: trailingAnchor),
             heightConstraint,
+            // Ensure the overlay is always wide enough to read and tap.
+            widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minWidth),
         ])
 
         // Gestures
@@ -190,24 +197,23 @@ final class LogOverlayView: UIView {
 
     @objc private func onEntriesChanged() {
         let entries = StreamingLogger.shared.entries
-
-        // Only show errors and warnings in the overlay (info is background noise)
-        let visible = entries.filter { $0.level == .error || $0.level == .warn }
-        guard !visible.isEmpty else {
+        guard !entries.isEmpty else {
             isHidden = true
             return
         }
 
-        // Build attributed string with color-coded lines
+        // Build attributed string with color-coded lines for ALL levels.
         let maxLines = isExpanded ? expandedLineCount : collapsedLineCount
-        let tail = visible.suffix(maxLines)
+        let tail = entries.suffix(maxLines)
         let attributed = NSMutableAttributedString()
+        var highestLevel: StreamingLogEntry.Level = .info
+
         for (i, entry) in tail.enumerated() {
             let color: UIColor
             switch entry.level {
-            case .error: color = UIColor.systemRed
-            case .warn:  color = UIColor.systemYellow
-            case .info:  color = UIColor.white
+            case .error: color = UIColor.systemRed;   highestLevel = .error
+            case .warn:  color = UIColor.systemYellow; if highestLevel != .error { highestLevel = .warn }
+            case .info:  color = UIColor.white.withAlphaComponent(0.85)
             }
             let line = entry.displayString + (i < tail.count - 1 ? "\n" : "")
             attributed.append(NSAttributedString(
@@ -220,18 +226,26 @@ final class LogOverlayView: UIView {
         textView.attributedText = attributed
         isHidden = false
 
-        // Auto-hide after delay
-        scheduleAutoHide()
+        // Auto-hide delay based on the highest severity in the visible entries.
+        scheduleAutoHide(forLevel: highestLevel)
     }
 
-    private func scheduleAutoHide() {
+    private func scheduleAutoHide(forLevel level: StreamingLogEntry.Level) {
         autoHideWork?.cancel()
         guard !isExpanded else { return }
+
+        let delay: TimeInterval
+        switch level {
+        case .error: delay = Self.errorAutoHideDelay
+        case .warn:  delay = Self.warnAutoHideDelay
+        case .info:  delay = Self.infoAutoHideDelay
+        }
+
         let work = DispatchWorkItem { [weak self] in
             UIView.animate(withDuration: 0.3) { self?.alpha = 0.0 }
         }
         autoHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + autoHideDelay, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         // Restore visibility if we were faded out
         UIView.animate(withDuration: 0.15) { self.alpha = 1.0 }
     }
@@ -249,7 +263,7 @@ final class LogOverlayView: UIView {
             autoHideWork?.cancel()
             UIView.animate(withDuration: 0.15) { self.alpha = 1.0 }
         } else {
-            scheduleAutoHide()
+            scheduleAutoHide(forLevel: .info)
         }
     }
 

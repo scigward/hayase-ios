@@ -295,10 +295,13 @@ final class LocalStreamServer {
         }
         defer { fileHandle.closeFile() }
 
-        // Use the actual torrent piece length for chunk sizing.
-        // Previously this was approximated as fileSize/totalPieces which differs
-        // from the real piece length and caused ±1 mapping errors at boundaries.
-        let chunkSize = UInt64(pieceLength > 0 ? pieceLength : 65536)
+        // Cap chunk size to avoid blocking on huge pieces. With 16+ MB pieces,
+        // using pieceLength as chunkSize means we can't serve ANY data until the
+        // entire piece is hash-verified — which may take minutes on low-seed
+        // torrents. Capping at 512 KB lets us serve data incrementally as it
+        // becomes available via the byte-level progress bypass below.
+        let maxChunkSize = 512 * 1024
+        let chunkSize = UInt64(pieceLength > 0 ? min(pieceLength, maxChunkSize) : 65536)
 
         var currentOffset = offset
         while currentOffset <= end && !isStopped {
@@ -314,9 +317,36 @@ final class LocalStreamServer {
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
             let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
 
-            // Wait for ALL required pieces to be downloaded.
-            // Returns true if pieces were already on disk (no waiting needed).
-            let alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
+            // Byte-level progress bypass for large-piece torrents.
+            // file_progress() without flags includes bytes from partial (unverified)
+            // pieces. With sequential download mode, downloaded bytes are contiguous
+            // from the file start, so if entry.downloaded covers this byte range,
+            // the data is on disk even though the piece hasn't been hash-verified.
+            // This is critical for torrents with 16+ MB pieces: without this bypass,
+            // we'd block until the entire 16+ MB piece is downloaded and verified,
+            // even though MPV only needs the first ~2 MB (MKV header) to start.
+            var bytesCoveredByProgress = false
+            snapshotQueue.sync {
+                torrentHandle.updateSnapshot()
+                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) {
+                    // readEnd is a byte offset within the file (0-based).
+                    // entry.downloaded is total bytes downloaded for this file
+                    // (includes partial/unverified pieces with sequential download).
+                    bytesCoveredByProgress = entry.downloaded > readEnd
+                }
+            }
+
+            var alreadyOnDisk: Bool
+            if bytesCoveredByProgress {
+                // Byte-level progress says data is on disk — skip piece wait.
+                // Data is from unverified pieces, so we must still do zero-check
+                // and double-read verification below.
+                alreadyOnDisk = false
+            } else {
+                // Wait for ALL required pieces to be downloaded and hash-verified.
+                // Returns true if pieces were already on disk (no waiting needed).
+                alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
+            }
 
             if isStopped { break }
 
