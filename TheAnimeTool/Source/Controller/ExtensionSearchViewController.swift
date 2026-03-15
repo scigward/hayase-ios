@@ -12,6 +12,7 @@
 //     BadgeCheck top-left (green=high, muted=medium, hidden=low, 40% opacity=low)
 
 import UIKit
+import CoreData
 
 // MARK: - TitleExtraction helpers (mirrors getGroup / simplifyFilename / sanitiseTerms)
 
