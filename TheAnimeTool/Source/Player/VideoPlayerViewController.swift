@@ -85,6 +85,11 @@ final class VideoPlayerViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         statsTimer?.invalidate()
+        // Resume the torrent if it was paused for playback — the user is leaving
+        // the player, so normal downloading should continue.
+        if let handle = torrentHandle, handle.snapshot.isPaused {
+            handle.resume()
+        }
         streamServer?.stop()
         streamer?.stop()
         surface.stop()
@@ -586,6 +591,8 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func prevTapped() {
         guard currentVideoIndex > 0 else { return }
         saveProgress()
+        // Resume the torrent if it was paused for playback before switching episodes.
+        if let handle = torrentHandle, handle.snapshot.isPaused { handle.resume() }
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
@@ -606,6 +613,8 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func nextTapped() {
         guard currentVideoIndex < allVideos.count - 1 else { return }
         saveProgress()
+        // Resume the torrent if it was paused for playback before switching episodes.
+        if let handle = torrentHandle, handle.snapshot.isPaused { handle.resume() }
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
@@ -643,12 +652,32 @@ final class VideoPlayerViewController: UIViewController {
         isSeeking = false
         lastSeekTime = Date()
 
+        // If the torrent is paused (video paused), resume it so the server
+        // can fetch pieces at the new position. After the seek completes and
+        // MPV's cache refills, we re-pause the torrent.
+        let wasPaused = isPaused
+        if wasPaused, let handle = torrentHandle, streamer?.isActive == true {
+            handle.resume()
+        }
+
         // Tell the streamer to prioritize pieces at the new position.
         // The HTTP server will block MPV's byte-range requests until
         // the required pieces are downloaded, so we can seek immediately.
         streamer?.seekTo(fraction: seekFraction)
         surface.mpv.seek(to: seekFraction * duration)
         scheduleHide()
+
+        // Re-pause the torrent after a short delay to allow the critical
+        // pieces at the seek target to be fetched. The delay gives libtorrent
+        // time to request and receive the handful of pieces MPV needs to
+        // resume at the new position while paused.
+        if wasPaused, streamer?.isActive == true {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+                guard let self, self.isPaused, self.streamer?.isActive == true,
+                      let handle = self.torrentHandle else { return }
+                handle.pause()
+            }
+        }
     }
 
     @objc private func optionsTapped() {
@@ -819,6 +848,17 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.isPaused = isPaused
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
+
+        // Pause/resume the torrent to stop downloading while video is paused
+        // (matches Hayase behavior — saves bandwidth and peer swarm strain).
+        // Only affects torrents that are still downloading (not fully seeded).
+        if let handle = torrentHandle, streamer?.isActive == true {
+            if isPaused {
+                handle.pause()
+            } else {
+                handle.resume()
+            }
+        }
     }
 
     func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
