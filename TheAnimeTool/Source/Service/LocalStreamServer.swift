@@ -327,45 +327,13 @@ final class LocalStreamServer {
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
             let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
 
-            // Byte-level progress bypass for large-piece torrents.
-            // file_progress() without flags includes bytes from partial (unverified)
-            // pieces. With sequential download mode, downloaded bytes are contiguous
-            // from the file start, so if entry.downloaded covers this byte range,
-            // the data is on disk even though the piece hasn't been hash-verified.
-            // This is critical for torrents with 16+ MB pieces: without this bypass,
-            // we'd block until the entire 16+ MB piece is downloaded and verified,
-            // even though MPV only needs the first ~2 MB (MKV header) to start.
-            var bytesCoveredByProgress = false
-            snapshotQueue.sync {
-                torrentHandle.updateSnapshot()
-                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) {
-                    // readEnd is a byte offset within the file (0-based).
-                    // entry.downloaded is total bytes downloaded for this file
-                    // (includes partial/unverified pieces with sequential download).
-                    bytesCoveredByProgress = entry.downloaded > readEnd
-                }
-            }
-
-            var alreadyOnDisk: Bool
-            if bytesCoveredByProgress {
-                // Byte-level progress says data is on disk — skip piece wait.
-                // Flush libtorrent's write cache BEFORE reading. file_progress()
-                // includes bytes that are still in memory write buffers — without
-                // this flush, FileHandle reads zeros/stale data and we serve
-                // corrupted frames to MPV (the zero-data fallback only catches
-                // ALL-zero reads, not partially-written data with zero holes).
-                // This matches the flush in waitForLocalPieces()'s byte-level path.
-                torrentHandle.flushCache()
-                Thread.sleep(forTimeInterval: 0.05)
-                alreadyOnDisk = false
-            } else {
-                // Wait for pieces to be downloaded and hash-verified, OR for
-                // byte-level progress to cover the requested range. The
-                // byteEndOffset enables a byte-level fallback inside the polling
-                // loop so we don't block for minutes waiting for full piece
-                // verification on large-piece torrents.
-                alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece, byteEndOffset: readEnd)
-            }
+            // Wait for ALL required pieces to be downloaded and hash-verified.
+            // Returns true if pieces were already on disk (no waiting needed).
+            // We MUST wait for piece-level verification — serving data from
+            // unverified pieces causes H264 decode errors when a peer sends
+            // corrupted blocks (the piece will fail hash check and be
+            // re-downloaded, but we'd have already served the bad data to MPV).
+            let alreadyOnDisk = waitForLocalPieces(from: firstLocalPiece, to: lastLocalPiece)
 
             if isStopped { break }
 
@@ -384,26 +352,6 @@ final class LocalStreamServer {
                     data = fileHandle.readData(ofLength: readLength)
                     if data.isEmpty || !data.allSatisfy({ $0 == 0 }) { break }
                 }
-            }
-
-            // Safety net: if data is STILL all zeros after flush retries, the
-            // byte-level progress bypass was wrong — the bytes at this offset
-            // haven't actually been downloaded. This happens after seeks when
-            // entry.downloaded (a TOTAL, not contiguous-from-start) includes
-            // bytes from pieces at the seek target, making the bypass think
-            // intermediate offsets are on disk when they're not.
-            // Fall back to piece-level wait which blocks until the actual
-            // pieces covering this range are hash-verified.
-            if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
-                let fallbackFirst = localPieceIndex(forByteOffset: currentOffset)
-                let fallbackLast = localPieceIndex(forByteOffset: readEnd) + 1
-                StreamingLogger.shared.warn("Zero data at offset \(currentOffset) — waiting for pieces \(fallbackFirst)–\(fallbackLast)")
-                waitForLocalPieces(from: fallbackFirst, to: fallbackLast)
-                if isStopped { break }
-                torrentHandle.flushCache()
-                Thread.sleep(forTimeInterval: 0.05)
-                fileHandle.seek(toFileOffset: currentOffset)
-                data = fileHandle.readData(ofLength: readLength)
             }
 
             // Double-read verification for freshly-downloaded data.
@@ -486,32 +434,21 @@ final class LocalStreamServer {
     }
 
     /// Blocks the current thread until all pieces from `firstLocal` to `lastLocal`
-    /// (inclusive, 0-based) are downloaded, OR until byte-level progress covers
-    /// the requested byte range.
+    /// (inclusive, 0-based) are downloaded and hash-verified.
     ///
     /// Sets priority 7 AND deadline to ensure libtorrent fetches them urgently.
     /// TorrentStreamer starts all pieces at priority 1 (low), so this boosts
     /// the needed pieces to top priority.
-    ///
-    /// The `byteEndOffset` parameter enables a byte-level progress fallback:
-    /// with large-piece torrents (16+ MB), piece hash verification requires
-    /// downloading the ENTIRE piece, but `file_progress()` reports partial
-    /// bytes. If `entry.downloaded > byteEndOffset`, the data we need is
-    /// already on disk (written by libtorrent's block-level I/O) even though
-    /// the piece hasn't been hash-verified yet. Sequential download mode
-    /// ensures these bytes are contiguous from the file's start.
     ///
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     ///
     /// - Parameters:
     ///   - firstLocal: First local piece index (0-based within file).
     ///   - lastLocal: Last local piece index (inclusive).
-    ///   - byteEndOffset: End byte offset within the file. When provided,
-    ///     the function returns early if file download progress covers this offset.
     /// - Returns: `true` if all pieces were already downloaded (no waiting),
-    ///   `false` if we had to wait or used byte-level bypass.
+    ///   `false` if we had to wait for at least one piece.
     @discardableResult
-    private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int, byteEndOffset: UInt64? = nil) -> Bool {
+    private func waitForLocalPieces(from firstLocal: Int, to lastLocal: Int) -> Bool {
         // Clamp to valid piece array range
         let safeFirst = max(firstLocal, 0)
         let lastBound: Int
@@ -588,25 +525,10 @@ final class LocalStreamServer {
         while !isStopped {
             var allReady = true
             var missingPieces = 0
-            var byteLevelReady = false
             snapshotQueue.sync {
                 torrentHandle.updateSnapshot()
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
-
-                    // Byte-level progress bypass: check if file has enough
-                    // downloaded bytes to cover what we need BEFORE checking
-                    // piece verification. This is critical for large-piece
-                    // torrents (16+ MB) where piece hash verification requires
-                    // the ENTIRE piece to be downloaded, but the bytes we need
-                    // are already on disk from libtorrent's block-level writes.
-                    // file_progress() without flags includes partial/unverified
-                    // piece bytes, and sequential download mode ensures they're
-                    // contiguous from the file's start.
-                    if let byteEnd = byteEndOffset, entry.downloaded > byteEnd {
-                        byteLevelReady = true
-                        return // exit snapshotQueue.sync
-                    }
 
                     for localIdx in safeFirst...safeLast {
                         if localIdx < pieces.count {
@@ -645,17 +567,6 @@ final class LocalStreamServer {
                     // Can't read piece status — not ready.
                     allReady = false
                 }
-            }
-
-            if byteLevelReady {
-                // Data is on disk from file_progress() but NOT hash-verified.
-                // Flush libtorrent's write cache to ensure data is on the
-                // filesystem, not just in a memory buffer.
-                torrentHandle.flushCache()
-                Thread.sleep(forTimeInterval: 0.05)
-                // Return false → caller does double-read verification to
-                // catch any partial flush edge cases.
-                return false
             }
 
             if allReady {
