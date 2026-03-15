@@ -39,6 +39,7 @@ final class VideoPlayerViewController: UIViewController {
 
     // Bottom bar — above seekbar row
     private let titleLabel    = UILabel()
+    private let episodeLabel  = UILabel()   // Hayase episodesmodal.svelte: session.description below title
     private let chapterLabel  = UILabel()
     private let timeLabel     = UILabel()
 
@@ -185,10 +186,10 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     /// Hayase downloadstats.svelte — floating HUD at top center showing
-    /// peers, download speed + buffer seconds + file progress.
+    /// peers, download speed + upload speed.
     /// Positioned at top center like the Hayase web player.
-    /// Added directly to view (not the overlay) so it stays visible when
-    /// controls auto-hide.
+    /// Added to the overlay so it fades out with controls when the user
+    /// is inactive — matching Hayase's `class:opacity-0={immersed}`.
     private func setupStatsHUD() {
         statsHUD.translatesAutoresizingMaskIntoConstraints = false
         statsHUD.font = .systemFont(ofSize: 14, weight: .bold)
@@ -200,7 +201,7 @@ final class VideoPlayerViewController: UIViewController {
         statsHUD.layer.shadowOffset = .zero
         statsHUD.layer.shadowOpacity = 0.8
         statsHUD.layer.shadowRadius = 4
-        view.addSubview(statsHUD)
+        overlay.addSubview(statsHUD)
         NSLayoutConstraint.activate([
             statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             statsHUD.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -218,19 +219,33 @@ final class VideoPlayerViewController: UIViewController {
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
-        // --- Row 1: Title (left) + Chapter & Time (right) ---
+        // --- Row 1: Title + Episode (left) + Chapter & Time (right) ---
+        // Hayase episodesmodal.svelte: session.title (text-lg font-normal)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textColor = .white
-        titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        titleLabel.font = .systemFont(ofSize: 18, weight: .regular)
         titleLabel.textAlignment = .left
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.text = videoEntity?.videoName ?? "Playing"
+        titleLabel.text = animeTitleText()
         // Text shadow (Hayase text-shadow-lg)
         titleLabel.layer.shadowColor = UIColor.black.cgColor
         titleLabel.layer.shadowOffset = .zero
         titleLabel.layer.shadowOpacity = 0.8
         titleLabel.layer.shadowRadius = 3
         bottomBar.addSubview(titleLabel)
+
+        // Hayase episodesmodal.svelte: session.description (text-sm font-light rgba(217,217,217,0.6))
+        episodeLabel.translatesAutoresizingMaskIntoConstraints = false
+        episodeLabel.textColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.6)
+        episodeLabel.font = .systemFont(ofSize: 14, weight: .light)
+        episodeLabel.textAlignment = .left
+        episodeLabel.lineBreakMode = .byTruncatingTail
+        episodeLabel.text = episodeDescriptionText()
+        episodeLabel.layer.shadowColor = UIColor.black.cgColor
+        episodeLabel.layer.shadowOffset = .zero
+        episodeLabel.layer.shadowOpacity = 0.8
+        episodeLabel.layer.shadowRadius = 3
+        bottomBar.addSubview(episodeLabel)
 
         chapterLabel.translatesAutoresizingMaskIntoConstraints = false
         chapterLabel.textColor = UIColor(white: 0.85, alpha: 0.6) // rgba(217,217,217,0.6)
@@ -322,21 +337,26 @@ final class VideoPlayerViewController: UIViewController {
 
         let pad: CGFloat = 16
         NSLayoutConstraint.activate([
-            // Row 1: title + time/chapter
+            // Row 1: title + episode (left), chapter + time (right)
+            // Hayase: title on top, episode below; chapter above time on right
             titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad + 8),
             titleLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 10),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chapterLabel.leadingAnchor, constant: -12),
+
+            episodeLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            episodeLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            episodeLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -12),
 
             chapterLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
             chapterLabel.bottomAnchor.constraint(equalTo: timeLabel.topAnchor, constant: -2),
 
             timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
-            timeLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            timeLabel.centerYAnchor.constraint(equalTo: episodeLabel.centerYAnchor),
 
             // Row 2: seekbar
             seekBar.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
-            seekBar.topAnchor.constraint(equalTo: timeLabel.bottomAnchor, constant: 0),
+            seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
             seekBar.heightAnchor.constraint(equalToConstant: 32),
 
             chapterLayer.leadingAnchor.constraint(equalTo: seekBar.leadingAnchor),
@@ -467,7 +487,9 @@ final class VideoPlayerViewController: UIViewController {
 
         surface.mpv.load(url: url, with: preset)
         
-        titleLabel.text = entity.videoName ?? "Episode \(episodeNumber)"
+        // Hayase episodesmodal.svelte: title = anime name, description = episode info
+        titleLabel.text = animeTitleText()
+        episodeLabel.text = episodeDescriptionText()
         prevButton.isEnabled = currentVideoIndex > 0
         nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
         restoreProgress(path: path)
@@ -572,6 +594,29 @@ final class VideoPlayerViewController: UIViewController {
         if bps >= 1_000_000      { return String(format: "%.1f Mb", Double(bps) / 1_000_000) }
         if bps >= 1_000          { return String(format: "%.0f Kb", Double(bps) / 1_000) }
         return "\(bps) b"
+    }
+
+    // MARK: - Title helpers (Hayase episodesmodal.svelte / mediahandler.svelte)
+
+    /// Returns the anime title for the title label.
+    /// Hayase: `mediaInfo.session.title = title(media)` — the anime name.
+    /// Falls back to the video file name if no anime metadata is linked.
+    private func animeTitleText() -> String {
+        if let anime = videoEntity?.torrents?.animes {
+            let title = anime.animeTitleEnglish ?? anime.animeTitleJapanese
+            if let t = title, !t.isEmpty { return t }
+        }
+        return videoEntity?.videoName ?? "Playing"
+    }
+
+    /// Returns the episode description for the episode label.
+    /// Hayase: `mediaInfo.session.description = "Episode 5 / 28"`.
+    private func episodeDescriptionText() -> String {
+        let totalEps = videoEntity?.torrents?.animes?.animeTotalEps?.intValue ?? 0
+        if totalEps > 0 {
+            return "Episode \(episodeNumber) / \(totalEps)"
+        }
+        return "Episode \(episodeNumber)"
     }
 
     /// Checks whether the target file is fully downloaded using byte-level
