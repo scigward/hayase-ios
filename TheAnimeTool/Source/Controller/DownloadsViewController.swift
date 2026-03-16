@@ -107,31 +107,19 @@ final class DownloadCell: UITableViewCell {
         ])
     }
 
-    /// Format bytes/sec into a compact human-readable string: "3.2 MB/s", "512 KB/s", etc.
+    /// Format bytes/sec as bits/sec using SI units (Hayase: fastPrettyBits).
     private static func formatSpeed(_ bytesPerSec: UInt64) -> String {
-        if bytesPerSec == 0 { return "0 B/s" }
-        if bytesPerSec >= 1_073_741_824 { return String(format: "%.1f GB/s", Double(bytesPerSec) / 1_073_741_824) }
-        if bytesPerSec >= 1_048_576    { return String(format: "%.1f MB/s", Double(bytesPerSec) / 1_048_576) }
-        if bytesPerSec >= 1_024        { return String(format: "%.0f KB/s", Double(bytesPerSec) / 1_024) }
-        return "\(bytesPerSec) B/s"
+        return TorrentDetailViewController.fastPrettyBits(bytesPerSec * 8) + "/s"
     }
 
-    /// Format bytes into a compact size string: "3.2 GB", "512 MB", etc.
+    /// Format bytes using SI units (Hayase: fastPrettyBytes).
     static func formatSize(_ bytes: UInt64) -> String {
-        if bytes == 0 { return "0 B" }
-        if bytes >= 1_073_741_824 { return String(format: "%.1f GB", Double(bytes) / 1_073_741_824) }
-        if bytes >= 1_048_576    { return String(format: "%.1f MB", Double(bytes) / 1_048_576) }
-        if bytes >= 1_024        { return String(format: "%.0f KB", Double(bytes) / 1_024) }
-        return "\(bytes) B"
+        return TorrentDetailViewController.fastPrettyBytes(bytes)
     }
 
-    /// ETA string — matches Hayase's `eta()` util: "2h 15m", "45s", "∞".
+    /// ETA string — matches Hayase's `eta()` util: "22y 5mo", "1h 2m", "2m 3s", "0s".
     private static func formatETA(remaining: UInt64, rate: UInt64) -> String {
-        guard rate > 0, remaining > 0 else { return "∞" }
-        let s = remaining / rate
-        if s < 60    { return "\(s)s" }
-        if s < 3600  { return "\(s/60)m \(s%60)s" }
-        return "\(s/3600)h \(s%3600/60)m"
+        return TorrentDetailViewController.eta(remaining: remaining, rate: rate)
     }
 
     func configure(snap: TorrentHandle.Snapshot) {

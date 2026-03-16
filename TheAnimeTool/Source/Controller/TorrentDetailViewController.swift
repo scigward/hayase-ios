@@ -117,7 +117,7 @@ final class TorrentDetailViewController: UIViewController {
     private let leechersValue    = TorrentDetailViewController.makeValueLabel()
     private let wiresValue       = TorrentDetailViewController.makeValueLabel()
 
-    // MARK: - Overview: protocol status dot labels
+    // MARK: - Overview: protocol status dots
 
     private let dhtDot       = TorrentDetailViewController.makeDotLabel()
     private let lsdDot       = TorrentDetailViewController.makeDotLabel()
@@ -137,8 +137,8 @@ final class TorrentDetailViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Download"
-        view.backgroundColor = .systemGroupedBackground
+        title = "Torrent Client"
+        view.backgroundColor = .systemBackground
         navigationController?.navigationBar.prefersLargeTitles = false
 
         setupSegmentedControl()
@@ -308,10 +308,7 @@ final class TorrentDetailViewController: UIViewController {
         // Progress stats
         downloadedValue.text = Self.fastPrettyBytes(snap.totalDone)
 
-        let elapsed = Int(max(0, -startDate.timeIntervalSinceNow))
-        uploadedValue.text = elapsed > 0 && snap.uploadRate > 0
-            ? "~\(Self.fastPrettyBytes(snap.uploadRate * UInt64(elapsed)))"
-            : "—"
+        uploadedValue.text = Self.fastPrettyBytes(snap.totalUpload)
 
         totalSizeValue.text = Self.fastPrettyBytes(snap.total)
 
@@ -322,12 +319,13 @@ final class TorrentDetailViewController: UIViewController {
             ? "\(pieceCount) × \(Self.fastPrettyBytes(pieceLenBytes))"
             : "—"
 
-        // Speed & Transfer — values in bits/sec (Hayase: fastPrettyBits)
-        downSpeedValue.text = Self.fastPrettyBits(UInt64(snap.downloadRate) * 8)
-        upSpeedValue.text   = Self.fastPrettyBits(UInt64(snap.uploadRate) * 8)
+        // Speed & Transfer — values in bits/sec (Hayase: fastPrettyBits(speed.down * 8))
+        downSpeedValue.text = Self.fastPrettyBits(snap.downloadRate * 8) + "/s"
+        upSpeedValue.text   = Self.fastPrettyBits(snap.uploadRate * 8) + "/s"
 
         // Time
         let remaining = snap.total > snap.totalDone ? snap.total - snap.totalDone : 0
+        let elapsed = Int(max(0, -startDate.timeIntervalSinceNow))
         etaValue.text     = Self.eta(remaining: remaining, rate: snap.downloadRate)
         elapsedValue.text = Self.eta(seconds: elapsed)
 
@@ -443,7 +441,8 @@ final class TorrentDetailViewController: UIViewController {
         container.addArrangedSubview(progressBar)
 
         // 4-column stat grid: Downloaded, Uploaded, Total Size, Pieces
-        let grid = makeStatRow([
+        // Matches Hayase's flat layout: icon + muted label + value
+        let grid = makeProgressStatRow([
             StatItem(label: downloadedValue, title: "Downloaded", icon: "arrow.down",        color: .systemGreen),
             StatItem(label: uploadedValue,   title: "Uploaded",   icon: "arrow.up",          color: .systemBlue),
             StatItem(label: totalSizeValue,  title: "Total Size", icon: "internaldrive",     color: .systemGray),
@@ -459,11 +458,12 @@ final class TorrentDetailViewController: UIViewController {
     private func makeThreeColumnGrid() -> UIView {
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 16
+        stack.spacing = 0
 
         // Speed & Transfer
-        stack.addArrangedSubview(makeSectionCard(
+        stack.addArrangedSubview(makeFlatSection(
             title: "Speed & Transfer",
+            icon: "wifi",
             items: [
                 StatItem(label: downSpeedValue, title: "Download", icon: "arrow.down", color: .systemGreen),
                 StatItem(label: upSpeedValue,   title: "Upload",   icon: "arrow.up",   color: .systemBlue),
@@ -471,8 +471,9 @@ final class TorrentDetailViewController: UIViewController {
         ))
 
         // Time Information
-        stack.addArrangedSubview(makeSectionCard(
+        stack.addArrangedSubview(makeFlatSection(
             title: "Time Information",
+            icon: "clock",
             items: [
                 StatItem(label: etaValue,     title: "Remaining", icon: "hourglass.tophalf.filled", color: .systemOrange),
                 StatItem(label: elapsedValue, title: "Elapsed",   icon: "timer",                    color: .systemPurple),
@@ -480,12 +481,13 @@ final class TorrentDetailViewController: UIViewController {
         ))
 
         // Peers & Connections
-        stack.addArrangedSubview(makeSectionCard(
+        stack.addArrangedSubview(makeFlatSection(
             title: "Peers & Connections",
+            icon: "person.2.fill",
             items: [
                 StatItem(label: seedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
                 StatItem(label: leechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-                StatItem(label: wiresValue,    title: "Wires",    icon: "network",                 color: .systemPurple),
+                StatItem(label: wiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
             ]
         ))
 
@@ -499,11 +501,17 @@ final class TorrentDetailViewController: UIViewController {
         container.axis = .vertical
         container.spacing = 12
 
+        // Title row with icon
+        let iconView = makeIcon("network", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Protocol Status"
-        title.font = .systemFont(ofSize: 20, weight: .bold)
+        title.font = .systemFont(ofSize: 24, weight: .bold)
         title.textColor = .label
-        container.addArrangedSubview(title)
+        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
+        container.addArrangedSubview(titleRow)
 
         let columns = UIStackView()
         columns.axis = .horizontal
@@ -511,43 +519,53 @@ final class TorrentDetailViewController: UIViewController {
         columns.spacing = 8
 
         columns.addArrangedSubview(makeProtocolColumn("Network Discovery", [
-            ("DHT", dhtDot),
-            ("LSD", lsdDot),
-            ("PEX", pexDot),
+            ("DHT", "Distributed Hash Table for peer discovery", dhtDot),
+            ("LSD", "Local Service Discovery on network", lsdDot),
+            ("PEX", "Peer Exchange with other clients", pexDot),
         ]))
         columns.addArrangedSubview(makeProtocolColumn("Connection", [
-            ("NAT", natDot),
-            ("Forwarding", forwardDot),
+            ("NAT", "NAT-PMP/UPnP automatic forwarding", natDot),
+            ("Forwarding", "Accepting inbound connections", forwardDot),
         ]))
         columns.addArrangedSubview(makeProtocolColumn("Storage", [
-            ("Persisting", persistDot),
-            ("Streaming", streamingDot),
+            ("Persisting", "Storing all torrents", persistDot),
+            ("Streaming", "Downloading only required pieces", streamingDot),
         ]))
 
         container.addArrangedSubview(columns)
         return container
     }
 
-    private func makeProtocolColumn(_ header: String, _ rows: [(String, UILabel)]) -> UIView {
+    private func makeProtocolColumn(_ header: String, _ rows: [(String, String, UIView)]) -> UIView {
         let col = UIStackView()
         col.axis = .vertical
-        col.spacing = 8
+        col.spacing = 12
 
         let headerLabel = UILabel()
         headerLabel.text = header
-        headerLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        headerLabel.textColor = .secondaryLabel
+        headerLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        headerLabel.textColor = .label
         col.addArrangedSubview(headerLabel)
 
-        for (name, dot) in rows {
+        for (name, desc, dot) in rows {
             let nameLabel = UILabel()
             nameLabel.text = name
             nameLabel.font = .systemFont(ofSize: 13, weight: .regular)
             nameLabel.textColor = .label
 
-            let row = UIStackView(arrangedSubviews: [dot, nameLabel])
+            let descLabel = UILabel()
+            descLabel.text = desc
+            descLabel.font = .systemFont(ofSize: 10, weight: .regular)
+            descLabel.textColor = .secondaryLabel
+            descLabel.numberOfLines = 2
+
+            let textStack = UIStackView(arrangedSubviews: [nameLabel, descLabel])
+            textStack.axis = .vertical
+            textStack.spacing = 1
+
+            let row = UIStackView(arrangedSubviews: [dot, textStack])
             row.axis = .horizontal
-            row.spacing = 6
+            row.spacing = 8
             row.alignment = .center
             col.addArrangedSubview(row)
         }
@@ -594,53 +612,54 @@ final class TorrentDetailViewController: UIViewController {
         let color: UIColor
     }
 
-    private func makeSectionCard(title: String, items: [StatItem]) -> UIView {
-        let container = UIView()
-        container.backgroundColor = .secondarySystemGroupedBackground
-        container.layer.cornerRadius = 14
-        container.clipsToBounds = true
+    /// Flat section layout matching Hayase: icon + bold title header, then stat cells in a grid.
+    private func makeFlatSection(title: String, icon: String, items: [StatItem]) -> UIView {
+        let container = UIStackView()
+        container.axis = .vertical
+        container.spacing = 12
 
+        // Section title with icon (matches Hayase's text-2xl font-bold with icon)
+        let iconView = makeIcon(icon, tint: .label, size: 20)
         let titleLabel = UILabel()
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
         titleLabel.textColor = .label
 
-        let grid = makeStatRow(items)
+        let titleRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
 
-        let inner = UIStackView(arrangedSubviews: [titleLabel, grid])
-        inner.axis = .vertical
-        inner.spacing = 12
-        inner.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(inner)
+        // Add top padding to separate from previous section
+        let paddedTitle = UIStackView(arrangedSubviews: [titleRow])
+        paddedTitle.axis = .vertical
+        paddedTitle.layoutMargins = UIEdgeInsets(top: 16, left: 0, bottom: 0, right: 0)
+        paddedTitle.isLayoutMarginsRelativeArrangement = true
 
-        NSLayoutConstraint.activate([
-            inner.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            inner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            inner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            inner.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-        ])
+        container.addArrangedSubview(paddedTitle)
+
+        // Stat cells in a horizontal grid (no card background)
+        let grid = makeFlatStatRow(items)
+        container.addArrangedSubview(grid)
 
         return container
     }
 
-    private func makeStatRow(_ items: [StatItem]) -> UIView {
-        let row = UIStackView(arrangedSubviews: items.map { makeStatCell($0) })
+    /// Flat stat row — each cell has icon + label on top, large bold value below.
+    /// No card background, matching Hayase's direct layout.
+    private func makeFlatStatRow(_ items: [StatItem]) -> UIView {
+        let row = UIStackView(arrangedSubviews: items.map { makeFlatStatCell($0) })
         row.axis = .horizontal
         row.distribution = .fillEqually
-        row.spacing = 8
+        row.spacing = 16
         return row
     }
 
-    private func makeStatCell(_ item: StatItem) -> UIView {
-        let container = UIView()
-        container.backgroundColor = .tertiarySystemGroupedBackground
-        container.layer.cornerRadius = 10
-        container.clipsToBounds = true
-
+    private func makeFlatStatCell(_ item: StatItem) -> UIView {
         let iconView = makeIcon(item.icon, tint: item.color, size: 14)
         let titleLabel = UILabel()
         titleLabel.text = item.title
-        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
         titleLabel.textColor = .secondaryLabel
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -648,23 +667,47 @@ final class TorrentDetailViewController: UIViewController {
         topRow.spacing = 4
         topRow.alignment = .center
 
+        item.label.font = .systemFont(ofSize: 24, weight: .bold)
+        item.label.adjustsFontSizeToFitWidth = true
+        item.label.minimumScaleFactor = 0.5
+
+        let stack = UIStackView(arrangedSubviews: [topRow, item.label])
+        stack.axis = .vertical
+        stack.spacing = 8
+        return stack
+    }
+
+    /// Progress section stats — matches Hayase's compact grid:
+    /// icon + muted label, then medium-weight value below.
+    private func makeProgressStatRow(_ items: [StatItem]) -> UIView {
+        let row = UIStackView(arrangedSubviews: items.map { makeProgressStatCell($0) })
+        row.axis = .horizontal
+        row.distribution = .fillEqually
+        row.spacing = 12
+        return row
+    }
+
+    private func makeProgressStatCell(_ item: StatItem) -> UIView {
+        let iconView = makeIcon(item.icon, tint: item.color, size: 14)
+
+        let titleLabel = UILabel()
+        titleLabel.text = item.title
+        titleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        titleLabel.textColor = .secondaryLabel
+
+        let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
+        topRow.axis = .horizontal
+        topRow.spacing = 4
+        topRow.alignment = .center
+
+        item.label.font = .systemFont(ofSize: 14, weight: .medium)
         item.label.adjustsFontSizeToFitWidth = true
         item.label.minimumScaleFactor = 0.6
 
-        let inner = UIStackView(arrangedSubviews: [topRow, item.label])
-        inner.axis = .vertical
-        inner.spacing = 6
-        inner.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(inner)
-
-        NSLayoutConstraint.activate([
-            inner.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
-            inner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
-            inner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            inner.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
-        ])
-
-        return container
+        let stack = UIStackView(arrangedSubviews: [topRow, item.label])
+        stack.axis = .vertical
+        stack.spacing = 4
+        return stack
     }
 
     // MARK: - UIView helpers
@@ -676,15 +719,20 @@ final class TorrentDetailViewController: UIViewController {
         return l
     }
 
-    private static func makeDotLabel() -> UILabel {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
-        l.text = "●"
-        return l
+    private static func makeDotLabel() -> UIView {
+        let v = UIView()
+        v.layer.cornerRadius = 4
+        v.clipsToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            v.widthAnchor.constraint(equalToConstant: 8),
+            v.heightAnchor.constraint(equalToConstant: 8),
+        ])
+        return v
     }
 
-    private func setDot(_ dot: UILabel, enabled: Bool) {
-        dot.textColor = enabled ? .systemGreen : .systemRed
+    private func setDot(_ dot: UIView, enabled: Bool) {
+        dot.backgroundColor = enabled ? .systemGreen : .systemRed
     }
 
     private func makeIcon(_ name: String, tint: UIColor, size: CGFloat) -> UIImageView {
@@ -710,13 +758,14 @@ final class TorrentDetailViewController: UIViewController {
     }
 
     /// Formats bits using SI units (1000 divisor): b → kb → Mb → Gb → Tb
+    /// (No /s suffix — callers append it as in Hayase's `{fastPrettyBits(...)}/s`)
     static func fastPrettyBits(_ bits: UInt64) -> String {
         let d = Double(bits)
-        if d < 1_000 { return "\(bits) b/s" }
-        if d < 1_000_000 { return String(format: "%.1f kb/s", d / 1_000) }
-        if d < 1_000_000_000 { return String(format: "%.1f Mb/s", d / 1_000_000) }
-        if d < 1_000_000_000_000 { return String(format: "%.1f Gb/s", d / 1_000_000_000) }
-        return String(format: "%.1f Tb/s", d / 1_000_000_000_000)
+        if d < 1_000 { return "\(bits) b" }
+        if d < 1_000_000 { return String(format: "%.1f kb", d / 1_000) }
+        if d < 1_000_000_000 { return String(format: "%.1f Mb", d / 1_000_000) }
+        if d < 1_000_000_000_000 { return String(format: "%.1f Gb", d / 1_000_000_000) }
+        return String(format: "%.1f Tb", d / 1_000_000_000_000)
     }
 
     /// Formats seconds into up to 2 largest time units: "22y 5mo", "1h 2m", "2m 3s", "0s"
