@@ -138,13 +138,12 @@ final class DownloadCell: UITableViewCell {
         let name = snap.name
         nameLabel.text = name.isEmpty ? "Unknown torrent" : name
 
-        let progress = Float(snap.progress)
+        // Use totalDone/total for the real download percentage.
+        // snap.progress only counts "wanted" pieces (priority > 0), which
+        // is unreliable when TorrentStreamer sets a narrow streaming window.
+        let progress: Float = snap.total > 0 ? Float(Double(snap.totalDone) / Double(snap.total)) : 0
         progressView.progress = progress
 
-        // Use snap.isSeed for completion: snap.isFinished and snap.progress
-        // only count "wanted" pieces (priority > 0), which is unreliable when
-        // TorrentStreamer has set most pieces to priority 0 for streaming.
-        // snap.isSeed means the entire torrent is truly downloaded and seeding.
         let isComplete = snap.isSeed
         if isComplete {
             percentLabel.text = "100%"
@@ -170,7 +169,7 @@ final class DownloadCell: UITableViewCell {
         downSpeedLabel.text = "↓ " + DownloadCell.formatSpeed(snap.downloadRate)
         upSpeedLabel.text   = "↑ " + DownloadCell.formatSpeed(snap.uploadRate)
 
-        let remaining = snap.totalWanted > snap.totalWantedDone ? snap.totalWanted - snap.totalWantedDone : 0
+        let remaining = snap.total > snap.totalDone ? snap.total - snap.totalDone : 0
         etaLabel.text = "⏱ " + DownloadCell.formatETA(remaining: remaining, rate: snap.downloadRate)
 
         let s = snap.numberOfSeeds
