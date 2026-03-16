@@ -131,6 +131,7 @@ final class VideoPlayerViewController: UIViewController {
     /// mini-player.
     func tearDownPlayer() {
         saveProgress()
+        MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
         statsTimer?.invalidate()
         ExternalDisplayManager.shared.unregister(self)
         streamServer?.stop()

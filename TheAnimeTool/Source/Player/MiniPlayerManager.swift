@@ -11,6 +11,8 @@
 /// player is dismissed and the presenting view controller's view is shown.
 /// Touches outside the mini-player container pass through to the main window.
 import UIKit
+import LibTorrent
+import CoreData
 
 // MARK: - PassthroughWindow
 
@@ -98,6 +100,14 @@ final class MiniPlayerManager {
     /// Whether the container last snapped to the right side (`true`) or left (`false`).
     private var isSnappedToRight = true
 
+    // MARK: - Session State Persistence (Hayase server.active store)
+
+    /// UserDefaults key for persisting the active mini-player session.
+    /// Mirrors Hayase's `server.active` store: when the app relaunches, if this
+    /// key has data the mini-player is restored automatically (just like Hayase
+    /// re-mounts the player component on reload when a torrent session exists).
+    private static let sessionStateKey = "nyais_miniPlayerSessionState"
+
     // MARK: - Init
 
     private init() {}
@@ -160,6 +170,11 @@ final class MiniPlayerManager {
             // (e.g., landscape → portrait rotation during the transition).
             self?.repositionContainer()
         }
+
+        // Persist session state so the mini-player can be restored on relaunch
+        // (Hayase: server.active persists via the store, libtorrent fastResume
+        // restores the torrent on restart).
+        saveSessionState(player)
     }
 
     /// Restores the fullscreen player from the mini-player.
@@ -207,6 +222,9 @@ final class MiniPlayerManager {
 
         cancelAutoHideTimer()
         isTucked = false
+
+        // Clear persisted session so it won't auto-restore on next launch.
+        clearSessionState()
 
         // Animate out before tearing down.
         if let container = containerView {
@@ -544,5 +562,158 @@ final class MiniPlayerManager {
     func updatePlayPauseIcon(isPaused: Bool) {
         let icon = isPaused ? "play.fill" : "pause.fill"
         playPauseButton?.setImage(UIImage(systemName: icon), for: .normal)
+    }
+
+    // MARK: - Session State Persistence
+
+    /// Saves the minimum data required to restore the mini-player on relaunch.
+    /// Mirrors Hayase's `server.active` store — the torrent session is
+    /// automatically restored by libtorrent's fastResume; we just need enough
+    /// metadata to reconnect to the right handle and file.
+    private func saveSessionState(_ player: VideoPlayerViewController) {
+        guard let hash = player.torrentHandle?.infoHashes.best.hex,
+              let path = player.videoEntity?.videoPath else { return }
+        let magnetLink = player.videoEntity?.torrents?.torrentDownloadURL ?? ""
+        let state: [String: Any] = [
+            "torrentHash":   hash,
+            "magnetLink":    magnetLink,
+            "fileIndex":     player.fileIndex,
+            "videoPath":     path,
+            "anilistID":     player.anilistID,
+            "episodeNumber": player.episodeNumber
+        ]
+        UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
+    }
+
+    /// Clears the persisted session state (called on explicit close).
+    private func clearSessionState() {
+        UserDefaults.standard.removeObject(forKey: Self.sessionStateKey)
+    }
+
+    /// Clears the persisted session state if the given player was the one
+    /// that saved it. Called from VideoPlayerViewController.tearDownPlayer()
+    /// so that a normal dismiss (without minimizing) also clears stale state.
+    func clearSessionStateIfNeeded(for player: VideoPlayerViewController) {
+        guard let hash = player.torrentHandle?.infoHashes.best.hex,
+              let state = UserDefaults.standard.dictionary(forKey: Self.sessionStateKey),
+              let savedHash = state["torrentHash"] as? String,
+              savedHash == hash else { return }
+        clearSessionState()
+    }
+
+    // MARK: - Session Restore (Hayase: server.active auto-mount on launch)
+
+    /// Attempts to restore the mini-player from a previously saved session.
+    /// Called from AppDelegate after TorrentService has finished initializing
+    /// (which restores libtorrent handles via fastResume).
+    ///
+    /// Flow mirrors Hayase's wrapper.svelte: if `server.active` has a value
+    /// when the app mounts, the player component renders in mini-player mode
+    /// immediately. Here, we check UserDefaults for saved session state, look
+    /// up the torrent handle (already restored by libtorrent), create a
+    /// VideoPlayerViewController with the same properties, and show it as a
+    /// mini-player.
+    func restoreSessionIfNeeded() {
+        // Don't restore if a mini-player is already active.
+        guard !isActive else { return }
+
+        guard let state = UserDefaults.standard.dictionary(forKey: Self.sessionStateKey),
+              let hash = state["torrentHash"] as? String,
+              let fileIndexValue = state["fileIndex"],
+              let videoPath = state["videoPath"] as? String,
+              !hash.isEmpty, !videoPath.isEmpty else {
+            return
+        }
+
+        let fileIndex = UInt((fileIndexValue as? Int) ?? (fileIndexValue as? UInt ?? 0))
+
+        let anilistID = state["anilistID"] as? Int ?? 0
+        let episodeNumber = state["episodeNumber"] as? Int ?? 0
+
+        // Look up the torrent handle — libtorrent's fastResume should have
+        // already restored it during TorrentService.init().
+        guard let handle = TorrentService.sharedTorrentService.handles[hash] else {
+            print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state")
+            clearSessionState()
+            return
+        }
+
+        // Look up the Videos entity from CoreData.
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        fetchRequest.predicate = NSPredicate(
+            format: "torrents.torrentHashString == %@ AND videoIndex == %d",
+            hash, Int(fileIndex))
+        let videoEntity: Videos?
+        do {
+            let results = try context.fetch(fetchRequest)
+            videoEntity = results.first
+        } catch {
+            print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)")
+            clearSessionState()
+            return
+        }
+
+        // If the Videos entity doesn't exist in CoreData (e.g. data was wiped),
+        // we can't restore meaningfully.
+        guard let entity = videoEntity else {
+            print("MiniPlayerManager: session restore — no Videos entity found, clearing state")
+            clearSessionState()
+            return
+        }
+
+        // Ensure videoPath is up to date.
+        if entity.videoPath == nil || entity.videoPath?.isEmpty == true {
+            entity.videoPath = videoPath
+            try? context.save()
+        }
+
+        // Create the player with restored properties.
+        let player = VideoPlayerViewController()
+        player.videoEntity      = entity
+        player.torrentHandle    = handle
+        player.fileIndex        = fileIndex
+        player.anilistID        = anilistID
+        player.episodeNumber    = episodeNumber
+
+        // Force viewDidLoad → sets up surface, loads video, starts streaming.
+        _ = player.view
+
+        // Show as mini-player without presenting/dismissing.
+        showAsMiniPlayer(player)
+    }
+
+    /// Shows a player directly as a mini-player (no dismiss animation).
+    /// Used for session restore on app launch where the player was never
+    /// presented fullscreen.
+    private func showAsMiniPlayer(_ player: VideoPlayerViewController) {
+        if let existing = activePlayer, existing !== player {
+            close()
+        }
+        activePlayer = player
+
+        let window = makePassthroughWindow(preferredScene: nil)
+        miniWindow = window
+
+        let container = makeContainer()
+        window.rootViewController?.view.addSubview(container)
+        containerView = container
+
+        // Reparent the MPV surface into the mini-player container.
+        let surface = player.surfaceView
+        surface.translatesAutoresizingMaskIntoConstraints = true
+        let inner = container.viewWithTag(100)!
+        surface.frame = inner.bounds
+        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        inner.insertSubview(surface, at: 0)
+
+        addOverlay(to: container)
+
+        // Start tucked to the right edge (Hayase: mini-player appears
+        // at the edge on launch, user taps to reveal).
+        isTucked = true
+        isSnappedToRight = true
+        repositionContainer()
+        container.alpha = 1
     }
 }

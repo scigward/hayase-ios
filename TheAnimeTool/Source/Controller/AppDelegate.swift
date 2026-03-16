@@ -35,6 +35,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // frames are routed to the external display (not just audio).
         _ = ExternalDisplayManager.shared
 
+        // Force TorrentService initialization so libtorrent restores previous
+        // torrents via fastResume before we attempt session restore.
+        _ = TorrentService.sharedTorrentService
+
+        // Restore mini-player session from previous launch (Hayase:
+        // server.active auto-mounts the player on app reload).
+        // Dispatched async to let the root view controller finish loading
+        // from the storyboard before the mini-player window is created.
+        DispatchQueue.main.async {
+            MiniPlayerManager.shared.restoreSessionIfNeeded()
+        }
+
 		return true
 	}
 
