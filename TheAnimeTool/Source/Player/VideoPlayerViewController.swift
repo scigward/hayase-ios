@@ -1,6 +1,5 @@
 import UIKit
 import AVKit
-import CoreMedia
 import LibTorrent
 
 final class VideoPlayerViewController: UIViewController {
@@ -56,21 +55,11 @@ final class VideoPlayerViewController: UIViewController {
     private let optionsButton   = UIButton(type: .system)
     private let airPlayPicker   = AVRoutePickerView()
 
-    // MARK: - PiP (Hayase pip.ts)
-
-    /// Picture-in-Picture controller backed by the MPV AVSampleBufferDisplayLayer.
-    /// This enables both system PiP and AirPlay video (the system needs a
-    /// registered content source to route video frames to external displays).
-    private var pipController: AVPictureInPictureController?
-    /// True while the player is transitioning into/out of PiP. When true,
-    /// viewWillDisappear must NOT tear down the player or streaming pipeline.
-    private var isInPiP = false
-
     // MARK: - State
 
     private var duration: Double = 0
     private var currentTime: Double = 0
-    private var isPaused = false
+    private(set) var isPaused = false
     /// Tracks whether the pause was explicitly requested by the user (tap on
     /// play/pause button) rather than caused by MPV (e.g. buffer underrun).
     /// Note: we no longer fully pause the torrent — downloading continues at
@@ -93,6 +82,9 @@ final class VideoPlayerViewController: UIViewController {
     /// delay ensures the seek works for both local files and HTTP streams (where
     /// MPV can take several seconds to buffer enough data to start playback).
     private var pendingRestoreTime: Double?
+    /// True while the player is being minimized to in-app PiP. Prevents
+    /// viewWillDisappear from tearing down the streaming pipeline.
+    var isMinimizing = false
 
     // MARK: - Lifecycle
 
@@ -104,15 +96,8 @@ final class VideoPlayerViewController: UIViewController {
         setupGestures()
         
         surface.mpv.delegate = self
-        setupPiP()
         loadCurrentVideo()
         scheduleHide()
-
-        // Auto-PiP: enter PiP when the app backgrounds (Hayase pip.ts behavior).
-        // Gated behind the pref_autoPiP user setting.
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(appWillResignActive),
-            name: UIApplication.willResignActiveNotification, object: nil)
     }
 
     override func viewDidLayoutSubviews() {
@@ -133,17 +118,17 @@ final class VideoPlayerViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // Don't tear down the player when entering PiP — the video must
-        // keep playing in the floating window (Hayase wrapper.svelte keeps
-        // the player component mounted when navigating away).
-        guard !isInPiP else { return }
+        // Don't tear down when minimizing to in-app PiP — the video keeps
+        // playing in the mini-player (Hayase wrapper.svelte keeps the player
+        // component mounted when navigating away from /app/player).
+        guard !isMinimizing else { return }
         tearDownPlayer()
     }
 
     /// Tears down all player resources. Called from viewWillDisappear when
-    /// NOT in PiP, and from PiP's didStopPictureInPicture when the user
-    /// closes the PiP window.
-    private func tearDownPlayer() {
+    /// NOT minimizing, and from MiniPlayerManager when the user closes the
+    /// mini-player.
+    func tearDownPlayer() {
         saveProgress()
         statsTimer?.invalidate()
         streamServer?.stop()
@@ -168,40 +153,6 @@ final class VideoPlayerViewController: UIViewController {
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
-    }
-
-    // MARK: - PiP setup (Hayase pip.ts)
-
-    /// Creates an AVPictureInPictureController using the MPV display layer.
-    /// This serves two purposes:
-    /// 1. Enables system PiP — the floating video window on iOS.
-    /// 2. Fixes AirPlay video — the system needs a registered content source
-    ///    to route video frames to an external AirPlay display. Without this,
-    ///    only audio is sent via the AVRoutePickerView route change.
-    private func setupPiP() {
-        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-        let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: surface.displayLayer,
-            playbackDelegate: self)
-        let pip = AVPictureInPictureController(contentSource: source)
-        pip.delegate = self
-        // canStartPictureInPictureAutomaticallyFromInline lets the system
-        // enter PiP when the user swipes home while a video is playing.
-        // This is gated by the pref_autoPiP setting at the system level,
-        // complementing our manual appWillResignActive trigger.
-        if UserDefaults.standard.bool(forKey: "pref_autoPiP") {
-            pip.canStartPictureInPictureAutomaticallyFromInline = true
-        }
-        pipController = pip
-    }
-
-    /// Auto-PiP: enter PiP when the app backgrounds, matching Hayase's
-    /// pip.ts behavior. Gated behind the "PiP On Lost Visibility" user pref.
-    @objc private func appWillResignActive() {
-        guard UserDefaults.standard.bool(forKey: "pref_autoPiP") else { return }
-        guard let pip = pipController, pip.isPictureInPicturePossible else { return }
-        pip.startPictureInPicture()
     }
 
     // MARK: - Overlay setup
@@ -787,8 +738,9 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func backTapped() {
-        saveProgress()
-        dismiss(animated: true)
+        // Hayase wrapper.svelte: navigating away from /app/player activates
+        // mini-player mode instead of destroying the player component.
+        MiniPlayerManager.shared.minimize(self)
     }
 
     @objc private func surfaceTapped() {
@@ -1069,6 +1021,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 
+        // Keep the mini-player's play/pause icon in sync.
+        MiniPlayerManager.shared.updatePlayPauseIcon(isPaused: isPaused)
+
         // Don't pause the torrent when the video is paused. Like Hayase,
         // we keep the torrent downloading at reduced effective speed (no
         // active piece deadline boosting while playback is stopped).
@@ -1106,89 +1061,14 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     }
 
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
-}
 
-// MARK: - AVPictureInPictureControllerDelegate
+    // MARK: - Mini-player support (Hayase wrapper.svelte)
 
-extension VideoPlayerViewController: AVPictureInPictureControllerDelegate {
+    /// Returns the MPV surface view so MiniPlayerManager can reparent it.
+    var surfaceView: MPVSurfaceView { surface }
 
-    func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        isInPiP = true
-    }
-
-    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        // Hide on-screen controls — the PiP window has its own play/pause.
-        setControls(visible: false)
-    }
-
-    func pictureInPictureControllerWillStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        // Will stop — either the user tapped the close button or the restore button.
-    }
-
-    func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        isInPiP = false
-        // If the view is no longer on screen (user tapped close in PiP without
-        // restoring), tear down the player now.
-        if viewIfLoaded?.window == nil {
-            tearDownPlayer()
-        }
-    }
-
-    func pictureInPictureController(
-        _ controller: AVPictureInPictureController,
-        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler handler: @escaping (Bool) -> Void
-    ) {
-        // The user tapped the restore button in PiP — bring the fullscreen player back.
-        handler(true)
-    }
-}
-
-// MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
-
-extension VideoPlayerViewController: AVPictureInPictureSampleBufferPlaybackDelegate {
-
-    func pictureInPictureController(
-        _ controller: AVPictureInPictureController,
-        setPlaying playing: Bool
-    ) {
-        // The user tapped play/pause in the PiP window.
-        if playing && isPaused {
-            surface.mpv.togglePause()
-        } else if !playing && !isPaused {
-            surface.mpv.togglePause()
-        }
-    }
-
-    func pictureInPictureControllerTimeRangeForPlayback(
-        _ controller: AVPictureInPictureController
-    ) -> CMTimeRange {
-        // Report the current playback time range so the PiP scrubber works.
-        let dur = CMTime(seconds: max(duration, 1), preferredTimescale: 1000)
-        return CMTimeRange(start: .zero, duration: dur)
-    }
-
-    func pictureInPictureControllerIsPlaybackPaused(
-        _ controller: AVPictureInPictureController
-    ) -> Bool {
-        return isPaused
-    }
-
-    func pictureInPictureController(
-        _ controller: AVPictureInPictureController,
-        didTransitionToRenderSize newRenderSize: CMVideoDimensions
-    ) {
-        // PiP window resized — no action needed, MPV auto-scales.
-    }
-
-    func pictureInPictureController(
-        _ controller: AVPictureInPictureController,
-        skipByInterval skipInterval: CMTime,
-        completion completionHandler: @escaping () -> Void
-    ) {
-        // Skip forward/backward button in PiP.
-        let delta = skipInterval.seconds
-        let target = max(0, min(duration, currentTime + delta))
-        surface.mpv.seek(to: target)
-        completionHandler()
+    /// Toggles play/pause from the mini-player.
+    func togglePlayPause() {
+        surface.mpv.togglePause()
     }
 }

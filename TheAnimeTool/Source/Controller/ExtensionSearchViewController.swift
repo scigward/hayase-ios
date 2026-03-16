@@ -823,6 +823,8 @@ final class ExtensionSearchViewController: UIViewController {
 
         hud?.dismiss(animated: false) { [weak self] in
             guard let self else { return }
+            // Close any existing mini-player before starting a new one.
+            MiniPlayerManager.shared.close()
             let player = VideoPlayerViewController()
             player.videoEntity       = video
             player.torrentHandle     = vs.torrentHandle
