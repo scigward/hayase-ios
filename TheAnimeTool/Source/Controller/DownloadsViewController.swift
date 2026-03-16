@@ -144,7 +144,9 @@ final class DownloadCell: UITableViewCell {
         let progress: Float = snap.total > 0 ? Float(Double(snap.totalDone) / Double(snap.total)) : 0
         progressView.progress = progress
 
-        let isComplete = snap.isSeed
+        // Don't rely on snap.isSeed for "complete" — during streaming it becomes
+        // true as soon as all *wanted* pieces are done, even at 4% overall.
+        let isComplete = snap.total > 0 && snap.totalDone >= snap.total
         if isComplete {
             percentLabel.text = "100%"
             percentLabel.textColor = .systemGreen

@@ -146,7 +146,9 @@ final class TorrentDetailViewController: UIViewController {
         // snap.progress only counts "wanted" pieces (priority > 0), which
         // is unreliable when TorrentStreamer sets a narrow streaming window.
         let progress: Float = snap.total > 0 ? Float(Double(snap.totalDone) / Double(snap.total)) : 0
-        let isComplete = snap.isSeed
+        // Don't rely on snap.isSeed for "complete" — during streaming it becomes
+        // true as soon as all *wanted* pieces are done, even at 4% overall.
+        let isComplete = snap.total > 0 && snap.totalDone >= snap.total
         let isPaused   = snap.isPaused && !isComplete
 
         if isComplete {
