@@ -714,21 +714,13 @@ final class ExtensionSearchViewController: UIViewController {
         let hud = UIAlertController(title: "Preparing playback…", message: "Adding torrent…", preferredStyle: .alert)
         present(hud, animated: true)
 
-        TorrentService.sharedTorrentService.UpdateTorrentEntityInController(entity) { [weak self] res in
-            DispatchQueue.main.async {
-                switch res {
-                case .success:
-                    // Go directly to the video player — skip the file list page.
-                    self?.waitForMetadataAndPlay(entity: entity, hud: hud)
-                case .failure(let err):
-                    hud.dismiss(animated: false) {
-                        let e = UIAlertController(title: "Error", message: err.localizedDescription, preferredStyle: .alert)
-                        e.addAction(UIAlertAction(title: "OK", style: .cancel))
-                        self?.present(e, animated: true)
-                    }
-                }
-            }
-        }
+        // Go directly to the video player — skip the file list page.
+        // waitForMetadataAndPlay creates a VideoService which internally calls
+        // UpdateTorrentEntityInController — a single call is sufficient.
+        // Calling it here first would cause a redundant double call that
+        // triggers removeOtherTorrents twice, increasing the risk of
+        // accidentally deleting the torrent's downloaded pieces.
+        waitForMetadataAndPlay(entity: entity, hud: hud)
     }
 
     // MARK: - Direct-to-player flow
