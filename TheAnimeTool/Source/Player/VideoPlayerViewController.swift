@@ -96,6 +96,7 @@ final class VideoPlayerViewController: UIViewController {
         setupGestures()
         
         surface.mpv.delegate = self
+        ExternalDisplayManager.shared.register(self)
         loadCurrentVideo()
         scheduleHide()
     }
@@ -131,6 +132,7 @@ final class VideoPlayerViewController: UIViewController {
     func tearDownPlayer() {
         saveProgress()
         statsTimer?.invalidate()
+        ExternalDisplayManager.shared.unregister(self)
         streamServer?.stop()
         streamer?.stop()
         surface.stop()

@@ -31,6 +31,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("⚠️ AVAudioSession setup failed: \(error)")
         }
 
+        // Start listening for AirPlay / external screen connections so video
+        // frames are routed to the external display (not just audio).
+        _ = ExternalDisplayManager.shared
+
 		return true
 	}
 
