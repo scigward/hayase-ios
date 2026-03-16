@@ -625,7 +625,14 @@ final class MiniPlayerManager {
             return
         }
 
-        let fileIndex = UInt((fileIndexValue as? Int) ?? (fileIndexValue as? UInt ?? 0))
+        let fileIndex: UInt
+        if let intValue = fileIndexValue as? Int, intValue >= 0 {
+            fileIndex = UInt(intValue)
+        } else if let uintValue = fileIndexValue as? UInt {
+            fileIndex = uintValue
+        } else {
+            fileIndex = 0
+        }
 
         let anilistID = state["anilistID"] as? Int ?? 0
         let episodeNumber = state["episodeNumber"] as? Int ?? 0
