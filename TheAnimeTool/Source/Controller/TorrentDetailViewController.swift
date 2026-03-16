@@ -342,11 +342,8 @@ final class TorrentDetailViewController: UIViewController {
         setDot(forwardDot, enabled: false) // conservative default; UPnP state not easily accessible
         setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "persist_downloads"))
 
-        // Streaming: downloading + not all pieces wanted (some pieces have priority 0)
-        let isStreaming: Bool = {
-            guard snap.state == .downloading, let pieces = snap.pieces else { return false }
-            return pieces.contains(where: { $0.intValue == 0 })
-        }()
+        // Streaming: downloading + sequential mode enabled (TorrentStreamer enables this)
+        let isStreaming = snap.state == .downloading && snap.isSequential
         setDot(streamingDot, enabled: isStreaming)
 
         // Update peers tab if visible
@@ -576,7 +573,7 @@ final class TorrentDetailViewController: UIViewController {
     // MARK: - Build Peers UI
 
     private func buildPeersUI() {
-        peersView.backgroundColor = .systemGroupedBackground
+        peersView.backgroundColor = .systemBackground
 
         let stack = UIStackView()
         stack.axis = .vertical
@@ -590,16 +587,21 @@ final class TorrentDetailViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: peersView.trailingAnchor, constant: -16),
         ])
 
+        let iconView = makeIcon("person.2.fill", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Peers & Connections"
         title.font = .systemFont(ofSize: 24, weight: .bold)
         title.textColor = .label
-        stack.addArrangedSubview(title)
+        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
+        stack.addArrangedSubview(titleRow)
 
-        stack.addArrangedSubview(makeStatRow([
+        stack.addArrangedSubview(makeFlatStatRow([
             StatItem(label: peerSeedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
             StatItem(label: peerLeechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-            StatItem(label: peerWiresValue,    title: "Wires",    icon: "network",                 color: .systemPurple),
+            StatItem(label: peerWiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
         ]))
     }
 
