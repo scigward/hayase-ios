@@ -141,7 +141,7 @@ final class DownloadCell: UITableViewCell {
         // Use totalDone/total for the real download percentage.
         // snap.progress only counts "wanted" pieces (priority > 0), which
         // is unreliable when TorrentStreamer sets a narrow streaming window.
-        let progress: Float = snap.total > 0 ? Float(Double(snap.totalDone) / Double(snap.total)) : 0
+        let progress: Float = snap.total > 0 ? Float(snap.totalDone) / Float(snap.total) : 0
         progressView.progress = progress
 
         let isComplete = snap.isSeed
