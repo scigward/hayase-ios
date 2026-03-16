@@ -142,10 +142,10 @@ final class TorrentDetailViewController: UIViewController {
         nameLabel.text = snap.name.isEmpty ? "Unknown Torrent" : snap.name
         hashLabel.text = hexHash.isEmpty ? snap.name : hexHash
 
-        let progress = Float(snap.progress)
-        // Use snap.isSeed for completion: snap.isFinished and snap.progress
-        // only count "wanted" pieces (priority > 0), which is unreliable when
-        // TorrentStreamer has set most pieces to priority 0 for streaming.
+        // Use totalDone/total for the real download percentage.
+        // snap.progress only counts "wanted" pieces (priority > 0), which
+        // is unreliable when TorrentStreamer sets a narrow streaming window.
+        let progress: Float = snap.total > 0 ? Float(Double(snap.totalDone) / Double(snap.total)) : 0
         let isComplete = snap.isSeed
         let isPaused   = snap.isPaused && !isComplete
 
@@ -170,22 +170,23 @@ final class TorrentDetailViewController: UIViewController {
         }
         progressBar.progress = isComplete ? 1.0 : progress
 
-        // Progress stats
-        downloadedValue.text = Self.fmtSize(snap.totalWantedDone)
+        // Progress stats — use totalDone/total (not totalWantedDone/totalWanted)
+        // for the same reason: "wanted" only counts prioritised pieces.
+        downloadedValue.text = Self.fmtSize(snap.totalDone)
         let elapsed = Int(max(0, -startDate.timeIntervalSinceNow))
         // totalUploaded is not exposed by TorrentHandle.Snapshot; approximate from rate × session time
         uploadedValue.text  = elapsed > 0 && snap.uploadRate > 0
             ? "~\(Self.fmtSize(snap.uploadRate * UInt64(elapsed)))"
             : "—"
-        totalSizeValue.text = Self.fmtSize(snap.totalWanted)
+        totalSizeValue.text = Self.fmtSize(snap.total)
 
         // Speed & Transfer
         downSpeedValue.text = Self.fmtSpeed(snap.downloadRate)
         upSpeedValue.text   = Self.fmtSpeed(snap.uploadRate)
 
         // Time
-        let remaining = snap.totalWanted > snap.totalWantedDone
-            ? snap.totalWanted - snap.totalWantedDone : 0
+        let remaining = snap.total > snap.totalDone
+            ? snap.total - snap.totalDone : 0
         etaValue.text     = Self.fmtETA(remaining: remaining, rate: snap.downloadRate)
         elapsedValue.text = Self.fmtElapsed(elapsed)
 
