@@ -58,6 +58,11 @@ final class MiniPlayerManager {
     /// Snap animation (Hayase: `transition-transform duration-[500ms]
     /// ease-[cubic-bezier(0.3,1.5,0.8,1)]`).
     private let snapDuration: TimeInterval = 0.5
+    /// How much of the mini-player is visible when tucked to the edge
+    /// (Hayase: `.paused { --padding-right: calc(100% - 3rem) }` → 3rem ≈ 48pt).
+    private let peekWidth: CGFloat = 48
+    /// Seconds of inactivity before the mini-player auto-tucks to the edge.
+    private let autoHideDelay: TimeInterval = 3.0
 
     // MARK: - State
 
@@ -81,6 +86,17 @@ final class MiniPlayerManager {
 
     /// Whether the user is currently dragging the mini-player.
     private var isDragging = false
+
+    // MARK: - Tuck/peek state (Hayase .paused / idle behavior)
+
+    /// Whether the mini-player is currently tucked to the edge (mostly hidden).
+    private var isTucked = false
+    /// Timer that auto-tucks the mini-player after inactivity.
+    private var autoHideTimer: Timer?
+    /// The fully-revealed frame saved on snap / reposition.
+    private var revealedFrame: CGRect = .zero
+    /// Whether the container last snapped to the right side (`true`) or left (`false`).
+    private var isSnappedToRight = true
 
     // MARK: - Init
 
@@ -128,8 +144,13 @@ final class MiniPlayerManager {
         // Position and show immediately — don't start invisible and don't
         // depend on the dismiss completion to make the container visible.
         // The dismiss cross-dissolve reveals the mini-player underneath.
+        isTucked = false
+        isSnappedToRight = true
         repositionContainer()
         container.alpha = 1
+
+        // Start auto-hide timer so the mini-player tucks after a few seconds.
+        resetAutoHideTimer()
 
         // Flag to prevent viewWillDisappear from tearing down the player.
         player.isMinimizing = true
@@ -146,6 +167,9 @@ final class MiniPlayerManager {
     func restore() {
         guard let player = activePlayer,
               let container = containerView else { return }
+
+        cancelAutoHideTimer()
+        isTucked = false
 
         // Find a presenting VC.
         guard let presenter = topViewController() else { return }
@@ -181,6 +205,9 @@ final class MiniPlayerManager {
     func close() {
         guard let player = activePlayer else { return }
 
+        cancelAutoHideTimer()
+        isTucked = false
+
         // Animate out before tearing down.
         if let container = containerView {
             UIView.animate(withDuration: 0.25, animations: {
@@ -211,10 +238,19 @@ final class MiniPlayerManager {
               !isDragging else { return }
         let bounds = window.bounds
         let safeBottom = window.safeAreaInsets.bottom
-        container.frame = CGRect(
+        let frame = CGRect(
             x: bounds.width - miniWidth - edgePadding,
             y: bounds.height - miniHeight - edgePadding - safeBottom,
             width: miniWidth, height: miniHeight)
+        revealedFrame = frame
+        isSnappedToRight = true
+        if isTucked {
+            var tuckedFrame = frame
+            tuckedFrame.origin.x = bounds.width - peekWidth
+            container.frame = tuckedFrame
+        } else {
+            container.frame = frame
+        }
     }
 
     // MARK: - Window + Container creation
@@ -336,6 +372,9 @@ final class MiniPlayerManager {
         switch gesture.state {
         case .began:
             isDragging = true
+            cancelAutoHideTimer()
+            // If tucked, un-tuck so the drag starts from wherever the container is.
+            if isTucked { isTucked = false }
         case .changed:
             container.center = CGPoint(
                 x: container.center.x + translation.x,
@@ -349,13 +388,19 @@ final class MiniPlayerManager {
         }
     }
 
-    /// Tap gesture — restore fullscreen (Hayase: clicking mini-player calls
-    /// `goto('/app/player/')`).
+    /// Tap gesture — if tucked, reveal first; otherwise restore fullscreen
+    /// (Hayase: clicking mini-player calls `goto('/app/player/')`).
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        if isTucked {
+            reveal()
+            return
+        }
         restore()
     }
 
     @objc private func playPauseTapped() {
+        // Any button interaction resets the auto-hide timer.
+        resetAutoHideTimer()
         activePlayer?.togglePlayPause()
         let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
         playPauseButton?.setImage(UIImage(systemName: icon), for: .normal)
@@ -393,6 +438,12 @@ final class MiniPlayerManager {
             targetY = window.bounds.height - miniHeight - edgePadding - safeInsets.bottom
         }
 
+        isSnappedToRight = !isLeft
+        let targetFrame = CGRect(
+            x: targetX, y: targetY,
+            width: miniWidth, height: miniHeight)
+        revealedFrame = targetFrame
+
         // Hayase: `transition-transform duration-[500ms]
         // ease-[cubic-bezier(0.3,1.5,0.8,1)]` — a springy overshoot.
         UIView.animate(
@@ -402,10 +453,78 @@ final class MiniPlayerManager {
             initialSpringVelocity: 0.8,
             options: .curveEaseOut
         ) {
-            container.frame = CGRect(
-                x: targetX, y: targetY,
-                width: self.miniWidth, height: self.miniHeight)
+            container.frame = targetFrame
+        } completion: { [weak self] _ in
+            self?.resetAutoHideTimer()
         }
+    }
+
+    // MARK: - Tuck / Reveal (Hayase .paused idle behavior)
+
+    /// Tucks the mini-player to the nearest horizontal edge, leaving only
+    /// `peekWidth` visible. Matches Hayase's `.paused` CSS class:
+    /// `--padding-right: calc(100% - 3rem)`.
+    private func tuck() {
+        guard let container = containerView,
+              let window = miniWindow,
+              !isDragging else { return }
+        isTucked = true
+
+        var tuckedFrame = revealedFrame
+        if isSnappedToRight {
+            tuckedFrame.origin.x = window.bounds.width - peekWidth
+        } else {
+            tuckedFrame.origin.x = -(miniWidth - peekWidth)
+        }
+
+        UIView.animate(
+            withDuration: snapDuration,
+            delay: 0,
+            usingSpringWithDamping: 0.8,
+            initialSpringVelocity: 0.5,
+            options: .curveEaseOut
+        ) {
+            container.frame = tuckedFrame
+        }
+    }
+
+    /// Reveals the full mini-player from its tucked state. Starts the
+    /// auto-hide timer so it will tuck again after `autoHideDelay`.
+    private func reveal() {
+        guard isTucked, let container = containerView else {
+            resetAutoHideTimer()
+            return
+        }
+        isTucked = false
+
+        UIView.animate(
+            withDuration: snapDuration,
+            delay: 0,
+            usingSpringWithDamping: 0.6,
+            initialSpringVelocity: 0.8,
+            options: .curveEaseOut
+        ) {
+            container.frame = self.revealedFrame
+        }
+
+        resetAutoHideTimer()
+    }
+
+    /// (Re)starts the auto-hide timer. After `autoHideDelay` seconds the
+    /// mini-player tucks to the edge.
+    private func resetAutoHideTimer() {
+        autoHideTimer?.invalidate()
+        autoHideTimer = Timer.scheduledTimer(
+            withTimeInterval: autoHideDelay, repeats: false
+        ) { [weak self] _ in
+            self?.tuck()
+        }
+    }
+
+    /// Cancels the auto-hide timer (e.g. on restore / close).
+    private func cancelAutoHideTimer() {
+        autoHideTimer?.invalidate()
+        autoHideTimer = nil
     }
 
     // MARK: - Helpers
