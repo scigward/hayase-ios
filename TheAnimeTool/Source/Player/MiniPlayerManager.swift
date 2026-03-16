@@ -290,7 +290,6 @@ final class MiniPlayerManager {
             ?? UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })
                 .first
-            ?? (UIApplication.shared.delegate as? AppDelegate)?.window?.windowScene
         if let scene = scene {
             window.windowScene = scene
         }
@@ -623,7 +622,6 @@ final class MiniPlayerManager {
               let fileIndexValue = state["fileIndex"],
               let videoPath = state["videoPath"] as? String,
               !hash.isEmpty, !videoPath.isEmpty else {
-            print("MiniPlayerManager: session restore — no saved session state")
             return
         }
 
@@ -718,14 +716,11 @@ final class MiniPlayerManager {
 
         addOverlay(to: container)
 
-        // Start visible (not tucked) so the user notices the restored
-        // mini-player, then auto-tuck after the delay — same as minimize().
-        isTucked = false
+        // Start tucked to the right edge (Hayase: mini-player appears
+        // at the edge on launch, user taps to reveal).
+        isTucked = true
         isSnappedToRight = true
         repositionContainer()
         container.alpha = 1
-
-        // Auto-tuck after inactivity, matching minimize() behavior.
-        resetAutoHideTimer()
     }
 }
