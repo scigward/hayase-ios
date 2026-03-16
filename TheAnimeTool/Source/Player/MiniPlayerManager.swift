@@ -30,6 +30,17 @@ private final class PassthroughWindow: UIWindow {
     }
 }
 
+/// Root VC for the PassthroughWindow. Transparent, supports all orientations,
+/// and repositions the mini-player container on layout changes (rotation).
+private final class PassthroughRootViewController: UIViewController {
+    override var shouldAutorotate: Bool { true }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        MiniPlayerManager.shared.repositionContainer()
+    }
+}
+
 final class MiniPlayerManager {
 
     static let shared = MiniPlayerManager()
@@ -87,9 +98,15 @@ final class MiniPlayerManager {
         }
         activePlayer = player
 
+        // Capture the window scene from the player's window BEFORE dismissing.
+        // After dismiss, the player's view.window is nil, so we grab it now.
+        // This is the most reliable way to get a valid scene because we know
+        // the player's window is currently visible on screen.
+        let playerScene = player.view.window?.windowScene
+
         // Create a dedicated window for the mini-player so it floats above
         // all content regardless of which view controller is presented.
-        let window = makePassthroughWindow()
+        let window = makePassthroughWindow(preferredScene: playerScene)
         miniWindow = window
 
         // Create the mini-player container (shadow + rounded corners).
@@ -108,31 +125,19 @@ final class MiniPlayerManager {
         // Add mini-player controls overlay.
         addOverlay(to: container)
 
-        // Start with the container at the target position, but invisible.
-        let safeBottom = window.safeAreaInsets.bottom
-        let targetFrame = CGRect(
-            x: window.bounds.width - miniWidth - edgePadding,
-            y: window.bounds.height - miniHeight - edgePadding - safeBottom,
-            width: miniWidth, height: miniHeight)
-        container.frame = targetFrame
-        container.alpha = 0
-        container.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+        // Position and show immediately — don't start invisible and don't
+        // depend on the dismiss completion to make the container visible.
+        // The dismiss cross-dissolve reveals the mini-player underneath.
+        repositionContainer()
+        container.alpha = 1
 
         // Flag to prevent viewWillDisappear from tearing down the player.
         player.isMinimizing = true
         player.dismiss(animated: true) { [weak self] in
             player.isMinimizing = false
-            // Animate the mini-player fading in with a scale-up.
-            UIView.animate(
-                withDuration: self?.snapDuration ?? 0.5,
-                delay: 0,
-                usingSpringWithDamping: 0.7,
-                initialSpringVelocity: 0.5,
-                options: .curveEaseOut
-            ) {
-                container.alpha = 1
-                container.transform = .identity
-            }
+            // Reposition after dismiss in case safe area insets changed
+            // (e.g., landscape → portrait rotation during the transition).
+            self?.repositionContainer()
         }
     }
 
@@ -193,22 +198,52 @@ final class MiniPlayerManager {
         activePlayer = nil
     }
 
+    // MARK: - Layout
+
+    /// Repositions the mini-player container to the bottom-right corner,
+    /// accounting for current screen bounds and safe area insets. Called:
+    /// - Immediately in minimize() so the container is positioned correctly
+    /// - In the dismiss completion to adjust for safe area changes
+    /// - From the root VC's viewDidLayoutSubviews for rotation handling
+    func repositionContainer() {
+        guard let container = containerView,
+              let window = miniWindow,
+              !isDragging else { return }
+        let bounds = window.bounds
+        let safeBottom = window.safeAreaInsets.bottom
+        container.frame = CGRect(
+            x: bounds.width - miniWidth - edgePadding,
+            y: bounds.height - miniHeight - edgePadding - safeBottom,
+            width: miniWidth, height: miniHeight)
+    }
+
     // MARK: - Window + Container creation
 
     /// Creates the dedicated passthrough window for the mini-player.
-    private func makePassthroughWindow() -> PassthroughWindow {
+    /// - Parameter preferredScene: The window scene to use. Pass the
+    ///   player's `view.window?.windowScene` captured before dismiss.
+    private func makePassthroughWindow(preferredScene: UIWindowScene? = nil) -> PassthroughWindow {
         let window = PassthroughWindow(frame: UIScreen.main.bounds)
-        // Attach to the active window scene (required on iOS 13+).
-        if let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive }) {
+        // Attach to a window scene (required on iOS 13+). Without a scene,
+        // the window is silently invisible. Use the preferred scene first
+        // (captured from the player's window), then fall back to any
+        // connected scene — don't filter by foregroundActive only, since
+        // the scene may briefly be in a different state during transitions.
+        let scene = preferredScene
+            ?? UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive })
+            ?? UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first
+        if let scene = scene {
             window.windowScene = scene
         }
         // Above normal windows but below alerts/keyboards.
         window.windowLevel = .normal + 1
         window.backgroundColor = .clear
         window.isUserInteractionEnabled = true
-        let rootVC = UIViewController()
+        let rootVC = PassthroughRootViewController()
         rootVC.view.backgroundColor = .clear
         window.rootViewController = rootVC
         window.isHidden = false
