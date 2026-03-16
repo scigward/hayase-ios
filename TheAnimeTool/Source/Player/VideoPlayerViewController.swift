@@ -347,6 +347,7 @@ final class VideoPlayerViewController: UIViewController {
         airPlayPicker.translatesAutoresizingMaskIntoConstraints = false
         airPlayPicker.activeTintColor = .systemIndigo
         airPlayPicker.tintColor = .white
+        airPlayPicker.prioritizesVideoDevices = true
         bottomBar.addSubview(airPlayPicker)
 
         let rightStack = UIStackView(arrangedSubviews: [speedLabel, optionsButton, airPlayPicker])

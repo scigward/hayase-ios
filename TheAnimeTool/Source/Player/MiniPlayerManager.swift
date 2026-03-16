@@ -5,12 +5,30 @@
 /// mini-player mode: a 22rem-wide floating window at the bottom-right corner,
 /// draggable, with click-to-restore. The torrent session stays alive.
 ///
-/// This iOS port uses a floating UIView on the key window to replicate that
-/// behavior. When the user taps back in the fullscreen player, the MPV surface
-/// is reparented into a small container at the bottom-right. Tapping the
-/// mini-player restores fullscreen. The close button fully tears down the
-/// player and streaming pipeline.
+/// This iOS port uses a dedicated UIWindow (PassthroughWindow) to host the
+/// mini-player. The window sits at a higher window level than normal content,
+/// guaranteeing the mini-player is always visible — even after the fullscreen
+/// player is dismissed and the presenting view controller's view is shown.
+/// Touches outside the mini-player container pass through to the main window.
 import UIKit
+
+// MARK: - PassthroughWindow
+
+/// A UIWindow that passes touches through to the window behind it unless the
+/// touch lands on a visible subview (the mini-player container). This lets the
+/// mini-player float above all content without blocking interaction with the
+/// rest of the app.
+private final class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        // If the hit is the window itself or the root VC's transparent view,
+        // return nil so the touch falls through to the window below.
+        if hit === self || hit === rootViewController?.view {
+            return nil
+        }
+        return hit
+    }
+}
 
 final class MiniPlayerManager {
 
@@ -36,21 +54,22 @@ final class MiniPlayerManager {
     /// visible so all player/streaming state is preserved.
     private(set) var activePlayer: VideoPlayerViewController?
 
-    /// The floating container added to the key window.
+    /// Dedicated window for the mini-player, above normal content.
+    private var miniWindow: PassthroughWindow?
+
+    /// The floating container inside the mini-player window.
     private var containerView: UIView?
 
     /// The play/pause button in the mini-player overlay.
     private var playPauseButton: UIButton?
 
     /// True when the mini-player is currently visible.
-    var isActive: Bool { containerView?.superview != nil && activePlayer != nil }
+    var isActive: Bool { miniWindow != nil && activePlayer != nil }
 
     // MARK: - Dragging state (Hayase pointer events)
 
     /// Whether the user is currently dragging the mini-player.
     private var isDragging = false
-    /// Offset from the touch point to the container's origin (for smooth drag).
-    private var dragOffset: CGPoint = .zero
 
     // MARK: - Init
 
@@ -68,13 +87,17 @@ final class MiniPlayerManager {
         }
         activePlayer = player
 
-        // Create the floating container on the key window.
-        guard let window = keyWindow() else { return }
+        // Create a dedicated window for the mini-player so it floats above
+        // all content regardless of which view controller is presented.
+        let window = makePassthroughWindow()
+        miniWindow = window
 
+        // Create the mini-player container (shadow + rounded corners).
         let container = makeContainer()
-        window.addSubview(container)
+        window.rootViewController?.view.addSubview(container)
+        containerView = container
 
-        // Reparent the MPV surface into the mini-player's inner clipped view.
+        // Reparent the MPV surface into the mini-player container.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = true
         let inner = container.viewWithTag(100)!
@@ -85,21 +108,21 @@ final class MiniPlayerManager {
         // Add mini-player controls overlay.
         addOverlay(to: container)
 
-        containerView = container
-
-        // Position off-screen to the right, then animate in.
+        // Start with the container at the target position, but invisible.
         let safeBottom = window.safeAreaInsets.bottom
         let targetFrame = CGRect(
             x: window.bounds.width - miniWidth - edgePadding,
             y: window.bounds.height - miniHeight - edgePadding - safeBottom,
             width: miniWidth, height: miniHeight)
-        container.frame = targetFrame.offsetBy(dx: miniWidth + edgePadding, dy: 0)
+        container.frame = targetFrame
+        container.alpha = 0
+        container.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
 
         // Flag to prevent viewWillDisappear from tearing down the player.
         player.isMinimizing = true
         player.dismiss(animated: true) { [weak self] in
             player.isMinimizing = false
-            // Animate the mini-player sliding in from the right.
+            // Animate the mini-player fading in with a scale-up.
             UIView.animate(
                 withDuration: self?.snapDuration ?? 0.5,
                 delay: 0,
@@ -107,7 +130,8 @@ final class MiniPlayerManager {
                 initialSpringVelocity: 0.5,
                 options: .curveEaseOut
             ) {
-                container.frame = targetFrame
+                container.alpha = 1
+                container.transform = .identity
             }
         }
     }
@@ -115,7 +139,8 @@ final class MiniPlayerManager {
     /// Restores the fullscreen player from the mini-player.
     /// Equivalent to Hayase's `goto('/app/player/')` on mini-player click.
     func restore() {
-        guard let player = activePlayer, let container = containerView else { return }
+        guard let player = activePlayer,
+              let container = containerView else { return }
 
         // Find a presenting VC.
         guard let presenter = topViewController() else { return }
@@ -131,9 +156,11 @@ final class MiniPlayerManager {
             surface.trailingAnchor.constraint(equalTo: player.view.trailingAnchor),
         ])
 
-        // Remove the mini-player container.
+        // Tear down the mini-player window.
         container.removeFromSuperview()
         containerView = nil
+        miniWindow?.isHidden = true
+        miniWindow = nil
 
         // Present the fullscreen player again.
         player.isMinimizing = true          // prevent tearDownPlayer on restore too
@@ -154,17 +181,39 @@ final class MiniPlayerManager {
             UIView.animate(withDuration: 0.25, animations: {
                 container.alpha = 0
                 container.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-            }, completion: { _ in
+            }, completion: { [weak self] _ in
                 container.removeFromSuperview()
+                self?.containerView = nil
+                self?.miniWindow?.isHidden = true
+                self?.miniWindow = nil
             })
         }
 
         player.tearDownPlayer()
-        containerView = nil
         activePlayer = nil
     }
 
-    // MARK: - Container creation
+    // MARK: - Window + Container creation
+
+    /// Creates the dedicated passthrough window for the mini-player.
+    private func makePassthroughWindow() -> PassthroughWindow {
+        let window = PassthroughWindow(frame: UIScreen.main.bounds)
+        // Attach to the active window scene (required on iOS 13+).
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) {
+            window.windowScene = scene
+        }
+        // Above normal windows but below alerts/keyboards.
+        window.windowLevel = .normal + 1
+        window.backgroundColor = .clear
+        window.isUserInteractionEnabled = true
+        let rootVC = UIViewController()
+        rootVC.view.backgroundColor = .clear
+        window.rootViewController = rootVC
+        window.isHidden = false
+        return window
+    }
 
     /// Builds the floating mini-player container view (Hayase wrapper.svelte
     /// mini-player div with rounded corners and shadow).
@@ -245,8 +294,9 @@ final class MiniPlayerManager {
     /// Pan gesture — dragging the mini-player. On release, snaps to the
     /// nearest corner (Hayase's endDragging logic).
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let container = containerView, let window = container.superview else { return }
-        let translation = gesture.translation(in: window)
+        guard let container = containerView,
+              let rootView = miniWindow?.rootViewController?.view else { return }
+        let translation = gesture.translation(in: rootView)
 
         switch gesture.state {
         case .began:
@@ -255,10 +305,10 @@ final class MiniPlayerManager {
             container.center = CGPoint(
                 x: container.center.x + translation.x,
                 y: container.center.y + translation.y)
-            gesture.setTranslation(.zero, in: window)
+            gesture.setTranslation(.zero, in: rootView)
         case .ended, .cancelled:
             isDragging = false
-            snapToNearestCorner(in: window)
+            snapToNearestCorner()
         default:
             break
         }
@@ -284,10 +334,11 @@ final class MiniPlayerManager {
 
     /// Hayase's endDragging: determines which half (top/bottom, left/right)
     /// the center is in, then snaps to the corresponding corner.
-    private func snapToNearestCorner(in window: UIView) {
-        guard let container = containerView else { return }
+    private func snapToNearestCorner() {
+        guard let container = containerView,
+              let window = miniWindow else { return }
         let center = container.center
-        let safeInsets = (window as? UIWindow)?.safeAreaInsets ?? .zero
+        let safeInsets = window.safeAreaInsets
 
         let isTop = center.y < window.bounds.height / 2
         let isLeft = center.x < window.bounds.width / 2
@@ -324,18 +375,10 @@ final class MiniPlayerManager {
 
     // MARK: - Helpers
 
-    private func keyWindow() -> UIWindow? {
-        if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
-            return appDelegate.window
-        }
-        return UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-    }
-
     private func topViewController() -> UIViewController? {
-        var vc = keyWindow()?.rootViewController
+        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+              let window = appDelegate.window else { return nil }
+        var vc = window.rootViewController
         while let presented = vc?.presentedViewController {
             vc = presented
         }

@@ -33,8 +33,9 @@ final class ExternalDisplayManager {
             name: UIScreen.didDisconnectNotification, object: nil)
 
         // If an external screen is already connected at launch, handle it.
-        if UIScreen.screens.count > 1, let screen = UIScreen.screens.last {
-            setupExternalWindow(on: screen)
+        // Use modern UIWindowScene API to find external screens.
+        if let externalScreen = findExternalScreen() {
+            setupExternalWindow(on: externalScreen)
         }
     }
 
@@ -71,6 +72,19 @@ final class ExternalDisplayManager {
     }
 
     // MARK: - External window management
+
+    /// Finds an external screen using the modern UIWindowScene API.
+    private func findExternalScreen() -> UIScreen? {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            // External display scenes are not the main foreground scene.
+            // Check if the screen is different from the main screen.
+            if windowScene.screen !== UIScreen.main {
+                return windowScene.screen
+            }
+        }
+        return nil
+    }
 
     private func setupExternalWindow(on screen: UIScreen) {
         let window = UIWindow(frame: screen.bounds)
