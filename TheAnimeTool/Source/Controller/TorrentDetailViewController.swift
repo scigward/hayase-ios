@@ -2,10 +2,12 @@
 // TheAnimeTool
 //
 // Full replica of Hayase's torrent client UI (overview.svelte).
-// Provides three tabs via a segmented control:
+// Provides five tabs via a segmented control matching Hayase's sidebar:
 //   - Overview: header, progress, speed/transfer, time, peers, protocol status
 //   - Files: embeds VideoListViewController as a child VC
-//   - Peers: simple peer/seed/leech summary
+//   - Peers: peer/seed/leech summary
+//   - Library: downloaded content table (series, episode, files, size, status, date, name)
+//   - Settings: torrent client settings (persist files, streamed download)
 
 import UIKit
 import LibTorrent
@@ -27,7 +29,7 @@ final class TorrentDetailViewController: UIViewController {
     // MARK: - Segmented control & containers
 
     private let segmentedControl: UISegmentedControl = {
-        let sc = UISegmentedControl(items: ["Overview", "Files", "Peers"])
+        let sc = UISegmentedControl(items: ["Overview", "Files", "Peers", "Library", "Settings"])
         sc.selectedSegmentIndex = 0
         return sc
     }()
@@ -46,6 +48,28 @@ final class TorrentDetailViewController: UIViewController {
         v.isHidden = true
         return v
     }()
+
+    private lazy var libraryScrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsVerticalScrollIndicator = true
+        sv.alwaysBounceVertical = true
+        return sv
+    }()
+
+    private lazy var settingsScrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsVerticalScrollIndicator = true
+        sv.alwaysBounceVertical = true
+        return sv
+    }()
+
+    // MARK: - Library tab: table for downloaded content
+    private var libraryTableView: UITableView!
+    private var libraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
+
+    // MARK: - Settings tab: toggle cells
+    private let persistSwitch = UISwitch()
+    private let streamedSwitch = UISwitch()
 
     // MARK: - Overview: header labels
 
@@ -145,6 +169,8 @@ final class TorrentDetailViewController: UIViewController {
         setupContainerView()
         buildOverviewUI()
         buildPeersUI()
+        buildLibraryUI()
+        buildSettingsUI()
         showTab(0)
         update()
     }
@@ -209,6 +235,8 @@ final class TorrentDetailViewController: UIViewController {
         // Remove all child content
         overviewScrollView.removeFromSuperview()
         peersView.removeFromSuperview()
+        libraryScrollView.removeFromSuperview()
+        settingsScrollView.removeFromSuperview()
         removeFilesChild()
 
         switch index {
@@ -238,6 +266,29 @@ final class TorrentDetailViewController: UIViewController {
                 peersView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
             updatePeersTab()
+
+        case 3:
+            libraryScrollView.isHidden = false
+            containerView.addSubview(libraryScrollView)
+            libraryScrollView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                libraryScrollView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                libraryScrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                libraryScrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                libraryScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            ])
+            refreshLibrary()
+
+        case 4:
+            settingsScrollView.isHidden = false
+            containerView.addSubview(settingsScrollView)
+            settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                settingsScrollView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                settingsScrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                settingsScrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                settingsScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            ])
 
         default:
             break
@@ -340,7 +391,7 @@ final class TorrentDetailViewController: UIViewController {
         setDot(pexDot, enabled: true)
         setDot(natDot, enabled: true)
         setDot(forwardDot, enabled: false) // conservative default; UPnP state not easily accessible
-        setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "persist_downloads"))
+        setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
 
         // Streaming: downloading + sequential mode enabled (TorrentStreamer enables this)
         let isStreaming = snap.state == .downloading && snap.isSequential
@@ -605,6 +656,203 @@ final class TorrentDetailViewController: UIViewController {
         ]))
     }
 
+    // MARK: - Build Library UI (matches Hayase library/table.svelte)
+
+    private func buildLibraryUI() {
+        libraryScrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        libraryScrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: libraryScrollView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: libraryScrollView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: libraryScrollView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: libraryScrollView.bottomAnchor, constant: -24),
+            stack.widthAnchor.constraint(equalTo: libraryScrollView.widthAnchor, constant: -32),
+        ])
+
+        // Section title with icon (matches Hayase)
+        let iconView = makeIcon("books.vertical.fill", tint: .label, size: 20)
+        let title = UILabel()
+        title.text = "Library"
+        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.textColor = .label
+        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
+        stack.addArrangedSubview(titleRow)
+
+        let subtitle = UILabel()
+        subtitle.text = "Downloaded torrents and their content."
+        subtitle.font = .systemFont(ofSize: 14, weight: .regular)
+        subtitle.textColor = .secondaryLabel
+        stack.addArrangedSubview(subtitle)
+
+        // Table view for library entries
+        libraryTableView = UITableView(frame: .zero, style: .insetGrouped)
+        libraryTableView.translatesAutoresizingMaskIntoConstraints = false
+        libraryTableView.delegate = self
+        libraryTableView.dataSource = self
+        libraryTableView.register(LibraryEntryCell.self, forCellReuseIdentifier: LibraryEntryCell.reuseID)
+        libraryTableView.rowHeight = UITableView.automaticDimension
+        libraryTableView.estimatedRowHeight = 80
+        libraryTableView.isScrollEnabled = false  // scrolling handled by parent scroll view
+        libraryTableView.backgroundColor = .clear
+
+        stack.addArrangedSubview(libraryTableView)
+
+        // The table height constraint will be updated in refreshLibrary()
+        libraryTableView.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
+    }
+
+    private var libraryTableHeightConstraint: NSLayoutConstraint?
+
+    private func refreshLibrary() {
+        libraryEntries = TorrentService.sharedTorrentService.handles
+            .map { (hash: $0.key, handle: $0.value, entity: TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash($0.key).first) }
+            .sorted { $0.handle.snapshot.name < $1.handle.snapshot.name }
+        libraryTableView?.reloadData()
+
+        // Resize table to fit content
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let tv = self.libraryTableView else { return }
+            tv.layoutIfNeeded()
+            self.libraryTableHeightConstraint?.isActive = false
+            self.libraryTableHeightConstraint = tv.heightAnchor.constraint(equalToConstant: max(tv.contentSize.height, 100))
+            self.libraryTableHeightConstraint?.isActive = true
+        }
+    }
+
+    // MARK: - Build Settings UI (matches Hayase settings)
+
+    private func buildSettingsUI() {
+        settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 24
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        settingsScrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: settingsScrollView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: settingsScrollView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: settingsScrollView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: settingsScrollView.bottomAnchor, constant: -24),
+            stack.widthAnchor.constraint(equalTo: settingsScrollView.widthAnchor, constant: -32),
+        ])
+
+        // Section title with icon
+        let iconView = makeIcon("gearshape.fill", tint: .label, size: 20)
+        let title = UILabel()
+        title.text = "Settings"
+        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.textColor = .label
+        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .center
+        stack.addArrangedSubview(titleRow)
+
+        let subtitle = UILabel()
+        subtitle.text = "Configure settings for your torrent client."
+        subtitle.font = .systemFont(ofSize: 14, weight: .regular)
+        subtitle.textColor = .secondaryLabel
+        stack.addArrangedSubview(subtitle)
+
+        // Client Settings section
+        let clientHeader = UILabel()
+        clientHeader.text = "Client Settings"
+        clientHeader.font = .systemFont(ofSize: 18, weight: .bold)
+        clientHeader.textColor = .label
+        stack.addArrangedSubview(clientHeader)
+
+        // Persist Files toggle
+        persistSwitch.isOn = UserDefaults.standard.bool(forKey: "pref_persistFiles")
+        persistSwitch.addTarget(self, action: #selector(persistToggled(_:)), for: .valueChanged)
+        stack.addArrangedSubview(makeSettingRow(
+            title: "Persist Files",
+            description: "Keep downloaded torrent files on device after completion. When off, files are cleaned up when a new torrent starts.",
+            toggle: persistSwitch
+        ))
+
+        // Streamed Download toggle
+        streamedSwitch.isOn = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
+        streamedSwitch.addTarget(self, action: #selector(streamedToggled(_:)), for: .valueChanged)
+        stack.addArrangedSubview(makeSettingRow(
+            title: "Streamed Download",
+            description: "Download only required pieces for streaming instead of the full file. Reduces storage usage but may cause buffering.",
+            toggle: streamedSwitch
+        ))
+
+        // WebTorrent version
+        let versionRow = UIStackView()
+        versionRow.axis = .horizontal
+        versionRow.alignment = .center
+        let versionTitle = UILabel()
+        versionTitle.text = "LibTorrent"
+        versionTitle.font = .systemFont(ofSize: 15, weight: .regular)
+        versionTitle.textColor = .label
+        let versionValue = UILabel()
+        versionValue.text = "libtorrent-rasterbar"
+        versionValue.font = .systemFont(ofSize: 15, weight: .regular)
+        versionValue.textColor = .secondaryLabel
+        versionValue.textAlignment = .right
+        versionRow.addArrangedSubview(versionTitle)
+        versionRow.addArrangedSubview(versionValue)
+        stack.addArrangedSubview(versionRow)
+    }
+
+    private func makeSettingRow(title: String, description: String, toggle: UISwitch) -> UIView {
+        let container = UIView()
+        container.backgroundColor = UIColor(red: 0.094, green: 0.094, blue: 0.11, alpha: 1)
+        container.layer.cornerRadius = 12
+
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        titleLabel.textColor = .label
+
+        let descLabel = UILabel()
+        descLabel.text = description
+        descLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        descLabel.textColor = .secondaryLabel
+        descLabel.numberOfLines = 0
+
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 4
+
+        let row = UIStackView(arrangedSubviews: [textStack, toggle])
+        row.axis = .horizontal
+        row.spacing = 12
+        row.alignment = .center
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            row.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            row.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+        ])
+
+        return container
+    }
+
+    @objc private func persistToggled(_ sender: UISwitch) {
+        UserDefaults.standard.set(sender.isOn, forKey: "pref_persistFiles")
+    }
+
+    @objc private func streamedToggled(_ sender: UISwitch) {
+        UserDefaults.standard.set(sender.isOn, forKey: "pref_streamedDownload")
+    }
+
     // MARK: - Reusable UI builders
 
     private struct StatItem {
@@ -794,5 +1042,172 @@ final class TorrentDetailViewController: UIViewController {
     static func eta(remaining: UInt64, rate: UInt64) -> String {
         guard rate > 0, remaining > 0 else { return "∞" }
         return eta(seconds: Int(remaining / rate))
+    }
+}
+
+// MARK: - Library Table UITableViewDataSource & UITableViewDelegate
+
+extension TorrentDetailViewController: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        guard tableView === libraryTableView else { return 0 }
+        return libraryEntries.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as! LibraryEntryCell
+        guard indexPath.row < libraryEntries.count else { return cell }
+        let entry = libraryEntries[indexPath.row]
+        cell.configure(handle: entry.handle, entity: entry.entity)
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        // Navigate to files view for the selected torrent
+        guard indexPath.row < libraryEntries.count else { return }
+        segmentedControl.selectedSegmentIndex = 1
+        showTab(1)
+    }
+}
+
+// MARK: - LibraryEntryCell (matches Hayase library/table.svelte)
+/// Shows: Series (anime name) | Episode | Files | Size | Status | Torrent Name
+
+final class LibraryEntryCell: UITableViewCell {
+    static let reuseID = "LibraryEntryCell"
+
+    private let seriesLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.textColor = .label
+        l.numberOfLines = 1
+        return l
+    }()
+
+    private let episodeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.textColor = .secondaryLabel
+        return l
+    }()
+
+    private let filesLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.textColor = .secondaryLabel
+        return l
+    }()
+
+    private let sizeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.textColor = .secondaryLabel
+        return l
+    }()
+
+    private let statusBadge: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10, weight: .bold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.layer.cornerRadius = 6
+        l.clipsToBounds = true
+        return l
+    }()
+
+    private let torrentNameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 11, weight: .regular)
+        l.textColor = .tertiaryLabel
+        l.numberOfLines = 2
+        l.lineBreakMode = .byTruncatingTail
+        return l
+    }()
+
+    private let progressBar: UIProgressView = {
+        let pv = UIProgressView(progressViewStyle: .bar)
+        pv.layer.cornerRadius = 2
+        pv.clipsToBounds = true
+        pv.trackTintColor = .secondarySystemFill
+        return pv
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
+
+    private func setup() {
+        accessoryType = .disclosureIndicator
+        backgroundColor = .clear
+
+        // Top row: series + status
+        let topRow = UIStackView(arrangedSubviews: [seriesLabel, statusBadge])
+        topRow.axis = .horizontal
+        topRow.spacing = 8
+        topRow.alignment = .center
+
+        // Info row: episode · files · size
+        let infoRow = UIStackView(arrangedSubviews: [episodeLabel, filesLabel, sizeLabel])
+        infoRow.axis = .horizontal
+        infoRow.spacing = 12
+
+        let mainStack = UIStackView(arrangedSubviews: [topRow, infoRow, progressBar, torrentNameLabel])
+        mainStack.axis = .vertical
+        mainStack.spacing = 6
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(mainStack)
+
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+            progressBar.heightAnchor.constraint(equalToConstant: 3),
+        ])
+    }
+
+    func configure(handle: TorrentHandle, entity: Torrents?) {
+        let snap = handle.snapshot
+
+        // Series name from CoreData Animes entity
+        let animeName = entity?.animes?.animeTitleEnglish
+            ?? entity?.animes?.animeTitleJapanese
+            ?? "Unknown Series"
+        seriesLabel.text = animeName
+
+        // Episode from Videos entities
+        let videoCount = entity?.videos?.count ?? 0
+        episodeLabel.text = videoCount > 0 ? "📺 \(videoCount) episode(s)" : "📺 —"
+
+        // Files count
+        let fileCount = snap.files?.count ?? 0
+        filesLabel.text = "📁 \(fileCount) files"
+
+        // Size
+        sizeLabel.text = "💾 \(TorrentDetailViewController.fastPrettyBytes(snap.total))"
+
+        // Status badge
+        let progress: Float = snap.total > 0
+            ? Float(Double(snap.totalDone) / Double(snap.total))
+            : 0
+        let isComplete = snap.total > 0 && snap.totalDone >= snap.total
+
+        if isComplete {
+            statusBadge.text = " Complete "
+            statusBadge.backgroundColor = .systemGreen
+            progressBar.progress = 1.0
+            progressBar.progressTintColor = .systemGreen
+        } else {
+            statusBadge.text = String(format: " %.0f%% ", progress * 100)
+            statusBadge.backgroundColor = .systemBlue
+            progressBar.progress = progress
+            progressBar.progressTintColor = .systemBlue
+        }
+
+        // Torrent name
+        torrentNameLabel.text = snap.name.isEmpty ? "Unknown torrent" : snap.name
     }
 }
