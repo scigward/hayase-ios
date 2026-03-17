@@ -81,6 +81,9 @@ final class TorrentDetailViewController: UIViewController {
     /// Tracks the last non-Settings segment so we can revert when Settings navigates away.
     private var previousSegmentIndex: Int = 0
 
+    /// Index of the "Settings" segment in the segmented control.
+    private static let settingsSegmentIndex = 4
+
     // MARK: - Overview: header labels
 
     private let nameLabel: UILabel = {
@@ -260,7 +263,7 @@ final class TorrentDetailViewController: UIViewController {
     }
 
     @objc private func segmentChanged(_ sender: UISegmentedControl) {
-        if sender.selectedSegmentIndex == 4 {
+        if sender.selectedSegmentIndex == Self.settingsSegmentIndex {
             // Revert to the previous tab so Settings doesn't stay selected
             sender.selectedSegmentIndex = previousSegmentIndex
             // Navigate to the app Settings page (matches Hayase: Settings → /app/settings/client/)
