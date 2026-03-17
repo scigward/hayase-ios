@@ -3,6 +3,19 @@ import AVKit
 import CoreMedia
 import LibTorrent
 
+// MARK: - FatSlider
+
+/// UISlider subclass with a larger touch target so the seekbar is easier to hit.
+private final class FatSlider: UISlider {
+    /// Extra vertical padding (each side) added to the slider's touch area.
+    private let verticalHitPadding: CGFloat = 20
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        let expanded = bounds.insetBy(dx: 0, dy: -verticalHitPadding)
+        return expanded.contains(point)
+    }
+}
+
 final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Input (set before presenting)
@@ -55,7 +68,7 @@ final class VideoPlayerViewController: UIViewController {
     private let timeLabel     = UILabel()
 
     // Bottom bar — seekbar row
-    private let seekBar       = UISlider()
+    private let seekBar       = FatSlider()
     private let chapterLayer  = UIView()
 
     // Bottom bar — controls row
@@ -443,11 +456,78 @@ final class VideoPlayerViewController: UIViewController {
     private func setupGestures() {
         let singleTap = UITapGestureRecognizer(target: self, action: #selector(surfaceTapped))
         singleTap.numberOfTapsRequired = 1
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(playPauseTapped))
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapHandler(_:)))
         doubleTap.numberOfTapsRequired = 2
         singleTap.require(toFail: doubleTap)
         surface.addGestureRecognizer(singleTap)
         surface.addGestureRecognizer(doubleTap)
+    }
+
+    /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 5.
+    private var seekDurationSeconds: Double {
+        let stored = UserDefaults.standard.string(forKey: "pref_seekDuration") ?? "5"
+        return Double(stored) ?? 5
+    }
+
+    /// Double-tap on the left half of the screen seeks backward; right half seeks forward.
+    /// The seek amount comes from the user's "Seek Duration" setting (pref_seekDuration).
+    @objc private func doubleTapHandler(_ gesture: UITapGestureRecognizer) {
+        let location = gesture.location(in: surface)
+        let seekAmount = seekDurationSeconds
+        if location.x < surface.bounds.midX {
+            // Left half → seek backward
+            let newTime = max(0, currentTime - seekAmount)
+            let fraction = duration > 0 ? newTime / duration : 0
+            streamer?.seekTo(fraction: fraction)
+            surface.mpv.seek(by: -seekAmount)
+            lastSeekTime = Date()
+            showSeekIndicator(seconds: -seekAmount)
+        } else {
+            // Right half → seek forward
+            let newTime = min(duration, currentTime + seekAmount)
+            let fraction = duration > 0 ? newTime / duration : 0
+            streamer?.seekTo(fraction: fraction)
+            surface.mpv.seek(by: seekAmount)
+            lastSeekTime = Date()
+            showSeekIndicator(seconds: seekAmount)
+        }
+        if !controlsVisible { setControls(visible: true) }
+        scheduleHide()
+    }
+
+    /// Briefly shows a "«10s" or "10s»" indicator on the tapped side.
+    private func showSeekIndicator(seconds: Double) {
+        let isForward = seconds > 0
+        let text = isForward
+            ? "\(Int(abs(seconds)))s »"
+            : "« \(Int(abs(seconds)))s"
+        let indicator = UILabel()
+        indicator.text = text
+        indicator.font = .systemFont(ofSize: 22, weight: .bold)
+        indicator.textColor = .white
+        indicator.textAlignment = .center
+        indicator.alpha = 0
+        indicator.layer.shadowColor = UIColor.black.cgColor
+        indicator.layer.shadowOffset = .zero
+        indicator.layer.shadowOpacity = 0.8
+        indicator.layer.shadowRadius = 4
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(indicator)
+        NSLayoutConstraint.activate([
+            indicator.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
+            isForward
+                ? indicator.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: surface.bounds.width * 0.25)
+                : indicator.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: -surface.bounds.width * 0.25),
+        ])
+        UIView.animate(withDuration: 0.15, animations: {
+            indicator.alpha = 1
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 0.4, options: [], animations: {
+                indicator.alpha = 0
+            }) { _ in
+                indicator.removeFromSuperview()
+            }
+        }
     }
 
     // MARK: - Video loading

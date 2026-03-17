@@ -541,6 +541,9 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Properties
 
     private var sections: [HomeSectionData] = []
+    /// Items used exclusively for the hero banner rotation.  Always sourced from
+    /// the first *fetched* section (trending/popular) — never "Continue Watching".
+    private var bannerItems: [AnimeItem] = []
     private var isSearching: Bool = false
     private var isLoadingSections: Bool = false
     private var animeResultsController: NSFetchedResultsController<Animes>?
@@ -765,6 +768,7 @@ class BrowseAnimeViewController: UIViewController {
     private func loadSections() {
         isSearching = false
         sections = []
+        bannerItems = []
         isLoadingSections = true
         collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
         collectionView.reloadData()
@@ -772,6 +776,10 @@ class BrowseAnimeViewController: UIViewController {
         emptyLabel.isHidden = true
         AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
+
+            // Always use the first fetched section (trending/popular) for the hero
+            // banner so that "Continue Watching" titles never appear in the banner.
+            self.bannerItems = fetchedSections.first?.items ?? []
 
             // Prepend "Continue Watching" section from WatchProgressService (Hayase continueIDs)
             let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
@@ -884,13 +892,13 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
         }
 
-        // Section 0: hero banner (uses items from the first section as rotation pool)
+        // Section 0: hero banner (always uses the trending/popular items, never Continue Watching)
         if indexPath.section == 0 {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
-            if !sections.isEmpty {
-                cell.configure(with: sections[0].items)
+            if !bannerItems.isEmpty {
+                cell.configure(with: bannerItems)
             }
             return cell
         }
