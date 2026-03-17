@@ -140,7 +140,7 @@ final class TrackerAccountManager {
 final class AniListAuth {
 
     /// Default AniList client ID matching Hayase.
-    static let defaultClientID = "21038"
+    static let defaultClientID = "37117"
 
     static var clientID: String {
         get { UserDefaults.standard.string(forKey: "pref_anilistClientID") ?? defaultClientID }

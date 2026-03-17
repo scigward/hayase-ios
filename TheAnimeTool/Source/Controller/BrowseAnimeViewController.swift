@@ -66,6 +66,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
+    private var clearlogoTask: URLSessionDataTask?
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
     private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
@@ -92,6 +93,21 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
         return l
+    }()
+
+    // Clearlogo: transparent title art from ani.zip (coverType == "Clearlogo").
+    // Matches Hayase full-banner.svelte: displays logo image when available, hides titleLabel.
+    // drop-shadow-lg w-[30rem] — scaled down for mobile to ~200pt width, aspect-fit.
+    private let clearlogoImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        iv.isHidden = true   // hidden by default; shown when Clearlogo is available
+        iv.layer.shadowColor = UIColor.black.cgColor
+        iv.layer.shadowOpacity = 0.6
+        iv.layer.shadowRadius = 8
+        iv.layer.shadowOffset = CGSize(width: 0, height: 4)
+        return iv
     }()
 
     // Badge row: bg-primary/10 pills (duration, format, status, score)
@@ -141,8 +157,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             contentView.addSubview($0)
         }
 
-        // Text stack: [title, badgeStack, descriptionLabel]
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, badgeStack, descriptionLabel])
+        // Text stack: [clearlogoImageView, titleLabel, badgeStack, descriptionLabel]
+        // Clearlogo replaces title visually — only one is visible at a time.
+        let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, descriptionLabel])
         textStack.axis = .vertical
         textStack.spacing = 8
         textStack.alignment = .leading
@@ -171,6 +188,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
+
+            // Clearlogo: max height 60pt (scaled from Hayase's w-[30rem] for mobile),
+            // natural aspect ratio preserved via .scaleAspectFit
+            clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 60),
         ])
     }
 
@@ -190,7 +211,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard currentIndex < items.count else { return }
         let item = items[currentIndex]
         let block = {
+            // Reset title/clearlogo — will be resolved by loadClearlogo
             self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
+            self.titleLabel.isHidden = false
+            self.clearlogoImageView.isHidden = true
+            self.clearlogoImageView.image = nil
             self.descriptionLabel.text = item.description
             self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
             self.updateBadges(for: item)
@@ -202,6 +227,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             block()
         }
         loadBanner(for: item)
+        loadClearlogo(for: item)
     }
 
     private func loadBanner(for item: AnimeItem) {
@@ -245,6 +271,50 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// At bannerHeight = 240pt, a 1900×400 landscape banner shows ~34% of its width.
     private func applyContentMode(for image: UIImage) {
         backgroundImageView.contentMode = .scaleAspectFill
+    }
+
+    /// Fetches the Clearlogo (transparent title art) from ani.zip for the current item.
+    /// If found, displays the logo image and hides the text title. Otherwise keeps text.
+    /// Matches Hayase full-banner.svelte:
+    ///   `{#await episodesCached(current.id) then metadata}`
+    ///   `{@const src = metadata?.images?.find(i => i.coverType === 'Clearlogo')?.url}`
+    private func loadClearlogo(for item: AnimeItem) {
+        clearlogoTask?.cancel()
+        clearlogoTask = nil
+        let itemID = item.id
+        AnimeService.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
+            guard let self = self else { return }
+            // Make sure we're still displaying the same item (rotation may have advanced)
+            guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
+            guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
+                // No clearlogo — keep text title visible (already the default)
+                return
+            }
+            // Check image cache first
+            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                self.showClearlogo(cached, forItemID: itemID)
+                return
+            }
+            let captured = urlStr
+            self.clearlogoTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let data, let image = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(image, forKey: captured as NSString)
+                DispatchQueue.main.async {
+                    self?.showClearlogo(image, forItemID: itemID)
+                }
+            }
+            self.clearlogoTask?.resume()
+        }
+    }
+
+    private func showClearlogo(_ image: UIImage, forItemID: Int) {
+        // Verify we're still on the same item
+        guard currentIndex < items.count, items[currentIndex].id == forItemID else { return }
+        clearlogoImageView.image = image
+        UIView.animate(withDuration: 0.3) {
+            self.clearlogoImageView.isHidden = false
+            self.titleLabel.isHidden = true
+        }
     }
 
     private func updateBadges(for item: AnimeItem) {
@@ -326,8 +396,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerTask = nil
         fanartTask?.cancel()
         fanartTask = nil
+        clearlogoTask?.cancel()
+        clearlogoTask = nil
         items = []
         backgroundImageView.image = nil
+        clearlogoImageView.image = nil
+        clearlogoImageView.isHidden = true
+        titleLabel.isHidden = false
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {

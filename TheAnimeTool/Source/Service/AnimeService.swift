@@ -1026,11 +1026,13 @@ public class AnimeService: NSObject {
         }.resume()
     }
 
-    // MARK: - ani.zip Fanart cache
-    // Shared across all screens that want to upgrade banners to TVDB Fanart images.
+    // MARK: - ani.zip image cache (Fanart + Clearlogo)
+    // Shared across all screens that want to upgrade banners to TVDB Fanart images
+    // or display Clearlogo (transparent title art) like Hayase's full-banner.svelte.
     // Same approach as AnimeDetailViewController.fetchEpisodes() but exposed as a static utility.
-    private static var _fanartURLs:   [Int: String]  = [:]  // id → fanart URL (when found)
-    private static var _fanartFetched: Set<Int>       = []   // ids already fetched (hit or miss)
+    private static var _fanartURLs:      [Int: String] = [:]  // id → fanart URL (when found)
+    private static var _clearlogoURLs:   [Int: String] = [:]  // id → clearlogo URL (when found)
+    private static var _fanartFetched:   Set<Int>      = []   // ids already fetched (hit or miss)
     private static var _fanartCallbacks: [Int: [(String?) -> Void]] = [:]
     private static let _fanartQueue = DispatchQueue(label: "com.nyais.fanartcache", attributes: .concurrent)
 
@@ -1038,6 +1040,7 @@ public class AnimeService: NSObject {
     /// Results are cached in-memory for the lifetime of the app session.
     /// Multiple concurrent callers for the same ID are coalesced — only one network request is made.
     /// Calls completion on the main queue with nil if no Fanart is available.
+    /// Also caches Clearlogo URL from the same response for use by `fetchClearlogoURL`.
     static func fetchFanartURL(anilistID: Int, completion: @escaping (String?) -> Void) {
         _fanartQueue.async(flags: .barrier) {
             // Cache hit
@@ -1053,33 +1056,74 @@ public class AnimeService: NSObject {
             }
             // First caller — start fetch
             _fanartCallbacks[anilistID] = [completion]
-            var comps = URLComponents(string: "https://api.ani.zip/mappings")
-            comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
-            guard let url = comps?.url else {
-                _fanartQueue.async(flags: .barrier) {
-                    let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
-                    _fanartFetched.insert(anilistID)
-                    cbs.forEach { cb in DispatchQueue.main.async { cb(nil) } }
-                }
+            _fetchAniZipImages(anilistID: anilistID)
+        }
+    }
+
+    /// Returns the cached Clearlogo URL for an AniList media ID, or nil.
+    /// The data is populated as a side-effect of `fetchFanartURL` (same API response).
+    /// If the images haven't been fetched yet, triggers a fetch and calls completion when ready.
+    /// Matches Hayase full-banner.svelte: `metadata?.images?.find(i => i.coverType === 'Clearlogo')?.url`
+    static func fetchClearlogoURL(anilistID: Int, completion: @escaping (String?) -> Void) {
+        _fanartQueue.async(flags: .barrier) {
+            if _fanartFetched.contains(anilistID) {
+                let url = _clearlogoURLs[anilistID]
+                DispatchQueue.main.async { completion(url) }
                 return
             }
-            var req = URLRequest(url: url, timeoutInterval: 15)
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            URLSession.shared.dataTask(with: req) { data, _, _ in
-                var fanartURL: String? = nil
-                if let data,
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let images = json["images"] as? [[String: Any]] {
-                    fanartURL = images.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
-                               ?? images.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+            // Piggyback on the fanart fetch — queue a clearlogo callback wrapper
+            if _fanartCallbacks[anilistID] != nil {
+                _fanartCallbacks[anilistID]?.append({ _ in
+                    // Once fetched, read clearlogo from the cache
+                    _fanartQueue.async {
+                        let url = _clearlogoURLs[anilistID]
+                        DispatchQueue.main.async { completion(url) }
+                    }
+                })
+                return
+            }
+            _fanartCallbacks[anilistID] = [{ _ in
+                _fanartQueue.async {
+                    let url = _clearlogoURLs[anilistID]
+                    DispatchQueue.main.async { completion(url) }
                 }
-                _fanartQueue.async(flags: .barrier) {
-                    let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
-                    _fanartFetched.insert(anilistID)
-                    if let fanartURL { _fanartURLs[anilistID] = fanartURL }
-                    cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
-                }
-            }.resume()
+            }]
+            _fetchAniZipImages(anilistID: anilistID)
         }
+    }
+
+    /// Shared fetch for both fanart and clearlogo — called only once per ID.
+    /// Must be called from within a barrier block on `_fanartQueue`.
+    private static func _fetchAniZipImages(anilistID: Int) {
+        var comps = URLComponents(string: "https://api.ani.zip/mappings")
+        comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
+        guard let url = comps?.url else {
+            _fanartQueue.async(flags: .barrier) {
+                let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                _fanartFetched.insert(anilistID)
+                cbs.forEach { cb in DispatchQueue.main.async { cb(nil) } }
+            }
+            return
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            var fanartURL: String? = nil
+            var clearlogoURL: String? = nil
+            if let data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let images = json["images"] as? [[String: Any]] {
+                fanartURL = images.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
+                           ?? images.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+                clearlogoURL = images.first(where: { ($0["coverType"] as? String) == "Clearlogo" })?["url"] as? String
+            }
+            _fanartQueue.async(flags: .barrier) {
+                let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                _fanartFetched.insert(anilistID)
+                if let fanartURL { _fanartURLs[anilistID] = fanartURL }
+                if let clearlogoURL { _clearlogoURLs[anilistID] = clearlogoURL }
+                cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
+            }
+        }.resume()
     }
 }

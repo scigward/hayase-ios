@@ -888,13 +888,21 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     private let anilistButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("AL", for: .normal)
-        b.tintColor = .white
+        let b = UIButton(type: .custom)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
         b.layer.cornerRadius = 8
         b.layer.masksToBounds = true
+        // Use AniListIconView instead of "AL" text — matches TrackerIcons.swift
+        let icon = AniListIconView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
+        b.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 15),
+        ])
         return b
     }()
 
