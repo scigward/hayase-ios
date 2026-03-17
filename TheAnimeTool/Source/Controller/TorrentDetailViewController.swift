@@ -1250,7 +1250,7 @@ final class LibraryEntryCell: UITableViewCell {
         episodeLabel.text = videoCount > 0 ? "📺 \(videoCount) episode(s)" : "📺 —"
 
         // Files count
-        let fileCount = snap.files?.count ?? 0
+        let fileCount = snap.files.count
         filesLabel.text = "📁 \(fileCount) files"
 
         // Size
