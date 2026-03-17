@@ -60,6 +60,12 @@ class SettingsViewController: UIViewController {
     private enum RowKind {
         case toggle(userDefaultsKey: String, defaultValue: Bool)
         case value(String)
+        /// Selectable value — tapping shows a picker with the given options.
+        /// `userDefaultsKey` persists the choice; `options` maps stored-key → display label;
+        /// `defaultKey` is the initial stored key.
+        case selectable(userDefaultsKey: String, options: [(key: String, label: String)], defaultKey: String)
+        /// Editable numeric value — tapping shows a text field.
+        case editableNumber(userDefaultsKey: String, defaultValue: String, suffix: String, min: Int, max: Int)
         case link(String)
         case navigate
         case action
@@ -113,6 +119,34 @@ class SettingsViewController: UIViewController {
         allSections.filter { $0.tab == selectedTab }
     }
 
+    // MARK: - Option lists (matching Hayase src/lib/modules/settings/util.ts)
+
+    private static let languageCodes: [(key: String, label: String)] = [
+        ("eng", "English"), ("jpn", "Japanese"), ("chi", "Chinese"),
+        ("por", "Portuguese"), ("spa", "Spanish"), ("ger", "German"),
+        ("pol", "Polish"), ("cze", "Czech"), ("dan", "Danish"),
+        ("gre", "Greek"), ("fin", "Finnish"), ("fre", "French"),
+        ("hun", "Hungarian"), ("ita", "Italian"), ("kor", "Korean"),
+        ("dut", "Dutch"), ("nor", "Norwegian"), ("rum", "Romanian"),
+        ("rus", "Russian"), ("slo", "Slovak"), ("swe", "Swedish"),
+        ("ara", "Arabic"), ("idn", "Indonesian"), ("heb", "Hebrew"),
+        ("vie", "Vietnamese"), ("tha", "Thai"), ("tur", "Turkish"),
+        ("hin", "Hindi"), ("ben", "Bengali"), ("per", "Persian"),
+        ("mal", "Malayalam"), ("", "None"),
+    ]
+
+    private static let subtitleResolutions: [(key: String, label: String)] = [
+        ("0", "None"), ("1440", "1440p"), ("1080", "1080p"), ("720", "720p"), ("480", "480p"),
+    ]
+
+    private static let videoResolutions: [(key: String, label: String)] = [
+        ("2160", "2160p"), ("1080", "1080p"), ("720", "720p"), ("480", "480p"), ("", "Any"),
+    ]
+
+    private static let lookupPreferences: [(key: String, label: String)] = [
+        ("quality", "Quality"), ("size", "Size"), ("seeders", "Availability"),
+    ]
+
     // MARK: - All sections (full data, tagged by tab)
 
     private lazy var allSections: [Section] = [
@@ -125,16 +159,16 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_missingFont", defaultValue: false)),
             Row(title: "Subtitle Render Resolution Limit",
                 description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled linearly. This will GREATLY improve rendering speeds for complex typesetting for slower devices.",
-                kind: .value("1080p")),
+                kind: .selectable(userDefaultsKey: "pref_subtitleRenderHeight", options: subtitleResolutions, defaultKey: "1080")),
         ], tab: .player),
 
         Section(header: "Language Settings", rows: [
             Row(title: "Preferred Subtitle Language",
                 description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
-                kind: .value("English")),
+                kind: .selectable(userDefaultsKey: "pref_subtitleLanguage", options: languageCodes, defaultKey: "eng")),
             Row(title: "Preferred Audio Language",
                 description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
-                kind: .value("Japanese")),
+                kind: .selectable(userDefaultsKey: "pref_audioLanguage", options: languageCodes, defaultKey: "jpn")),
         ], tab: .player),
 
         Section(header: "Playback Settings", rows: [
@@ -155,7 +189,7 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_deband", defaultValue: false)),
             Row(title: "Seek Duration",
                 description: "Seconds to skip forward or backward when using the seek buttons. Higher values might negatively impact buffering speeds.",
-                kind: .value("5 sec")),
+                kind: .editableNumber(userDefaultsKey: "pref_seekDuration", defaultValue: "5", suffix: "sec", min: 1, max: 50)),
             Row(title: "Auto-Skip Intro/Outro",
                 description: "Attempt to automatically skip intro and outro sections. This WILL sometimes skip incorrect chapters, as some of the chapter data is community sourced.",
                 kind: .toggle(userDefaultsKey: "pref_skipIntro", defaultValue: false)),
@@ -181,7 +215,7 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_enableDoH", defaultValue: false)),
             Row(title: "DNS Over HTTPS URL",
                 description: "What URL to use for querying DNS Over HTTPS.",
-                kind: .value("https://cloudflare-dns.com/dns-query")),
+                kind: .editableNumber(userDefaultsKey: "pref_doHURL", defaultValue: "https://cloudflare-dns.com/dns-query", suffix: "", min: 0, max: 0)),
         ], tab: .client),
 
         Section(header: "Client Settings", rows: [
@@ -196,16 +230,16 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_streamedDownload", defaultValue: false)),
             Row(title: "Transfer Speed Limit",
                 description: "Download/Upload speed limit for torrents, higher values increase CPU usage, and values higher than your storage write speeds will quickly fill up RAM.",
-                kind: .value("∞ Mb/s")),
+                kind: .editableNumber(userDefaultsKey: "pref_torrentSpeed", defaultValue: "40", suffix: "Mb/s", min: 1, max: 999)),
             Row(title: "Max Number of Connections",
                 description: "Number of peers per torrent. Higher values will increase download speeds but might quickly fill up available ports if your ISP limits the maximum allowed number of open connections.",
-                kind: .value("55")),
+                kind: .editableNumber(userDefaultsKey: "pref_maxConns", defaultValue: "55", suffix: "", min: 1, max: 512)),
             Row(title: "Forwarded Torrent Port",
                 description: "Forwarded port used for incoming torrent connections. 0 automatically finds an open unused port. Change this to a specific port if you forwarded manually, or if you use a VPN.",
-                kind: .value("0")),
+                kind: .editableNumber(userDefaultsKey: "pref_torrentPort", defaultValue: "0", suffix: "", min: 0, max: 65536)),
             Row(title: "DHT Port",
                 description: "Port used for DHT connections. 0 is automatic.",
-                kind: .value("0")),
+                kind: .editableNumber(userDefaultsKey: "pref_dhtPort", defaultValue: "0", suffix: "", min: 0, max: 65536)),
             Row(title: "Disable DHT",
                 description: "Disables Distributed Hash Tables for use in private trackers to improve privacy. Might greatly reduce the amount of discovered peers.",
                 kind: .toggle(userDefaultsKey: "pref_disableDHT", defaultValue: false)),
@@ -230,13 +264,13 @@ class SettingsViewController: UIViewController {
         Section(header: "Lookup Settings", rows: [
             Row(title: "Torrent Quality",
                 description: "What quality to use when trying to find torrents. This doesn't exclude other qualities from being found. Non-1080p resolutions might not be available for all shows, or find way less results.",
-                kind: .value("1080p")),
+                kind: .selectable(userDefaultsKey: "pref_searchQuality", options: videoResolutions, defaultKey: "1080")),
             Row(title: "Auto-Select Torrents",
                 description: "Automatically selects torrents based on quality and amount of seeders. Disable this to have more precise control over played torrents.",
                 kind: .toggle(userDefaultsKey: "pref_searchAutoSelect", defaultValue: true)),
             Row(title: "Lookup Preference",
                 description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available, Size will focus on the smallest file size, and Availability will pick results with the most peers.",
-                kind: .value("Quality")),
+                kind: .selectable(userDefaultsKey: "pref_lookupPreference", options: lookupPreferences, defaultKey: "quality")),
         ], tab: .extensions),
 
         Section(header: "Extension Settings", rows: [
@@ -347,7 +381,7 @@ class SettingsViewController: UIViewController {
 
         // Version info: matches Hayase sidebar footer
         let versionLabel = UILabel()
-        versionLabel.text = "NyaiS v\(appVersion())"
+        versionLabel.text = "Hayase v\(appVersion())"
         versionLabel.font = .systemFont(ofSize: 12, weight: .light)
         versionLabel.textColor = mutedFg
 
@@ -436,11 +470,27 @@ class SettingsViewController: UIViewController {
 
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
+
+        // Determine animation direction based on tab index
+        let goingRight = tab.rawValue > selectedTab.rawValue
         selectedTab = tab
-        for btn in tabButtons {
-            updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
+
+        // Animate tab button appearance
+        UIView.animate(withDuration: 0.2) {
+            for btn in self.tabButtons {
+                self.updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
+            }
         }
+
+        // Crossfade table content with a subtle slide
+        let transition = CATransition()
+        transition.type = .push
+        transition.subtype = goingRight ? .fromRight : .fromLeft
+        transition.duration = 0.25
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        tableView.layer.add(transition, forKey: "tabSwitch")
         tableView.reloadData()
+
         // Scroll to top when switching tabs
         if !visibleSections.isEmpty {
             tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
@@ -453,6 +503,92 @@ class SettingsViewController: UIViewController {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(v) (\(b))"
+    }
+
+    // MARK: - Selection picker (used for selectable rows)
+
+    private func showSelectionPicker(title: String, key: String, options: [(key: String, label: String)], defaultKey: String, indexPath: IndexPath) {
+        let currentKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
+
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
+
+        for option in options {
+            let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
+                UserDefaults.standard.set(option.key, forKey: key)
+                self?.tableView.reloadRows(at: [indexPath], with: .fade)
+            }
+            if option.key == currentKey {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        // iPad popover anchor
+        if let popover = alert.popoverPresentationController,
+           let cell = tableView.cellForRow(at: indexPath) {
+            popover.sourceView = cell
+            popover.sourceRect = cell.bounds
+        }
+
+        present(alert, animated: true)
+    }
+
+    // MARK: - Editable number/text alert
+
+    private func showEditableAlert(title: String, key: String, defaultValue: String, suffix: String, min: Int, max: Int, indexPath: IndexPath) {
+        let currentValue = UserDefaults.standard.string(forKey: key) ?? defaultValue
+
+        let alert = UIAlertController(title: title, message: suffix.isEmpty ? nil : "Enter a value", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.text = currentValue
+            textField.clearButtonMode = .whileEditing
+            if min > 0 || max > 0 {
+                textField.keyboardType = .numberPad
+            }
+            if !suffix.isEmpty {
+                textField.placeholder = suffix
+            }
+        }
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            guard let text = alert.textFields?.first?.text, !text.isEmpty else { return }
+            // Validate numeric range if applicable
+            if min > 0 || max > 0, let num = Int(text) {
+                let clamped = Swift.min(Swift.max(num, min), max)
+                UserDefaults.standard.set(String(clamped), forKey: key)
+            } else {
+                UserDefaults.standard.set(text, forKey: key)
+            }
+            self?.tableView.reloadRows(at: [indexPath], with: .fade)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Action handling
+
+    private func handleAction(row: Row) {
+        switch row.title {
+        case "Reset Everything To Default":
+            let alert = UIAlertController(title: "Reset Everything?",
+                                          message: "This will reset ALL settings and data to their default values. This cannot be undone.",
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in
+                let domain = Bundle.main.bundleIdentifier!
+                UserDefaults.standard.removePersistentDomain(forName: domain)
+                UserDefaults.standard.synchronize()
+            })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            present(alert, animated: true)
+        case "Copy App and Device Info":
+            var info = "Hayase v\(appVersion())\n"
+            info += "iOS \(UIDevice.current.systemVersion)\n"
+            info += "\(UIDevice.current.model)\n"
+            UIPasteboard.general.string = info
+        default:
+            break
+        }
     }
 }
 
@@ -505,6 +641,24 @@ extension SettingsViewController: UITableViewDataSource {
             cell.configure(title: row.title, description: row.description, value: val, isLink: false)
             cell.backgroundColor = bgColor
             return cell
+        case .selectable(let key, let options, let defaultKey):
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            let storedKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
+            let displayValue = options.first(where: { $0.key == storedKey })?.label ?? storedKey
+            cell.configure(title: row.title, description: row.description, value: displayValue, isLink: false)
+            cell.selectionStyle = .default
+            cell.backgroundColor = bgColor
+            return cell
+        case .editableNumber(let key, let defaultValue, let suffix, _, _):
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
+            let display = suffix.isEmpty ? stored : "\(stored) \(suffix)"
+            cell.configure(title: row.title, description: row.description, value: display, isLink: false)
+            cell.selectionStyle = .default
+            cell.backgroundColor = bgColor
+            return cell
         case .link:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
@@ -543,8 +697,12 @@ extension SettingsViewController: UITableViewDelegate {
                 let extVC = ExtensionsViewController()
                 navigationController?.pushViewController(extVC, animated: true)
             }
+        case .selectable(let key, let options, let defaultKey):
+            showSelectionPicker(title: row.title, key: key, options: options, defaultKey: defaultKey, indexPath: indexPath)
+        case .editableNumber(let key, let defaultValue, let suffix, let min, let max):
+            showEditableAlert(title: row.title, key: key, defaultValue: defaultValue, suffix: suffix, min: min, max: max, indexPath: indexPath)
         case .action:
-            break
+            handleAction(row: row)
         default:
             break
         }
@@ -556,6 +714,14 @@ extension SettingsViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         80
+    }
+
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        // Subtle fade-in for each cell as it appears
+        cell.alpha = 0
+        UIView.animate(withDuration: 0.25, delay: 0.02 * Double(indexPath.row), options: .curveEaseOut) {
+            cell.alpha = 1
+        }
     }
 }
 
