@@ -1,5 +1,6 @@
 import UIKit
 import AVKit
+import CoreMedia
 import LibTorrent
 
 final class VideoPlayerViewController: UIViewController {
@@ -18,6 +19,9 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Player components
 
     private let surface = MPVSurfaceView()
+    /// System PiP controller (streamyfin). Provides the native iOS
+    /// Picture-in-Picture window when the app goes to background.
+    private var pipController: PiPController?
 
     // MARK: - Streaming
 
@@ -97,6 +101,13 @@ final class VideoPlayerViewController: UIViewController {
         
         surface.mpv.delegate = self
         ExternalDisplayManager.shared.register(self)
+
+        // System PiP (streamyfin): create the AVPictureInPictureController
+        // backed by the same AVSampleBufferDisplayLayer that MPV renders to.
+        let pip = PiPController(sampleBufferDisplayLayer: surface.displayLayer)
+        pip.delegate = self
+        self.pipController = pip
+
         loadCurrentVideo()
         scheduleHide()
     }
@@ -123,6 +134,9 @@ final class VideoPlayerViewController: UIViewController {
         // playing in the mini-player (Hayase wrapper.svelte keeps the player
         // component mounted when navigating away from /app/player).
         guard !isMinimizing else { return }
+        // Don't tear down while system PiP is active — the user may return
+        // via the PiP restore button.
+        guard !(pipController?.isPictureInPictureActive ?? false) else { return }
         tearDownPlayer()
     }
 
@@ -132,6 +146,7 @@ final class VideoPlayerViewController: UIViewController {
     func tearDownPlayer() {
         saveProgress()
         MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
+        pipController?.stopPictureInPicture()
         statsTimer?.invalidate()
         ExternalDisplayManager.shared.unregister(self)
         streamServer?.stop()
@@ -984,6 +999,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.duration    = duration
         updateTimeUI()
 
+        // Feed position/duration to system PiP so the progress bar stays in sync.
+        pipController?.setCurrentTimeFromSeconds(position, duration: duration)
+
         // Apply deferred progress-restore seek once MPV reports a valid duration,
         // meaning the file/stream is loaded and seeking is possible.
         if let restoreTime = pendingRestoreTime, duration > 0 {
@@ -1027,6 +1045,11 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
         // Keep the mini-player's play/pause icon in sync.
         MiniPlayerManager.shared.updatePlayPauseIcon(isPaused: isPaused)
+
+        // Update system PiP timebase rate so the PiP window shows the
+        // correct play/pause state and progress bar animation.
+        pipController?.setPlaybackRate(isPaused ? 0 : 1)
+        pipController?.updatePlaybackState()
 
         // Don't pause the torrent when the video is paused. Like Hayase,
         // we keep the torrent downloading at reduced effective speed (no
@@ -1074,5 +1097,78 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     /// Toggles play/pause from the mini-player.
     func togglePlayPause() {
         surface.mpv.togglePause()
+    }
+}
+
+// MARK: - PiPControllerDelegate (System PiP — streamyfin)
+
+extension VideoPlayerViewController: PiPControllerDelegate {
+
+    func pipController(_ controller: PiPController, willStartPictureInPicture: Bool) {
+        // Hide in-app overlay while system PiP is active.
+        setControls(visible: false)
+    }
+
+    func pipController(_ controller: PiPController, didStartPictureInPicture: Bool) {
+        // System PiP started successfully.
+    }
+
+    func pipController(_ controller: PiPController, willStopPictureInPicture: Bool) {
+        // System PiP is about to stop.
+    }
+
+    func pipController(_ controller: PiPController, didStopPictureInPicture: Bool) {
+        // System PiP stopped — show controls again.
+        setControls(visible: true)
+        scheduleHide()
+    }
+
+    func pipController(_ controller: PiPController, restoreUserInterfaceForPictureInPictureStop completionHandler: @escaping (Bool) -> Void) {
+        // The user tapped the PiP window to return to the app.
+        // If the player is still presented, just report success.
+        // If it was dismissed (e.g. from in-app mini-player), re-present it.
+        if presentingViewController != nil || view.window != nil {
+            completionHandler(true)
+        } else {
+            // Player was dismissed — try to present it again from the top VC.
+            if let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first,
+               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                var top = root
+                while let presented = top.presentedViewController { top = presented }
+                self.modalPresentationStyle = .fullScreen
+                top.present(self, animated: true) {
+                    completionHandler(true)
+                }
+            } else {
+                completionHandler(false)
+            }
+        }
+    }
+
+    func pipControllerPlay(_ controller: PiPController) {
+        surface.mpv.play()
+    }
+
+    func pipControllerPause(_ controller: PiPController) {
+        userRequestedPause = true
+        surface.mpv.pausePlayback()
+    }
+
+    func pipController(_ controller: PiPController, skipByInterval interval: CMTime) {
+        let seconds = CMTimeGetSeconds(interval)
+        surface.mpv.seek(by: seconds)
+    }
+
+    func pipControllerIsPlaying(_ controller: PiPController) -> Bool {
+        return !isPaused
+    }
+
+    func pipControllerDuration(_ controller: PiPController) -> Double {
+        return duration
+    }
+
+    func pipControllerCurrentPosition(_ controller: PiPController) -> Double {
+        return currentTime
     }
 }
