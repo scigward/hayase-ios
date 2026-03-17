@@ -18,6 +18,7 @@
 //
 
 import UIKit
+import AuthenticationServices
 
 // MARK: - HayaseAccountCardCell
 
@@ -367,14 +368,44 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     // MARK: - AniList Login
 
+    /// Active ASWebAuthenticationSession — must be retained until completion.
+    private var authSession: ASWebAuthenticationSession?
+    /// Retained presentation context for the auth session (presentationContextProvider is weak).
+    private var authPresentationContext: AniListAuthPresentationContext?
+
     private func loginAniList() {
-        // Open AniList OAuth in Safari
         guard let vc = parentVC else { return }
         let url = AniListAuth.authorizeURL
 
-        // Use SFSafariViewController for in-app auth
-        let safari = SFSafariViewControllerCompat(url: url)
-        vc.present(safari, animated: true)
+        // ASWebAuthenticationSession properly handles custom URL scheme redirects
+        // (SFSafariViewController cannot navigate to custom schemes like hayase://).
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "hayase"
+        ) { [weak self] callbackURL, error in
+            self?.authSession = nil
+            self?.authPresentationContext = nil
+            guard let callbackURL = callbackURL, error == nil else { return }
+
+            // AniList implicit grant puts the token in the URL fragment:
+            //   hayase://#access_token=xxx&token_type=Bearer&expires_in=xxx
+            if let fragment = callbackURL.fragment {
+                let params = fragment.components(separatedBy: "&")
+                    .reduce(into: [String: String]()) { dict, pair in
+                        let parts = pair.components(separatedBy: "=")
+                        if parts.count == 2 { dict[parts[0]] = parts[1] }
+                    }
+                if let token = params["access_token"] {
+                    AniListAuth.completeLogin(token: token)
+                }
+            }
+        }
+        let ctx = AniListAuthPresentationContext(anchor: vc)
+        authPresentationContext = ctx
+        session.presentationContextProvider = ctx
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        session.start()
     }
 
     // MARK: - Kitsu Login
@@ -415,8 +446,28 @@ final class HayaseAccountCardCell: UITableViewCell {
         UserDefaults.standard.set(codeVerifier, forKey: "mal_code_verifier")
         let url = MALAuth.authorizeURL(codeChallenge: codeVerifier)
 
-        let safari = SFSafariViewControllerCompat(url: url)
-        vc.present(safari, animated: true)
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "hayase"
+        ) { [weak self] callbackURL, error in
+            self?.authSession = nil
+            self?.authPresentationContext = nil
+            guard let callbackURL = callbackURL, error == nil else { return }
+
+            // MAL PKCE flow returns the code in the query string:
+            //   hayase://callback?code=xxx
+            if let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+               let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+               let verifier = UserDefaults.standard.string(forKey: "mal_code_verifier") {
+                MALAuth.completeLogin(code: code, codeVerifier: verifier)
+            }
+        }
+        let ctx = AniListAuthPresentationContext(anchor: vc)
+        authPresentationContext = ctx
+        session.presentationContextProvider = ctx
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        session.start()
     }
 
     // MARK: - Settings dialogs
@@ -491,3 +542,16 @@ import SafariServices
 
 /// Thin wrapper to avoid needing to import SafariServices in every file.
 final class SFSafariViewControllerCompat: SFSafariViewController {}
+
+/// Provides the presentation anchor window for ASWebAuthenticationSession.
+final class AniListAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private weak var anchor: UIViewController?
+
+    init(anchor: UIViewController) {
+        self.anchor = anchor
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        anchor?.view.window ?? UIApplication.shared.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+}
