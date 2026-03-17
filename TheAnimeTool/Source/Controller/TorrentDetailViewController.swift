@@ -7,7 +7,8 @@
 //   - Files: embeds VideoListViewController as a child VC
 //   - Peers: peer/seed/leech summary
 //   - Library: downloaded content table (series, episode, files, size, status, date, name)
-//   - Settings: torrent client settings (persist files, streamed download)
+//   - Settings: navigates to the app SettingsViewController (matches Hayase's
+//               client layout where Settings links to /app/settings/client/)
 
 import UIKit
 import LibTorrent
@@ -73,20 +74,12 @@ final class TorrentDetailViewController: UIViewController {
         return sv
     }()
 
-    private lazy var settingsScrollView: UIScrollView = {
-        let sv = UIScrollView()
-        sv.showsVerticalScrollIndicator = true
-        sv.alwaysBounceVertical = true
-        return sv
-    }()
-
     // MARK: - Library tab: table for downloaded content
     private var libraryTableView: UITableView!
     private var libraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
 
-    // MARK: - Settings tab: toggle cells
-    private let persistSwitch = UISwitch()
-    private let streamedSwitch = UISwitch()
+    /// Tracks the last non-Settings segment so we can revert when Settings navigates away.
+    private var previousSegmentIndex: Int = 0
 
     // MARK: - Overview: header labels
 
@@ -187,7 +180,6 @@ final class TorrentDetailViewController: UIViewController {
         buildOverviewUI()
         buildPeersUI()
         buildLibraryUI()
-        buildSettingsUI()
         showTab(0)
         update()
     }
@@ -268,7 +260,16 @@ final class TorrentDetailViewController: UIViewController {
     }
 
     @objc private func segmentChanged(_ sender: UISegmentedControl) {
-        showTab(sender.selectedSegmentIndex)
+        if sender.selectedSegmentIndex == 4 {
+            // Revert to the previous tab so Settings doesn't stay selected
+            sender.selectedSegmentIndex = previousSegmentIndex
+            // Navigate to the app Settings page (matches Hayase: Settings → /app/settings/client/)
+            let settingsVC = SettingsViewController()
+            navigationController?.pushViewController(settingsVC, animated: true)
+        } else {
+            previousSegmentIndex = sender.selectedSegmentIndex
+            showTab(sender.selectedSegmentIndex)
+        }
     }
 
     /// Updates the page title and subtitle label to match Hayase's per-tab descriptions.
@@ -286,9 +287,6 @@ final class TorrentDetailViewController: UIViewController {
         case 3:
             pageTitleLabel.text = "Torrent Library"
             pageSubtitleLabel.text = "All of your downloaded torrents. If Persist Files is enabled then your previously downloaded torrents will show up here."
-        case 4:
-            pageTitleLabel.text = "Settings"
-            pageSubtitleLabel.text = "Configure settings for your torrent client."
         default:
             break
         }
@@ -299,7 +297,6 @@ final class TorrentDetailViewController: UIViewController {
         overviewScrollView.removeFromSuperview()
         peersView.removeFromSuperview()
         libraryScrollView.removeFromSuperview()
-        settingsScrollView.removeFromSuperview()
         removeFilesChild()
 
         // Update header text for this tab
@@ -344,17 +341,6 @@ final class TorrentDetailViewController: UIViewController {
                 libraryScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
             refreshLibrary()
-
-        case 4:
-            settingsScrollView.isHidden = false
-            containerView.addSubview(settingsScrollView)
-            settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                settingsScrollView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                settingsScrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                settingsScrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                settingsScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            ])
 
         default:
             break
@@ -792,132 +778,6 @@ final class TorrentDetailViewController: UIViewController {
             self.libraryTableHeightConstraint = tv.heightAnchor.constraint(equalToConstant: max(tv.contentSize.height, 100))
             self.libraryTableHeightConstraint?.isActive = true
         }
-    }
-
-    // MARK: - Build Settings UI (matches Hayase settings)
-
-    private func buildSettingsUI() {
-        settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 24
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        settingsScrollView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: settingsScrollView.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: settingsScrollView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: settingsScrollView.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: settingsScrollView.bottomAnchor, constant: -24),
-            stack.widthAnchor.constraint(equalTo: settingsScrollView.widthAnchor, constant: -32),
-        ])
-
-        // Section title with icon
-        let iconView = makeIcon("gearshape.fill", tint: .label, size: 20)
-        let title = UILabel()
-        title.text = "Settings"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
-        title.textColor = .label
-        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
-        titleRow.axis = .horizontal
-        titleRow.spacing = 8
-        titleRow.alignment = .center
-        stack.addArrangedSubview(titleRow)
-
-        let subtitle = UILabel()
-        subtitle.text = "Configure settings for your torrent client."
-        subtitle.font = .systemFont(ofSize: 14, weight: .regular)
-        subtitle.textColor = .secondaryLabel
-        stack.addArrangedSubview(subtitle)
-
-        // Client Settings section
-        let clientHeader = UILabel()
-        clientHeader.text = "Client Settings"
-        clientHeader.font = .systemFont(ofSize: 18, weight: .bold)
-        clientHeader.textColor = .label
-        stack.addArrangedSubview(clientHeader)
-
-        // Persist Files toggle
-        persistSwitch.isOn = UserDefaults.standard.bool(forKey: "pref_persistFiles")
-        persistSwitch.addTarget(self, action: #selector(persistToggled(_:)), for: .valueChanged)
-        stack.addArrangedSubview(makeSettingRow(
-            title: "Persist Files",
-            description: "Keep downloaded torrent files on device after completion. When off, files are cleaned up when a new torrent starts.",
-            toggle: persistSwitch
-        ))
-
-        // Streamed Download toggle
-        streamedSwitch.isOn = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
-        streamedSwitch.addTarget(self, action: #selector(streamedToggled(_:)), for: .valueChanged)
-        stack.addArrangedSubview(makeSettingRow(
-            title: "Streamed Download",
-            description: "Download only required pieces for streaming instead of the full file. Reduces storage usage but may cause buffering.",
-            toggle: streamedSwitch
-        ))
-
-        // WebTorrent version
-        let versionRow = UIStackView()
-        versionRow.axis = .horizontal
-        versionRow.alignment = .center
-        let versionTitle = UILabel()
-        versionTitle.text = "LibTorrent"
-        versionTitle.font = .systemFont(ofSize: 15, weight: .regular)
-        versionTitle.textColor = .label
-        let versionValue = UILabel()
-        versionValue.text = "libtorrent-rasterbar"
-        versionValue.font = .systemFont(ofSize: 15, weight: .regular)
-        versionValue.textColor = .secondaryLabel
-        versionValue.textAlignment = .right
-        versionRow.addArrangedSubview(versionTitle)
-        versionRow.addArrangedSubview(versionValue)
-        stack.addArrangedSubview(versionRow)
-    }
-
-    private func makeSettingRow(title: String, description: String, toggle: UISwitch) -> UIView {
-        let cardColor = UIColor(red: 0.094, green: 0.094, blue: 0.11, alpha: 1)  // #18181b Hayase card
-        let container = UIView()
-        container.backgroundColor = cardColor
-        container.layer.cornerRadius = 12
-
-        let titleLabel = UILabel()
-        titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        titleLabel.textColor = .label
-
-        let descLabel = UILabel()
-        descLabel.text = description
-        descLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        descLabel.textColor = .secondaryLabel
-        descLabel.numberOfLines = 0
-
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
-        textStack.axis = .vertical
-        textStack.spacing = 4
-
-        let row = UIStackView(arrangedSubviews: [textStack, toggle])
-        row.axis = .horizontal
-        row.spacing = 12
-        row.alignment = .center
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
-            row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            row.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            row.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
-        ])
-
-        return container
-    }
-
-    @objc private func persistToggled(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: "pref_persistFiles")
-    }
-
-    @objc private func streamedToggled(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: "pref_streamedDownload")
     }
 
     // MARK: - Reusable UI builders
