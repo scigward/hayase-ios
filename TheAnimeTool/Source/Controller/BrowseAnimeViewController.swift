@@ -17,16 +17,17 @@ private final class BannerGradientView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Approximate Hayase's radial-gradient:
-        //   radial-gradient(75% 65% at 59% 35%, rgba(0,0,0,0.16) 30%, rgba(0,0,0,1) 100%)
-        // Top darkens for status-bar readability; center is light; bottom is very dark for text.
+        // Matches Hayase's banner-image.svelte radial-gradient for mobile:
+        //   radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // Approximated as a linear gradient: light in the center-upper area, fully dark at bottom.
         gradient.colors = [
-            UIColor.black.withAlphaComponent(0.55).cgColor, // top  — status bar legible
-            UIColor.black.withAlphaComponent(0.05).cgColor, // ~12% — image shows through
-            UIColor.clear.cgColor,                           // ~50% — clear image centre
-            UIColor.black.withAlphaComponent(0.88).cgColor, // bottom — text area
+            UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
+            UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
+            UIColor.black.cgColor,                           // bottom — fully dark
         ]
-        gradient.locations = [0.0, 0.12, 0.50, 1.0]
+        gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         layer.addSublayer(gradient)
     }
 
@@ -39,25 +40,23 @@ private final class BannerGradientView: UIView {
 }
 
 // MARK: - FeaturedBannerCell
-// Matches Hayase's full-banner.svelte exactly:
-// • Full-bleed background image (banner or cover) — NO separate cover thumbnail
-// • Black gradient overlay from ~15% to bottom (0.82 alpha)
+// Matches Hayase's full-banner.svelte identically:
+// • Banner height = 70vh (70% of screen height) — matches banner-image.svelte h-[70vh]
+// • Full-bleed background image (banner or cover) with Hayase radial gradient overlay
 // • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines
 // • Badges row: bg-primary/10 (white/10%) pills — duration, format, status, score
 // • Description: text-white/70, 2 lines, text-xs (11pt)
-// • Dot progress indicators at bottom: inactive = white/20%, active animates to fill (bg-custom)
+// • Dot progress indicators: inactive = bg-white/20 width 1.5rem, active = bg-custom width 3rem
+//   with 15s fill animation (matches Hayase CSS: animation: fill 15s linear)
 // • 15-second auto-rotation
+// • Banner query: SCORE_DESC, perPage: 5, current season, statusNot NOT_YET_RELEASED
 
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    // Banner height: 240pt — tall enough for the background image to show prominently above
-    // the text overlay at the bottom (title + badges + dots), matching Hayase's intent of
-    // content-at-bottom over a large image. At 240pt with .scaleAspectFill a 1900×400
-    // landscape banner scales to fill 240pt height: rendered width = 240×(1900/400) = 1140pt,
-    // center-cropped to 393pt — shows ~34% of image width with no black bars.
-    // Taller cells (previously 157pt) left no image visible above the text overlay.
-    static let bannerHeight: CGFloat = 240
+    // Banner height: 70% of screen height — matches Hayase's banner-image.svelte
+    // `h-[70vh] md:h-[80vh]` (70vh on mobile). Content sits at bottom of the tall banner.
+    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.70
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -349,29 +348,66 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         dotsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         dotWidthConstraints.removeAll()
         for i in items.indices {
+            // Outer dot: bg-white/20 rounded, overflow clip — matches Hayase's .progress-badge
             let dot = UIView()
             dot.layer.cornerRadius = 2
+            dot.clipsToBounds = true
+            dot.backgroundColor = UIColor.white.withAlphaComponent(0.2)
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
-            // Store width constraint keyed by index for efficient in-place updates
-            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 40 : 20)
+            // Hayase: inactive width 1.5rem (24pt), active width 3rem (48pt)
+            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 48 : 24)
             wc.isActive = true
             dotWidthConstraints[i] = wc
+
+            // Inner fill view — matches Hayase's .progress-content with fill animation
+            let fill = UIView()
+            fill.tag = 999
+            fill.translatesAutoresizingMaskIntoConstraints = false
+            dot.addSubview(fill)
+            NSLayoutConstraint.activate([
+                fill.topAnchor.constraint(equalTo: dot.topAnchor),
+                fill.leadingAnchor.constraint(equalTo: dot.leadingAnchor),
+                fill.trailingAnchor.constraint(equalTo: dot.trailingAnchor),
+                fill.bottomAnchor.constraint(equalTo: dot.bottomAnchor),
+            ])
+
             dotsStack.addArrangedSubview(dot)
         }
         updateDots()
     }
 
     private func updateDots() {
-        // full-banner.svelte: inactive bg-white/20 width 1.5rem (24pt), active bg-custom width 3rem (48pt)
+        // Matches Hayase full-banner.svelte dot behavior:
+        //   inactive: bg-white/20, width 1.5rem (24pt)
+        //   active:   bg-custom (white), width 3rem (48pt), fill animation over 15s
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
             let active = i == currentIndex
-            // Update stored constraint constant directly — no remove/recreate cycle
-            dotWidthConstraints[i]?.constant = active ? 40 : 20
-            UIView.animate(withDuration: 0.3) {
-                dot.backgroundColor = active
-                    ? UIColor.white.withAlphaComponent(0.9)
-                    : UIColor.white.withAlphaComponent(0.2)
+            dotWidthConstraints[i]?.constant = active ? 48 : 24
+
+            // Find inner fill view
+            let fill = dot.viewWithTag(999)
+
+            // Remove any existing fill animation
+            fill?.layer.removeAnimation(forKey: "fillProgress")
+
+            if active {
+                fill?.backgroundColor = UIColor.white.withAlphaComponent(0.9)
+                // Hayase CSS: animation: fill 15s linear
+                // Animates transform from translateX(-100%) to translateX(0%)
+                let anim = CABasicAnimation(keyPath: "transform.translation.x")
+                anim.fromValue = -48.0  // start fully off-screen left
+                anim.toValue = 0.0
+                anim.duration = FeaturedBannerCell.rotationInterval
+                anim.timingFunction = CAMediaTimingFunction(name: .linear)
+                anim.fillMode = .forwards
+                anim.isRemovedOnCompletion = false
+                fill?.layer.add(anim, forKey: "fillProgress")
+            } else {
+                fill?.backgroundColor = .clear
+            }
+
+            UIView.animate(withDuration: 0.7) {
                 dot.superview?.layoutIfNeeded()
             }
         }
@@ -849,12 +885,28 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.reloadData()
         loadingIndicator.isHidden = true
         emptyLabel.isHidden = true
+
+        // Fetch banner items separately with SCORE_DESC — matches Hayase banner.svelte:
+        //   client.search({ sort: ['SCORE_DESC'], perPage: 5, season: currentSeason,
+        //                   seasonYear: currentYear, statusNot: ['NOT_YET_RELEASED'] })
+        AnimeService.sharedAnimeService.fetchBannerItems { [weak self] bannerResults in
+            guard let self = self else { return }
+            if !bannerResults.isEmpty {
+                self.bannerItems = bannerResults
+                // Reload banner cell if it already exists
+                if self.collectionView.numberOfSections > 0 {
+                    self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                }
+            }
+        }
+
         AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
 
-            // Always use the first fetched section (trending/popular) for the hero
-            // banner so that "Continue Watching" titles never appear in the banner.
-            self.bannerItems = fetchedSections.first?.items ?? []
+            // If banner didn't load from the separate SCORE_DESC query, fall back to first section
+            if self.bannerItems.isEmpty {
+                self.bannerItems = fetchedSections.first?.items ?? []
+            }
 
             // Prepend "Continue Watching" section from WatchProgressService (Hayase continueIDs)
             let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()

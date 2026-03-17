@@ -352,6 +352,81 @@ public class AnimeService: NSObject {
     }
     """
 
+    // Matches Hayase banner.svelte query: SCORE_DESC, perPage 5, current season, statusNot NOT_YET_RELEASED
+    private let bannerQuery = """
+    query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $statusNot: [MediaStatus]) {
+      Page(page: 1, perPage: 5) {
+        media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot) {
+          id
+          title { english romaji }
+          coverImage { large medium color }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          status
+          seasonYear
+          format
+          startDate { year }
+          favourites
+          trailer { id site }
+          description(asHtml: false)
+        }
+      }
+    }
+    """
+
+    /// Fetches banner items using SCORE_DESC for current season (matches Hayase banner.svelte).
+    func fetchBannerItems(completion: @escaping ([AnimeItem]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        let season = AnimeService.currentAniListSeason()
+        let year = AnimeService.currentYear()
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let variables: [String: Any] = [
+            "sort": ["SCORE_DESC"],
+            "season": season,
+            "seasonYear": year,
+            "statusNot": ["NOT_YET_RELEASED"]
+        ]
+        let body: [String: Any] = ["query": bannerQuery, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items: [AnimeItem] = mediaList.compactMap { media in
+                guard let id = media.id else { return nil }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc,
+                    year: media.seasonYear,
+                    startYear: media.startDate?.year,
+                    format: media.format,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
+            }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
     /// Returns the current AniList season string.
     /// AniList season definitions: WINTER = Jan–Mar, SPRING = Apr–Jun, SUMMER = Jul–Sep, FALL = Oct–Dec.
     private static func currentAniListSeason() -> String {
