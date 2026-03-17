@@ -98,11 +98,16 @@ final class VideoPlayerViewController: UIViewController {
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
-    /// Pending single-tap work item. Cancelled when a double-tap fires so that
-    /// the controls toggle from the first tap of the double-tap sequence never
-    /// executes. This eliminates the need for `require(toFail:)` which caused a
-    /// ~300ms delay on every single tap.
+    /// Pending single-tap work item used to distinguish single taps from double
+    /// taps. When the user taps once we schedule a delayed work item; if a second
+    /// tap arrives before it fires we cancel the work item and treat the pair as
+    /// a double-tap (seek). This avoids `require(toFail:)` which adds ~300ms
+    /// system-imposed delay to every single tap.
     private var pendingSingleTapWork: DispatchWorkItem?
+    /// Timestamp of the most recent tap, used to manually detect double-taps
+    /// from a single UITapGestureRecognizer (more reliable than two separate
+    /// recognizers with numberOfTapsRequired 1 & 2).
+    private var lastTapTime: CFTimeInterval = 0
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
@@ -459,17 +464,41 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func setupGestures() {
-        let singleTap = UITapGestureRecognizer(target: self, action: #selector(surfaceTapped))
-        singleTap.numberOfTapsRequired = 1
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapHandler(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        // NOTE: we intentionally do NOT use singleTap.require(toFail: doubleTap).
-        // That caused a ~300ms system delay on every single tap while waiting to
-        // see if a second tap arrived, making both single-tap (controls toggle)
-        // and double-tap (seek) feel sluggish. Instead, surfaceTapped() schedules
-        // the controls toggle on a short timer that doubleTapHandler() cancels.
-        surface.addGestureRecognizer(singleTap)
-        surface.addGestureRecognizer(doubleTap)
+        // We use a SINGLE tap recognizer and manually detect double-taps via
+        // timing. Two separate recognizers (numberOfTapsRequired 1 & 2) are
+        // unreliable — the single-tap recognizer can swallow touches meant for
+        // the double-tap recognizer, and using require(toFail:) adds ~300ms of
+        // lag. Manual timing gives us full control and works reliably.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.numberOfTapsRequired = 1
+        surface.addGestureRecognizer(tap)
+    }
+
+    /// Unified tap handler: manually distinguishes single-tap (toggle controls)
+    /// from double-tap (seek) using timing. If two taps arrive within 300ms they
+    /// are treated as a double-tap. Otherwise a 250ms delayed single-tap fires.
+    /// This is far more reliable than two competing UITapGestureRecognizers.
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let now = CACurrentMediaTime()
+        let tapLocation = gesture.location(in: surface)
+
+        if now - lastTapTime < 0.3 {
+            // Second tap arrived quickly → double-tap detected.
+            lastTapTime = 0 // reset so a third fast tap starts a new sequence
+            pendingSingleTapWork?.cancel()
+            pendingSingleTapWork = nil
+            performDoubleTapSeek(at: tapLocation)
+        } else {
+            // First (or isolated) tap → schedule single-tap action.
+            lastTapTime = now
+            pendingSingleTapWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.setControls(visible: !self.controlsVisible)
+            }
+            pendingSingleTapWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        }
     }
 
     /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 5.
@@ -480,13 +509,7 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Double-tap on the left half of the screen seeks backward; right half seeks forward.
     /// The seek amount comes from the user's "Seek Duration" setting (pref_seekDuration).
-    @objc private func doubleTapHandler(_ gesture: UITapGestureRecognizer) {
-        // Cancel any pending single-tap controls toggle so the first tap of
-        // the double-tap sequence doesn't briefly flash the overlay.
-        pendingSingleTapWork?.cancel()
-        pendingSingleTapWork = nil
-
-        let location = gesture.location(in: surface)
+    private func performDoubleTapSeek(at location: CGPoint) {
         let seekAmount = seekDurationSeconds
         if location.x < surface.bounds.midX {
             // Left half → seek backward
@@ -867,19 +890,6 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase wrapper.svelte: navigating away from /app/player activates
         // mini-player mode instead of destroying the player component.
         MiniPlayerManager.shared.minimize(self)
-    }
-
-    @objc private func surfaceTapped() {
-        // Schedule the controls toggle on a short timer so that a follow-up
-        // double-tap can cancel it. 200ms is long enough to catch the second
-        // tap, but short enough that single taps still feel instant.
-        pendingSingleTapWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.setControls(visible: !self.controlsVisible)
-        }
-        pendingSingleTapWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     @objc private func playPauseTapped() {
