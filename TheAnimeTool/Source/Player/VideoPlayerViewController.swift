@@ -98,6 +98,11 @@ final class VideoPlayerViewController: UIViewController {
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
+    /// Pending single-tap work item. Cancelled when a double-tap fires so that
+    /// the controls toggle from the first tap of the double-tap sequence never
+    /// executes. This eliminates the need for `require(toFail:)` which caused a
+    /// ~300ms delay on every single tap.
+    private var pendingSingleTapWork: DispatchWorkItem?
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
@@ -458,7 +463,11 @@ final class VideoPlayerViewController: UIViewController {
         singleTap.numberOfTapsRequired = 1
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapHandler(_:)))
         doubleTap.numberOfTapsRequired = 2
-        singleTap.require(toFail: doubleTap)
+        // NOTE: we intentionally do NOT use singleTap.require(toFail: doubleTap).
+        // That caused a ~300ms system delay on every single tap while waiting to
+        // see if a second tap arrived, making both single-tap (controls toggle)
+        // and double-tap (seek) feel sluggish. Instead, surfaceTapped() schedules
+        // the controls toggle on a short timer that doubleTapHandler() cancels.
         surface.addGestureRecognizer(singleTap)
         surface.addGestureRecognizer(doubleTap)
     }
@@ -472,6 +481,11 @@ final class VideoPlayerViewController: UIViewController {
     /// Double-tap on the left half of the screen seeks backward; right half seeks forward.
     /// The seek amount comes from the user's "Seek Duration" setting (pref_seekDuration).
     @objc private func doubleTapHandler(_ gesture: UITapGestureRecognizer) {
+        // Cancel any pending single-tap controls toggle so the first tap of
+        // the double-tap sequence doesn't briefly flash the overlay.
+        pendingSingleTapWork?.cancel()
+        pendingSingleTapWork = nil
+
         let location = gesture.location(in: surface)
         let seekAmount = seekDurationSeconds
         if location.x < surface.bounds.midX {
@@ -856,7 +870,16 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func surfaceTapped() {
-        setControls(visible: !controlsVisible)
+        // Schedule the controls toggle on a short timer so that a follow-up
+        // double-tap can cancel it. 200ms is long enough to catch the second
+        // tap, but short enough that single taps still feel instant.
+        pendingSingleTapWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.setControls(visible: !self.controlsVisible)
+        }
+        pendingSingleTapWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     @objc private func playPauseTapped() {
