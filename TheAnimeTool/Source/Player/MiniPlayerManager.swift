@@ -640,7 +640,7 @@ final class MiniPlayerManager {
         // Look up the torrent handle — libtorrent's fastResume should have
         // already restored it during TorrentService.init().
         guard let handle = TorrentService.sharedTorrentService.handles[hash] else {
-            print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state") }
             clearSessionState()
             return
         }
@@ -656,7 +656,7 @@ final class MiniPlayerManager {
             let results = try context.fetch(fetchRequest)
             videoEntity = results.first
         } catch {
-            print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)") }
             clearSessionState()
             return
         }
@@ -664,7 +664,7 @@ final class MiniPlayerManager {
         // If the Videos entity doesn't exist in CoreData (e.g. data was wiped),
         // we can't restore meaningfully.
         guard let entity = videoEntity else {
-            print("MiniPlayerManager: session restore — no Videos entity found, clearing state")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — no Videos entity found, clearing state") }
             clearSessionState()
             return
         }

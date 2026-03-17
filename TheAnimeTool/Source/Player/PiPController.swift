@@ -195,7 +195,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     }
     
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
-        print("Failed to start PiP: \(error)")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("Failed to start PiP: \(error)") }
         delegate?.pipController(self, didStartPictureInPicture: false)
     }
     

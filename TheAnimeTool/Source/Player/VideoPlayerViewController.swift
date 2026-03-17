@@ -700,10 +700,10 @@ final class VideoPlayerViewController: UIViewController {
         do {
             try server.start()
             streamServer = server
-            print("LocalStreamServer: started for file \(fileIndex) at \(server.url)")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: started for file \(fileIndex) at \(server.url)") }
         } catch {
             StreamingLogger.shared.error("Stream server failed: \(error.localizedDescription)")
-            print("LocalStreamServer: failed to start — \(error)")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
             // Fall back to direct file path (original behavior)
         }
     }

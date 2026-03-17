@@ -125,7 +125,7 @@ final class MPVWrapper {
             guard let self else { return }
             
             if layer.status == .failed {
-                print("🔧 Display layer failed - auto-resetting decoder")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Display layer failed - auto-resetting decoder") }
                 self.queue.async {
                     self.performDecoderReset()
                 }
@@ -136,7 +136,7 @@ final class MPVWrapper {
     /// Actually performs the decoder reset (called by observer or manually)
     private func performDecoderReset() {
         guard let handle = mpv else { return }
-        print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)") }
         commandSync(handle, ["set", "hwdec", "no"])
         commandSync(handle, ["set", "hwdec", "auto"])
     }
@@ -441,7 +441,7 @@ final class MPVWrapper {
             let hadExternalSubs = !pendingExternalSubtitles.isEmpty
             if hadExternalSubs, let handle = mpv {
                 for (index, subUrl) in pendingExternalSubtitles.enumerated() {
-                    print("🔧 Adding external subtitle [\(index)]: \(subUrl)")
+                    if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Adding external subtitle [\(index)]: \(subUrl)") }
                     // Use commandSync to ensure subs are added in exact order (not async)
                     // "auto" flag = add without auto-selecting
                     commandSync(handle, ["sub-add", subUrl, "auto"])
@@ -590,7 +590,7 @@ final class MPVWrapper {
         case "current-ao":
             // Audio output is now active - notify delegate
             if let aoName = getStringProperty(handle: handle, name: name) {
-                print("[MPV] 🔊 Audio output selected: \(aoName)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("[MPV] 🔊 Audio output selected: \(aoName)") }
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didSelectAudioOutput: aoName)
@@ -910,10 +910,14 @@ final class MPVWrapper {
 }
 
 // Dummy logger — forwards errors/warnings to StreamingLogger for in-player display.
+// Console output is gated behind the "Show Streaming Logger" user preference.
 final class Logger {
     static let shared = Logger()
     func log(_ message: String, type: String) {
-        print("[\(type)] \(message)")
+        let showLogger = UserDefaults.standard.bool(forKey: "pref_showLogger")
+        if showLogger {
+            print("[\(type)] \(message)")
+        }
         // Forward to StreamingLogger so errors/warnings appear in the player overlay.
         switch type.lowercased() {
         case "error":
