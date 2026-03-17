@@ -98,12 +98,8 @@ final class VideoPlayerViewController: UIViewController {
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
-    /// Timestamp of the last tap (for manual double-tap detection).
-    private var lastTapTime: CFTimeInterval = 0
-    /// Location of the last tap in the surface's coordinate space.
-    private var lastTapLocation: CGPoint = .zero
-    /// Pending single-tap action, cancelled if a second tap arrives quickly.
-    private var pendingSingleTapWork: DispatchWorkItem?
+    /// The double-tap recognizer, stored so single-tap can require(toFail:) it.
+    private var doubleTapRecognizer: UITapGestureRecognizer?
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
@@ -505,41 +501,33 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func setupGestures() {
-        // A SINGLE UITapGestureRecognizer (numberOfTapsRequired=1) attached to
-        // the root `view`. Double-taps are detected manually via
-        // CACurrentMediaTime() with a 300ms window. This avoids the unreliable
-        // require(toFail:) pattern which caused taps to be missed ~80% of the
-        // time. Inspired by SwiftUI's onTapGesture(count:) which uses a
-        // similar internal timer approach for reliable multi-tap detection.
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        tap.numberOfTapsRequired = 1
-        tap.delegate = self
-        view.addGestureRecognizer(tap)
+        // Two standard UITapGestureRecognizers (count=1 and count=2) attached to
+        // the root `view` — NOT the surface which sits beneath the overlay.
+        // Single-tap `require(toFail:)` the double-tap so they never conflict.
+        // This matches SwiftUI's onTapGesture(count:) behavior and is Apple's
+        // recommended pattern for distinguishing single from double taps.
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        view.addGestureRecognizer(doubleTap)
+        doubleTapRecognizer = doubleTap
+
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        singleTap.require(toFail: doubleTap)
+        singleTap.delegate = self
+        view.addGestureRecognizer(singleTap)
     }
 
-    /// Every tap arrives here. If two taps land within 300ms we treat them as
-    /// a double-tap (seek); otherwise the first tap toggles controls after a
-    /// short delay.
-    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        let now = CACurrentMediaTime()
-        let tapLocation = gesture.location(in: surface)
+    /// Single-tap: toggle controls visibility.
+    @objc private func handleSingleTap(_ gesture: UITapGestureRecognizer) {
+        setControls(visible: !controlsVisible)
+    }
 
-        if (now - lastTapTime) < 0.3 {
-            // Second tap within the window → double-tap
-            pendingSingleTapWork?.cancel()
-            pendingSingleTapWork = nil
-            lastTapTime = 0
-            performDoubleTapSeek(at: tapLocation)
-        } else {
-            // First tap — schedule the single-tap action
-            lastTapTime = now
-            lastTapLocation = tapLocation
-            let work = DispatchWorkItem { [weak self] in
-                self?.setControls(visible: !(self?.controlsVisible ?? true))
-            }
-            pendingSingleTapWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
-        }
+    /// Double-tap: seek forward/backward depending on which half was tapped.
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        let tapLocation = gesture.location(in: surface)
+        performDoubleTapSeek(at: tapLocation)
     }
 
     /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 5.
@@ -1354,8 +1342,8 @@ extension VideoPlayerViewController: PiPControllerDelegate {
 // MARK: - UIGestureRecognizerDelegate
 
 extension VideoPlayerViewController: UIGestureRecognizerDelegate {
-    /// Prevent the tap recognizer from firing when the user taps on a
-    /// UIControl (buttons, sliders, switches, etc.).
+    /// Prevent the single/double-tap recognizers from firing when the user
+    /// taps on a UIControl (buttons, sliders, switches, etc.).
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
         var v = touch.view
