@@ -34,6 +34,23 @@ final class TorrentDetailViewController: UIViewController {
         return sc
     }()
 
+    private let pageTitleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 22, weight: .bold)
+        l.textColor = .label
+        l.text = "Torrent Client"
+        return l
+    }()
+
+    private let pageSubtitleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14, weight: .regular)
+        l.textColor = .secondaryLabel
+        l.text = "Monitor your torrents, and configure settings for your torrent client."
+        l.numberOfLines = 0
+        return l
+    }()
+
     private let containerView = UIView()
 
     private lazy var overviewScrollView: UIScrollView = {
@@ -204,12 +221,35 @@ final class TorrentDetailViewController: UIViewController {
     // MARK: - Segmented control
 
     private func setupSegmentedControl() {
+        pageTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        pageSubtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         segmentedControl.addTarget(self, action: #selector(segmentChanged(_:)), for: .valueChanged)
+
+        let separator = UIView()
+        separator.backgroundColor = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(pageTitleLabel)
+        view.addSubview(pageSubtitleLabel)
+        view.addSubview(separator)
         view.addSubview(segmentedControl)
 
         NSLayoutConstraint.activate([
-            segmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            pageTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            pageTitleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+
+            pageSubtitleLabel.topAnchor.constraint(equalTo: pageTitleLabel.bottomAnchor, constant: 4),
+            pageSubtitleLabel.leadingAnchor.constraint(equalTo: pageTitleLabel.leadingAnchor),
+            pageSubtitleLabel.trailingAnchor.constraint(equalTo: pageTitleLabel.trailingAnchor),
+
+            separator.topAnchor.constraint(equalTo: pageSubtitleLabel.bottomAnchor, constant: 12),
+            separator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            separator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            separator.heightAnchor.constraint(equalToConstant: 0.5),
+
+            segmentedControl.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
             segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             segmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
         ])
@@ -231,6 +271,29 @@ final class TorrentDetailViewController: UIViewController {
         showTab(sender.selectedSegmentIndex)
     }
 
+    /// Updates the page title and subtitle label to match Hayase's per-tab descriptions.
+    private func updatePageHeader(for index: Int) {
+        switch index {
+        case 0:
+            pageTitleLabel.text = "Torrent Client"
+            pageSubtitleLabel.text = "Monitor your torrents, and configure settings for your torrent client."
+        case 1:
+            pageTitleLabel.text = "File List"
+            pageSubtitleLabel.text = "Files in the currently active torrent, their download progress, and amount of active stream selections."
+        case 2:
+            pageTitleLabel.text = "Peer List"
+            pageSubtitleLabel.text = "Peers connected to the currently active torrent, their statistics, region etc."
+        case 3:
+            pageTitleLabel.text = "Torrent Library"
+            pageSubtitleLabel.text = "All of your downloaded torrents. If Persist Files is enabled then your previously downloaded torrents will show up here."
+        case 4:
+            pageTitleLabel.text = "Settings"
+            pageSubtitleLabel.text = "Configure settings for your torrent client."
+        default:
+            break
+        }
+    }
+
     private func showTab(_ index: Int) {
         // Remove all child content
         overviewScrollView.removeFromSuperview()
@@ -238,6 +301,9 @@ final class TorrentDetailViewController: UIViewController {
         libraryScrollView.removeFromSuperview()
         settingsScrollView.removeFromSuperview()
         removeFilesChild()
+
+        // Update header text for this tab
+        updatePageHeader(for: index)
 
         switch index {
         case 0:
@@ -809,8 +875,9 @@ final class TorrentDetailViewController: UIViewController {
     }
 
     private func makeSettingRow(title: String, description: String, toggle: UISwitch) -> UIView {
+        let cardColor = UIColor(red: 0.094, green: 0.094, blue: 0.11, alpha: 1)  // #18181b Hayase card
         let container = UIView()
-        container.backgroundColor = UIColor(red: 0.094, green: 0.094, blue: 0.11, alpha: 1)
+        container.backgroundColor = cardColor
         container.layer.cornerRadius = 12
 
         let titleLabel = UILabel()
