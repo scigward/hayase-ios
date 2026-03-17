@@ -2,20 +2,28 @@
 //  SettingsViewController.swift
 //  TheAnimeTool
 //
-//  Matches Hayase's settings layout exactly:
-//  • Flat SettingCard style: rounded-lg border p-4, title bold white, description muted
-//  • No colored icon squares (those are iOS Settings style, not Hayase style)
-//  • Dark background #0a0a0f, card bg #18181b, border #27272a
-//  • Sections: bold text-xl header (matching <div class='font-weight-bold text-xl font-bold'>)
-//  • Controls: UISwitch (indigo tint) for toggles, UILabel for values
+//  Identical port of Hayase's settings layout from:
+//    https://github.com/scigward/interface/tree/master/src/routes/app/settings
+//
+//  Design matches Hayase exactly:
+//  • SettingCard: bg-neutral-950 (#0a0a0a) rounded-md, NO border, px-6 py-4
+//  • Section headers: font-weight-bold text-xl font-bold (white)
+//  • Page background: black
+//  • Tab nav: 2-column grid matching SettingsNav.svelte mobile layout
+//    (active=white bg + black text, inactive=transparent + white text)
+//  • Subtitle: text-muted-foreground below title, then Separator
+//  • space-y-3 (12px) gap between cards
+//
+//  Tabs mirror Hayase's +layout.svelte sidebar items:
+//    Player, Client, Interface, Extensions, Accounts, App
 //
 //  Ported from Hayase settings pages:
-//    /app/settings/         (Player: subtitle, language, playback, interface, external player)
+//    /app/settings/         (Player: subtitle, language, playback, interface)
 //    /app/settings/client/  (Security, Client settings)
-//    /app/settings/interface/ (Visibility, UI settings)
+//    /app/settings/interface/ (Visibility settings)
 //    /app/settings/extensions/ (Lookup, Extensions)
 //    /app/settings/accounts/  (Account settings)
-//    /app/settings/app/       (App settings, Debug)
+//    /app/settings/app/       (App settings, Debug, About)
 //
 
 import UIKit
@@ -25,6 +33,28 @@ import SafariServices
 
 class SettingsViewController: UIViewController {
 
+    // MARK: - Tab model (matches Hayase +layout.svelte sidebar items)
+
+    private enum SettingsTab: Int, CaseIterable {
+        case player = 0
+        case client
+        case interface_
+        case extensions
+        case accounts
+        case app
+
+        var title: String {
+            switch self {
+            case .player:     return "Player"
+            case .client:     return "Client"
+            case .interface_: return "Interface"
+            case .extensions: return "Extensions"
+            case .accounts:   return "Accounts"
+            case .app:        return "App"
+            }
+        }
+    }
+
     // MARK: - Row / Section model
 
     private enum RowKind {
@@ -32,7 +62,6 @@ class SettingsViewController: UIViewController {
         case value(String)
         case link(String)
         case navigate
-        /// Button-style row (e.g. Import/Export/Reset).  Tapped but has no toggle or value.
         case action
     }
 
@@ -45,16 +74,15 @@ class SettingsViewController: UIViewController {
     private struct Section {
         let header: String
         let rows:   [Row]
+        let tab:    SettingsTab
     }
 
     // MARK: - Lifecycle
 
-    /// Programmatic initializer – used when pushed from TorrentDetailViewController.
     init() {
         super.init(nibName: nil, bundle: nil)
     }
 
-    /// Storyboard initializer – used when created as a tab-bar root VC.
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(
@@ -63,18 +91,34 @@ class SettingsViewController: UIViewController {
             selectedImage: UIImage(systemName: "gearshape.fill"))
     }
 
+    // MARK: - Colors (matching Hayase dark theme)
+
+    /// Page background — Hayase uses bg-black
+    private let bgColor   = UIColor.black
+    /// Card background — Hayase SettingCard: bg-neutral-950 (#0a0a0a)
+    private let cardColor = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
+    /// Muted foreground — Hayase text-muted-foreground ≈ zinc-400
+    private let mutedFg   = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
+    /// Separator color — Hayase <Separator> ≈ zinc-800 (#27272a)
+    private let separatorColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+
+    // MARK: - State
+
+    private var selectedTab: SettingsTab = .player
+    private var tabButtons: [UIButton] = []
     private var tableView: UITableView!
-    private let bgColor  = UIColor(red: 0.039, green: 0.039, blue: 0.059, alpha: 1)   // #0a0a0f
-    private let cardColor = UIColor(red: 0.094, green: 0.094, blue: 0.11,  alpha: 1)  // #18181b
-    private let mutedFg  = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)   // #a1a1aa
 
-    private lazy var sections: [Section] = [
+    /// Sections filtered to the currently selected tab.
+    private var visibleSections: [Section] {
+        allSections.filter { $0.tab == selectedTab }
+    }
 
-        // ──────────────────────────────────────────────────────────
-        // Player settings (Hayase /app/settings/ — +page.svelte)
-        // ──────────────────────────────────────────────────────────
+    // MARK: - All sections (full data, tagged by tab)
 
-        // Subtitle Settings
+    private lazy var allSections: [Section] = [
+
+        // ── Player tab (Hayase /app/settings/ — +page.svelte) ──
+
         Section(header: "Subtitle Settings", rows: [
             Row(title: "Find Missing Subtitle Fonts",
                 description: "Automatically finds and loads fonts that are missing from a video's subtitles.",
@@ -82,8 +126,8 @@ class SettingsViewController: UIViewController {
             Row(title: "Subtitle Render Resolution Limit",
                 description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled linearly. This will GREATLY improve rendering speeds for complex typesetting for slower devices.",
                 kind: .value("1080p")),
-        ]),
-        // Language Settings
+        ], tab: .player),
+
         Section(header: "Language Settings", rows: [
             Row(title: "Preferred Subtitle Language",
                 description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
@@ -91,8 +135,8 @@ class SettingsViewController: UIViewController {
             Row(title: "Preferred Audio Language",
                 description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
                 kind: .value("Japanese")),
-        ]),
-        // Playback Settings — matches Hayase exactly
+        ], tab: .player),
+
         Section(header: "Playback Settings", rows: [
             Row(title: "Auto-Play Next Episode",
                 description: "Automatically starts playing next episode when a video ends.",
@@ -118,8 +162,8 @@ class SettingsViewController: UIViewController {
             Row(title: "Auto-Skip Filler",
                 description: "Automatically skip filler episodes. This WILL skip ENTIRE episodes.",
                 kind: .toggle(userDefaultsKey: "pref_skipFiller", defaultValue: false)),
-        ]),
-        // Interface Settings
+        ], tab: .player),
+
         Section(header: "Interface Settings", rows: [
             Row(title: "Minimal UI",
                 description: "Forces minimalistic player UI, hides controls.",
@@ -127,13 +171,10 @@ class SettingsViewController: UIViewController {
             Row(title: "Show Streaming Logger",
                 description: "Keeps the streaming log overlay visible during playback instead of auto-hiding.",
                 kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),
-        ]),
+        ], tab: .player),
 
-        // ──────────────────────────────────────────────────────────
-        // Client settings (Hayase /app/settings/client/)
-        // ──────────────────────────────────────────────────────────
+        // ── Client tab (Hayase /app/settings/client/) ──
 
-        // Security Settings
         Section(header: "Security Settings", rows: [
             Row(title: "Use DNS Over HTTPS",
                 description: "Enables DNS Over HTTPS, useful if your ISP blocks certain domains.",
@@ -141,8 +182,8 @@ class SettingsViewController: UIViewController {
             Row(title: "DNS Over HTTPS URL",
                 description: "What URL to use for querying DNS Over HTTPS.",
                 kind: .value("https://cloudflare-dns.com/dns-query")),
-        ]),
-        // Client Settings
+        ], tab: .client),
+
         Section(header: "Client Settings", rows: [
             Row(title: "Torrent Download Location",
                 description: "Path to the folder used to store torrents. By default this is the app's cache folder, which might lose data when the OS tries to reclaim storage.",
@@ -171,13 +212,10 @@ class SettingsViewController: UIViewController {
             Row(title: "Disable PeX",
                 description: "Disables Peer Exchange for use in private trackers to improve privacy. Might greatly reduce the amount of discovered peers.",
                 kind: .toggle(userDefaultsKey: "pref_disablePeX", defaultValue: false)),
-        ]),
+        ], tab: .client),
 
-        // ──────────────────────────────────────────────────────────
-        // Interface settings (Hayase /app/settings/interface/)
-        // ──────────────────────────────────────────────────────────
+        // ── Interface tab (Hayase /app/settings/interface/) ──
 
-        // Visibility Settings
         Section(header: "Visibility Settings", rows: [
             Row(title: "Show Hentai",
                 description: "Shows hentai content throughout the app. If disabled all hentai content will be hidden and not shown in search results, but shown if present in your list.\n\nThis is also an AniList account setting, so make sure it is enabled in account settings as well to avoid inconsistencies.",
@@ -185,13 +223,10 @@ class SettingsViewController: UIViewController {
             Row(title: "Hide Spoilers",
                 description: "Hides potential spoilers such as titles, descriptions, episode images and ratings throughout the app.",
                 kind: .toggle(userDefaultsKey: "pref_hideSpoilers", defaultValue: false)),
-        ]),
+        ], tab: .interface_),
 
-        // ──────────────────────────────────────────────────────────
-        // Extensions settings (Hayase /app/settings/extensions/)
-        // ──────────────────────────────────────────────────────────
+        // ── Extensions tab (Hayase /app/settings/extensions/) ──
 
-        // Lookup Settings
         Section(header: "Lookup Settings", rows: [
             Row(title: "Torrent Quality",
                 description: "What quality to use when trying to find torrents. This doesn't exclude other qualities from being found. Non-1080p resolutions might not be available for all shows, or find way less results.",
@@ -202,27 +237,23 @@ class SettingsViewController: UIViewController {
             Row(title: "Lookup Preference",
                 description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available, Size will focus on the smallest file size, and Availability will pick results with the most peers.",
                 kind: .value("Quality")),
-        ]),
-        // Extensions
-        Section(header: "Extensions", rows: [
+        ], tab: .extensions),
+
+        Section(header: "Extension Settings", rows: [
             Row(title: "Manage Extensions",
                 description: "Install and configure Hayase-compatible torrent/NZB extensions.",
                 kind: .navigate),
-        ]),
+        ], tab: .extensions),
 
-        // ──────────────────────────────────────────────────────────
-        // Account settings (Hayase /app/settings/accounts/)
-        // ──────────────────────────────────────────────────────────
+        // ── Accounts tab (Hayase /app/settings/accounts/) ──
 
         Section(header: "Account Settings", rows: [
             Row(title: "AniList",
                 description: "Connect your AniList account for anime tracking, list sync, and metadata.",
                 kind: .navigate),
-        ]),
+        ], tab: .accounts),
 
-        // ──────────────────────────────────────────────────────────
-        // App settings (Hayase /app/settings/app/)
-        // ──────────────────────────────────────────────────────────
+        // ── App tab (Hayase /app/settings/app/) ──
 
         Section(header: "App Settings", rows: [
             Row(title: "Import Settings From File",
@@ -234,17 +265,13 @@ class SettingsViewController: UIViewController {
             Row(title: "Reset Everything To Default",
                 description: "Resets ALL settings and data to their default values. This cannot be undone.",
                 kind: .action),
-        ]),
-        // Debug Settings
+        ], tab: .app),
+
         Section(header: "Debug Settings", rows: [
             Row(title: "Copy App and Device Info",
                 description: "Copy app and device debug info and capabilities, such as version information and settings to clipboard.",
                 kind: .action),
-        ]),
-
-        // ──────────────────────────────────────────────────────────
-        // About
-        // ──────────────────────────────────────────────────────────
+        ], tab: .app),
 
         Section(header: "About", rows: [
             Row(title: "Version",
@@ -256,8 +283,10 @@ class SettingsViewController: UIViewController {
             Row(title: "AniList",
                 description: "Anime metadata powered by AniList GraphQL API.",
                 kind: .link("https://anilist.co")),
-        ]),
+        ], tab: .app),
     ]
+
+    // MARK: - viewDidLoad
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -266,8 +295,8 @@ class SettingsViewController: UIViewController {
         navigationController?.navigationBar.prefersLargeTitles = true
         navigationItem.largeTitleDisplayMode = .always
 
-        tableView = UITableView(frame: view.bounds, style: .plain)
-        tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tableView = UITableView(frame: .zero, style: .plain)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = bgColor
         tableView.separatorStyle = .none
         tableView.delegate   = self
@@ -277,26 +306,158 @@ class SettingsViewController: UIViewController {
                            forCellReuseIdentifier: HayaseSettingToggleCell.reuseID)
         tableView.register(HayaseSettingValueCell.self,
                            forCellReuseIdentifier: HayaseSettingValueCell.reuseID)
-
-        // Hayase header: "Manage your app settings, preferences and accounts."
-        let headerLabel = UILabel()
-        headerLabel.text = "Manage your app settings, preferences and accounts."
-        headerLabel.font = .systemFont(ofSize: 14)
-        headerLabel.textColor = mutedFg
-        headerLabel.numberOfLines = 0
-        let headerContainer = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 40))
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerContainer.addSubview(headerLabel)
-        NSLayoutConstraint.activate([
-            headerLabel.leadingAnchor.constraint(equalTo: headerContainer.leadingAnchor, constant: 16),
-            headerLabel.trailingAnchor.constraint(equalTo: headerContainer.trailingAnchor, constant: -16),
-            headerLabel.topAnchor.constraint(equalTo: headerContainer.topAnchor, constant: 4),
-            headerLabel.bottomAnchor.constraint(equalTo: headerContainer.bottomAnchor, constant: -4),
-        ])
-        tableView.tableHeaderView = headerContainer
-
+        tableView.tableHeaderView = buildHeaderView()
         view.addSubview(tableView)
+
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
     }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Recalculate table header height after layout
+        guard let header = tableView.tableHeaderView else { return }
+        let target = CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height)
+        let size = header.systemLayoutSizeFitting(target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel)
+        if header.frame.size.height != size.height {
+            header.frame.size.height = size.height
+            tableView.tableHeaderView = header
+        }
+    }
+
+    // MARK: - Header view (subtitle + separator + tab grid + version)
+
+    /// Builds the table header matching Hayase's settings layout:
+    /// subtitle → separator → 2-col tab grid → version info
+    private func buildHeaderView() -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        // Subtitle: "Manage your app settings, preferences and accounts."
+        let subtitle = UILabel()
+        subtitle.text = "Manage your app settings, preferences and accounts."
+        subtitle.font = .systemFont(ofSize: 14)
+        subtitle.textColor = mutedFg
+        subtitle.numberOfLines = 0
+
+        // Separator: Hayase <Separator class='my-3 md:my-6'>
+        let separator = UIView()
+        separator.backgroundColor = separatorColor
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+
+        // Tab grid: 2-column matching Hayase SettingsNav.svelte mobile layout
+        let tabGrid = buildTabGrid()
+
+        // Version info: matches Hayase sidebar footer
+        let versionLabel = UILabel()
+        versionLabel.text = "NyaiS v\(appVersion())"
+        versionLabel.font = .systemFont(ofSize: 12, weight: .light)
+        versionLabel.textColor = mutedFg
+
+        // Stack: subtitle → separator → tabGrid → version
+        let stack = UIStackView(arrangedSubviews: [subtitle, separator, tabGrid, versionLabel])
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        ])
+
+        // Need a non-zero initial frame for the header sizing to work
+        container.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 200)
+        return container
+    }
+
+    /// Builds the 2-column tab grid matching Hayase SettingsNav.svelte:
+    /// ```
+    /// <nav class='grid grid-cols-2 gap-y-1 gap-x-2'>
+    ///   <Button variant='ghost' class='relative font-semibold justify-start'>
+    ///     {#if isActive}<div class='bg-white absolute inset-0 rounded-md'/>{/if}
+    ///     <div class='text-white' class:!text-black={isActive}>{title}</div>
+    ///   </Button>
+    /// </nav>
+    /// ```
+    private func buildTabGrid() -> UIView {
+        let vStack = UIStackView()
+        vStack.axis = .vertical
+        vStack.spacing = 4      // gap-y-1 = 4px
+
+        tabButtons.removeAll()
+
+        let tabs = SettingsTab.allCases
+        for rowStart in stride(from: 0, to: tabs.count, by: 2) {
+            let hStack = UIStackView()
+            hStack.axis = .horizontal
+            hStack.spacing = 8  // gap-x-2 = 8px
+            hStack.distribution = .fillEqually
+
+            let btn1 = makeTabButton(for: tabs[rowStart])
+            hStack.addArrangedSubview(btn1)
+            tabButtons.append(btn1)
+
+            if rowStart + 1 < tabs.count {
+                let btn2 = makeTabButton(for: tabs[rowStart + 1])
+                hStack.addArrangedSubview(btn2)
+                tabButtons.append(btn2)
+            }
+
+            vStack.addArrangedSubview(hStack)
+        }
+
+        return vStack
+    }
+
+    /// Creates a single tab button matching Hayase SettingsNav.svelte ghost button style.
+    private func makeTabButton(for tab: SettingsTab) -> UIButton {
+        let btn = UIButton(type: .system)
+        btn.setTitle(tab.title, for: .normal)
+        btn.contentHorizontalAlignment = .leading
+        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.layer.cornerRadius = 6   // rounded-md
+        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        btn.tag = tab.rawValue
+        btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
+        updateTabAppearance(btn, isSelected: tab == selectedTab)
+        return btn
+    }
+
+    /// Updates a tab button's appearance to match Hayase's active/inactive states.
+    private func updateTabAppearance(_ btn: UIButton, isSelected: Bool) {
+        if isSelected {
+            btn.backgroundColor = .white
+            btn.setTitleColor(.black, for: .normal)
+        } else {
+            btn.backgroundColor = .clear
+            btn.setTitleColor(.white, for: .normal)
+        }
+    }
+
+    @objc private func tabTapped(_ sender: UIButton) {
+        guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
+        selectedTab = tab
+        for btn in tabButtons {
+            updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
+        }
+        tableView.reloadData()
+        // Scroll to top when switching tabs
+        if !visibleSections.isEmpty {
+            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        }
+    }
+
+    // MARK: - Helpers
 
     private func appVersion() -> String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -309,10 +470,10 @@ class SettingsViewController: UIViewController {
 
 extension SettingsViewController: UITableViewDataSource {
 
-    func numberOfSections(in tableView: UITableView) -> Int { sections.count }
+    func numberOfSections(in tableView: UITableView) -> Int { visibleSections.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        sections[section].rows.count
+        visibleSections[section].rows.count
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
@@ -320,7 +481,7 @@ extension SettingsViewController: UITableViewDataSource {
         let container = UIView()
         container.backgroundColor = .clear
         let label = UILabel()
-        label.text = sections[section].header
+        label.text = visibleSections[section].header
         label.font = .systemFont(ofSize: 20, weight: .bold)
         label.textColor = .white
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -328,8 +489,8 @@ extension SettingsViewController: UITableViewDataSource {
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
         ])
         return container
     }
@@ -339,39 +500,39 @@ extension SettingsViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let row = sections[indexPath.section].rows[indexPath.row]
+        let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .toggle(let key, let def):
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as! HayaseSettingToggleCell
             cell.configure(title: row.title, description: row.description,
                            key: key, defaultValue: def)
-            cell.backgroundColor = cardColor
+            cell.backgroundColor = bgColor
             return cell
         case .value(let val):
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
             cell.configure(title: row.title, description: row.description, value: val, isLink: false)
-            cell.backgroundColor = cardColor
+            cell.backgroundColor = bgColor
             return cell
         case .link:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
             cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
-            cell.backgroundColor = cardColor
+            cell.backgroundColor = bgColor
             return cell
         case .navigate:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.accessoryType = .disclosureIndicator
-            cell.backgroundColor = cardColor
+            cell.backgroundColor = bgColor
             return cell
         case .action:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
-            cell.backgroundColor = cardColor
+            cell.backgroundColor = bgColor
             return cell
         }
     }
@@ -383,7 +544,7 @@ extension SettingsViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        let row = sections[indexPath.section].rows[indexPath.row]
+        let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .link(let urlStr):
             if let url = URL(string: urlStr) { present(SFSafariViewController(url: url), animated: true) }
@@ -392,9 +553,7 @@ extension SettingsViewController: UITableViewDelegate {
                 let extVC = ExtensionsViewController()
                 navigationController?.pushViewController(extVC, animated: true)
             }
-            // Other navigate rows (e.g. AniList) are UI placeholders — no wiring yet.
         case .action:
-            // Action rows are UI placeholders — no wiring yet.
             break
         default:
             break
@@ -411,24 +570,33 @@ extension SettingsViewController: UITableViewDelegate {
 }
 
 // MARK: - HayaseSettingToggleCell
-// Matches Hayase SettingCard.svelte: rounded-lg border p-4 flex justify-between
-// Left: title (font-bold) + description (text-sm text-muted-foreground)
-// Right: UISwitch with indigo tint
+// Matches Hayase SettingCard.svelte exactly:
+//   <div class='flex flex-col md:flex-row md:items-center justify-between
+//               bg-neutral-950 rounded-md px-6 py-4 gap-3'>
+//     <Label class='space-1 block leading-[unset] grow'>
+//       <div class='font-bold'>{title}</div>
+//       <div class='text-muted-foreground text-xs whitespace-pre-wrap'>{description}</div>
+//     </Label>
+//     <Switch />
+//   </div>
 
 final class HayaseSettingToggleCell: UITableViewCell {
     static let reuseID = "HayaseSettingToggleCell"
 
+    /// Card background — bg-neutral-950 (#0a0a0a)
+    static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
+
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .bold)
+        l.font = .systemFont(ofSize: 15, weight: .bold)    // font-bold
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
-        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // #a1a1aa
+        l.font = .systemFont(ofSize: 12)                   // text-xs = 12px
+        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // text-muted-foreground
         l.numberOfLines = 0
         return l
     }()
@@ -447,11 +615,11 @@ final class HayaseSettingToggleCell: UITableViewCell {
 
     private func setup() {
         selectionStyle = .none
-        // Card: rounded-lg border p-4
-        contentView.layer.cornerRadius = 8
+        // Hayase SettingCard: bg-neutral-950 rounded-md, NO border
+        contentView.backgroundColor = Self.hayaseCardBg
+        contentView.layer.cornerRadius = 6      // rounded-md = 6px
         contentView.layer.masksToBounds = true
-        contentView.layer.borderWidth = 1
-        contentView.layer.borderColor = UIColor(white: 0.15, alpha: 1).cgColor  // --border dark
+        // NO border — Hayase SettingCard has no border
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
         textStack.axis = .vertical
@@ -465,13 +633,14 @@ final class HayaseSettingToggleCell: UITableViewCell {
         contentView.addSubview(textStack)
         contentView.addSubview(toggle)
 
+        // Hayase: px-6 = 24px, py-4 = 16px, gap-3 = 12px
         NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -12),
 
-            toggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            toggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
             toggle.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
     }
@@ -490,16 +659,18 @@ final class HayaseSettingToggleCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16))
+        // Inset contentView for card margins: space-y-3 = 12px total (6+6)
+        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 6, left: 16, bottom: 6, right: 16))
     }
 }
 
 // MARK: - HayaseSettingValueCell
-// Same card style as HayaseSettingToggleCell but with a UILabel value on the right
-// (or a chevron for links).
+// Same SettingCard style with a value label or disclosure indicator on the right.
 
 final class HayaseSettingValueCell: UITableViewCell {
     static let reuseID = "HayaseSettingValueCell"
+
+    static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
 
     private let titleLabel: UILabel = {
         let l = UILabel()
@@ -510,7 +681,7 @@ final class HayaseSettingValueCell: UITableViewCell {
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
+        l.font = .systemFont(ofSize: 12)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.numberOfLines = 0
         return l
@@ -530,10 +701,10 @@ final class HayaseSettingValueCell: UITableViewCell {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
-        contentView.layer.cornerRadius = 8
+        contentView.backgroundColor = Self.hayaseCardBg
+        contentView.layer.cornerRadius = 6
         contentView.layer.masksToBounds = true
-        contentView.layer.borderWidth = 1
-        contentView.layer.borderColor = UIColor(white: 0.15, alpha: 1).cgColor
+        // NO border
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
         textStack.axis = .vertical
@@ -546,12 +717,12 @@ final class HayaseSettingValueCell: UITableViewCell {
         contentView.addSubview(valueLabel)
 
         NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: valueLabel.leadingAnchor, constant: -12),
 
-            valueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            valueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
             valueLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
     }
@@ -567,7 +738,7 @@ final class HayaseSettingValueCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16))
+        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 6, left: 16, bottom: 6, right: 16))
     }
 }
 
