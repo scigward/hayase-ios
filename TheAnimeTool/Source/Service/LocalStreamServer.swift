@@ -105,11 +105,11 @@ final class LocalStreamServer {
             case .ready:
                 if let port = self?.listener?.port?.rawValue {
                     self?.port = port
-                    print("LocalStreamServer: listening on port \(port)")
+                    if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: listening on port \(port)") }
                 }
                 readySemaphore.signal()
             case .failed(let error):
-                print("LocalStreamServer: failed — \(error)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed — \(error)") }
                 self?.stop()
                 readySemaphore.signal()
             default:
@@ -135,7 +135,7 @@ final class LocalStreamServer {
             conn.cancel()
         }
         connections.removeAll()
-        print("LocalStreamServer: stopped")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: stopped") }
     }
 
     // MARK: - Connection handling
@@ -167,7 +167,7 @@ final class LocalStreamServer {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, error in
             guard let self = self, !self.isStopped else { return }
             if let error = error {
-                print("LocalStreamServer: receive error — \(error)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: receive error — \(error)") }
                 connection.cancel()
                 return
             }
@@ -267,7 +267,7 @@ final class LocalStreamServer {
 
         connection.send(content: header.data(using: .utf8), completion: .contentProcessed { error in
             if let error = error {
-                print("LocalStreamServer: header send error — \(error)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: header send error — \(error)") }
             }
         })
     }
@@ -299,7 +299,7 @@ final class LocalStreamServer {
         // Open the file
         guard let fileHandle = FileHandle(forReadingAtPath: filePath) else {
             StreamingLogger.shared.error("Cannot open file at \(filePath)")
-            print("LocalStreamServer: cannot open file at \(filePath)")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: cannot open file at \(filePath)") }
             connection.cancel()
             return
         }
@@ -608,7 +608,7 @@ final class LocalStreamServer {
                 let waited = String(format: "%.1f", now.timeIntervalSince(startTime))
                 let missingDesc = missingPieces > 0 ? " missing~\(missingPieces)" : ""
                 StreamingLogger.shared.warn("Waiting \(waited)s for pieces \(safeFirst)–\(safeLast)\(missingDesc)")
-                print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: waiting \(waited)s for pieces \(safeFirst)-\(safeLast)\(missingDesc)") }
                 lastStatusLog = now
             }
             // Log peer/seed count every 5 s so users can see connection status

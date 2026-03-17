@@ -170,7 +170,7 @@ final class TorrentStreamer {
 
         torrentHandle.updateSnapshot()
         guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else {
-            print("TorrentStreamer: file index \(fileIndex) not found in snapshot")
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: file index \(fileIndex) not found in snapshot") }
             return
         }
 
@@ -213,7 +213,7 @@ final class TorrentStreamer {
         let plMB = String(format: "%.1f", Double(pl) / 1_048_576)
         let modeStr = streamedDownloadMode ? " [streamed]" : ""
         StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount)\(modeStr)")
-        print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount) streamedDownload=\(streamedDownloadMode)")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount) streamedDownload=\(streamedDownloadMode)") }
 
         // Force re-announce to all trackers so we discover peers immediately.
         // This is critical for low-seeder torrents: the torrent may have been
@@ -256,7 +256,7 @@ final class TorrentStreamer {
             torrentHandle.resetPieceDeadline(piece)
         }
         lastDeadlinePiece = -1
-        print("TorrentStreamer: stopped")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: stopped") }
     }
 
     // MARK: - Playback position update
@@ -615,7 +615,7 @@ final class TorrentStreamer {
 
             if piecesReady {
                 StreamingLogger.shared.info("Head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
-                print("TorrentStreamer: head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: head pieces ready (\(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)") }
                 return true
             }
 
@@ -630,7 +630,7 @@ final class TorrentStreamer {
             if entry.downloaded >= byteThreshold {
                 let dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
                 StreamingLogger.shared.info("Head bytes ready (\(dlMB) MB in \(String(format: "%.1f", Date().timeIntervalSince(startTime)))s)")
-                print("TorrentStreamer: head bytes ready (downloaded=\(dlMB) MB, piece not yet verified)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: head bytes ready (downloaded=\(dlMB) MB, piece not yet verified)") }
                 return true
             }
 
@@ -639,7 +639,7 @@ final class TorrentStreamer {
                 let peers = snap.numberOfPeers
                 let seeds = snap.numberOfSeeds
                 StreamingLogger.shared.error("Metadata timeout \(String(format: "%.0f", timeout))s — need \(headEnd + 1) pieces, dl=\(dlMB) MB, peers=\(peers) seeds=\(seeds)")
-                print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1), downloaded=\(dlMB) MB, peers=\(peers), seeds=\(seeds)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: metadata wait timeout after \(String(format: "%.0f", timeout))s — pieces.count=\(pieces.count), need=\(headEnd + 1), downloaded=\(dlMB) MB, peers=\(peers), seeds=\(seeds)") }
                 return false
             }
 
