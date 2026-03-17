@@ -7,6 +7,7 @@
 import AVKit
 import AVFoundation
 
+@available(iOS 15.0, *)
 protocol PiPControllerDelegate: AnyObject {
     func pipController(_ controller: PiPController, willStartPictureInPicture: Bool)
     func pipController(_ controller: PiPController, didStartPictureInPicture: Bool)
@@ -21,6 +22,7 @@ protocol PiPControllerDelegate: AnyObject {
     func pipControllerCurrentPosition(_ controller: PiPController) -> Double
 }
 
+@available(iOS 15.0, *)
 final class PiPController: NSObject {
     private var pipController: AVPictureInPictureController?
     private weak var sampleBufferDisplayLayer: AVSampleBufferDisplayLayer?
@@ -158,6 +160,7 @@ final class PiPController: NSObject {
 
 // MARK: - AVPictureInPictureControllerDelegate
 
+@available(iOS 15.0, *)
 extension PiPController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         delegate?.pipController(self, willStartPictureInPicture: true)
@@ -187,6 +190,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
 
 // MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
 
+@available(iOS 15.0, *)
 extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, setPlaying playing: Bool) {
