@@ -273,17 +273,7 @@ class SettingsViewController: UIViewController {
                 kind: .action),
         ], tab: .app),
 
-        Section(header: "About", rows: [
-            Row(title: "Version",
-                description: "NyaiS — an iOS client inspired by Hayase.",
-                kind: .value(appVersion())),
-            Row(title: "Source Code",
-                description: "View the NyaiS source code on GitHub.",
-                kind: .link("https://github.com/scigward/NyaiS")),
-            Row(title: "AniList",
-                description: "Anime metadata powered by AniList GraphQL API.",
-                kind: .link("https://anilist.co")),
-        ], tab: .app),
+
     ]
 
     // MARK: - viewDidLoad
@@ -586,6 +576,14 @@ final class HayaseSettingToggleCell: UITableViewCell {
     /// Card background — bg-neutral-950 (#0a0a0a)
     static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
 
+    private let cardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = hayaseCardBg
+        v.layer.cornerRadius = 6      // rounded-md = 6px
+        v.layer.masksToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 15, weight: .bold)    // font-bold
@@ -615,11 +613,10 @@ final class HayaseSettingToggleCell: UITableViewCell {
 
     private func setup() {
         selectionStyle = .none
-        // Hayase SettingCard: bg-neutral-950 rounded-md, NO border
-        contentView.backgroundColor = Self.hayaseCardBg
-        contentView.layer.cornerRadius = 6      // rounded-md = 6px
-        contentView.layer.masksToBounds = true
-        // NO border — Hayase SettingCard has no border
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        contentView.addSubview(cardView)
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
         textStack.axis = .vertical
@@ -628,20 +625,29 @@ final class HayaseSettingToggleCell: UITableViewCell {
 
         toggle.translatesAutoresizingMaskIntoConstraints = false
         toggle.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
         toggle.addTarget(self, action: #selector(toggled), for: .valueChanged)
 
-        contentView.addSubview(textStack)
-        contentView.addSubview(toggle)
+        cardView.addSubview(textStack)
+        cardView.addSubview(toggle)
+
+        // Card margins: 16px horizontal, 6px vertical (space-y-3 = 12px total)
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+        ])
 
         // Hayase: px-6 = 24px, py-4 = 16px, gap-3 = 12px
         NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            textStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            textStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -12),
 
-            toggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            toggle.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            toggle.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            toggle.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
         ])
     }
 
@@ -656,12 +662,6 @@ final class HayaseSettingToggleCell: UITableViewCell {
     @objc private func toggled(_ sender: UISwitch) {
         UserDefaults.standard.set(sender.isOn, forKey: udKey)
     }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Inset contentView for card margins: space-y-3 = 12px total (6+6)
-        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 6, left: 16, bottom: 6, right: 16))
-    }
 }
 
 // MARK: - HayaseSettingValueCell
@@ -672,6 +672,14 @@ final class HayaseSettingValueCell: UITableViewCell {
 
     static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
 
+    private let cardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = hayaseCardBg
+        v.layer.cornerRadius = 6
+        v.layer.masksToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 15, weight: .bold)
@@ -691,6 +699,7 @@ final class HayaseSettingValueCell: UITableViewCell {
         l.font = .systemFont(ofSize: 14)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
         return l
     }()
 
@@ -701,10 +710,10 @@ final class HayaseSettingValueCell: UITableViewCell {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
-        contentView.backgroundColor = Self.hayaseCardBg
-        contentView.layer.cornerRadius = 6
-        contentView.layer.masksToBounds = true
-        // NO border
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        contentView.addSubview(cardView)
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
         textStack.axis = .vertical
@@ -713,17 +722,25 @@ final class HayaseSettingValueCell: UITableViewCell {
 
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(textStack)
-        contentView.addSubview(valueLabel)
+        cardView.addSubview(textStack)
+        cardView.addSubview(valueLabel)
+
+        // Card margins: 16px horizontal, 6px vertical
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+        ])
 
         NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            textStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            textStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: valueLabel.leadingAnchor, constant: -12),
 
-            valueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            valueLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            valueLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            valueLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
         ])
     }
 
@@ -734,11 +751,6 @@ final class HayaseSettingValueCell: UITableViewCell {
         valueLabel.isHidden = value == nil
         accessoryType = isLink ? .disclosureIndicator : .none
         selectionStyle = isLink ? .default : .none
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        contentView.frame = contentView.frame.inset(by: UIEdgeInsets(top: 6, left: 16, bottom: 6, right: 16))
     }
 }
 
