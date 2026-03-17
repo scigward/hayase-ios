@@ -170,7 +170,7 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_minimalUI", defaultValue: false)),
             Row(title: "Show Streaming Logger",
                 description: "Keeps the streaming log overlay visible during playback instead of auto-hiding.",
-                kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),  // iOS-specific: not in Hayase, kept per user request
         ], tab: .player),
 
         // ── Client tab (Hayase /app/settings/client/) ──
