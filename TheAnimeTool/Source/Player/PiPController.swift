@@ -36,6 +36,10 @@ final class PiPController: NSObject {
     private var currentTime: CMTime = .zero
     private var currentDuration: Double = 0
     
+    /// The last rate written to the timebase, tracked to avoid redundant
+    /// CMTimebaseSetRate calls that can disrupt the PiP auto-start observer.
+    private var currentRate: Float64 = 0
+    
     var isPictureInPictureSupported: Bool {
         return AVPictureInPictureController.isPictureInPictureSupported()
     }
@@ -127,13 +131,28 @@ final class PiPController: NSObject {
         }
     }
     
-    /// Updates the current playback time for PiP progress display
+    /// Updates the current playback time for PiP progress display.
+    ///
+    /// The timebase runs at rate 1 in real-time, so it naturally stays in sync
+    /// with playback. We only call CMTimebaseSetTime when the drift between
+    /// the timebase and MPV exceeds a threshold (e.g. after a seek). Constant
+    /// CMTimebaseSetTime calls would internally stop-and-restart the timebase,
+    /// which can make the PiP system intermittently see the content as "not
+    /// playing" and refuse to auto-start.
     func setCurrentTime(_ time: CMTime) {
         currentTime = time
         
-        // Update the timebase to reflect current position
         if let tb = timebase {
-            CMTimebaseSetTime(tb, time: time)
+            let tbTime = CMTimebaseGetTime(tb)
+            let drift = abs(CMTimeGetSeconds(time) - CMTimeGetSeconds(tbTime))
+            if drift > 2.0 {
+                CMTimebaseSetTime(tb, time: time)
+                // Restore the rate after SetTime (SetTime preserves rate but
+                // restarts internal timers — restore immediately to be safe).
+                if currentRate != 0 {
+                    CMTimebaseSetRate(tb, rate: currentRate)
+                }
+            }
         }
         
         // Only invalidate when PiP is active to avoid unnecessary updates
@@ -150,10 +169,15 @@ final class PiPController: NSObject {
         setCurrentTime(time)
     }
     
-    /// Updates the playback rate on the timebase (1.0 = playing, 0.0 = paused)
+    /// Updates the playback rate on the timebase (1.0 = playing, 0.0 = paused).
+    /// Skips the call when the rate is already at the desired value to avoid
+    /// unnecessary timebase restarts.
     func setPlaybackRate(_ rate: Float) {
+        let rate64 = Float64(rate)
+        guard rate64 != currentRate else { return }
+        currentRate = rate64
         if let tb = timebase {
-            CMTimebaseSetRate(tb, rate: Float64(rate))
+            CMTimebaseSetRate(tb, rate: rate64)
         }
     }
 }

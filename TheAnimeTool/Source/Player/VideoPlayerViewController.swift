@@ -132,23 +132,6 @@ final class VideoPlayerViewController: UIViewController {
             self.pipController = pip
         }
 
-        // Explicitly start system PiP when the app enters background as a
-        // fallback in case canStartPictureInPictureAutomaticallyFromInline
-        // doesn't trigger (which can happen intermittently when the display
-        // layer hasn't been fully acknowledged by the system yet).
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appWillEnterForeground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
-
         loadCurrentVideo()
         scheduleHide()
     }
@@ -189,8 +172,6 @@ final class VideoPlayerViewController: UIViewController {
     func tearDownPlayer() {
         saveProgress()
         MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
-        NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
         if #available(iOS 15.0, *) {
             pipController?.stopPictureInPicture()
         }
@@ -199,32 +180,6 @@ final class VideoPlayerViewController: UIViewController {
         streamServer?.stop()
         streamer?.stop()
         surface.stop()
-    }
-
-    /// Explicitly start system PiP when the app backgrounds. This is a
-    /// fallback for `canStartPictureInPictureAutomaticallyFromInline` which
-    /// can intermittently fail to trigger if the display layer's state hasn't
-    /// been fully acknowledged by the PiP system yet.
-    @objc private func appDidEnterBackground() {
-        guard !isPaused else { return }
-        if #available(iOS 15.0, *) {
-            guard let pip = pipController else { return }
-            // Only start if auto-start didn't already kick in.
-            if !pip.isPictureInPictureActive {
-                pip.startPictureInPicture()
-            }
-        }
-    }
-
-    /// When returning from background, if PiP wasn't active the overlay may
-    /// need to be refreshed.
-    @objc private func appWillEnterForeground() {
-        if #available(iOS 15.0, *) {
-            if !(pipController?.isPictureInPictureActive ?? false) {
-                setControls(visible: true)
-                scheduleHide()
-            }
-        }
     }
 
     override var prefersStatusBarHidden: Bool              { !controlsVisible }
