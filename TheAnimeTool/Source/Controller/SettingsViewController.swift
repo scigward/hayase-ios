@@ -69,6 +69,8 @@ class SettingsViewController: UIViewController {
         case link(String)
         case navigate
         case action
+        /// Account card — full tracker account card (AniList, Kitsu, MAL, Local).
+        case account(TrackerKind)
     }
 
     private struct Row {
@@ -284,7 +286,16 @@ class SettingsViewController: UIViewController {
         Section(header: "Account Settings", rows: [
             Row(title: "AniList",
                 description: "Connect your AniList account for anime tracking, list sync, and metadata.",
-                kind: .navigate),
+                kind: .account(.anilist)),
+            Row(title: "Kitsu",
+                description: "Connect your Kitsu account for anime tracking and list sync.",
+                kind: .account(.kitsu)),
+            Row(title: "MyAnimeList",
+                description: "Connect your MyAnimeList account for anime tracking and list sync.",
+                kind: .account(.mal)),
+            Row(title: "Local",
+                description: "Local-only tracking. Works offline.",
+                kind: .account(.local)),
         ], tab: .accounts),
 
         // ── App tab (Hayase /app/settings/app/) ──
@@ -330,6 +341,8 @@ class SettingsViewController: UIViewController {
                            forCellReuseIdentifier: HayaseSettingToggleCell.reuseID)
         tableView.register(HayaseSettingValueCell.self,
                            forCellReuseIdentifier: HayaseSettingValueCell.reuseID)
+        tableView.register(HayaseAccountCardCell.self,
+                           forCellReuseIdentifier: HayaseAccountCardCell.reuseID)
         tableView.tableHeaderView = buildHeaderView()
         view.addSubview(tableView)
 
@@ -678,6 +691,12 @@ extension SettingsViewController: UITableViewDataSource {
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.backgroundColor = bgColor
             return cell
+        case .account(let tracker):
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as! HayaseAccountCardCell
+            cell.configure(tracker: tracker, parentVC: self)
+            cell.backgroundColor = bgColor
+            return cell
         }
     }
 }
@@ -703,6 +722,8 @@ extension SettingsViewController: UITableViewDelegate {
             showEditableAlert(title: row.title, key: key, defaultValue: defaultValue, suffix: suffix, min: min, max: max, indexPath: indexPath)
         case .action:
             handleAction(row: row)
+        case .account:
+            break // Account cards handle their own interactions
         default:
             break
         }
@@ -713,7 +734,9 @@ extension SettingsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
-        80
+        let row = visibleSections[indexPath.section].rows[indexPath.row]
+        if case .account = row.kind { return 140 }
+        return 80
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {

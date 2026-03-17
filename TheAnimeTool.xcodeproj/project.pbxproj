@@ -57,6 +57,9 @@
 		EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */; };
 		EXTVC001EXTVC001EXTVC001 /* ExtensionsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */; };
 		EXTSRC01EXTSRC01EXTSRC01 /* ExtensionSearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */; };
+		TRKSVC01TRKSVC01TRKSVC01 /* TrackerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */; };
+		TRKICN01TRKICN01TRKICN01 /* TrackerIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */; };
+		ACCCEL01ACCCEL01ACCCEL01 /* HayaseAccountCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */; };
 		A96106BA1D72FC4E006D39D0 /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = A96106B91D72FC4E006D39D0 /* Default-568h@2x.png */; };
 		A96106CF1D731B43006D39D0 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A96106BD1D731B43006D39D0 /* Info.plist */; };
 		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
@@ -228,6 +231,9 @@
 		EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
 		EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionsViewController.swift; sourceTree = "<group>"; };
 		EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionSearchViewController.swift; sourceTree = "<group>"; };
+		TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrackerService.swift; sourceTree = "<group>"; };
+		TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrackerIcons.swift; sourceTree = "<group>"; };
+		ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HayaseAccountCardCell.swift; sourceTree = "<group>"; };
 		PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVWrapper.swift; sourceTree = "<group>"; };
 		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
 		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
@@ -512,6 +518,8 @@
 				DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */,
 				EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */,
 				EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */,
+				TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */,
+				ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */,
 			);
 			path = Controller;
 			sourceTree = "<group>";
@@ -538,6 +546,7 @@
 				EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */,
 				EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */,
 				EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */,
+				TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */,
 			);
 			path = Service;
 			sourceTree = "<group>";
@@ -828,6 +837,9 @@
 				EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */,
 				EXTVC001EXTVC001EXTVC001 /* ExtensionsViewController.swift in Sources */,
 				EXTSRC01EXTSRC01EXTSRC01 /* ExtensionSearchViewController.swift in Sources */,
+				TRKSVC01TRKSVC01TRKSVC01 /* TrackerService.swift in Sources */,
+				TRKICN01TRKICN01TRKICN01 /* TrackerIcons.swift in Sources */,
+				ACCCEL01ACCCEL01ACCCEL01 /* HayaseAccountCardCell.swift in Sources */,
 				PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */,
 				PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */,
 				PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */,
