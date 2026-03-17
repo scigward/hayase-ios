@@ -159,16 +159,16 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_missingFont", defaultValue: false)),
             Row(title: "Subtitle Render Resolution Limit",
                 description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled linearly. This will GREATLY improve rendering speeds for complex typesetting for slower devices.",
-                kind: .selectable(userDefaultsKey: "pref_subtitleRenderHeight", options: subtitleResolutions, defaultKey: "1080")),
+                kind: .selectable(userDefaultsKey: "pref_subtitleRenderHeight", options: Self.subtitleResolutions, defaultKey: "1080")),
         ], tab: .player),
 
         Section(header: "Language Settings", rows: [
             Row(title: "Preferred Subtitle Language",
                 description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
-                kind: .selectable(userDefaultsKey: "pref_subtitleLanguage", options: languageCodes, defaultKey: "eng")),
+                kind: .selectable(userDefaultsKey: "pref_subtitleLanguage", options: Self.languageCodes, defaultKey: "eng")),
             Row(title: "Preferred Audio Language",
                 description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
-                kind: .selectable(userDefaultsKey: "pref_audioLanguage", options: languageCodes, defaultKey: "jpn")),
+                kind: .selectable(userDefaultsKey: "pref_audioLanguage", options: Self.languageCodes, defaultKey: "jpn")),
         ], tab: .player),
 
         Section(header: "Playback Settings", rows: [
@@ -264,13 +264,13 @@ class SettingsViewController: UIViewController {
         Section(header: "Lookup Settings", rows: [
             Row(title: "Torrent Quality",
                 description: "What quality to use when trying to find torrents. This doesn't exclude other qualities from being found. Non-1080p resolutions might not be available for all shows, or find way less results.",
-                kind: .selectable(userDefaultsKey: "pref_searchQuality", options: videoResolutions, defaultKey: "1080")),
+                kind: .selectable(userDefaultsKey: "pref_searchQuality", options: Self.videoResolutions, defaultKey: "1080")),
             Row(title: "Auto-Select Torrents",
                 description: "Automatically selects torrents based on quality and amount of seeders. Disable this to have more precise control over played torrents.",
                 kind: .toggle(userDefaultsKey: "pref_searchAutoSelect", defaultValue: true)),
             Row(title: "Lookup Preference",
                 description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available, Size will focus on the smallest file size, and Availability will pick results with the most peers.",
-                kind: .selectable(userDefaultsKey: "pref_lookupPreference", options: lookupPreferences, defaultKey: "quality")),
+                kind: .selectable(userDefaultsKey: "pref_lookupPreference", options: Self.lookupPreferences, defaultKey: "quality")),
         ], tab: .extensions),
 
         Section(header: "Extension Settings", rows: [
