@@ -41,13 +41,15 @@ private final class BannerGradientView: UIView {
 
 // MARK: - FeaturedBannerCell
 // Matches Hayase's full-banner.svelte identically:
-// • Banner height = 70vh (70% of screen height) — matches banner-image.svelte h-[70vh]
+// • Banner height = 70vh (70% of screen height) — matches banner.svelte h-[70vh]
 // • Full-bleed background image (banner or cover) with Hayase radial gradient overlay
-// • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines
-// • Badges row: bg-primary/10 (white/10%) pills — duration, format, status, score
-// • Description: text-white/70, 2 lines, text-xs (11pt)
-// • Dot progress indicators: inactive = bg-white/20 width 1.5rem, active = bg-custom width 3rem
-//   with 15s fill animation (matches Hayase CSS: animation: fill 15s linear)
+// • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines, text-center
+// • Badges row: hidden on mobile (Hayase: `hidden sm:flex`) — bg-primary/10 pills
+// • Play/Favorite/Bookmark buttons row: bg-custom text-contrast (Hayase PlayButton)
+// • Description: text-white/70, 2 lines, text-xs (11pt), text-center on mobile
+// • All content centered on mobile (Hayase: items-center text-center on mobile)
+// • Dot progress indicators: centered, inactive = bg-white/20 width 1.5rem,
+//   active = bg-custom width 3rem with 15s fill animation
 // • 15-second auto-rotation
 // • Banner query: SCORE_DESC, perPage: 5, current season, statusNot NOT_YET_RELEASED
 
@@ -83,12 +85,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
-    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg
+    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg text-center (mobile)
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 28, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
+        l.textAlignment = .center  // Hayase mobile: text-center items-center
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
         return l
@@ -109,22 +112,55 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return iv
     }()
 
-    // Badge row: bg-primary/10 pills (duration, format, status, score)
+    // Badge row: hidden on mobile (Hayase: `hidden sm:flex`) — only shown on ≥640px screens.
+    // On iPhone this is always hidden. Kept for iPad or larger screens.
     private let badgeStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
         sv.spacing = 6
         sv.alignment = .center
+        sv.isHidden = true // hidden on mobile — matches Hayase `hidden sm:flex`
         return sv
     }()
 
-    // Description: text-white/70 text-xs line-clamp-2
+    // Description: text-white/70 text-xs line-clamp-2 text-center (centered on mobile)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
         l.numberOfLines = 2
+        l.textAlignment = .center  // Hayase mobile: text-center
         return l
+    }()
+
+    // Play button: bg-custom text-contrast — matches Hayase PlayButton
+    // Shows "Watch Now" / "Continue" / "Rewatch" based on status (defaults to "Watch Now")
+    private let playButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("  Watch Now", for: .normal)
+        b.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        b.tintColor = .black
+        b.setTitleColor(.black, for: .normal)
+        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.layer.cornerRadius = 8
+        b.clipsToBounds = true
+        return b
+    }()
+
+    // Favorite button: ghost variant — heart icon
+    private let favoriteButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        b.tintColor = .white
+        return b
+    }()
+
+    // Bookmark button: ghost variant — bookmark icon
+    private let bookmarkButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        b.tintColor = .white
+        return b
     }()
 
     // Progress dots row — animated fill for active dot
@@ -156,12 +192,27 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             contentView.addSubview($0)
         }
 
-        // Text stack: [clearlogoImageView, titleLabel, badgeStack, descriptionLabel]
+        // Button row: [Play (grow)  Favorite  Bookmark] — matches Hayase PlayButton/FavoriteButton/BookmarkButton
+        // Hayase: flex flex-row w-[280px] max-w-full
+        let buttonRow = UIStackView(arrangedSubviews: [playButton, favoriteButton, bookmarkButton])
+        buttonRow.axis = .horizontal
+        buttonRow.spacing = 8
+        buttonRow.alignment = .center
+        buttonRow.distribution = .fill
+        // Play button grows to fill remaining space (Hayase: grow class)
+        playButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        favoriteButton.setContentHuggingPriority(.required, for: .horizontal)
+        bookmarkButton.setContentHuggingPriority(.required, for: .horizontal)
+        favoriteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        bookmarkButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
         // Clearlogo replaces title visually — only one is visible at a time.
-        let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, descriptionLabel])
+        // Hayase mobile: items-center text-center (centered on mobile)
+        let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel])
         textStack.axis = .vertical
         textStack.spacing = 8
-        textStack.alignment = .leading
+        textStack.alignment = .center  // Hayase mobile: items-center
         textStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(textStack)
 
@@ -179,11 +230,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Dots at very bottom
-            dotsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            // Dots centered at bottom — Hayase: `flex w-full justify-center`
+            dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
 
-            // Text stack just above dots, left + right margins
+            // Text stack centered above dots, left + right margins
             textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
@@ -191,6 +242,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Clearlogo: max height 60pt (scaled from Hayase's w-[30rem] for mobile),
             // natural aspect ratio preserved via .scaleAspectFit
             clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 60),
+
+            // Play button row: w-[280px] max-w-full (Hayase)
+            buttonRow.widthAnchor.constraint(equalToConstant: 280),
+            playButton.heightAnchor.constraint(equalToConstant: 36),
+            favoriteButton.widthAnchor.constraint(equalToConstant: 36),
+            favoriteButton.heightAnchor.constraint(equalToConstant: 36),
+            bookmarkButton.widthAnchor.constraint(equalToConstant: 36),
+            bookmarkButton.heightAnchor.constraint(equalToConstant: 36),
         ])
     }
 
@@ -219,6 +278,23 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
             self.updateBadges(for: item)
             self.updateDots()
+            // Play button bg-custom: use coverImage.color as background (Hayase --custom var)
+            let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
+            self.playButton.backgroundColor = customColor
+            // Determine text contrast (Hayase: text-contrast — black or white based on luminance)
+            let textColor = Self.contrastColor(for: customColor)
+            self.playButton.tintColor = textColor
+            self.playButton.setTitleColor(textColor, for: .normal)
+            // Favorite/Bookmark tint matches --custom color on mobile (Hayase: select:!text-custom)
+            self.favoriteButton.tintColor = customColor
+            self.bookmarkButton.tintColor = customColor
+            // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
+            let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+            if continueIDs.contains(item.id) {
+                self.playButton.setTitle("  Continue", for: .normal)
+            } else {
+                self.playButton.setTitle("  Watch Now", for: .normal)
+            }
         }
         if animated {
             UIView.transition(with: contentView, duration: 0.4, options: .transitionCrossDissolve, animations: block)
@@ -227,6 +303,25 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
         loadBanner(for: item)
         loadClearlogo(for: item)
+    }
+
+    /// Parse hex color string (e.g. "#e3566b") to UIColor
+    private static func uiColor(fromHex hex: String?) -> UIColor? {
+        guard let hex = hex?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: ""),
+              hex.count == 6,
+              let rgb = UInt32(hex, radix: 16) else { return nil }
+        return UIColor(red: CGFloat((rgb >> 16) & 0xFF) / 255.0,
+                       green: CGFloat((rgb >> 8) & 0xFF) / 255.0,
+                       blue: CGFloat(rgb & 0xFF) / 255.0,
+                       alpha: 1.0)
+    }
+
+    /// Returns black or white depending on luminance (Hayase text-contrast logic)
+    private static func contrastColor(for color: UIColor) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return luminance > 0.5 ? .black : .white
     }
 
     private func loadBanner(for item: AnimeItem) {
@@ -380,7 +475,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private func updateDots() {
         // Matches Hayase full-banner.svelte dot behavior:
         //   inactive: bg-white/20, width 1.5rem (24pt)
-        //   active:   bg-custom (white), width 3rem (48pt), fill animation over 15s
+        //   active:   bg-custom (coverImage.color), width 3rem (48pt), fill animation over 15s
+        let item = items.isEmpty ? nil : items[currentIndex]
+        let customColor = Self.uiColor(fromHex: item?.coverColor) ?? .white
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
             let active = i == currentIndex
             dotWidthConstraints[i]?.constant = active ? 48 : 24
@@ -392,7 +489,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             fill?.layer.removeAnimation(forKey: "fillProgress")
 
             if active {
-                fill?.backgroundColor = UIColor.white.withAlphaComponent(0.9)
+                // Hayase: bg-custom on active dot fill
+                fill?.backgroundColor = customColor
                 // Hayase CSS: animation: fill 15s linear
                 // Animates transform from translateX(-100%) to translateX(0%)
                 let anim = CABasicAnimation(keyPath: "transform.translation.x")
