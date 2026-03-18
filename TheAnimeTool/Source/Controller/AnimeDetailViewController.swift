@@ -788,7 +788,6 @@ private final class StatsCell: UITableViewCell {
 private final class AnimeInfoHeaderView: UIView {
     // Callbacks
     var onShare: (() -> Void)?
-    var onOpenAniList: (() -> Void)?
     var onPlayTrailer: (() -> Void)?
     var onWatch: (() -> Void)?
 
@@ -820,10 +819,10 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     // MARK: - Text labels
-    // h2: font-light text-muted-foreground text-lg line-clamp-1 — ABOVE h1
+    // h2: font-light text-muted-foreground text-base (mobile) line-clamp-1 — ABOVE h1
     private let romajiLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 17, weight: .light)
+        l.font = .systemFont(ofSize: 16, weight: .light)  // text-base = 16px on mobile
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
         return l
@@ -863,8 +862,11 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     // MARK: - Action buttons
-    // Play button: bg-custom text-contrast (bg-white text-black since no cover color available)
-    // grow = fills remaining width in actions row
+    // Hayase +layout.svelte: PlayButton + EntryEditor combo, FavoriteButton, BookmarkButton, Share, Trailer
+    // Mobile order (≥380px): BookmarkButton(-order-2) → FavoriteButton(-order-1) → Play+Editor → Share → Trailer
+    // AniList/MAL buttons: hidden md:flex (desktop only — hidden on iOS)
+
+    // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("▶  Watch Now", for: .normal)
@@ -872,11 +874,49 @@ private final class AnimeInfoHeaderView: UIView {
         b.backgroundColor = .white
         b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
         b.layer.cornerRadius = 8
+        b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
         return b
     }()
 
-    // Secondary icon buttons: bg-secondary (#27272a), white icon, 36×36pt, rounded-md (8pt)
+    // EntryEditor button: rounded-l-none, bg-custom-400, pencil icon
+    // Matches Hayase EntryEditor.svelte trigger: rounded-l-none bg-custom-400 select:!bg-custom-700
+    private let entryEditorButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "pencil.line"), for: .normal)
+        b.tintColor = .black
+        b.backgroundColor = UIColor(white: 0.75, alpha: 1) // lighter variant of accent (custom-400)
+        b.layer.cornerRadius = 8
+        b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // rounded-l-none
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // FavoriteButton: variant='secondary' size='icon' — Heart icon, bg-secondary, h-9 w-9
+    // Hayase: <FavoriteButton {media} variant='secondary' size='icon' class='select:!text-custom' />
+    private let favoriteButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
+        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // BookmarkButton: variant='secondary' size='icon' — Bookmark icon, bg-secondary, h-9 w-9
+    // Hayase: <BookmarkButton {media} variant='secondary' size='icon' class='select:!text-custom' />
+    private let bookmarkButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
+        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.masksToBounds = true
+        return b
+    }()
+
+    // Share button: variant='secondary' size='icon', hidden min-[380px]:flex
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
         b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
@@ -887,25 +927,7 @@ private final class AnimeInfoHeaderView: UIView {
         return b
     }()
 
-    private let anilistButton: UIButton = {
-        let b = UIButton(type: .custom)
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
-        b.layer.masksToBounds = true
-        // Use AniListIconView instead of "AL" text — matches TrackerIcons.swift
-        let icon = AniListIconView()
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.isUserInteractionEnabled = false
-        b.addSubview(icon)
-        NSLayoutConstraint.activate([
-            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 15),
-        ])
-        return b
-    }()
-
+    // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
         let b = UIButton(type: .system)
         b.setImage(UIImage(systemName: "film"), for: .normal)
@@ -932,6 +954,9 @@ private final class AnimeInfoHeaderView: UIView {
         return sv
     }()
 
+    // Genres container — holds genresScrollView centered; hidden when no genres
+    private let genresContainer = UIView()
+
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
 
@@ -948,29 +973,27 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     // MARK: - Layout
+    // Matches Hayase +layout.svelte mobile layout exactly:
+    // • flex-col items-center (vertical, centered)
+    // • Cover 180×256 on top
+    // • Text centered below: romaji (h2), title (h1)
+    // • Badges: hidden on mobile (hidden md:flex)
+    // • Description: hidden on mobile (md:block hidden)
+    // • Buttons: Bookmark → Favorite → [Play + EntryEditor] → Share → Trailer
+    // • Genres centered
 
     private func setup() {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
         // Banner gradient: transparent top-30% → black/0.85 at bottom (mirrors Hayase mobile banner-gr-sm)
-        // Hayase: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        // Approximated as linear top→bottom starting clear at 30% → black/85 at 100%
         bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
         bannerGradientLayer.locations = [0.3, 1.0]
 
-        // Badges scrollview
-        badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
-        badgesStack.translatesAutoresizingMaskIntoConstraints = false
-        badgesScrollView.addSubview(badgesStack)
-        NSLayoutConstraint.activate([
-            badgesStack.topAnchor.constraint(equalTo: badgesScrollView.topAnchor),
-            badgesStack.bottomAnchor.constraint(equalTo: badgesScrollView.bottomAnchor),
-            badgesStack.leadingAnchor.constraint(equalTo: badgesScrollView.leadingAnchor),
-            badgesStack.trailingAnchor.constraint(equalTo: badgesScrollView.trailingAnchor),
-            badgesStack.heightAnchor.constraint(equalTo: badgesScrollView.heightAnchor),
-        ])
+        // Badges & description HIDDEN on mobile — Hayase: hidden md:flex / md:block hidden
+        badgesScrollView.isHidden = true
+        descriptionLabel.isHidden = true
 
-        // Genres scrollview
+        // Genres scrollview (centered on mobile)
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
         genresStack.translatesAutoresizingMaskIntoConstraints = false
         genresScrollView.addSubview(genresStack)
@@ -982,36 +1005,61 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Text column: [romajiLabel, titleLabel, badgesScrollView]
-        // gap-1.5 between romaji+title, gap-2 before badges (≈ 6pt, 8pt)
-        let textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView])
+        // Text labels: centered on mobile (Hayase: text-center md:text-start)
+        romajiLabel.textAlignment = .center
+        titleLabel.textAlignment = .center
+
+        // Text column: [romajiLabel, titleLabel] — gap-1.5 (6pt)
+        // Hayase: flex flex-col gap-1.5 text-center
+        let textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel])
         textColumn.axis = .vertical
         textColumn.spacing = 6
-        textColumn.alignment = .leading
+        textColumn.alignment = .fill  // fill so labels can center their text
 
-        // Cover + text row: [coverImageView  textColumn]  — gap-5 = 20pt
-        let coverTextRow = UIStackView(arrangedSubviews: [coverImageView, textColumn])
-        coverTextRow.axis = .horizontal
-        coverTextRow.spacing = 16
-        coverTextRow.alignment = .bottom  // md:items-end
+        // Cover + text: VERTICAL on mobile (Hayase: flex-col items-center)
+        // gap-4 (16pt) between items in the text section, gap-5 (20pt) between cover and text
+        let coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
+        coverAndTextColumn.axis = .vertical
+        coverAndTextColumn.spacing = 16  // gap-4 (items-center flex-col gap-4)
+        coverAndTextColumn.alignment = .center  // items-center
 
-        // Action buttons: [playButton(grow)  shareButton  anilistButton  trailerButton]
+        // Action buttons: Hayase mobile order (≥380px):
+        // BookmarkButton(-order-2) → FavoriteButton(-order-1) → [Play + EntryEditor] → Share → Trailer
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
-        anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+        entryEditorButton.addTarget(self, action: #selector(entryEditorTapped), for: .touchUpInside)
 
-        let actionsRow = UIStackView(arrangedSubviews: [playButton, shareButton, anilistButton, trailerButton])
+        // Play + EntryEditor combo (Hayase: flex w-[180px], play rounded-r-none + editor rounded-l-none)
+        let playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
+        playCombo.axis = .horizontal
+        playCombo.spacing = 0  // flush — play rounded-r-none, editor rounded-l-none
+        playCombo.alignment = .fill
+
+        // Hayase mobile: gap-2 (8pt), items-center, justify-center, overflow-x-clip, [&>*]:flex-shrink-0
+        let actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton])
         actionsRow.axis = .horizontal
-        actionsRow.spacing = 8
+        actionsRow.spacing = 8  // gap-2
         actionsRow.alignment = .fill
 
-        // Main content: [coverTextRow, description, actionsRow, genresScrollView]
-        let contentStack = UIStackView(arrangedSubviews: [coverTextRow, descriptionLabel, actionsRow, genresScrollView])
+        // Genres: gap-2, items-center, justify-center (centered on mobile)
+        // Wrap genres scroll in centered container
+        genresContainer.addSubview(genresScrollView)
+        NSLayoutConstraint.activate([
+            genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
+            genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
+            genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
+            genresScrollView.widthAnchor.constraint(lessThanOrEqualTo: genresContainer.widthAnchor),
+        ])
+
+        // Main content: [coverAndTextColumn, actionsRow, genresContainer]
+        // Hayase: gap-6 (24pt) between major sections, px-3 (12pt) horizontal padding
+        let contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
         contentStack.axis = .vertical
-        contentStack.spacing = 16
+        contentStack.spacing = 24  // gap-6
         contentStack.isLayoutMarginsRelativeArrangement = true
-        contentStack.layoutMargins = UIEdgeInsets(top: 12, left: 16, bottom: 24, right: 16)
+        // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (content continues)
+        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
 
         [bannerImageView, contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -1020,29 +1068,31 @@ private final class AnimeInfoHeaderView: UIView {
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         NSLayoutConstraint.activate([
-            // Banner: full-width, 180pt — approximates h-[23rem] from banner-image.svelte
+            // Banner: full-width, 180pt (approximates banner-image.svelte h-[23rem] for detail page)
             bannerImageView.topAnchor.constraint(equalTo: topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: 180),
 
-            // Cover: w-[180px] h-[256px] ratio → 100×142 on phone
-            coverImageView.widthAnchor.constraint(equalToConstant: 100),
-            coverImageView.heightAnchor.constraint(equalToConstant: 142),
-
-            // Badges scrollview height = 24pt (h-6)
-            badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
+            // Cover: w-[180px] h-[256px] — exact Hayase dimensions
+            coverImageView.widthAnchor.constraint(equalToConstant: 180),
+            coverImageView.heightAnchor.constraint(equalToConstant: 256),
 
             // Actions row height = 36pt (h-9)
             actionsRow.heightAnchor.constraint(equalToConstant: 36),
+            bookmarkButton.widthAnchor.constraint(equalToConstant: 36),
+            favoriteButton.widthAnchor.constraint(equalToConstant: 36),
+            entryEditorButton.widthAnchor.constraint(equalToConstant: 36),
             shareButton.widthAnchor.constraint(equalToConstant: 36),
-            anilistButton.widthAnchor.constraint(equalToConstant: 36),
             trailerButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Genres scrollview height = 28pt (h-7)
-            genresScrollView.heightAnchor.constraint(equalToConstant: 28),
+            // Play combo: w-[180px] on ≥380px screens (Hayase: min-[380px]:w-[180px])
+            playCombo.widthAnchor.constraint(equalToConstant: 180),
 
-            // Content stack starts just where banner ends (they visually overlap via banner's gradient)
+            // Genres scrollview height = 28pt (h-7)
+            genresContainer.heightAnchor.constraint(equalToConstant: 28),
+
+            // Content stack overlaps bottom of banner (gradient provides the blend)
             contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -30),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -1057,10 +1107,10 @@ private final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Actions
 
-    @objc private func shareTapped()   { onShare?() }
-    @objc private func anilistTapped() { onOpenAniList?() }
-    @objc private func trailerTapped() { onPlayTrailer?() }
-    @objc private func playTapped()    { onWatch?() }
+    @objc private func shareTapped()       { onShare?() }
+    @objc private func trailerTapped()     { onPlayTrailer?() }
+    @objc private func playTapped()        { onWatch?() }
+    @objc private func entryEditorTapped() { /* TODO: Present entry editor sheet */ }
 
     // MARK: - Configure (Animes CoreData entity)
 
@@ -1083,7 +1133,7 @@ private final class AnimeInfoHeaderView: UIView {
                       format:  nil, season: nil)
 
         // Genre chips: not in CoreData, so hide
-        genresScrollView.isHidden = true
+        genresContainer.isHidden = true
 
         // Description: font-light text-sm text-muted-foreground
         let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1117,6 +1167,9 @@ private final class AnimeInfoHeaderView: UIView {
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
+        // EntryEditor: bg-custom-400 (lighter variant of accent)
+        entryEditorButton.backgroundColor = accent.withAlphaComponent(0.7)
+        entryEditorButton.tintColor = contrast
 
         rebuildBadges(score:    item.score,
                       status:   item.status,
@@ -1131,7 +1184,7 @@ private final class AnimeInfoHeaderView: UIView {
         for genre in item.genres.prefix(8) {
             genresStack.addArrangedSubview(makeGenreChip(text: genre))
         }
-        genresScrollView.isHidden = item.genres.isEmpty
+        genresContainer.isHidden = item.genres.isEmpty
 
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
@@ -1507,12 +1560,6 @@ class AnimeDetailViewController: UIViewController {
             let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
             activity.popoverPresentationController?.sourceView = self.view
             self.present(activity, animated: true)
-        }
-        headerView.onOpenAniList = { [weak self] in
-            guard let self = self else { return }
-            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
-            guard let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
-            UIApplication.shared.open(url)
         }
         headerView.onPlayTrailer = { [weak self] in
             guard let self = self,
