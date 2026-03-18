@@ -17,16 +17,17 @@ private final class BannerGradientView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Approximate Hayase's radial-gradient:
-        //   radial-gradient(75% 65% at 59% 35%, rgba(0,0,0,0.16) 30%, rgba(0,0,0,1) 100%)
-        // Top darkens for status-bar readability; center is light; bottom is very dark for text.
+        // Matches Hayase's banner-image.svelte radial-gradient for mobile:
+        //   radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // Approximated as a linear gradient: light in the center-upper area, fully dark at bottom.
         gradient.colors = [
-            UIColor.black.withAlphaComponent(0.55).cgColor, // top  — status bar legible
-            UIColor.black.withAlphaComponent(0.05).cgColor, // ~12% — image shows through
-            UIColor.clear.cgColor,                           // ~50% — clear image centre
-            UIColor.black.withAlphaComponent(0.88).cgColor, // bottom — text area
+            UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
+            UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
+            UIColor.black.cgColor,                           // bottom — fully dark
         ]
-        gradient.locations = [0.0, 0.12, 0.50, 1.0]
+        gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         layer.addSublayer(gradient)
     }
 
@@ -39,25 +40,25 @@ private final class BannerGradientView: UIView {
 }
 
 // MARK: - FeaturedBannerCell
-// Matches Hayase's full-banner.svelte exactly:
-// • Full-bleed background image (banner or cover) — NO separate cover thumbnail
-// • Black gradient overlay from ~15% to bottom (0.82 alpha)
-// • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines
-// • Badges row: bg-primary/10 (white/10%) pills — duration, format, status, score
-// • Description: text-white/70, 2 lines, text-xs (11pt)
-// • Dot progress indicators at bottom: inactive = white/20%, active animates to fill (bg-custom)
+// Matches Hayase's full-banner.svelte identically:
+// • Banner height = 70vh (70% of screen height) — matches banner.svelte h-[70vh]
+// • Full-bleed background image (banner or cover) with Hayase radial gradient overlay
+// • Title: font-black, text-3xl (28pt on mobile), white, text-shadow, 2 lines, text-center
+// • Badges row: hidden on mobile (Hayase: `hidden sm:flex`) — bg-primary/10 pills
+// • Play/Favorite/Bookmark buttons row: bg-custom text-contrast (Hayase PlayButton)
+// • Description: text-white/70, 2 lines, text-xs (11pt), text-center on mobile
+// • All content centered on mobile (Hayase: items-center text-center on mobile)
+// • Dot progress indicators: centered, inactive = bg-white/20 width 1.5rem,
+//   active = bg-custom width 3rem with 15s fill animation
 // • 15-second auto-rotation
+// • Banner query: SCORE_DESC, perPage: 5, current season, statusNot NOT_YET_RELEASED
 
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    // Banner height: 240pt — tall enough for the background image to show prominently above
-    // the text overlay at the bottom (title + badges + dots), matching Hayase's intent of
-    // content-at-bottom over a large image. At 240pt with .scaleAspectFill a 1900×400
-    // landscape banner scales to fill 240pt height: rendered width = 240×(1900/400) = 1140pt,
-    // center-cropped to 393pt — shows ~34% of image width with no black bars.
-    // Taller cells (previously 157pt) left no image visible above the text overlay.
-    static let bannerHeight: CGFloat = 240
+    // Banner height: 70% of screen height — matches Hayase's banner-image.svelte
+    // `h-[70vh] md:h-[80vh]` (70vh on mobile). Content sits at bottom of the tall banner.
+    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.70
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -66,6 +67,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
+    private var clearlogoTask: URLSessionDataTask?
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
     private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
@@ -83,40 +85,101 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
-    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg
+    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg text-center (mobile)
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 28, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
+        l.textAlignment = .center  // Hayase mobile: text-center items-center
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
 
-    // Badge row: bg-primary/10 pills (duration, format, status, score)
+    // Clearlogo: transparent title art from ani.zip (coverType == "Clearlogo").
+    // Matches Hayase full-banner.svelte: displays logo image when available, hides titleLabel.
+    // drop-shadow-lg w-[30rem] — scaled down for mobile to ~200pt width, aspect-fit.
+    private let clearlogoImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        iv.isHidden = true   // hidden by default; shown when Clearlogo is available
+        iv.layer.shadowColor = UIColor.black.cgColor
+        iv.layer.shadowOpacity = 0.6
+        iv.layer.shadowRadius = 8
+        iv.layer.shadowOffset = CGSize(width: 0, height: 4)
+        return iv
+    }()
+
+    // Badge row: hidden on mobile (Hayase: `hidden sm:flex`) — only shown on ≥640px screens.
+    // On iPhone this is always hidden. Kept for iPad or larger screens.
     private let badgeStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
         sv.spacing = 6
         sv.alignment = .center
+        sv.isHidden = true // hidden on mobile — matches Hayase `hidden sm:flex`
         return sv
     }()
 
-    // Description: text-white/70 text-xs line-clamp-2
+    // Description: text-white/70 text-xs line-clamp-2 text-center text-shadow-lg (centered on mobile)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
         l.numberOfLines = 2
+        l.textAlignment = .center  // Hayase mobile: text-center
+        l.shadowColor = UIColor.black.withAlphaComponent(0.5) // text-shadow-lg
+        l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
 
+    // Play button: bg-custom text-contrast — matches Hayase PlayButton
+    // Shows "Watch Now" / "Continue" / "Rewatch" based on status (defaults to "Watch Now")
+    // Hayase: size='default' (h-9 px-4 py-2), rounded-md (6pt), font-bold
+    private let playButton: UIButton = {
+        let b = UIButton(type: .system)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        b.setTitle("  Watch Now", for: .normal)
+        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.tintColor = .black
+        b.setTitleColor(.black, for: .normal)
+        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
+        b.clipsToBounds = true
+        return b
+    }()
+
+    // Favorite button: ghost variant, size='icon' (h-9 w-9 = 36pt) — heart icon
+    // Hayase: variant='ghost' (transparent bg, rounded-md), icon size = 1rem (16pt)
+    // Normal state: white icon. Press state: subtle highlight.
+    private let favoriteButton: UIButton = {
+        let b = UIButton(type: .system)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "heart")?.withConfiguration(cfg), for: .normal)
+        b.tintColor = .white
+        b.layer.cornerRadius = 6  // rounded-md
+        return b
+    }()
+
+    // Bookmark button: ghost variant, size='icon' (h-9 w-9 = 36pt) — bookmark icon
+    // Same styling as favorite: transparent bg, rounded-md, 16pt icon, white tint
+    private let bookmarkButton: UIButton = {
+        let b = UIButton(type: .system)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(cfg), for: .normal)
+        b.tintColor = .white
+        b.layer.cornerRadius = 6  // rounded-md
+        return b
+    }()
+
     // Progress dots row — animated fill for active dot
+    // Hayase: each dot has mr-2 (8pt) spacing
     private let dotsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 6
+        sv.spacing = 8  // mr-2 = 0.5rem = 8pt between dots
         sv.alignment = .center
         return sv
     }()
@@ -141,11 +204,33 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             contentView.addSubview($0)
         }
 
-        // Text stack: [title, badgeStack, descriptionLabel]
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, badgeStack, descriptionLabel])
+        // Button row: [Play (grow)  Favorite  Bookmark] — matches Hayase PlayButton/FavoriteButton/BookmarkButton
+        // Hayase: flex flex-row w-[280px] max-w-full
+        // Play: mr-2 (8pt), Fav: ml-2 (8pt) → 16pt gap between Play and Fav
+        // Bookmark: ml-2 (8pt) → 8pt gap between Fav and Bookmark
+        let buttonRow = UIStackView(arrangedSubviews: [playButton, favoriteButton, bookmarkButton])
+        buttonRow.axis = .horizontal
+        buttonRow.spacing = 8  // base spacing: ml-2 between Fav and Bookmark
+        buttonRow.alignment = .center
+        buttonRow.distribution = .fill
+        buttonRow.setCustomSpacing(16, after: playButton)  // Play mr-2 + Fav ml-2 = 16pt
+        // Play button grows to fill remaining space (Hayase: grow class)
+        playButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        favoriteButton.setContentHuggingPriority(.required, for: .horizontal)
+        bookmarkButton.setContentHuggingPriority(.required, for: .horizontal)
+        favoriteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        bookmarkButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
+        // Clearlogo replaces title visually — only one is visible at a time.
+        // Hayase mobile: items-center text-center (centered on mobile)
+        // Hayase gap-4 = 16pt between items in content column
+        let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel])
         textStack.axis = .vertical
-        textStack.spacing = 8
-        textStack.alignment = .leading
+        textStack.spacing = 16  // Hayase: gap-4 = 1rem = 16pt
+        textStack.alignment = .center  // Hayase mobile: items-center
+        // Description has pt-3 (12pt) top padding in Hayase (separate column stacks below)
+        textStack.setCustomSpacing(12, after: buttonRow)
         textStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(textStack)
 
@@ -163,14 +248,26 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Dots at very bottom
-            dotsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            // Dots centered at bottom — Hayase: each dot has pb-4 (16pt bottom padding)
+            dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
 
-            // Text stack just above dots, left + right margins
+            // Text stack centered above dots — Hayase: each dot has pt-2 (8pt top padding)
             textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
+            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
+
+            // Clearlogo: max height 60pt (scaled from Hayase's w-[30rem] for mobile),
+            // natural aspect ratio preserved via .scaleAspectFit
+            clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 60),
+
+            // Play button row: w-[280px] max-w-full (Hayase)
+            buttonRow.widthAnchor.constraint(equalToConstant: 280),
+            playButton.heightAnchor.constraint(equalToConstant: 36),
+            favoriteButton.widthAnchor.constraint(equalToConstant: 36),
+            favoriteButton.heightAnchor.constraint(equalToConstant: 36),
+            bookmarkButton.widthAnchor.constraint(equalToConstant: 36),
+            bookmarkButton.heightAnchor.constraint(equalToConstant: 36),
         ])
     }
 
@@ -190,11 +287,33 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard currentIndex < items.count else { return }
         let item = items[currentIndex]
         let block = {
+            // Reset title/clearlogo — will be resolved by loadClearlogo
             self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
+            self.titleLabel.isHidden = false
+            self.clearlogoImageView.isHidden = true
+            self.clearlogoImageView.image = nil
             self.descriptionLabel.text = item.description
             self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
             self.updateBadges(for: item)
             self.updateDots()
+            // Play button bg-custom: use coverImage.color as background (Hayase --custom var)
+            let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
+            self.playButton.backgroundColor = customColor
+            // Determine text contrast (Hayase: text-contrast — black or white based on luminance)
+            let textColor = Self.contrastColor(for: customColor)
+            self.playButton.tintColor = textColor
+            self.playButton.setTitleColor(textColor, for: .normal)
+            // Favorite/Bookmark: white icon in normal state (Hayase ghost variant inherits white text)
+            // On Hayase the select:!text-custom only activates on press — iOS system highlight suffices
+            self.favoriteButton.tintColor = .white
+            self.bookmarkButton.tintColor = .white
+            // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
+            let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+            if continueIDs.contains(item.id) {
+                self.playButton.setTitle("  Continue", for: .normal)
+            } else {
+                self.playButton.setTitle("  Watch Now", for: .normal)
+            }
         }
         if animated {
             UIView.transition(with: contentView, duration: 0.4, options: .transitionCrossDissolve, animations: block)
@@ -202,6 +321,26 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             block()
         }
         loadBanner(for: item)
+        loadClearlogo(for: item)
+    }
+
+    /// Parse hex color string (e.g. "#e3566b") to UIColor
+    private static func uiColor(fromHex hex: String?) -> UIColor? {
+        guard let hex = hex?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: ""),
+              hex.count == 6,
+              let rgb = UInt32(hex, radix: 16) else { return nil }
+        return UIColor(red: CGFloat((rgb >> 16) & 0xFF) / 255.0,
+                       green: CGFloat((rgb >> 8) & 0xFF) / 255.0,
+                       blue: CGFloat(rgb & 0xFF) / 255.0,
+                       alpha: 1.0)
+    }
+
+    /// Returns black or white depending on luminance (Hayase text-contrast logic)
+    private static func contrastColor(for color: UIColor) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return luminance > 0.5 ? .black : .white
     }
 
     private func loadBanner(for item: AnimeItem) {
@@ -247,6 +386,50 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         backgroundImageView.contentMode = .scaleAspectFill
     }
 
+    /// Fetches the Clearlogo (transparent title art) from ani.zip for the current item.
+    /// If found, displays the logo image and hides the text title. Otherwise keeps text.
+    /// Matches Hayase full-banner.svelte:
+    ///   `{#await episodesCached(current.id) then metadata}`
+    ///   `{@const src = metadata?.images?.find(i => i.coverType === 'Clearlogo')?.url}`
+    private func loadClearlogo(for item: AnimeItem) {
+        clearlogoTask?.cancel()
+        clearlogoTask = nil
+        let itemID = item.id
+        AnimeService.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
+            guard let self = self else { return }
+            // Make sure we're still displaying the same item (rotation may have advanced)
+            guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
+            guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
+                // No clearlogo — keep text title visible (already the default)
+                return
+            }
+            // Check image cache first
+            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                self.showClearlogo(cached, forItemID: itemID)
+                return
+            }
+            let captured = urlStr
+            self.clearlogoTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let data, let image = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(image, forKey: captured as NSString)
+                DispatchQueue.main.async {
+                    self?.showClearlogo(image, forItemID: itemID)
+                }
+            }
+            self.clearlogoTask?.resume()
+        }
+    }
+
+    private func showClearlogo(_ image: UIImage, forItemID: Int) {
+        // Verify we're still on the same item
+        guard currentIndex < items.count, items[currentIndex].id == forItemID else { return }
+        clearlogoImageView.image = image
+        UIView.animate(withDuration: 0.3) {
+            self.clearlogoImageView.isHidden = false
+            self.titleLabel.isHidden = true
+        }
+    }
+
     private func updateBadges(for item: AnimeItem) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         var texts: [String] = []
@@ -279,29 +462,69 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         dotsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         dotWidthConstraints.removeAll()
         for i in items.indices {
+            // Outer dot: bg-white/20 rounded, overflow clip — matches Hayase's .progress-badge
             let dot = UIView()
             dot.layer.cornerRadius = 2
+            dot.clipsToBounds = true
+            dot.backgroundColor = UIColor.white.withAlphaComponent(0.2)
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
-            // Store width constraint keyed by index for efficient in-place updates
-            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 40 : 20)
+            // Hayase: inactive width 1.5rem (24pt), active width 3rem (48pt)
+            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 48 : 24)
             wc.isActive = true
             dotWidthConstraints[i] = wc
+
+            // Inner fill view — matches Hayase's .progress-content with fill animation
+            let fill = UIView()
+            fill.tag = 999
+            fill.translatesAutoresizingMaskIntoConstraints = false
+            dot.addSubview(fill)
+            NSLayoutConstraint.activate([
+                fill.topAnchor.constraint(equalTo: dot.topAnchor),
+                fill.leadingAnchor.constraint(equalTo: dot.leadingAnchor),
+                fill.trailingAnchor.constraint(equalTo: dot.trailingAnchor),
+                fill.bottomAnchor.constraint(equalTo: dot.bottomAnchor),
+            ])
+
             dotsStack.addArrangedSubview(dot)
         }
         updateDots()
     }
 
     private func updateDots() {
-        // full-banner.svelte: inactive bg-white/20 width 1.5rem (24pt), active bg-custom width 3rem (48pt)
+        // Matches Hayase full-banner.svelte dot behavior:
+        //   inactive: bg-white/20, width 1.5rem (24pt)
+        //   active:   bg-custom (coverImage.color), width 3rem (48pt), fill animation over 15s
+        let item = items.isEmpty ? nil : items[currentIndex]
+        let customColor = Self.uiColor(fromHex: item?.coverColor) ?? .white
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
             let active = i == currentIndex
-            // Update stored constraint constant directly — no remove/recreate cycle
-            dotWidthConstraints[i]?.constant = active ? 40 : 20
-            UIView.animate(withDuration: 0.3) {
-                dot.backgroundColor = active
-                    ? UIColor.white.withAlphaComponent(0.9)
-                    : UIColor.white.withAlphaComponent(0.2)
+            dotWidthConstraints[i]?.constant = active ? 48 : 24
+
+            // Find inner fill view
+            let fill = dot.viewWithTag(999)
+
+            // Remove any existing fill animation
+            fill?.layer.removeAnimation(forKey: "fillProgress")
+
+            if active {
+                // Hayase: bg-custom on active dot fill
+                fill?.backgroundColor = customColor
+                // Hayase CSS: animation: fill 15s linear
+                // Animates transform from translateX(-100%) to translateX(0%)
+                let anim = CABasicAnimation(keyPath: "transform.translation.x")
+                anim.fromValue = -48.0  // start fully off-screen left
+                anim.toValue = 0.0
+                anim.duration = FeaturedBannerCell.rotationInterval
+                anim.timingFunction = CAMediaTimingFunction(name: .linear)
+                anim.fillMode = .forwards
+                anim.isRemovedOnCompletion = false
+                fill?.layer.add(anim, forKey: "fillProgress")
+            } else {
+                fill?.backgroundColor = .clear
+            }
+
+            UIView.animate(withDuration: 0.7) {
                 dot.superview?.layoutIfNeeded()
             }
         }
@@ -326,8 +549,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerTask = nil
         fanartTask?.cancel()
         fanartTask = nil
+        clearlogoTask?.cancel()
+        clearlogoTask = nil
         items = []
         backgroundImageView.image = nil
+        clearlogoImageView.image = nil
+        clearlogoImageView.isHidden = true
+        titleLabel.isHidden = false
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -541,6 +769,9 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Properties
 
     private var sections: [HomeSectionData] = []
+    /// Items used exclusively for the hero banner rotation.  Always sourced from
+    /// the first *fetched* section (trending/popular) — never "Continue Watching".
+    private var bannerItems: [AnimeItem] = []
     private var isSearching: Bool = false
     private var isLoadingSections: Bool = false
     private var animeResultsController: NSFetchedResultsController<Animes>?
@@ -765,13 +996,34 @@ class BrowseAnimeViewController: UIViewController {
     private func loadSections() {
         isSearching = false
         sections = []
+        bannerItems = []
         isLoadingSections = true
         collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
         collectionView.reloadData()
         loadingIndicator.isHidden = true
         emptyLabel.isHidden = true
+
+        // Fetch banner items separately with SCORE_DESC — matches Hayase banner.svelte:
+        //   client.search({ sort: ['SCORE_DESC'], perPage: 5, season: currentSeason,
+        //                   seasonYear: currentYear, statusNot: ['NOT_YET_RELEASED'] })
+        AnimeService.sharedAnimeService.fetchBannerItems { [weak self] bannerResults in
+            guard let self = self else { return }
+            if !bannerResults.isEmpty {
+                self.bannerItems = bannerResults
+                // Reload banner cell if it already exists
+                if self.collectionView.numberOfSections > 0 {
+                    self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                }
+            }
+        }
+
         AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
+
+            // If banner didn't load from the separate SCORE_DESC query, fall back to first section
+            if self.bannerItems.isEmpty {
+                self.bannerItems = fetchedSections.first?.items ?? []
+            }
 
             // Prepend "Continue Watching" section from WatchProgressService (Hayase continueIDs)
             let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
@@ -884,13 +1136,13 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
         }
 
-        // Section 0: hero banner (uses items from the first section as rotation pool)
+        // Section 0: hero banner (always uses the trending/popular items, never Continue Watching)
         if indexPath.section == 0 {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
-            if !sections.isEmpty {
-                cell.configure(with: sections[0].items)
+            if !bannerItems.isEmpty {
+                cell.configure(with: bannerItems)
             }
             return cell
         }

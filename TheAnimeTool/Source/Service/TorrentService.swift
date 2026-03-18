@@ -159,6 +159,36 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
+    /// Removes all active torrents (and their downloaded files) except the one
+    /// matching `exceptHash`. Called when "Persist Files" is OFF to clean up
+    /// previous torrents before a new one starts playing.
+    ///
+    /// Must be called AFTER the torrent handle is confirmed and `exceptHash` is
+    /// the handle's actual `infoHashes.best.hex` — using the entity's hash or
+    /// the magnet-extracted hash can cause a mismatch with the `handles` dict
+    /// key, silently deleting the torrent the user is trying to play.
+    private func removeOtherTorrents(exceptHash: String) {
+        guard !exceptHash.isEmpty else {
+            print("TorrentService: removeOtherTorrents — skipped (empty hash)")
+            return
+        }
+        let toRemove = handles.filter { $0.key != exceptHash }
+        for (hex, handle) in toRemove {
+            print("TorrentService: persist OFF — removing torrent \(hex)")
+            session.removeTorrent(handle, deleteFiles: true)
+        }
+    }
+
+    /// If "Persist Files" is OFF, removes all torrents except the one with
+    /// the given handle hash. Called after the torrent is successfully added
+    /// or reused, guaranteeing the hash matches the `handles` dict key.
+    private func cleanupOtherTorrentsIfNeeded(keepingHash hash: String) {
+        let persistFiles = UserDefaults.standard.bool(forKey: "pref_persistFiles")
+        if !persistFiles {
+            removeOtherTorrents(exceptHash: hash)
+        }
+    }
+
     // MARK: - Public API
 
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
@@ -178,6 +208,9 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Falls back to downloading the .torrent binary when given an HTTP(S) URL.
     /// If the URL is missing or unsupported, constructs a magnet URI from the
     /// info-hash (covers extensions like Seadex that only provide a hash).
+    /// When "Persist Files" is OFF (default), old torrents are cleaned up AFTER
+    /// the new handle is confirmed — using the handle's actual hash to avoid
+    /// accidentally deleting the torrent the user is trying to play.
     /// Calls `completion` on the main thread with a TorrentHandle or an Error.
     func UpdateTorrentEntityInController(_ torrentEntity: Torrents,
                                         completion: @escaping (Result<TorrentHandle, Error>) -> Void) {
@@ -245,6 +278,7 @@ public class TorrentService: NSObject, SessionDelegate {
             // Return existing handle if already active.
             if let hex = hexHash, let existing = self.handles[hex] {
                 print("TorrentService: magnet already in session, reusing handle \(hex)")
+                self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
                 existing.forceReannounce()   // re-announce so we pick up fresh peers
                 completion(.success(existing))
                 return
@@ -262,6 +296,7 @@ public class TorrentService: NSObject, SessionDelegate {
                 let hex = handle.infoHashes.best.hex
                 print("TorrentService: addTorrent(magnet) ok, hex=\(hex)")
                 self.handles[hex] = handle
+                self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
                 if hexHash == nil {
                     torrentEntity.torrentHashString = hex
                     try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
@@ -282,6 +317,7 @@ public class TorrentService: NSObject, SessionDelegate {
                let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hex }) {
                 print("TorrentService: magnet duplicate, found in session.torrents \(hex)")
                 self.handles[hex] = existing
+                self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
                 existing.forceReannounce()
                 completion(.success(existing))
                 return
@@ -342,11 +378,13 @@ public class TorrentService: NSObject, SessionDelegate {
                 try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
 
                 if let existing = self.handles[hexHash] {
+                    self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
                     completion(.success(existing))
                     return
                 }
                 if let handle = self.session.addTorrent(torrentFile) {
                     self.handles[hexHash] = handle
+                    self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
                     // Append well-known public trackers as fallback for peer discovery.
                     self.addPublicTrackers(to: handle)
                     handle.forceReannounce()
@@ -355,6 +393,7 @@ public class TorrentService: NSObject, SessionDelegate {
                 }
                 if let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hexHash }) {
                     self.handles[hexHash] = existing
+                    self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
                     completion(.success(existing))
                     return
                 }

@@ -125,7 +125,7 @@ final class MPVWrapper {
             guard let self else { return }
             
             if layer.status == .failed {
-                print("🔧 Display layer failed - auto-resetting decoder")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Display layer failed - auto-resetting decoder") }
                 self.queue.async {
                     self.performDecoderReset()
                 }
@@ -136,7 +136,7 @@ final class MPVWrapper {
     /// Actually performs the decoder reset (called by observer or manually)
     private func performDecoderReset() {
         guard let handle = mpv else { return }
-        print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)") }
         commandSync(handle, ["set", "hwdec", "no"])
         commandSync(handle, ["set", "hwdec", "auto"])
     }
@@ -152,12 +152,10 @@ final class MPVWrapper {
         }
         mpv = handle
 
-        // Logging - only warnings and errors in release, verbose in debug
-        #if DEBUG
+        // Logging — capture warnings and errors in both debug and release.
+        // Previously release used "no" which silenced all mpv log messages,
+        // preventing errors from reaching the StreamingLogger overlay.
         checkError(mpv_request_log_messages(handle, "warn"))
-        #else
-        checkError(mpv_request_log_messages(handle, "no"))
-        #endif
 
         // Pass the AVSampleBufferDisplayLayer to mpv via --wid
         // The vo_avfoundation driver expects this
@@ -342,7 +340,12 @@ final class MPVWrapper {
     
     private func clearProperty(name: String) {
         guard let handle = mpv else { return }
-        let status = mpv_set_property(handle, name, MPV_FORMAT_NONE, nil)
+        // Use mpv_set_property_string with empty string to reset the property.
+        // The previous approach (MPV_FORMAT_NONE) was invalid — mpv doesn't
+        // support setting properties with FORMAT_NONE, returning error -9
+        // (MPV_ERROR_PROPERTY_FORMAT). Empty string works for both string and
+        // list properties (like http-header-fields).
+        let status = mpv_set_property_string(handle, name, "")
         if status < 0 {
             Logger.shared.log("Failed to clear property \(name) (\(status))", type: "Warn")
         }
@@ -379,7 +382,17 @@ final class MPVWrapper {
     private func apply(commands: [[String]], on handle: OpaquePointer) {
         for command in commands {
             guard !command.isEmpty else { continue }
-            self.command(handle, command)
+            // Intercept "set" commands and use the synchronous property API
+            // instead of mpv_command_async. mpv_command_async with reply_id=0
+            // silently ignores errors, so "set" commands can fail without any
+            // indication. mpv_set_property_string is synchronous, reports
+            // errors via Logger, and guarantees the property is changed before
+            // subsequent commands (like loadfile) execute.
+            if command.count == 3 && command[0] == "set" {
+                setProperty(name: command[1], value: command[2])
+            } else {
+                self.command(handle, command)
+            }
         }
     }
     
@@ -428,7 +441,7 @@ final class MPVWrapper {
             let hadExternalSubs = !pendingExternalSubtitles.isEmpty
             if hadExternalSubs, let handle = mpv {
                 for (index, subUrl) in pendingExternalSubtitles.enumerated() {
-                    print("🔧 Adding external subtitle [\(index)]: \(subUrl)")
+                    if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Adding external subtitle [\(index)]: \(subUrl)") }
                     // Use commandSync to ensure subs are added in exact order (not async)
                     // "auto" flag = add without auto-selecting
                     commandSync(handle, ["sub-add", subUrl, "auto"])
@@ -577,7 +590,7 @@ final class MPVWrapper {
         case "current-ao":
             // Audio output is now active - notify delegate
             if let aoName = getStringProperty(handle: handle, name: name) {
-                print("[MPV] 🔊 Audio output selected: \(aoName)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("[MPV] 🔊 Audio output selected: \(aoName)") }
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didSelectAudioOutput: aoName)
@@ -896,10 +909,23 @@ final class MPVWrapper {
     }
 }
 
-// Dummy logger
+// Dummy logger — forwards errors/warnings to StreamingLogger for in-player display.
+// Console output is gated behind the "Show Streaming Logger" user preference.
 final class Logger {
     static let shared = Logger()
     func log(_ message: String, type: String) {
-        print("[\(type)] \(message)")
+        let showLogger = UserDefaults.standard.bool(forKey: "pref_showLogger")
+        if showLogger {
+            print("[\(type)] \(message)")
+        }
+        // Forward to StreamingLogger so errors/warnings appear in the player overlay.
+        switch type.lowercased() {
+        case "error":
+            StreamingLogger.shared.error(message)
+        case "warn":
+            StreamingLogger.shared.warn(message)
+        default:
+            break
+        }
     }
 }

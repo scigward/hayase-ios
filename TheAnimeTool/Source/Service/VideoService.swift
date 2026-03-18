@@ -214,7 +214,11 @@ public class VideoService: NSObject {
         // pieces for bandwidth on low-seeder torrents with few peers.
         if let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
             let begin = Int(entry.begin_idx)
-            let end = Int(entry.end_idx)
+            // Clamp endIdx: LibTorrent-Swift uses integer division which can
+            // give one-past-the-last for piece-aligned files.
+            let rawEnd = Int(entry.end_idx)
+            let totalTorrentPieces = handle.snapshot.pieces?.count ?? rawEnd
+            let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
             for piece in begin...end {
                 handle.setPiecePriority(piece, priority: 1)
             }
@@ -232,13 +236,14 @@ public class VideoService: NSObject {
         handle.forceReannounce()
     }
 
-    /// Number of pieces from file start to request for MKV header metadata.
+    /// Target bytes from file start to request for MKV header metadata.
     /// MKV SeekHead + Info + Tracks typically fit within the first 1–2 MB.
-    /// With typical piece sizes of 256 KB–1 MB, 8 pieces is a safe margin.
-    private static let headPieceCount = 8
-    /// Number of pieces from file end to request for MKV Cues/seek index.
+    /// Actual piece count is computed from piece size in requestMetadataPieces().
+    private static let headByteTarget = 2 * 1024 * 1024 // 2 MB
+    /// Target bytes from file end to request for MKV Cues/seek index.
     /// The Cues element can be several MB for long files with many seek points.
-    private static let tailPieceCount = 16
+    /// Actual piece count is computed from piece size in requestMetadataPieces().
+    private static let tailByteTarget = 4 * 1024 * 1024 // 4 MB
     /// Deadline base in milliseconds for the first metadata piece.
     private static let metadataDeadlineBase: Int32 = 10
     /// Deadline increment per additional metadata piece (ms).
@@ -247,15 +252,29 @@ public class VideoService: NSObject {
     /// Requests the head and tail pieces of a file with priority 7 and tight
     /// deadlines. These contain MKV metadata (SeekHead, Info, Tracks, Cues)
     /// that MPV needs to display duration and subtitle tracks at stream start.
+    ///
+    /// Piece counts are computed from the torrent's actual piece size so that
+    /// large-piece torrents (2–4 MB pieces) don't require downloading 48–96 MB
+    /// of metadata before the player can open. With byte-aware counts, the total
+    /// metadata requirement stays small (~2 MB head + ~4 MB tail) regardless of
+    /// piece size.
     private func requestMetadataPieces(handle: TorrentHandle, fileIndex: UInt) {
         handle.updateSnapshot()
         guard let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) else { return }
 
         let beginPiece = Int(entry.begin_idx)
-        let endPiece = Int(entry.end_idx)
+        // Clamp endIdx for piece-aligned files (see selectFileForStreaming).
+        let rawEndPiece = Int(entry.end_idx)
+        let totalTorrentPieces = handle.snapshot.pieces?.count ?? rawEndPiece
+        let endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
+
+        // Compute byte-aware piece counts from the actual torrent piece size.
+        let pl = max(Int(handle.snapshot.pieceLength), 1)
+        let headPieceCount = max(1, min(8, Self.headByteTarget / pl))
+        let tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
         // Head pieces (MKV SeekHead/Info/Tracks)
-        let headEnd = min(beginPiece + Self.headPieceCount - 1, endPiece)
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         for piece in beginPiece...headEnd {
             handle.setPiecePriority(piece, priority: 7)
             let deadline = Self.metadataDeadlineBase + Int32(piece - beginPiece) * Self.metadataDeadlineStep
@@ -263,14 +282,14 @@ public class VideoService: NSObject {
         }
 
         // Tail pieces (MKV Cues/seek index)
-        let tailStart = max(endPiece - Self.tailPieceCount + 1, beginPiece)
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in tailStart...endPiece {
             handle.setPiecePriority(piece, priority: 7)
             let deadline = Self.metadataDeadlineBase + Int32(piece - tailStart) * Self.metadataDeadlineStep
             handle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd), tail=\(tailStart)–\(endPiece)")
+        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd), tail=\(tailStart)–\(endPiece) (pieceLen=\(pl))")
     }
 
     // MARK: - File type helpers

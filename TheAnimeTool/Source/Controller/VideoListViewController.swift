@@ -383,6 +383,8 @@ class VideoListViewController: UIViewController {
         vs.UpdateFilePathForFileIndex(fileIdx)
 
         let allVids = (videoResultsController?.sections?.first?.objects as? [Videos]) ?? [video]
+        // Close any existing mini-player before starting a new one.
+        MiniPlayerManager.shared.close()
         let player = VideoPlayerViewController()
         player.videoEntity       = video
         player.torrentHandle     = vs.torrentHandle

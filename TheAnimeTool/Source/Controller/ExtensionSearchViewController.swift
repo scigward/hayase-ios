@@ -12,6 +12,7 @@
 //     BadgeCheck top-left (green=high, muted=medium, hidden=low, 40% opacity=low)
 
 import UIKit
+import CoreData
 
 // MARK: - TitleExtraction helpers (mirrors getGroup / simplifyFilename / sanitiseTerms)
 
@@ -141,6 +142,13 @@ final class ExtensionSearchViewController: UIViewController {
     private var currentResolution = "1080"
     private var searchTask: Task<Void, Never>?
 
+    // MARK: Direct-to-player state (skip VideoListViewController)
+    private var pendingVideoService: VideoService?
+    private var pendingEntity: Torrents?
+    private var pendingHud: UIAlertController?
+    private var metadataObserver: NSObjectProtocol?
+    private var metadataStatusTimer: Timer?
+
     // MARK: UI
     private var tableView: UITableView!
     private var loadingIndicator: UIActivityIndicatorView!
@@ -192,6 +200,8 @@ final class ExtensionSearchViewController: UIViewController {
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil
         navigationController?.navigationBar.isTranslucent = true
+        // Clean up any pending direct-to-player state
+        cleanupPendingState()
     }
 
     override func viewDidLayoutSubviews() {
@@ -652,7 +662,24 @@ final class ExtensionSearchViewController: UIViewController {
 
     private func startDownload(_ result: TorrentResult) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let entity  = Torrents(context: context)
+
+        // Re-use an existing Torrents entity with the same info-hash so that
+        // the linked Videos (and their videoPath keys) are preserved. This
+        // keeps WatchProgressService lookups working across re-opens.
+        let entity: Torrents
+        if !result.hash.isEmpty {
+            let existReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+            existReq.predicate = NSPredicate(format: "torrentHashString == %@", result.hash)
+            existReq.fetchLimit = 1
+            if let existing = (try? context.fetch(existReq))?.first {
+                entity = existing
+            } else {
+                entity = Torrents(context: context)
+            }
+        } else {
+            entity = Torrents(context: context)
+        }
+
         entity.torrentName        = result.title
         entity.torrentHashString  = result.hash
         entity.torrentDownloadURL = result.link
@@ -663,32 +690,166 @@ final class ExtensionSearchViewController: UIViewController {
         if let animeItem {
             let req = Animes.fetchRequest()
             req.predicate = NSPredicate(format: "animeAnilistId == %d", animeItem.id)
-            entity.animes = (try? context.fetch(req))?.first as? Animes
+            if let existing = (try? context.fetch(req))?.first as? Animes {
+                entity.animes = existing
+            } else {
+                // Animes entity doesn't exist yet — create it from the
+                // AnimeItem so the player can show the anime title and
+                // episode count instead of falling back to the torrent name.
+                let anime = Animes(context: context)
+                anime.animeAnilistId      = NSNumber(value: animeItem.id)
+                anime.animeTitleEnglish   = animeItem.titleEnglish
+                anime.animeTitleJapanese  = animeItem.titleRomaji
+                anime.animeTotalEps       = animeItem.episodes.map { NSNumber(value: $0) }
+                anime.animeScore          = animeItem.score.map { NSNumber(value: $0) }
+                anime.animeStatus         = animeItem.status
+                anime.animeDescription    = animeItem.description
+                anime.animeImgL           = animeItem.coverURL
+                anime.animeImgM           = animeItem.coverURL
+                entity.animes = anime
+            }
         }
         try? context.save()
 
-        let hud = UIAlertController(title: "Adding…", message: nil, preferredStyle: .alert)
+        let hud = UIAlertController(title: "Preparing playback…", message: "Adding torrent…", preferredStyle: .alert)
         present(hud, animated: true)
 
-        TorrentService.sharedTorrentService.UpdateTorrentEntityInController(entity) { [weak self] res in
-            DispatchQueue.main.async {
-                hud.dismiss(animated: false) {
-                    switch res {
-                    case .success:
-                        // Navigate to the video list for immediate streaming
-                        // instead of popping back to the anime detail screen.
-                        let videoList = VideoListViewController()
-                        videoList.torrentEntity = entity
-                        videoList.targetEpisode = self?.currentEpisode
-                        self?.navigationController?.pushViewController(videoList, animated: true)
-                    case .failure(let err):
-                        let e = UIAlertController(title: "Error", message: err.localizedDescription, preferredStyle: .alert)
-                        e.addAction(UIAlertAction(title: "OK", style: .cancel))
-                        self?.present(e, animated: true)
-                    }
-                }
+        // Go directly to the video player — skip the file list page.
+        // waitForMetadataAndPlay creates a VideoService which internally calls
+        // UpdateTorrentEntityInController — a single call is sufficient.
+        // Calling it here first would cause a redundant double call that
+        // triggers removeOtherTorrents twice, increasing the risk of
+        // accidentally deleting the torrent's downloaded pieces.
+        waitForMetadataAndPlay(entity: entity, hud: hud)
+    }
+
+    // MARK: - Direct-to-player flow
+
+    /// Creates a VideoService, listens for metadata, and presents the player
+    /// as soon as the target file is resolved — skipping VideoListViewController.
+    private func waitForMetadataAndPlay(entity: Torrents, hud: UIAlertController) {
+        let vs = VideoService(torrentEntity: entity)
+        pendingVideoService = vs
+        pendingEntity = entity
+        pendingHud = hud
+
+        // Listen for the notification that video CoreData entries are ready.
+        metadataObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
+            object: nil, queue: .main) { [weak self] _ in
+                self?.handlePendingMetadata()
+        }
+
+        // Update the HUD with live torrent status while waiting.
+        metadataStatusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self, let vs = self.pendingVideoService, let hud = self.pendingHud else { return }
+            guard let snap = vs.torrentHandle?.snapshot else {
+                hud.message = "Connecting to peers…"
+                return
+            }
+            let peers = snap.numberOfPeers
+            switch snap.state {
+            case .downloadingMetadata:
+                hud.message = peers > 0
+                    ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s"))"
+                    : "Connecting to DHT and trackers…"
+            case .downloading, .finished, .seeding:
+                hud.message = "Preparing file list…"
+            default:
+                hud.message = "Connecting to peers…"
             }
         }
+
+        // Kick off the torrent add + metadata fetch.
+        vs.UpdateLocalVideo()
+    }
+
+    /// Called when VideoService posts LocalVideosDidUpdateNotification.
+    /// Auto-resolves the target episode and presents the player directly.
+    private func handlePendingMetadata() {
+        guard let vs = pendingVideoService, let entity = pendingEntity else { return }
+
+        // Check for errors.
+        if let error = vs.lastError {
+            let hud = pendingHud
+            cleanupPendingState()
+            hud?.dismiss(animated: false) { [weak self] in
+                let alert = UIAlertController(title: "Error", message: error.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                self?.present(alert, animated: true)
+            }
+            return
+        }
+
+        // Fetch video entities for this torrent.
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let req = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        req.predicate = NSPredicate(format: "torrents == %@", entity)
+        req.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                               NSSortDescriptor(key: "videoName", ascending: true)]
+        let videos = (try? context.fetch(req)) ?? []
+        guard !videos.isEmpty else { return } // Still waiting for metadata; will be called again.
+
+        // Auto-resolve the target file.
+        var targetVideo: Videos?
+        var targetIndex: UInt = 0
+
+        if videos.count == 1 {
+            targetVideo = videos[0]
+            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
+        } else if let handle = vs.torrentHandle {
+            let resolver = TorrentBatchResolver()
+            if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode) {
+                targetIndex = UInt(match.entry.index)
+                targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
+            }
+        }
+
+        // Fallback to first video if no match found.
+        if targetVideo == nil {
+            targetVideo = videos.first
+            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
+        }
+
+        guard let video = targetVideo else { return }
+
+        // Select file for streaming and update path.
+        vs.selectFileForStreaming(targetIndex)
+        _ = vs.UpdateFilePathForFileIndex(targetIndex)
+
+        // Clean up pending state before presenting.
+        let hud = pendingHud
+        cleanupPendingState()
+
+        hud?.dismiss(animated: false) { [weak self] in
+            guard let self else { return }
+            // Close any existing mini-player before starting a new one.
+            MiniPlayerManager.shared.close()
+            let player = VideoPlayerViewController()
+            player.videoEntity       = video
+            player.torrentHandle     = vs.torrentHandle
+            player.videoService      = vs
+            player.fileIndex         = targetIndex
+            player.anilistID         = Int(entity.animes?.animeAnilistId ?? 0)
+            player.episodeNumber     = self.currentEpisode
+            player.allVideos         = videos
+            player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+            player.modalPresentationStyle = .fullScreen
+            player.modalTransitionStyle   = .crossDissolve
+            self.present(player, animated: true)
+        }
+    }
+
+    private func cleanupPendingState() {
+        if let observer = metadataObserver {
+            NotificationCenter.default.removeObserver(observer)
+            metadataObserver = nil
+        }
+        metadataStatusTimer?.invalidate()
+        metadataStatusTimer = nil
+        pendingVideoService = nil
+        pendingEntity = nil
+        pendingHud = nil
     }
 }
 
