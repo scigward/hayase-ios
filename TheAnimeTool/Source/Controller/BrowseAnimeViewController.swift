@@ -123,51 +123,63 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return sv
     }()
 
-    // Description: text-white/70 text-xs line-clamp-2 text-center (centered on mobile)
+    // Description: text-white/70 text-xs line-clamp-2 text-center text-shadow-lg (centered on mobile)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
         l.numberOfLines = 2
         l.textAlignment = .center  // Hayase mobile: text-center
+        l.shadowColor = UIColor.black.withAlphaComponent(0.5) // text-shadow-lg
+        l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
 
     // Play button: bg-custom text-contrast — matches Hayase PlayButton
     // Shows "Watch Now" / "Continue" / "Rewatch" based on status (defaults to "Watch Now")
+    // Hayase: size='default' (h-9 px-4 py-2), rounded-md (6pt), font-bold
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setTitle("  Watch Now", for: .normal)
-        b.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
         b.clipsToBounds = true
         return b
     }()
 
-    // Favorite button: ghost variant — heart icon
+    // Favorite button: ghost variant, size='icon' (h-9 w-9 = 36pt) — heart icon
+    // Hayase: variant='ghost' (transparent bg, rounded-md), icon size = 1rem (16pt)
+    // Normal state: white icon. Press state: subtle highlight.
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "heart")?.withConfiguration(cfg), for: .normal)
         b.tintColor = .white
+        b.layer.cornerRadius = 6  // rounded-md
         return b
     }()
 
-    // Bookmark button: ghost variant — bookmark icon
+    // Bookmark button: ghost variant, size='icon' (h-9 w-9 = 36pt) — bookmark icon
+    // Same styling as favorite: transparent bg, rounded-md, 16pt icon, white tint
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(cfg), for: .normal)
         b.tintColor = .white
+        b.layer.cornerRadius = 6  // rounded-md
         return b
     }()
 
     // Progress dots row — animated fill for active dot
+    // Hayase: each dot has mr-2 (8pt) spacing
     private let dotsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 6
+        sv.spacing = 8  // mr-2 = 0.5rem = 8pt between dots
         sv.alignment = .center
         return sv
     }()
@@ -194,11 +206,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         // Button row: [Play (grow)  Favorite  Bookmark] — matches Hayase PlayButton/FavoriteButton/BookmarkButton
         // Hayase: flex flex-row w-[280px] max-w-full
+        // Play: mr-2 (8pt), Fav: ml-2 (8pt) → 16pt gap between Play and Fav
+        // Bookmark: ml-2 (8pt) → 8pt gap between Fav and Bookmark
         let buttonRow = UIStackView(arrangedSubviews: [playButton, favoriteButton, bookmarkButton])
         buttonRow.axis = .horizontal
-        buttonRow.spacing = 8
+        buttonRow.spacing = 8  // base spacing: ml-2 between Fav and Bookmark
         buttonRow.alignment = .center
         buttonRow.distribution = .fill
+        buttonRow.setCustomSpacing(16, after: playButton)  // Play mr-2 + Fav ml-2 = 16pt
         // Play button grows to fill remaining space (Hayase: grow class)
         playButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         favoriteButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -209,10 +224,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
         // Clearlogo replaces title visually — only one is visible at a time.
         // Hayase mobile: items-center text-center (centered on mobile)
+        // Hayase gap-4 = 16pt between items in content column
         let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel])
         textStack.axis = .vertical
-        textStack.spacing = 8
+        textStack.spacing = 16  // Hayase: gap-4 = 1rem = 16pt
         textStack.alignment = .center  // Hayase mobile: items-center
+        // Description has pt-3 (12pt) top padding in Hayase (separate column stacks below)
+        textStack.setCustomSpacing(12, after: buttonRow)
         textStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(textStack)
 
@@ -230,14 +248,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Dots centered at bottom — Hayase: `flex w-full justify-center`
+            // Dots centered at bottom — Hayase: each dot has pb-4 (16pt bottom padding)
             dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
 
-            // Text stack centered above dots, left + right margins
+            // Text stack centered above dots — Hayase: each dot has pt-2 (8pt top padding)
             textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -10),
+            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
 
             // Clearlogo: max height 60pt (scaled from Hayase's w-[30rem] for mobile),
             // natural aspect ratio preserved via .scaleAspectFit
@@ -285,9 +303,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             let textColor = Self.contrastColor(for: customColor)
             self.playButton.tintColor = textColor
             self.playButton.setTitleColor(textColor, for: .normal)
-            // Favorite/Bookmark tint matches --custom color on mobile (Hayase: select:!text-custom)
-            self.favoriteButton.tintColor = customColor
-            self.bookmarkButton.tintColor = customColor
+            // Favorite/Bookmark: white icon in normal state (Hayase ghost variant inherits white text)
+            // On Hayase the select:!text-custom only activates on press — iOS system highlight suffices
+            self.favoriteButton.tintColor = .white
+            self.bookmarkButton.tintColor = .white
             // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
             let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
             if continueIDs.contains(item.id) {
