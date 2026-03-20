@@ -48,3 +48,33 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 1. User torrent storage
 2. Universal media player integration
 3. Update UI UX
+
+## Repository Summary (2026-03 audit)
+
+- **App target:** `TheAnimeTool` (UIKit + storyboard iOS app)
+  - Main features are implemented under `TheAnimeTool/Source/`:
+    - `Controller/` for screens and flows
+    - `Service/` for AniList/Nyaa data, extension runtime, and streaming logic
+    - `Player/` for playback UI and MPV integration
+    - `View/` for reusable cells/components
+- **Data layer:** `CoreDataService/Source/` contains Core Data entities and persistence helpers.
+- **Third-party/vendor components:** `Component/` (LibTorrent-Swift, TorrentController, PromiseKit, SwiftyJSON, NDHpple, etc.).
+- **Tests:** `TheAnimeToolTests/` and `TheAnimeToolUITests/` exist but are currently minimal placeholder suites.
+- **CI:** `.github/workflows/build-ipa.yml` builds an unsigned IPA with `xcodebuild`.
+
+## Likely Unused / Legacy Candidates
+
+The following items look unused or legacy based on repository-wide reference checks (string/symbol search and workflow/project-file inspection):
+
+- `patches/streaming-session-settings.patch`
+  - No references found outside the patch file itself.
+- `Component/PromiseKit/`, `Component/NDHpple/`, and legacy framework entries in `TheAnimeTool.xcodeproj/project.pbxproj`
+  - Frameworks are still linked/embedded in the project file.
+  - Current app source under `TheAnimeTool/Source/` has no `import PromiseKit`, `import NDHpple`, PromiseKit chain usage (`firstly`, `.then`), or NDHpple symbol usage.
+- `Component/SwiftyJSON/SwiftyJSON.framework`
+  - Still linked in the project file, but no `import SwiftyJSON` usage was found in app source.
+  - `Component/SwiftyJSON/SwiftyJSON+NSDate.swift` is present in project sources, suggesting partial historical migration.
+- `TheAnimeToolTests/TheAnimeToolTests.swift` and `TheAnimeToolUITests/TheAnimeToolUITests.swift`
+  - Test targets exist but contain only template-style smoke/performance placeholders with no substantive assertions.
+
+> Note: some legacy items may still be intentionally retained for compatibility or planned future work. The list above identifies strong cleanup candidates, not guaranteed safe deletions.
