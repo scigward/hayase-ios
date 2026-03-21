@@ -41,7 +41,9 @@ jobs:
         run: |
           cd Component/LibTorrent-Swift
           for patch in ../../patches/*.patch; do
-            [ -f "$patch" ] && git apply "$patch" && echo "Applied: $(basename $patch)"
+            [ -f "$patch" ] || continue
+            echo "Applying: $(basename $patch)"
+            git apply "$patch"
           done
 
       - name: Prepare LibTorrent

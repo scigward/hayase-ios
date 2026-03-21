@@ -183,7 +183,8 @@ final class TorrentStreamer {
         // the torrent's actual piece count to avoid setting priority/deadline
         // on non-existent piece indices.
         let rawEndPiece = Int(entry.end_idx)
-        let totalTorrentPieces = Int(torrentHandle.snapshot.numberOfPieces) > 0 ? Int(torrentHandle.snapshot.numberOfPieces) : rawEndPiece
+        let snapshotPieceCount = Int(torrentHandle.snapshot.numberOfPieces)
+        let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEndPiece
         endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware metadata piece counts from the actual piece size.

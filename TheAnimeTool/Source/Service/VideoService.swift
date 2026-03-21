@@ -217,7 +217,8 @@ public class VideoService: NSObject {
             // Clamp endIdx: LibTorrent-Swift uses integer division which can
             // give one-past-the-last for piece-aligned files.
             let rawEnd = Int(entry.end_idx)
-            let totalTorrentPieces = Int(handle.snapshot.numberOfPieces) > 0 ? Int(handle.snapshot.numberOfPieces) : rawEnd
+            let snapshotPieceCount = Int(handle.snapshot.numberOfPieces)
+            let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEnd
             let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
             for piece in begin...end {
                 handle.setPiecePriority(piece, priority: 1)
@@ -265,7 +266,8 @@ public class VideoService: NSObject {
         let beginPiece = Int(entry.begin_idx)
         // Clamp endIdx for piece-aligned files (see selectFileForStreaming).
         let rawEndPiece = Int(entry.end_idx)
-        let totalTorrentPieces = Int(handle.snapshot.numberOfPieces) > 0 ? Int(handle.snapshot.numberOfPieces) : rawEndPiece
+        let snapshotPieceCount = Int(handle.snapshot.numberOfPieces)
+        let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEndPiece
         let endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware piece counts from the actual torrent piece size.
