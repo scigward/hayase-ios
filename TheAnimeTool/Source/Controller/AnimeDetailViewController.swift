@@ -1469,6 +1469,11 @@ class AnimeDetailViewController: UIViewController {
     // Active tab for the segmented control (Episodes | Relations | Threads | Themes)
     private var activeSection: Section = .episodes
 
+    // Reentrancy guard for sizeHeaderView — toggling TAMIC on the container
+    // triggers layout invalidation → viewDidLayoutSubviews → sizeHeaderView
+    // without this guard.
+    private var isSizingHeader = false
+
     // Custom HTabBar — replaces UISegmentedControl.
     // Shape: bg-muted container rounded-lg (8pt), tabs rounded-md (6pt). NOT a pill.
     // Position: full-width with 16pt horizontal inset (reverted from centered).
@@ -1634,7 +1639,11 @@ class AnimeDetailViewController: UIViewController {
     }
 
     private func sizeHeaderView() {
-        guard let container = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
+        guard !isSizingHeader,
+              let container = tableView.tableHeaderView,
+              tableView.frame.width > 0 else { return }
+        isSizingHeader = true
+        defer { isSizingHeader = false }
         // Force a layout pass so the textColumn width constraint resolves,
         // preferredMaxLayoutWidth is set on labels, and their intrinsic
         // heights reflect the correct line count.
