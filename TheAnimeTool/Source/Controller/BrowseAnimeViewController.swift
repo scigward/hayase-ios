@@ -62,6 +62,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
+    /// Exposes the background image view so the parent VC can apply scroll-driven zoom.
+    var bannerImageView: UIImageView { backgroundImageView }
+
+    /// Callback fired when the user taps a dot to manually switch items.
+    var onDotTapped: (() -> Void)?
+
     private var items: [AnimeItem] = []
     private var currentIndex = 0
     private var rotationTimer: Timer?
@@ -197,7 +203,17 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 
     private func setup() {
-        clipsToBounds = true
+        // Don't clip — allows the banner image to extend upward for the zoom-on-overscroll effect
+        clipsToBounds = false
+        contentView.clipsToBounds = false
+
+        // Swipe left/right to manually advance the banner carousel
+        let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
+        swipeLeft.direction = .left
+        let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
+        swipeRight.direction = .right
+        contentView.addGestureRecognizer(swipeLeft)
+        contentView.addGestureRecognizer(swipeRight)
 
         [backgroundImageView, gradientView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -487,8 +503,37 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             ])
 
             dotsStack.addArrangedSubview(dot)
+
+            // Tap to manually switch to this item
+            dot.isUserInteractionEnabled = true
+            dot.tag = i
+            dot.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dotTapped(_:))))
         }
         updateDots()
+    }
+
+    @objc private func dotTapped(_ gesture: UITapGestureRecognizer) {
+        guard let dot = gesture.view else { return }
+        let index = dot.tag
+        guard index >= 0, index < items.count, index != currentIndex else { return }
+        currentIndex = index
+        displayItem(animated: true)
+        // Restart the timer so the next auto-advance is a full interval from now
+        startTimer()
+        onDotTapped?()
+    }
+
+    @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
+        guard items.count > 1 else { return }
+        switch gesture.direction {
+        case .left:
+            currentIndex = (currentIndex + 1) % items.count
+        case .right:
+            currentIndex = (currentIndex - 1 + items.count) % items.count
+        default: break
+        }
+        displayItem(animated: true)
+        startTimer()
     }
 
     private func updateDots() {
@@ -563,6 +608,40 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         if newWindow == nil {
             rotationTimer?.invalidate()
             rotationTimer = nil
+        }
+    }
+
+    // MARK: - Scroll-driven effects (called by the parent VC)
+
+    /// Applies the zoom effect when the user over-scrolls upward (negative contentOffset).
+    /// `overscroll` is the magnitude of the overscroll in points (always ≥ 0).
+    func applyOverscrollZoom(_ overscroll: CGFloat) {
+        guard overscroll > 0 else {
+            backgroundImageView.transform = .identity
+            gradientView.transform = .identity
+            return
+        }
+        let scale = 1.0 + overscroll / FeaturedBannerCell.bannerHeight
+        // Scale up from center-top so the bottom stays anchored and the image grows upward
+        let yShift = -overscroll / 2.0
+        backgroundImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+        gradientView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+    }
+
+    /// Applies the fade effect when the user scrolls down past the banner.
+    /// `scrollOffset` is the raw contentOffset.y value.
+    func applyScrollFade(_ scrollOffset: CGFloat) {
+        // Hayase: opacity-5 (≈ 5% opacity) when scrollTop > 100, transition-opacity duration-500
+        // We do a smooth ramp from fully visible at offset 0 to nearly invisible at offset 200.
+        let fadeStart: CGFloat = 50
+        let fadeEnd: CGFloat = 200
+        if scrollOffset <= fadeStart {
+            contentView.alpha = 1.0
+        } else if scrollOffset >= fadeEnd {
+            contentView.alpha = 0.05  // Hayase: opacity-5
+        } else {
+            let progress = (scrollOffset - fadeStart) / (fadeEnd - fadeStart)
+            contentView.alpha = 1.0 - progress * 0.95
         }
     }
 }
@@ -798,6 +877,9 @@ class BrowseAnimeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Clip at the view level so the banner zoom doesn't overflow beyond the screen,
+        // but the collection view itself doesn't clip (allows banner to extend upward during overscroll)
+        view.clipsToBounds = true
         setupNavigationBar()
         setupCollectionView()
         setupOverlays()
@@ -862,6 +944,8 @@ class BrowseAnimeViewController: UIViewController {
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
                                 withReuseIdentifier: SectionHeaderView.reuseID)
         view.addSubview(collectionView)
+        // Allow the banner to extend beyond the collection view bounds during overscroll zoom
+        collectionView.clipsToBounds = false
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -1215,6 +1299,26 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
               indexPath.item < sections[rowSection].items.count else { return }
         pendingAnimeItem = sections[rowSection].items[indexPath.item]
         performSegue(withIdentifier: "showAnimeDetail", sender: nil)
+    }
+
+    // MARK: - UIScrollViewDelegate (scroll-driven banner effects)
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !isSearching else { return }
+        let offsetY = scrollView.contentOffset.y
+        // Get the banner cell (section 0, item 0) if visible
+        let bannerIndexPath = IndexPath(item: 0, section: 0)
+        guard let bannerCell = collectionView.cellForItem(at: bannerIndexPath) as? FeaturedBannerCell else { return }
+
+        if offsetY < 0 {
+            // User is pulling down past the top → zoom the banner image
+            bannerCell.applyOverscrollZoom(-offsetY)
+            bannerCell.applyScrollFade(0)  // fully visible when at top
+        } else {
+            // User scrolling down → reset zoom and apply fade
+            bannerCell.applyOverscrollZoom(0)
+            bannerCell.applyScrollFade(offsetY)
+        }
     }
 }
 
