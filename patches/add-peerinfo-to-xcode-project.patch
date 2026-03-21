@@ -1,0 +1,66 @@
+diff --git a/LibTorrent.xcodeproj/project.pbxproj b/LibTorrent.xcodeproj/project.pbxproj
+index 30cd7a0..fb60cf5 100644
+--- a/LibTorrent.xcodeproj/project.pbxproj
++++ b/LibTorrent.xcodeproj/project.pbxproj
+@@ -29,6 +29,9 @@
+ 		D15147E82AE7E521000407AE /* FilePriority.h in Headers */ = {isa = PBXBuildFile; fileRef = D15147CC2AE7E521000407AE /* FilePriority.h */; settings = {ATTRIBUTES = (Public, ); }; };
+ 		D15147E92AE7E521000407AE /* FileEntry_Internal.h in Headers */ = {isa = PBXBuildFile; fileRef = D15147CD2AE7E521000407AE /* FileEntry_Internal.h */; };
+ 		D15147EA2AE7E521000407AE /* FileEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = D15147CE2AE7E521000407AE /* FileEntry.m */; };
++		AA0001042AE7E521000407AE /* PeerInfo.h in Headers */ = {isa = PBXBuildFile; fileRef = AA0001012AE7E521000407AE /* PeerInfo.h */; settings = {ATTRIBUTES = (Public, ); }; };
++		AA0001052AE7E521000407AE /* PeerInfo_Internal.h in Headers */ = {isa = PBXBuildFile; fileRef = AA0001022AE7E521000407AE /* PeerInfo_Internal.h */; };
++		AA0001062AE7E521000407AE /* PeerInfo.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0001032AE7E521000407AE /* PeerInfo.m */; };
+ 		D15147EB2AE7E521000407AE /* Session.h in Headers */ = {isa = PBXBuildFile; fileRef = D15147D02AE7E521000407AE /* Session.h */; settings = {ATTRIBUTES = (Public, ); }; };
+ 		D15147ED2AE7E521000407AE /* Session.mm in Sources */ = {isa = PBXBuildFile; fileRef = D15147D22AE7E521000407AE /* Session.mm */; };
+ 		D15147F62AE7E529000407AE /* NSData+Hex.h in Headers */ = {isa = PBXBuildFile; fileRef = D15147EF2AE7E529000407AE /* NSData+Hex.h */; settings = {ATTRIBUTES = (Public, ); }; };
+@@ -93,6 +96,9 @@
+ 		D15147CC2AE7E521000407AE /* FilePriority.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FilePriority.h; sourceTree = "<group>"; };
+ 		D15147CD2AE7E521000407AE /* FileEntry_Internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FileEntry_Internal.h; sourceTree = "<group>"; };
+ 		D15147CE2AE7E521000407AE /* FileEntry.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FileEntry.m; sourceTree = "<group>"; };
++		AA0001012AE7E521000407AE /* PeerInfo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PeerInfo.h; sourceTree = "<group>"; };
++		AA0001022AE7E521000407AE /* PeerInfo_Internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PeerInfo_Internal.h; sourceTree = "<group>"; };
++		AA0001032AE7E521000407AE /* PeerInfo.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PeerInfo.m; sourceTree = "<group>"; };
+ 		D15147D02AE7E521000407AE /* Session.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Session.h; sourceTree = "<group>"; };
+ 		D15147D12AE7E521000407AE /* Session_Internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Session_Internal.h; sourceTree = "<group>"; };
+ 		D15147D22AE7E521000407AE /* Session.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = Session.mm; sourceTree = "<group>"; };
+@@ -182,6 +188,7 @@
+ 				D15147B92AE7E521000407AE /* TorrentTracker */,
+ 				D15147BD2AE7E521000407AE /* TorrentFile */,
+ 				D15147CA2AE7E521000407AE /* FileEntry */,
++				AA0001072AE7E521000407AE /* PeerInfo */,
+ 				D15147CF2AE7E521000407AE /* Session */,
+ 			);
+ 			path = Core;
+@@ -271,6 +278,16 @@
+ 			path = FileEntry;
+ 			sourceTree = "<group>";
+ 		};
++		AA0001072AE7E521000407AE /* PeerInfo */ = {
++			isa = PBXGroup;
++			children = (
++				AA0001012AE7E521000407AE /* PeerInfo.h */,
++				AA0001022AE7E521000407AE /* PeerInfo_Internal.h */,
++				AA0001032AE7E521000407AE /* PeerInfo.m */,
++			);
++			path = PeerInfo;
++			sourceTree = "<group>";
++		};
+ 		D15147CF2AE7E521000407AE /* Session */ = {
+ 			isa = PBXGroup;
+ 			children = (
+@@ -321,6 +338,8 @@
+ 				D15147FC2AE7E529000407AE /* NSData+Sha1Hash.h in Headers */,
+ 				D15147692AE6AE9C000407AE /* LibTorrent.h in Headers */,
+ 				D15147EB2AE7E521000407AE /* Session.h in Headers */,
++				AA0001042AE7E521000407AE /* PeerInfo.h in Headers */,
++				AA0001052AE7E521000407AE /* PeerInfo_Internal.h in Headers */,
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+ 		};
+@@ -426,6 +445,7 @@
+ 				D1352D272BBC4F8100104E7B /* SessionSettings.swift in Sources */,
+ 				D151480B2AE7F85D000407AE /* Data+Hex.swift in Sources */,
+ 				D15147EA2AE7E521000407AE /* FileEntry.m in Sources */,
++				AA0001062AE7E521000407AE /* PeerInfo.m in Sources */,
+ 				7C5FBE0A2BB8C1780069E5A0 /* LibTorrentVersion.mm in Sources */,
+ 				D15148092AE7F859000407AE /* TorrentFile.swift in Sources */,
+ 				D151480A2AE7F859000407AE /* MagnetURI.swift in Sources */,

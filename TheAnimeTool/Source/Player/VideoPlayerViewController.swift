@@ -741,30 +741,11 @@ final class VideoPlayerViewController: UIViewController {
             streamer = nil
             return
         }
-        // Hayase downloadstats.svelte format: peers ↓speed ↑speed + ETA + protocol status
-        let peers = snap.numberOfConnectedPeers
+        // Hayase downloadstats.svelte format: peers ↓speed ↑speed
+        let peers = snap.numberOfSeeds
         let downBits = fmtBits(snap.downloadRate * 8)
         let upBits = fmtBits(snap.uploadRate * 8)
-        var text = "👤 \(peers)    ↓ \(downBits)/s    ↑ \(upBits)/s"
-
-        // ETA from timeRemaining (0 = done, -1 = unknown)
-        let eta = snap.timeRemaining
-        if eta > 0 {
-            let mins = eta / 60
-            let secs = eta % 60
-            text += mins > 0 ? "    ⏱ \(mins)m \(secs)s" : "    ⏱ \(secs)s"
-        }
-
-        // Protocol status indicators
-        var protocols: [String] = []
-        if snap.isDhtRunning { protocols.append("DHT") }
-        if snap.isPexEnabled { protocols.append("PEX") }
-        if snap.isLsdRunning { protocols.append("LSD") }
-        if !protocols.isEmpty {
-            text += "    " + protocols.joined(separator: "·")
-        }
-
-        statsHUD.text = text
+        statsHUD.text = "👤 \(peers)    ↓ \(downBits)/s    ↑ \(upBits)/s"
     }
 
     /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).
