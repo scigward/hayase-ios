@@ -113,11 +113,6 @@ final class LogOverlayView: UIView {
     /// Maximum visible lines in expanded mode.
     private let expandedLineCount = 15
 
-    /// Auto-hide delay per level: errors persist, warnings 15s, info 5s.
-    private static let errorAutoHideDelay: TimeInterval = 30.0
-    private static let warnAutoHideDelay: TimeInterval = 15.0
-    private static let infoAutoHideDelay: TimeInterval = 5.0
-
     /// Estimated height per monospaced log line (points).
     private static let lineHeight: CGFloat = 14
 
@@ -201,9 +196,15 @@ final class LogOverlayView: UIView {
     }
 
     @objc private func onEntriesChanged() {
+        // Don't show the overlay at all unless the user enabled it in Settings.
+        guard alwaysVisible else {
+            isHidden = true
+            return
+        }
+
         let entries = StreamingLogger.shared.entries
         guard !entries.isEmpty else {
-            if !alwaysVisible { isHidden = true }
+            isHidden = true
             return
         }
 
@@ -211,13 +212,12 @@ final class LogOverlayView: UIView {
         let maxLines = isExpanded ? expandedLineCount : collapsedLineCount
         let tail = entries.suffix(maxLines)
         let attributed = NSMutableAttributedString()
-        var highestLevel: StreamingLogEntry.Level = .info
 
         for (i, entry) in tail.enumerated() {
             let color: UIColor
             switch entry.level {
-            case .error: color = UIColor.systemRed;   highestLevel = .error
-            case .warn:  color = UIColor.systemYellow; if highestLevel != .error { highestLevel = .warn }
+            case .error: color = UIColor.systemRed
+            case .warn:  color = UIColor.systemYellow
             case .info:  color = UIColor.white.withAlphaComponent(0.85)
             }
             let line = entry.displayString + (i < tail.count - 1 ? "\n" : "")
@@ -231,34 +231,7 @@ final class LogOverlayView: UIView {
         textView.attributedText = attributed
         isHidden = false
         alpha = 1.0
-
-        // When "Show Streaming Logger" is ON, never auto-hide.
-        if alwaysVisible {
-            autoHideWork?.cancel()
-        } else {
-            // Auto-hide delay based on the highest severity in the visible entries.
-            scheduleAutoHide(forLevel: highestLevel)
-        }
-    }
-
-    private func scheduleAutoHide(forLevel level: StreamingLogEntry.Level) {
         autoHideWork?.cancel()
-        guard !isExpanded else { return }
-
-        let delay: TimeInterval
-        switch level {
-        case .error: delay = Self.errorAutoHideDelay
-        case .warn:  delay = Self.warnAutoHideDelay
-        case .info:  delay = Self.infoAutoHideDelay
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            UIView.animate(withDuration: 0.3) { self?.alpha = 0.0 }
-        }
-        autoHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        // Restore visibility if we were faded out
-        UIView.animate(withDuration: 0.15) { self.alpha = 1.0 }
     }
 
     // MARK: - Actions
@@ -270,12 +243,6 @@ final class LogOverlayView: UIView {
         textView.isUserInteractionEnabled = isExpanded
         UIView.animate(withDuration: 0.2) { self.superview?.layoutIfNeeded() }
         onEntriesChanged() // refresh visible lines
-        if isExpanded {
-            autoHideWork?.cancel()
-            UIView.animate(withDuration: 0.15) { self.alpha = 1.0 }
-        } else {
-            scheduleAutoHide(forLevel: .info)
-        }
     }
 
     @objc private func copyLogs(_ gesture: UILongPressGestureRecognizer) {
