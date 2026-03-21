@@ -814,7 +814,7 @@ final class HayaseSettingToggleCell: UITableViewCell {
     }()
     private var udKey = ""
     /// Called after the toggle value is saved to UserDefaults.
-    var onToggled: ((_ key: String) -> Void)?
+    var onToggled: ((String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
