@@ -524,7 +524,7 @@ class SettingsViewController: UIViewController {
         "pref_disableDHT", "pref_disablePeX",
         "pref_torrentPort", "pref_dhtPort",
         "pref_torrentSpeed", "pref_maxConns",
-        "pref_streamedDownload",
+        "pref_streamedDownload", "pref_persistFiles",
     ]
 
     /// If `key` is a torrent-session setting, re-apply settings to the live session.

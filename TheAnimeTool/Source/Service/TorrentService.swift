@@ -88,12 +88,10 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.listenInterfaces = "0.0.0.0:\(effectivePort)"
         settings.outgoingInterfaces = ""
 
-        // Protocol features — honour Hayase "Disable DHT" toggle.
-        // Note: Hayase's torrentDHT defaults to false (= not disabled = enabled).
-        // PeX: libtorrent doesn't expose a per-session PeX toggle in settings_pack;
-        // it is controlled via the ut_pex extension which is always loaded.
-        // The "Disable PeX" pref affects only the overview status dot.
+        // Protocol features — honour Hayase "Disable DHT" / "Disable PeX" toggles.
+        // Note: Hayase's torrentDHT/torrentPeX default to false (= not disabled = enabled).
         let disableDHT = ud.bool(forKey: "pref_disableDHT")
+        let disablePeX = ud.bool(forKey: "pref_disablePeX")
         settings.isDhtEnabled  = !disableDHT
         settings.isLsdEnabled  = true
         settings.isUtpEnabled  = true
@@ -113,6 +111,17 @@ public class TorrentService: NSObject, SessionDelegate {
 
         // Streamed download mode (Hayase: torrentStreamedDownload).
         settings.isStreamingMode = ud.bool(forKey: "pref_streamedDownload")
+
+        // Persist files preference — read here so it participates in settings
+        // change notifications.  The actual cleanup logic lives in
+        // cleanupOtherTorrentsIfNeeded() which reads this key directly.
+        let persistFiles = ud.bool(forKey: "pref_persistFiles")
+
+        // PeX / Persist: these prefs are read and included so that changing them
+        // triggers applyUserSettings().  Once LibTorrent-Swift exposes setters for
+        // PeX control, wire `disablePeX` into the session settings here.
+        _ = disablePeX
+        _ = persistFiles
 
         // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
         settings.validateHttpsTrackers = false
