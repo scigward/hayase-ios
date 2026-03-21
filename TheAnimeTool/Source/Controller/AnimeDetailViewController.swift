@@ -797,7 +797,10 @@ private final class AnimeInfoHeaderView: UIView {
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
 
-    // MARK: - Banner (180pt, full-width — approximates global BannerImage in Hayase)
+    // Banner height: approximates Hayase banner-image.svelte h-[23rem] for detail page
+    private static let bannerHeight: CGFloat = 300
+
+    // MARK: - Banner (full-width — approximates global BannerImage in Hayase)
     private let bannerImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -805,8 +808,23 @@ private final class AnimeInfoHeaderView: UIView {
         iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
         return iv
     }()
-    // Radial-gradient overlay matching banner-image.svelte: dark at edges, lighter at top-center
-    private let bannerGradientLayer = CAGradientLayer()
+    // Linear gradient overlay matching homepage BannerGradientView (5-point linear,
+    // approximating Hayase's banner-image.svelte radial-gradient for mobile).
+    private let bannerGradientView: UIView = {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        let gradient = CAGradientLayer()
+        gradient.colors = [
+            UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
+            UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
+            UIColor.black.cgColor,                           // bottom — fully dark
+        ]
+        gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
+        v.layer.addSublayer(gradient)
+        return v
+    }()
 
     // MARK: - Cover (w-[180px] h-[256px] rounded  → proportional 100×142 on iPhone)
     private let coverImageView: UIImageView = {
@@ -985,17 +1003,6 @@ private final class AnimeInfoHeaderView: UIView {
     private func setup() {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
-        // Banner gradient: radial gradient matching Hayase mobile banner-gr-sm
-        // CSS: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        bannerGradientLayer.type = .radial
-        bannerGradientLayer.colors = [
-            UIColor.black.withAlphaComponent(0.16).cgColor,
-            UIColor.black.cgColor
-        ]
-        bannerGradientLayer.locations = [0.31, 1.0]
-        bannerGradientLayer.startPoint = CGPoint(x: 0.5, y: 0.35)
-        bannerGradientLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
-
         // Badges & description HIDDEN on mobile — Hayase: hidden md:flex / md:block hidden
         badgesScrollView.isHidden = true
         descriptionLabel.isHidden = true
@@ -1068,18 +1075,23 @@ private final class AnimeInfoHeaderView: UIView {
         // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (tabBarContainer has own padding)
         contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
 
-        [bannerImageView, contentStack].forEach {
+        [bannerImageView, bannerGradientView, contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
-        bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         NSLayoutConstraint.activate([
-            // Banner: full-width, 300pt (approximates Hayase banner-image.svelte h-[23rem] for detail page)
+            // Banner: full-width, matches bannerHeight
             bannerImageView.topAnchor.constraint(equalTo: topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bannerImageView.heightAnchor.constraint(equalToConstant: 300),
+            bannerImageView.heightAnchor.constraint(equalToConstant: AnimeInfoHeaderView.bannerHeight),
+
+            // Gradient overlay: same frame as banner
+            bannerGradientView.topAnchor.constraint(equalTo: bannerImageView.topAnchor),
+            bannerGradientView.leadingAnchor.constraint(equalTo: bannerImageView.leadingAnchor),
+            bannerGradientView.trailingAnchor.constraint(equalTo: bannerImageView.trailingAnchor),
+            bannerGradientView.bottomAnchor.constraint(equalTo: bannerImageView.bottomAnchor),
 
             // Cover: w-[180px] h-[256px] — exact Hayase dimensions
             coverImageView.widthAnchor.constraint(equalToConstant: 180),
@@ -1120,7 +1132,10 @@ private final class AnimeInfoHeaderView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        bannerGradientLayer.frame = bannerImageView.bounds
+        // Update the gradient sublayer frame within bannerGradientView
+        if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
+            gradientLayer.frame = bannerGradientView.bounds
+        }
 
         // Tell multi-line labels the maximum width they may use when
         // computing their intrinsic content size.  This is needed because
@@ -1143,6 +1158,21 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func trailerTapped()     { onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
     @objc private func entryEditorTapped() { /* TODO: Present entry editor sheet */ }
+
+    // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
+
+    /// Applies pull-down zoom effect on the banner, identical to the homepage banner.
+    func applyOverscrollZoom(_ overscroll: CGFloat) {
+        guard overscroll > 0 else {
+            bannerImageView.transform = .identity
+            bannerGradientView.transform = .identity
+            return
+        }
+        let scale = 1.0 + overscroll / AnimeInfoHeaderView.bannerHeight
+        let yShift = -overscroll / 2.0
+        bannerImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+        bannerGradientView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+    }
 
     // MARK: - Configure (Animes CoreData entity)
 
@@ -1576,6 +1606,9 @@ class AnimeDetailViewController: UIViewController {
         let tabBarH = tabBarController?.tabBar.frame.height ?? 83
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
         tableView.scrollIndicatorInsets = tableView.contentInset
+        // Allow the banner to extend beyond the table view bounds during overscroll zoom
+        tableView.clipsToBounds = false
+        view.clipsToBounds = true
         view.addSubview(tableView)
     }
 
@@ -1620,6 +1653,9 @@ class AnimeDetailViewController: UIViewController {
         // scrolls WITH the content (Hayase: Tabs.Root is inside the scrollable div, not sticky).
         let container = UIView()
         container.backgroundColor = .clear
+        // Don't clip — allows the banner image to extend upward for overscroll zoom effect
+        container.clipsToBounds = false
+        headerView.clipsToBounds = false
         headerView.translatesAutoresizingMaskIntoConstraints = false
         tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerView)
@@ -1975,6 +2011,18 @@ extension AnimeDetailViewController: UITableViewDataSource {
 // MARK: - UITableViewDelegate
 
 extension AnimeDetailViewController: UITableViewDelegate {
+
+    // MARK: - Scroll-driven overscroll zoom (matches homepage banner)
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let offsetY = scrollView.contentOffset.y
+        if offsetY < 0 {
+            headerView.applyOverscrollZoom(-offsetY)
+        } else {
+            headerView.applyOverscrollZoom(0)
+        }
+    }
+
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         // Seg control is embedded in tableHeaderView (not a section header) so it scrolls
         // with content — matches Hayase where Tabs.Root is inside the scrollable div.
