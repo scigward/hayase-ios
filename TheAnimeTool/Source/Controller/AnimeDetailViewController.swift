@@ -1099,6 +1099,14 @@ private final class AnimeInfoHeaderView: UIView {
             // Genres scrollview height = 28pt (h-7)
             genresContainer.heightAnchor.constraint(equalToConstant: 28),
 
+            // Hayase: text column has w-full so it fills the parent width even
+            // though the parent (coverAndTextColumn) uses items-center (.center).
+            // Without this, textColumn takes its intrinsic width (the text's
+            // natural width), which may exceed the screen width for long titles.
+            // The label then computes 1-line intrinsic height, the header is
+            // sized too short, and the title gets clipped.
+            textColumn.widthAnchor.constraint(equalTo: coverAndTextColumn.widthAnchor),
+
             // Content stack: overlaps banner so cover image sits within banner area.
             // Hayase: content starts at pt-4 + pt-12 = 64pt from scroll top, but on iOS we
             // need clearance below the nav bar (~88pt). Overlap -200 puts content at 100pt
@@ -1113,20 +1121,6 @@ private final class AnimeInfoHeaderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         bannerGradientLayer.frame = bannerImageView.bounds
-
-        // Tell multi-line labels the maximum width they should use when computing
-        // their intrinsic content size.  Without this, the title label inside a
-        // .center-aligned stack reports single-line intrinsic height because its
-        // width isn't constrained until layout resolves the inequality constraints.
-        // sizeHeaderView() calls layoutIfNeeded() before systemLayoutSizeFitting()
-        // so these values are fresh when the header height is computed.
-        let maxW = bounds.width - 24   // contentStack's 12-pt left + right margins
-        if titleLabel.preferredMaxLayoutWidth != maxW {
-            titleLabel.preferredMaxLayoutWidth = maxW
-        }
-        if romajiLabel.preferredMaxLayoutWidth != maxW {
-            romajiLabel.preferredMaxLayoutWidth = maxW
-        }
     }
 
     // MARK: - Actions
@@ -1627,10 +1621,8 @@ class AnimeDetailViewController: UIViewController {
 
     private func sizeHeaderView() {
         guard let container = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
-        // Force a layout pass so that preferredMaxLayoutWidth is set on labels
-        // (updated in AnimeInfoHeaderView.layoutSubviews).  Without this the
-        // title label calculates its intrinsic height for a single line even
-        // when the text wraps, making the header too short and clipping the title.
+        // Force a layout pass so the textColumn width constraint resolves and
+        // the title label's intrinsic height reflects the correct line count.
         container.frame.size.width = tableView.frame.width
         container.setNeedsLayout()
         container.layoutIfNeeded()
