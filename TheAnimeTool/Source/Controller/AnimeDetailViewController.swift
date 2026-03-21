@@ -1059,7 +1059,7 @@ private final class AnimeInfoHeaderView: UIView {
         contentStack.spacing = 24  // gap-6
         contentStack.isLayoutMarginsRelativeArrangement = true
         // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (content continues)
-        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
+        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
 
         [bannerImageView, contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -1917,7 +1917,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
-        case .relations:          return 148
+        case .relations:          return 160
         case .threads, .themes:   return UITableView.automaticDimension
         default:                  return UITableView.automaticDimension
         }
@@ -2086,8 +2086,8 @@ extension AnimeDetailViewController {
         cell.contentView.addSubview(label)
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
-            label.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 16),
-            label.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -16),
+            label.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 40),
+            label.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -40),
         ])
         return cell
     }
