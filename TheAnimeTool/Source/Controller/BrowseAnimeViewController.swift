@@ -68,6 +68,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Callback fired when the user taps a dot to manually switch items.
     var onDotTapped: (() -> Void)?
 
+    /// Callback fired when the user taps the "Watch Now" / "Continue" play button.
+    var onPlayTapped: ((AnimeItem) -> Void)?
+
     private var items: [AnimeItem] = []
     private var currentIndex = 0
     private var rotationTimer: Timer?
@@ -236,6 +239,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bookmarkButton.setContentHuggingPriority(.required, for: .horizontal)
         favoriteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         bookmarkButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // Wire play button tap → callback to parent VC for navigation
+        playButton.addTarget(self, action: #selector(playButtonTapped), for: .touchUpInside)
 
         // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
         // Clearlogo replaces title visually — only one is visible at a time.
@@ -534,6 +540,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
         displayItem(animated: true)
         startTimer()
+    }
+
+    @objc private func playButtonTapped() {
+        guard let item = currentItem else { return }
+        onPlayTapped?(item)
     }
 
     private func updateDots() {
@@ -1227,6 +1238,12 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
             if !bannerItems.isEmpty {
                 cell.configure(with: bannerItems)
+            }
+            // Wire play button → navigate to anime detail
+            cell.onPlayTapped = { [weak self] item in
+                guard let self else { return }
+                self.pendingAnimeItem = item
+                self.performSegue(withIdentifier: "showAnimeDetail", sender: nil)
             }
             return cell
         }
