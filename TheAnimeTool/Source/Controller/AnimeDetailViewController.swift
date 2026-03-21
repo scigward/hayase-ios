@@ -1121,6 +1121,20 @@ private final class AnimeInfoHeaderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         bannerGradientLayer.frame = bannerImageView.bounds
+
+        // Tell multi-line labels the maximum width they may use when
+        // computing their intrinsic content size.  This is needed because
+        // coverAndTextColumn uses .center alignment, which does not impose
+        // a width on arranged subviews the way .fill does.  The explicit
+        // textColumn width constraint handles the *layout*, but
+        // preferredMaxLayoutWidth is what UILabel reads when Auto Layout
+        // calls intrinsicContentSize — without it the label can still
+        // report a single-line height.
+        let maxW = bounds.width - 24   // contentStack 12-pt left + right margins
+        if maxW > 0 {
+            titleLabel.preferredMaxLayoutWidth = maxW
+            romajiLabel.preferredMaxLayoutWidth = maxW
+        }
     }
 
     // MARK: - Actions
@@ -1621,17 +1635,34 @@ class AnimeDetailViewController: UIViewController {
 
     private func sizeHeaderView() {
         guard let container = tableView.tableHeaderView, tableView.frame.width > 0 else { return }
-        // Force a layout pass so the textColumn width constraint resolves and
-        // the title label's intrinsic height reflects the correct line count.
+        // Force a layout pass so the textColumn width constraint resolves,
+        // preferredMaxLayoutWidth is set on labels, and their intrinsic
+        // heights reflect the correct line count.
         container.frame.size.width = tableView.frame.width
         container.setNeedsLayout()
         container.layoutIfNeeded()
+
+        // The container uses frame-based sizing (translatesAutoresizing-
+        // MaskIntoConstraints = true, the default for table header views).
+        // Those autoresizing-mask constraints change every time the frame
+        // is modified, which can make systemLayoutSizeFitting return a
+        // different (wrong) height on subsequent calls.
+        //
+        // Temporarily disable TAMIC so systemLayoutSizeFitting only sees
+        // the pure auto-layout constraints from the inner views (headerView
+        // and tabBarContainer, both of which have TAMIC = false).
+        container.translatesAutoresizingMaskIntoConstraints = false
+
         let targetSize = CGSize(width: tableView.frame.width,
                                 height: UIView.layoutFittingCompressedSize.height)
         let height = container.systemLayoutSizeFitting(
             targetSize,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel).height
+
+        // Restore frame-based layout so the table view can position the header.
+        container.translatesAutoresizingMaskIntoConstraints = true
+
         if abs(container.frame.height - height) > 1 {
             container.frame.size.height = height
             tableView.tableHeaderView = container
