@@ -21,6 +21,11 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # Always use the latest upstream LibTorrent-Swift from its tracked branch
+      # so that fixes pushed to the submodule repo are picked up automatically.
+      - name: Update LibTorrent-Swift to latest upstream
+        run: git submodule update --remote --recursive Component/LibTorrent-Swift
+
       # Cache resolved SPM packages so we don't re-download MPVKit/OpenSSL on every run.
       # The cache key includes the resolved versions (from project.pbxproj) so it
       # invalidates automatically when package versions change.
