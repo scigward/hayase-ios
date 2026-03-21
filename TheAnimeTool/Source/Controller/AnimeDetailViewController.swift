@@ -985,9 +985,16 @@ private final class AnimeInfoHeaderView: UIView {
     private func setup() {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
 
-        // Banner gradient: transparent top-30% → black/0.85 at bottom (mirrors Hayase mobile banner-gr-sm)
-        bannerGradientLayer.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.85).cgColor]
-        bannerGradientLayer.locations = [0.3, 1.0]
+        // Banner gradient: radial gradient matching Hayase mobile banner-gr-sm
+        // CSS: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        bannerGradientLayer.type = .radial
+        bannerGradientLayer.colors = [
+            UIColor.black.withAlphaComponent(0.16).cgColor,
+            UIColor.black.cgColor
+        ]
+        bannerGradientLayer.locations = [0.31, 1.0]
+        bannerGradientLayer.startPoint = CGPoint(x: 0.5, y: 0.35)
+        bannerGradientLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
 
         // Badges & description HIDDEN on mobile — Hayase: hidden md:flex / md:block hidden
         badgesScrollView.isHidden = true
@@ -1058,8 +1065,8 @@ private final class AnimeInfoHeaderView: UIView {
         contentStack.axis = .vertical
         contentStack.spacing = 24  // gap-6
         contentStack.isLayoutMarginsRelativeArrangement = true
-        // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (content continues)
-        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
+        // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (tabBarContainer has own padding)
+        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
 
         [bannerImageView, contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -1068,11 +1075,11 @@ private final class AnimeInfoHeaderView: UIView {
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
         NSLayoutConstraint.activate([
-            // Banner: full-width, 180pt (approximates banner-image.svelte h-[23rem] for detail page)
+            // Banner: full-width, 300pt (approximates Hayase banner-image.svelte h-[23rem] for detail page)
             bannerImageView.topAnchor.constraint(equalTo: topAnchor),
             bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bannerImageView.heightAnchor.constraint(equalToConstant: 180),
+            bannerImageView.heightAnchor.constraint(equalToConstant: 300),
 
             // Cover: w-[180px] h-[256px] — exact Hayase dimensions
             coverImageView.widthAnchor.constraint(equalToConstant: 180),
@@ -1092,8 +1099,11 @@ private final class AnimeInfoHeaderView: UIView {
             // Genres scrollview height = 28pt (h-7)
             genresContainer.heightAnchor.constraint(equalToConstant: 28),
 
-            // Content stack overlaps bottom of banner (gradient provides the blend)
-            contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -30),
+            // Content stack: overlaps banner so cover image sits within banner area.
+            // Hayase: content starts at pt-4 + pt-12 = 64pt from scroll top, but on iOS we
+            // need clearance below the nav bar (~88pt). Overlap -200 puts content at 100pt
+            // from top, with 16pt margin → cover at 116pt (within the 300pt banner).
+            contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -1523,6 +1533,13 @@ class AnimeDetailViewController: UIViewController {
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
         tableView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        // Eliminate automatic section header/footer spacing that causes expanding gaps
+        // between the tab bar and content cells (iOS 15+ adds ~22pt per section by default).
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
+        tableView.estimatedSectionHeaderHeight = 0
+        tableView.estimatedSectionFooterHeight = 0
         // Remove the automatic nav-bar/status-bar content inset so the header banner
         // extends behind the transparent nav bar (no black gap), matching Hayase where
         // the banner-image div is `absolute top-0` behind the sidebar/browser chrome.
@@ -1912,6 +1929,14 @@ extension AnimeDetailViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        return 0
+    }
+
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        return nil
+    }
+
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
         return 0
     }
 
