@@ -1164,8 +1164,11 @@ private final class AnimeInfoHeaderView: UIView {
     /// Applies pull-down zoom effect on the banner, identical to the homepage banner.
     func applyOverscrollZoom(_ overscroll: CGFloat) {
         guard overscroll > 0 else {
-            bannerImageView.transform = .identity
-            bannerGradientView.transform = .identity
+            // Only reset if not already at identity — avoids unnecessary layout invalidation.
+            if bannerImageView.transform != .identity {
+                bannerImageView.transform = .identity
+                bannerGradientView.transform = .identity
+            }
             return
         }
         let scale = 1.0 + overscroll / AnimeInfoHeaderView.bannerHeight
@@ -2015,6 +2018,9 @@ extension AnimeDetailViewController: UITableViewDelegate {
     // MARK: - Scroll-driven overscroll zoom (matches homepage banner)
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Skip during header sizing — transforms trigger layout invalidation
+        // which re-enters viewDidLayoutSubviews → sizeHeaderView cycle.
+        guard !isSizingHeader else { return }
         let offsetY = scrollView.contentOffset.y
         if offsetY < 0 {
             headerView.applyOverscrollZoom(-offsetY)
