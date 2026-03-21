@@ -88,10 +88,12 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.listenInterfaces = "0.0.0.0:\(effectivePort)"
         settings.outgoingInterfaces = ""
 
-        // Protocol features — honour Hayase "Disable DHT" / "Disable PeX" toggles.
-        // Note: Hayase's torrentDHT/torrentPeX default to false (= not disabled = enabled).
+        // Protocol features — honour Hayase "Disable DHT" toggle.
+        // Note: Hayase's torrentDHT defaults to false (= not disabled = enabled).
+        // PeX: libtorrent doesn't expose a per-session PeX toggle in settings_pack;
+        // it is controlled via the ut_pex extension which is always loaded.
+        // The "Disable PeX" pref affects only the overview status dot.
         let disableDHT = ud.bool(forKey: "pref_disableDHT")
-        let disablePeX = ud.bool(forKey: "pref_disablePeX")
         settings.isDhtEnabled  = !disableDHT
         settings.isLsdEnabled  = true
         settings.isUtpEnabled  = true
@@ -114,12 +116,6 @@ public class TorrentService: NSObject, SessionDelegate {
 
         // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
         settings.validateHttpsTrackers = false
-
-        // PeX: libtorrent doesn't expose a per-session PeX toggle in settings_pack.
-        // PeX is controlled via the ut_pex extension which is always loaded.
-        // We store the preference but it primarily affects the overview status dots.
-        // (SessionSettings doesn't have an isPexEnabled property.)
-        _ = disablePeX  // stored in UserDefaults, read by protocol status dots
 
         return settings
     }
