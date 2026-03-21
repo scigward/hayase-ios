@@ -518,6 +518,22 @@ class SettingsViewController: UIViewController {
         return "\(v) (\(b))"
     }
 
+    /// Keys whose changes must be forwarded to the LibTorrent session.
+    /// Mirrors Hayase's `torrentSettings` derived store that triggers `native.updateSettings`.
+    private static let torrentSettingKeys: Set<String> = [
+        "pref_disableDHT", "pref_disablePeX",
+        "pref_torrentPort", "pref_dhtPort",
+        "pref_torrentSpeed", "pref_maxConns",
+        "pref_streamedDownload", "pref_persistFiles",
+    ]
+
+    /// If `key` is a torrent-session setting, re-apply settings to the live session.
+    private func applyTorrentSettingsIfNeeded(forKey key: String) {
+        if Self.torrentSettingKeys.contains(key) {
+            TorrentService.sharedTorrentService.applyUserSettings()
+        }
+    }
+
     // MARK: - Selection picker (used for selectable rows)
 
     private func showSelectionPicker(title: String, key: String, options: [(key: String, label: String)], defaultKey: String, indexPath: IndexPath) {
@@ -574,6 +590,7 @@ class SettingsViewController: UIViewController {
                 UserDefaults.standard.set(text, forKey: key)
             }
             self?.tableView.reloadRows(at: [indexPath], with: .fade)
+            self?.applyTorrentSettingsIfNeeded(forKey: key)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         present(alert, animated: true)
@@ -646,6 +663,9 @@ extension SettingsViewController: UITableViewDataSource {
                 withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as! HayaseSettingToggleCell
             cell.configure(title: row.title, description: row.description,
                            key: key, defaultValue: def)
+            cell.onToggled = { [weak self] toggledKey in
+                self?.applyTorrentSettingsIfNeeded(forKey: toggledKey)
+            }
             cell.backgroundColor = bgColor
             return cell
         case .value(let val):
@@ -793,6 +813,8 @@ final class HayaseSettingToggleCell: UITableViewCell {
         return s
     }()
     private var udKey = ""
+    /// Called after the toggle value is saved to UserDefaults.
+    var onToggled: ((_ key: String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -850,6 +872,7 @@ final class HayaseSettingToggleCell: UITableViewCell {
 
     @objc private func toggled(_ sender: UISwitch) {
         UserDefaults.standard.set(sender.isOn, forKey: udKey)
+        onToggled?(udKey)
     }
 }
 

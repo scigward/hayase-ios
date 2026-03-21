@@ -440,12 +440,13 @@ final class TorrentDetailViewController: UIViewController {
         leechersValue.text = "\(snap.numberOfLeechers)"
         wiresValue.text    = "\(snap.numberOfPeers)"
 
-        // Protocol status dots
-        setDot(dhtDot, enabled: true)
-        setDot(lsdDot, enabled: true)
-        setDot(pexDot, enabled: true)
-        setDot(natDot, enabled: true)
-        setDot(forwardDot, enabled: false) // conservative default; UPnP state not easily accessible
+        // Protocol status dots — use actual snapshot values from LibTorrent-Swift
+        // (matches Hayase overview.svelte which reads server.protocol store).
+        setDot(dhtDot, enabled: snap.isDhtRunning)
+        setDot(lsdDot, enabled: snap.isLsdRunning)
+        setDot(pexDot, enabled: snap.isPexEnabled)
+        setDot(natDot, enabled: true)   // UPnP/NAT-PMP is always enabled in settings
+        setDot(forwardDot, enabled: snap.hasIncomingConnections)
         setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
 
         // Streaming: downloading + sequential mode enabled (TorrentStreamer enables this)

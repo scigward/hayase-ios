@@ -37,15 +37,6 @@ jobs:
       - name: Install Boost + OpenSSL
         run: brew install boost openssl@3
 
-      - name: Apply LibTorrent-Swift patches
-        run: |
-          cd Component/LibTorrent-Swift
-          for patch in ../../patches/*.patch; do
-            [ -f "$patch" ] || continue
-            echo "Applying: $(basename $patch)"
-            git apply "$patch"
-          done
-
       - name: Prepare LibTorrent
         run: OPENSSL_ROOT_DIR=$(brew --prefix openssl@3) ./Component/LibTorrent-Swift/make.sh
 

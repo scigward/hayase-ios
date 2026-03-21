@@ -29,6 +29,10 @@ public class TorrentService: NSObject, SessionDelegate {
 
     var insertIndexForTempEntries = 0
 
+    /// Notification posted when torrent client settings change.
+    /// TorrentDetailViewController and other consumers can observe this to refresh.
+    static let SettingsDidChangeNotification = "TorrentServiceSettingsDidChangeNotification"
+
     override init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         let downloadsURL  = docs.appendingPathComponent("downloads")
@@ -39,29 +43,7 @@ public class TorrentService: NSObject, SessionDelegate {
             try? FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
         }
 
-        let settings = Session.Settings()
-        settings.agentName        = "TheAnimeTool"
-        // Torrent activity limits — default is 0 (no active torrents!) so we must set positive values.
-        // With active_limit=0 libtorrent queues every torrent and never starts connecting.
-        settings.maxActiveTorrents      = 4    // iTorrent default
-        settings.maxDownloadingTorrents = 4
-        settings.maxUploadingTorrents   = 4
-        // Port settings — use a specific port so UPnP/NAT-PMP can forward it reliably.
-        // Omit IPv6 wildcard ([::]) which can fail in sandboxed environments (LiveContainer).
-        settings.port             = 6881
-        settings.portBindRetries  = 10         // retry on conflict; iTorrent default
-        settings.listenInterfaces = "0.0.0.0:6881"
-        settings.outgoingInterfaces = ""       // OS default routing (matches all interfaces)
-        // Protocol features
-        settings.isDhtEnabled  = true
-        settings.isLsdEnabled  = true
-        settings.isUtpEnabled  = true
-        settings.isUpnpEnabled = true
-        settings.isNatEnabled  = true
-        // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
-        // Our nyaa trackers are HTTP/UDP so this has no effect on them; it just avoids
-        // a silent SSL failure if any tracker ever redirects to HTTPS.
-        settings.validateHttpsTrackers = false
+        let settings = Self.makeSettings()
 
         session = Session(downloadsURL,
                          torrentsPath: torrentsURL,
@@ -81,6 +63,73 @@ public class TorrentService: NSObject, SessionDelegate {
         }
         session.resume()
         session.add(self)   // register delegate AFTER pause/resume
+    }
+
+    // MARK: - Settings from UserDefaults (mirrors Hayase native.updateSettings)
+
+    /// Build a Session.Settings from current UserDefaults values.
+    /// Called at init and whenever the user changes client settings.
+    private static func makeSettings() -> Session.Settings {
+        let ud = UserDefaults.standard
+        let settings = Session.Settings()
+        settings.agentName        = "TheAnimeTool"
+
+        // Torrent activity limits — default is 0 (no active torrents!) so we must set positive values.
+        settings.maxActiveTorrents      = 4
+        settings.maxDownloadingTorrents = 4
+        settings.maxUploadingTorrents   = 4
+
+        // Port settings — read from user prefs (Hayase: torrentPort, dhtPort).
+        // 0 means auto-select (libtorrent picks an available port).
+        let torrentPort = Int(ud.string(forKey: "pref_torrentPort") ?? "0") ?? 0
+        let effectivePort = torrentPort > 0 ? torrentPort : 6881
+        settings.port             = effectivePort
+        settings.portBindRetries  = 10
+        settings.listenInterfaces = "0.0.0.0:\(effectivePort)"
+        settings.outgoingInterfaces = ""
+
+        // Protocol features — honour Hayase "Disable DHT" / "Disable PeX" toggles.
+        // Note: Hayase's torrentDHT/torrentPeX default to false (= not disabled = enabled).
+        let disableDHT = ud.bool(forKey: "pref_disableDHT")
+        let disablePeX = ud.bool(forKey: "pref_disablePeX")
+        settings.isDhtEnabled  = !disableDHT
+        settings.isLsdEnabled  = true
+        settings.isUtpEnabled  = true
+        settings.isUpnpEnabled = true
+        settings.isNatEnabled  = true
+
+        // Transfer speed limit (Mb/s → bytes/s).
+        // Hayase default: 40 Mb/s.  0 = unlimited.
+        let speedMbps = Int(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
+        let speedBytesPerSec = UInt(speedMbps) * 125_000   // Mb/s → bytes/s
+        settings.maxDownloadSpeed = speedBytesPerSec
+        settings.maxUploadSpeed   = speedBytesPerSec
+
+        // Max connections per torrent (Hayase: maxConns, default 55).
+        let maxConns = Int(ud.string(forKey: "pref_maxConns") ?? "55") ?? 55
+        settings.connectionLimit = maxConns
+
+        // Streamed download mode (Hayase: torrentStreamedDownload).
+        settings.isStreamingMode = ud.bool(forKey: "pref_streamedDownload")
+
+        // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
+        settings.validateHttpsTrackers = false
+
+        // PeX: libtorrent doesn't expose a per-session PeX toggle in settings_pack.
+        // PeX is controlled via the ut_pex extension which is always loaded.
+        // We store the preference but it primarily affects the overview status dots.
+        // (SessionSettings doesn't have an isPexEnabled property.)
+        _ = disablePeX  // stored in UserDefaults, read by protocol status dots
+
+        return settings
+    }
+
+    /// Re-read UserDefaults and apply updated settings to the live session.
+    /// Call this when the user changes any client setting (speed, port, DHT, etc.).
+    /// Mirrors Hayase's `torrentSettings.subscribe(native.updateSettings)`.
+    func applyUserSettings() {
+        session.settings = Self.makeSettings()
+        NotificationCenter.default.post(name: NSNotification.Name(Self.SettingsDidChangeNotification), object: nil)
     }
 
     // MARK: - SessionDelegate
