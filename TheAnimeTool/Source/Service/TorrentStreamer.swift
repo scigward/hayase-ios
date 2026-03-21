@@ -16,8 +16,9 @@ import LibTorrent
 /// - Active window pieces get priority 7 + tight deadlines (current playback)
 /// - Look-ahead pieces get priority 4 + relaxed deadlines (buffer ahead)
 /// - Pieces outside the window stay at priority 1 (still downloaded, just lower priority)
-/// - On seek: old window drops to priority 1, new window gets priority 7 + deadlines
-///   → bandwidth shifts to the new position while all peers remain connected
+/// - On seek: all deadlines cleared, old window set to priority 0 to cancel
+///   in-flight requests, new window gets priority 7 + deadlines, then old
+///   pieces restored to background priority
 final class TorrentStreamer {
 
     // MARK: - Notifications
@@ -325,8 +326,52 @@ final class TorrentStreamer {
         seekPieceTarget = targetPiece
         seekStartTime = Date()
 
-        // Force-update with aggressive seek deadlines and a larger window.
+        // Save old window bounds before setDeadlinesFrom overwrites them.
+        let oldWindowStart = activeWindowStart
+        let oldWindowEnd = activeWindowEnd
+
+        // --- Cancel in-flight requests for the old position ---
+        // 1. Clear ALL piece deadlines atomically. This empties libtorrent's
+        //    internal time-critical list so the next set_piece_deadline call
+        //    triggers cancel_non_critical(), which sends CANCEL messages to
+        //    peers for every in-flight block that isn't time-critical.
+        torrentHandle.clearPieceDeadlines()
+
+        // 2. Set old window pieces to priority 0 (dont_download). This makes
+        //    libtorrent drop any remaining requests for those pieces. In normal
+        //    mode pieces default to priority 1 (low but wanted), which does NOT
+        //    cancel in-flight requests — priority 0 is required.
+        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
+        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
+        if oldWindowStart >= 0 && oldWindowEnd >= oldWindowStart {
+            for piece in oldWindowStart...oldWindowEnd {
+                if piece <= headEnd { continue }
+                if piece >= tailStart { continue }
+                torrentHandle.setPiecePriority(piece, priority: 0)
+            }
+        }
+
+        // 3. Set aggressive deadlines for the seek target. Because the
+        //    time-critical list was emptied above, the first set_piece_deadline
+        //    call triggers cancel_non_critical() inside libtorrent, which
+        //    cancels ALL non-deadline peer requests — focusing bandwidth
+        //    entirely on the new seek position.
         setDeadlinesFrom(pieceIndex: targetPiece, force: true, isSeek: true)
+
+        // 4. Restore old-window pieces that aren't in the new window back to
+        //    background priority so peers remain connected and can contribute
+        //    to those pieces later. Priority 1 = low but wanted (normal mode),
+        //    priority 0 = not wanted (streamed download mode).
+        let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
+        if oldWindowStart >= 0 && oldWindowEnd >= oldWindowStart {
+            for piece in oldWindowStart...oldWindowEnd {
+                // Skip pieces now inside the new active window (set to priority 7).
+                if piece >= activeWindowStart && piece <= activeWindowEnd { continue }
+                if piece <= headEnd { continue }
+                if piece >= tailStart { continue }
+                torrentHandle.setPiecePriority(piece, priority: bgPriority)
+            }
+        }
 
         // Re-announce to trackers immediately so we discover peers that
         // have the seek-target pieces. When seeking far forward at low
