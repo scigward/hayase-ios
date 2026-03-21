@@ -81,7 +81,7 @@ final class LocalStreamServer {
         // the torrent's actual piece count so we never set priority/deadline
         // on a non-existent piece index.
         let rawEndPiece = Int(entry?.end_idx ?? 0)
-        let totalTorrentPieces = snap.pieces?.count ?? rawEndPiece
+        let totalTorrentPieces = Int(snap.numberOfPieces) > 0 ? Int(snap.numberOfPieces) : rawEndPiece
         self.endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // endPiece - beginPiece may be 1 more than totalPieces when the file
