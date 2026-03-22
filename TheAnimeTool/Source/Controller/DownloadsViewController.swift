@@ -194,6 +194,7 @@ class DownloadsViewController: UIViewController {
         l.font = .systemFont(ofSize: 13)
         l.textColor = .secondaryLabel
         l.text = "0 of 0 row(s) selected."
+        l.textAlignment = .right
         return l
     }()
 
@@ -935,22 +936,21 @@ class DownloadsViewController: UIViewController {
         libraryView.addSubview(librarySearchField)
 
         let rescanBtn = UIButton(type: .system)
-        rescanBtn.setTitle("Rescan", for: .normal)
-        rescanBtn.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        let rescanConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        rescanBtn.setImage(UIImage(systemName: "arrow.triangle.2.circlepath", withConfiguration: rescanConfig), for: .normal)
+        rescanBtn.tintColor = .label
+        rescanBtn.backgroundColor = .secondarySystemBackground
         rescanBtn.layer.cornerRadius = 6
-        rescanBtn.layer.borderWidth = 1
-        rescanBtn.layer.borderColor = UIColor.separator.cgColor
-        rescanBtn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         rescanBtn.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
+        rescanBtn.translatesAutoresizingMaskIntoConstraints = false
 
         let deleteBtn = UIButton(type: .system)
-        deleteBtn.setTitle("Delete", for: .normal)
-        deleteBtn.setTitleColor(.systemRed, for: .normal)
-        deleteBtn.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        let deleteConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        deleteBtn.setImage(UIImage(systemName: "trash", withConfiguration: deleteConfig), for: .normal)
+        deleteBtn.tintColor = .white
+        deleteBtn.backgroundColor = .systemRed
         deleteBtn.layer.cornerRadius = 6
-        deleteBtn.layer.borderWidth = 1
-        deleteBtn.layer.borderColor = UIColor.separator.cgColor
-        deleteBtn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        deleteBtn.translatesAutoresizingMaskIntoConstraints = false
 
         let buttonRow = UIStackView(arrangedSubviews: [rescanBtn, deleteBtn])
         buttonRow.axis = .horizontal
@@ -981,15 +981,20 @@ class DownloadsViewController: UIViewController {
         borderContainer.addSubview(libraryTableView)
 
         NSLayoutConstraint.activate([
+            rescanBtn.widthAnchor.constraint(equalToConstant: 36),
+            rescanBtn.heightAnchor.constraint(equalToConstant: 36),
+            deleteBtn.widthAnchor.constraint(equalToConstant: 36),
+            deleteBtn.heightAnchor.constraint(equalToConstant: 36),
+
             librarySearchField.topAnchor.constraint(equalTo: libraryView.topAnchor, constant: 16),
             librarySearchField.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
-            librarySearchField.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+            librarySearchField.trailingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: -8),
             librarySearchField.heightAnchor.constraint(equalToConstant: 36),
 
-            buttonRow.topAnchor.constraint(equalTo: librarySearchField.bottomAnchor, constant: 8),
-            buttonRow.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+            buttonRow.topAnchor.constraint(equalTo: libraryView.topAnchor, constant: 16),
+            buttonRow.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
 
-            librarySelectionLabel.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: 8),
+            librarySelectionLabel.topAnchor.constraint(equalTo: librarySearchField.bottomAnchor, constant: 8),
             librarySelectionLabel.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
             librarySelectionLabel.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
 
@@ -1254,7 +1259,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     private func makeColumnHeader(columns: [(String, CGFloat?)]) -> UIView {
         let header = UIView()
-        header.backgroundColor = .secondarySystemBackground
+        header.backgroundColor = .systemBackground
 
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -1324,7 +1329,7 @@ final class FileEntryTableCell: UITableViewCell {
 
     private let progressBar: UIProgressView = {
         let pv = UIProgressView(progressViewStyle: .bar)
-        pv.layer.cornerRadius = 1
+        pv.layer.cornerRadius = 3
         pv.clipsToBounds = true
         pv.trackTintColor = .secondarySystemFill
         return pv
@@ -1398,7 +1403,7 @@ final class FileEntryTableCell: UITableViewCell {
         sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
         let progress = Float(entry.progress)
         progressBar.progress = progress
-        progressLabel.text = String(format: "%.0f%%", progress * 100)
+        progressLabel.text = String(format: "%.1f%%", progress * 100)
         streamsLabel.text = "0"
     }
 }
