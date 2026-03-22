@@ -1731,25 +1731,15 @@ class AnimeDetailViewController: UIViewController {
         container.setNeedsLayout()
         container.layoutIfNeeded()
 
-        // Measure the fitting height from the inner subviews directly.
-        // Both headerView and tabBarContainer already have TAMIC = false,
-        // so systemLayoutSizeFitting works correctly on them without
-        // needing to toggle TAMIC on the container.  Toggling TAMIC on
-        // the container triggers layout invalidation that can cause an
-        // infinite viewDidLayoutSubviews → sizeHeaderView cycle.
-        let targetSize = CGSize(width: tableView.frame.width,
-                                height: UIView.layoutFittingCompressedSize.height)
-        let headerH = headerView.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel).height
-        let tabBarH = tabBarContainer.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel).height
-        let height = headerH + tabBarH
+        // Read the actual laid-out bottom edge of the bottommost subview.
+        // This is more reliable than calling systemLayoutSizeFitting on
+        // each subview separately — that runs an independent constraint
+        // solve that can return slightly different values than the actual
+        // layout, causing the tab bar to overlap section cells by a few
+        // points.  ceil() prevents any sub-pixel rounding overlap.
+        let height = ceil(tabBarContainer.frame.maxY)
 
-        if abs(container.frame.height - height) > 1 {
+        if abs(container.frame.height - height) > 0.5 {
             container.frame.size.height = height
             tableView.tableHeaderView = container
         }
