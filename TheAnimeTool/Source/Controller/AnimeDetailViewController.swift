@@ -1550,7 +1550,7 @@ class AnimeDetailViewController: UIViewController {
         // Full-width tab bar with 16pt inset on each side.
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
-            tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+            tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -10),
             tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
             tabBar.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
             tabBar.heightAnchor.constraint(equalToConstant: 36), // h-9 = 36pt
