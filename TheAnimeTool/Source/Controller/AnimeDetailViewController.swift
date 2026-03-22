@@ -1947,10 +1947,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
             // Allow banner overflow for overscroll zoom effect
             cell.clipsToBounds = false
             cell.contentView.clipsToBounds = false
-            headerView.clipsToBounds = false
-            // Pre-set label widths so auto layout computes correct multi-line heights
-            headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
             if headerView.superview !== cell.contentView {
+                headerView.clipsToBounds = false
                 headerView.translatesAutoresizingMaskIntoConstraints = false
                 tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
                 cell.contentView.addSubview(headerView)
@@ -1965,6 +1963,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
                     tabBarContainer.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
                 ])
             }
+            // Pre-set label widths so auto layout computes correct multi-line heights
+            headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
             return cell
 
         case .episodes:
