@@ -94,8 +94,8 @@ final class VideoTableViewCell: UITableViewCell {
 
         // Show "downloaded / total" matching Hayase files/table.svelte size column.
         if totalBytes > 0 {
-            let dl = DownloadCell.formatSize(downloadedBytes)
-            let tot = DownloadCell.formatSize(totalBytes)
+            let dl = TorrentDetailViewController.fastPrettyBytes(downloadedBytes)
+            let tot = TorrentDetailViewController.fastPrettyBytes(totalBytes)
             sizeLabel.text = downloadedBytes >= totalBytes ? tot : "\(dl) / \(tot)"
         } else {
             let mb = video.videoSize?.floatValue ?? 0
