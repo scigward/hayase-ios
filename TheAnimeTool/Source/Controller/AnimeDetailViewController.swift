@@ -1525,11 +1525,6 @@ class AnimeDetailViewController: UIViewController {
     // Active tab for the segmented control (Episodes | Relations | Threads | Themes)
     private var activeSection: Section = .episodes
 
-    // Reentrancy guard for sizeHeaderView — toggling TAMIC on the container
-    // triggers layout invalidation → viewDidLayoutSubviews → sizeHeaderView
-    // without this guard.
-    private var isSizingHeader = false
-
     // Custom HTabBar — replaces UISegmentedControl.
     // Shape: bg-muted container rounded-lg (8pt), tabs rounded-md (6pt). NOT a pill.
     // Position: full-width with 16pt horizontal inset (reverted from centered).
@@ -1558,10 +1553,10 @@ class AnimeDetailViewController: UIViewController {
         return v
     }()
 
-    // Section indices — exactly mirrors Hayase +page.svelte tabs:
-    // Episodes | Relations | Threads | Themes  (NO Characters, Staff, Stats)
+    // Section indices — section 0 holds the header (banner + cover + text + tab bar);
+    // sections 1–4 match Hayase +page.svelte tabs: Episodes | Relations | Threads | Themes.
     private enum Section: Int, CaseIterable {
-        case episodes = 0, relations, threads, themes
+        case header = 0, episodes, relations, threads, themes
     }
 
     // MARK: - Lifecycle
@@ -1598,10 +1593,6 @@ class AnimeDetailViewController: UIViewController {
         nb?.tintColor = nil
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        sizeHeaderView()
-    }
 
     // MARK: - Setup
 
@@ -1612,6 +1603,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
@@ -1675,76 +1667,14 @@ class AnimeDetailViewController: UIViewController {
             self?.openExtensionSearch(episode: 1)
         }
 
-        // Wrap AnimeInfoHeaderView + tabBarContainer in one container so the tab bar
-        // scrolls WITH the content (Hayase: Tabs.Root is inside the scrollable div, not sticky).
-        let container = UIView()
-        container.backgroundColor = .clear
-        // Don't clip — allows the banner image to extend upward for overscroll zoom effect
-        container.clipsToBounds = false
-        headerView.clipsToBounds = false
-        headerView.translatesAutoresizingMaskIntoConstraints = false
-        tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(headerView)
-        container.addSubview(tabBarContainer)
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: container.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tabBarContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            tabBarContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            tabBarContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            // NOTE: intentionally NO tabBarContainer.bottom → container.bottom.
-            // The container has TAMIC=true (table header view) which generates
-            // autoresizing constraints.  A bottom pin would over-constrain the
-            // vertical axis: autoresizing fixes height at required priority,
-            // so the constraint solver would compress headerView to fit,
-            // clipping the romaji/title text.  Instead, sizeHeaderView()
-            // uses layoutIfNeeded + frame.maxY to read the actual position.
-        ])
-        // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
-        container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
-        tableView.tableHeaderView = container
+        // Header view + tab bar are embedded in a regular table cell (section 0)
+        // instead of tableHeaderView.  This eliminates the TAMIC conflict that
+        // caused endless sizing bugs: table header views always have TAMIC=true,
+        // generating autoresizing constraints that fight constraint-based sizing.
+        // As a cell, the contentView's auto layout chain (top→header→tabBar→bottom)
+        // drives the cell height naturally.
     }
 
-    private func sizeHeaderView() {
-        guard !isSizingHeader,
-              let container = tableView.tableHeaderView,
-              tableView.frame.width > 0 else { return }
-        isSizingHeader = true
-        defer { isSizingHeader = false }
-
-        let width = tableView.frame.width
-
-        // Pre-set preferredMaxLayoutWidth on title/romaji labels BEFORE
-        // the layout pass.  On the very first call the labels still have
-        // preferredMaxLayoutWidth = 0 (UILabel default), so
-        // intrinsicContentSize returns a single-line height.  The
-        // subsequent layoutIfNeeded triggers layoutSubviews which sets it,
-        // but by then the constraint engine may have already cached the
-        // stale (single-line) intrinsic sizes.  Setting it up-front
-        // ensures the first layout pass uses correct multi-line heights.
-        headerView.updateLabelWidths(forContainerWidth: width)
-
-        container.frame.size.width = width
-        container.setNeedsLayout()
-        container.layoutIfNeeded()
-
-        // Read the actual laid-out bottom edge of the bottommost subview.
-        // This is more reliable than calling systemLayoutSizeFitting on
-        // each subview separately — that runs an independent constraint
-        // solve that can return slightly different values than the actual
-        // layout, causing the tab bar to overlap section cells by a few
-        // points.  ceil() prevents any sub-pixel rounding overlap.
-        let height = ceil(tabBarContainer.frame.maxY)
-
-        // Only re-assign the header when the height changed by more than
-        // half a point — avoids redundant tableHeaderView assignments that
-        // would trigger unnecessary layout passes.
-        if abs(container.frame.height - height) > 0.5 {
-            container.frame.size.height = height
-            tableView.tableHeaderView = container
-        }
-    }
 
     // MARK: - Fetch episodes (ani.zip)
 
@@ -1883,9 +1813,12 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Tab bar
 
     private func tabChanged(to index: Int) {
-        guard let sec = Section(rawValue: index) else { return }
+        // Tab bar indices (0–3) map to content sections (1–4) since section 0 is the header.
+        guard let sec = Section(rawValue: index + 1) else { return }
         activeSection = sec
-        tableView.reloadSections(IndexSet(integersIn: 0..<Section.allCases.count), with: .automatic)
+        // Only reload content sections — header (section 0) never changes.
+        let contentRange = Section.episodes.rawValue..<Section.allCases.count
+        tableView.reloadSections(IndexSet(integersIn: contentRange), with: .automatic)
         // Lazy-fetch threads/themes on first tap
         if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
         if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
@@ -1986,6 +1919,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
+        case .header:    return 1
         case .episodes:  return activeSection == .episodes  ? episodes.count : 0
         case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
         case .threads:
@@ -2005,6 +1939,34 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch Section(rawValue: indexPath.section) {
+        case .header:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "HeaderCell", for: indexPath)
+            cell.backgroundColor = .clear
+            cell.contentView.backgroundColor = .clear
+            cell.selectionStyle = .none
+            // Allow banner overflow for overscroll zoom effect
+            cell.clipsToBounds = false
+            cell.contentView.clipsToBounds = false
+            headerView.clipsToBounds = false
+            // Pre-set label widths so auto layout computes correct multi-line heights
+            headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
+            if headerView.superview !== cell.contentView {
+                headerView.translatesAutoresizingMaskIntoConstraints = false
+                tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
+                cell.contentView.addSubview(headerView)
+                cell.contentView.addSubview(tabBarContainer)
+                NSLayoutConstraint.activate([
+                    headerView.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+                    headerView.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+                    headerView.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+                    tabBarContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+                    tabBarContainer.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+                    tabBarContainer.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+                    tabBarContainer.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+                ])
+            }
+            return cell
+
         case .episodes:
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
@@ -2047,9 +2009,6 @@ extension AnimeDetailViewController: UITableViewDelegate {
     // MARK: - Scroll-driven overscroll zoom (matches homepage banner)
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Skip during header sizing — transforms trigger layout invalidation
-        // which re-enters viewDidLayoutSubviews → sizeHeaderView cycle.
-        guard !isSizingHeader else { return }
         let offsetY = scrollView.contentOffset.y
         if offsetY < 0 {
             headerView.applyOverscrollZoom(-offsetY)
@@ -2059,8 +2018,8 @@ extension AnimeDetailViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        // Seg control is embedded in tableHeaderView (not a section header) so it scrolls
-        // with content — matches Hayase where Tabs.Root is inside the scrollable div.
+        // Tab bar lives inside the header cell (section 0) so it scrolls with content —
+        // matches Hayase where Tabs.Root is inside the scrollable div, not sticky.
         return nil
     }
 
@@ -2079,9 +2038,15 @@ extension AnimeDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
         case .relations:          return 160
-        case .threads, .themes:   return UITableView.automaticDimension
         default:                  return UITableView.automaticDimension
         }
+    }
+
+    func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        // Give the header cell a realistic estimate so the table view's initial
+        // content-size calculation doesn't cause visual jumping.
+        if Section(rawValue: indexPath.section) == .header { return 600 }
+        return 100
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
