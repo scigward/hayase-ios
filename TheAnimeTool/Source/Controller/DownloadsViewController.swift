@@ -163,6 +163,7 @@ class DownloadsViewController: UIViewController {
 
     private let peersView = UIView()
     private var peersTableView: UITableView!
+    private var peerInfos: [PeerInfo] = []
 
     // MARK: - Library tab
 
@@ -612,6 +613,11 @@ class DownloadsViewController: UIViewController {
         filesTableView?.reloadData()
     }
 
+    private func refreshPeers() {
+        peerInfos = selectedHandle?.peerInfo() ?? []
+        peersTableView?.reloadData()
+    }
+
     // MARK: - Data update
 
     private func update() {
@@ -682,6 +688,11 @@ class DownloadsViewController: UIViewController {
         // Update files tab if visible
         if selectedTabIndex == 1 {
             refreshFiles()
+        }
+
+        // Update peers tab if visible
+        if selectedTabIndex == 2 {
+            refreshPeers()
         }
     }
 
@@ -907,7 +918,9 @@ class DownloadsViewController: UIViewController {
         peersTableView.translatesAutoresizingMaskIntoConstraints = false
         peersTableView.delegate = self
         peersTableView.dataSource = self
+        peersTableView.register(PeerInfoCell.self, forCellReuseIdentifier: PeerInfoCell.reuseID)
         peersTableView.rowHeight = 48
+        peersTableView.estimatedRowHeight = 48
         peersTableView.backgroundColor = .systemBackground
         peersTableView.separatorInset = .zero
         peersTableView.allowsSelection = false
@@ -1150,7 +1163,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return max(filteredFileEntries.count, 1)
         } else if tableView === peersTableView {
-            return 1 // always empty state
+            return max(peerInfos.count, 1)
         } else if tableView === libraryTableView {
             return max(filteredLibraryEntries.count, 1)
         }
@@ -1174,12 +1187,19 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             cell.configure(entry: filteredFileEntries[indexPath.row])
             return cell
         } else if tableView === peersTableView {
-            let cell = UITableViewCell()
-            cell.textLabel?.text = "No peers connected yet."
-            cell.textLabel?.textAlignment = .center
-            cell.textLabel?.textColor = .secondaryLabel
-            cell.textLabel?.font = .systemFont(ofSize: 14)
-            cell.selectionStyle = .none
+            if peerInfos.isEmpty {
+                let cell = UITableViewCell()
+                cell.textLabel?.text = "No peers connected yet."
+                cell.textLabel?.textAlignment = .center
+                cell.textLabel?.textColor = .secondaryLabel
+                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.selectionStyle = .none
+                return cell
+            }
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: PeerInfoCell.reuseID, for: indexPath) as! PeerInfoCell
+            guard indexPath.row < peerInfos.count else { return cell }
+            cell.configure(peer: peerInfos[indexPath.row])
             return cell
         } else if tableView === libraryTableView {
             if filteredLibraryEntries.isEmpty {
@@ -1221,11 +1241,13 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         } else if tableView === peersTableView {
             return makeColumnHeader(columns: [
                 ("IP Address", nil),
-                ("Client", 60),
-                ("Progress", 60),
-                ("DL", 30),
-                ("UL", 30),
-                ("Country", 50),
+                ("Client", 55),
+                ("Progress", 50),
+                ("DL", 35),
+                ("UL", 35),
+                ("Down", 40),
+                ("Up", 40),
+                ("Flags", 40),
             ])
         } else if tableView === libraryTableView {
             return makeColumnHeader(columns: [
@@ -1250,7 +1272,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return filteredFileEntries.isEmpty ? 160 : UITableView.automaticDimension
         } else if tableView === peersTableView {
-            return 160
+            return peerInfos.isEmpty ? 160 : 48
         } else if tableView === libraryTableView {
             return filteredLibraryEntries.isEmpty ? 160 : 56
         }
@@ -1536,5 +1558,146 @@ final class LibraryColumnCell: UITableViewCell {
             statusLabel.text = String(format: "%.0f%%", progress * 100)
             statusLabel.textColor = .systemBlue
         }
+    }
+}
+
+// MARK: - PeerInfoCell
+
+/// Peer info cell matching Hayase peers table.
+/// Columns: IP Address | Client | Progress | DL | UL | Downloaded | Uploaded | Flags
+final class PeerInfoCell: UITableViewCell {
+    static let reuseID = "PeerInfoCell"
+
+    private let ipLabel: UILabel = {
+        let l = UILabel()
+        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        l.textColor = .label
+        l.lineBreakMode = .byTruncatingTail
+        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return l
+    }()
+
+    private let clientLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 11)
+        l.textColor = .label
+        l.lineBreakMode = .byTruncatingTail
+        return l
+    }()
+
+    private let progressLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 11)
+        l.textColor = .label
+        l.textAlignment = .left
+        return l
+    }()
+
+    private let dlSpeedLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .label
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }()
+
+    private let ulSpeedLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .label
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }()
+
+    private let downloadedLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .label
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }()
+
+    private let uploadedLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .label
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }()
+
+    private let flagsLabel: UILabel = {
+        let l = UILabel()
+        l.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
+        l.textColor = .secondaryLabel
+        l.textAlignment = .left
+        l.lineBreakMode = .byTruncatingTail
+        return l
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupCellUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupCellUI()
+    }
+
+    private func setupCellUI() {
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        let stack = UIStackView(arrangedSubviews: [
+            ipLabel, clientLabel, progressLabel,
+            dlSpeedLabel, ulSpeedLabel,
+            downloadedLabel, uploadedLabel, flagsLabel
+        ])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+            // Match column header widths
+            clientLabel.widthAnchor.constraint(equalToConstant: 55),
+            progressLabel.widthAnchor.constraint(equalToConstant: 50),
+            dlSpeedLabel.widthAnchor.constraint(equalToConstant: 35),
+            ulSpeedLabel.widthAnchor.constraint(equalToConstant: 35),
+            downloadedLabel.widthAnchor.constraint(equalToConstant: 40),
+            uploadedLabel.widthAnchor.constraint(equalToConstant: 40),
+            flagsLabel.widthAnchor.constraint(equalToConstant: 40),
+        ])
+
+        for label in [clientLabel, progressLabel, dlSpeedLabel, ulSpeedLabel,
+                      downloadedLabel, uploadedLabel, flagsLabel] {
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
+    }
+
+    func configure(peer: PeerInfo) {
+        ipLabel.text = peer.ip
+        clientLabel.text = String(peer.client.prefix(21))
+        progressLabel.text = String(format: "%.1f%%", peer.progress * 100)
+        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.downloadSpeed))) + "/s"
+        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.uploadSpeed))) + "/s"
+        downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalDownload)))
+        uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalUpload)))
+        flagsLabel.text = peer.connectionFlags.joined(separator: " ")
     }
 }
