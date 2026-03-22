@@ -973,6 +973,7 @@ class DownloadsViewController: UIViewController {
         libraryTableView.translatesAutoresizingMaskIntoConstraints = false
         libraryTableView.delegate = self
         libraryTableView.dataSource = self
+        // Note: LibraryEntryCell is defined in TorrentDetailViewController.swift
         libraryTableView.register(LibraryEntryCell.self, forCellReuseIdentifier: LibraryEntryCell.reuseID)
         libraryTableView.rowHeight = 56
         libraryTableView.estimatedRowHeight = 56
