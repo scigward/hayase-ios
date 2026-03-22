@@ -843,6 +843,9 @@ private final class AnimeInfoHeaderView: UIView {
         l.font = .systemFont(ofSize: 16, weight: .light)  // text-base = 16px on mobile
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
+        // Resist vertical compression above autoresizing-mask priority (750)
+        // so the label never gets squashed by the table-header container.
+        l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         return l
     }()
 
@@ -852,6 +855,9 @@ private final class AnimeInfoHeaderView: UIView {
         l.font = .systemFont(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
+        // Resist vertical compression above autoresizing-mask priority (750)
+        // so the label never gets squashed by the table-header container.
+        l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         return l
     }()
 
@@ -1687,7 +1693,17 @@ class AnimeDetailViewController: UIViewController {
             tabBarContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             tabBarContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             tabBarContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tabBarContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            // NOTE: intentionally NO tabBarContainer.bottom → container.bottom
+            // constraint.  The container has TAMIC = true (table header view),
+            // which generates autoresizing constraints that fix its height to
+            // container.frame.height at required priority.  If we pin the
+            // bottom, the constraint chain
+            //   headerView.height + tabBarContainer.height = container.height
+            // forces headerView to compress to fit the (wrong) placeholder
+            // height, overriding its internal content-based height.  By
+            // leaving the bottom unconnected, systemLayoutSizeFitting on
+            // headerView measures the natural content height, and
+            // sizeHeaderView() sets container.frame.height to the sum.
         ])
         // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
         container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
