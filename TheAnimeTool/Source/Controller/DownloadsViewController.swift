@@ -1227,7 +1227,10 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as! FileEntryTableCell
             guard indexPath.row < filteredFileEntries.count else { return cell }
-            cell.configure(entry: filteredFileEntries[indexPath.row])
+            let entry = filteredFileEntries[indexPath.row]
+            let isStreaming = selectedHandle?.snapshot.isSequential == true
+                && entry.priority != .dontDownload
+            cell.configure(entry: entry, streamCount: isStreaming ? 1 : 0)
             return cell
         } else if tableView === peersTableView {
             if peerInfos.isEmpty {
@@ -1320,7 +1323,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if tableView === filesTableView {
-            return filteredFileEntries.isEmpty ? 160 : UITableView.automaticDimension
+            return filteredFileEntries.isEmpty ? 160 : 48
         } else if tableView === peersTableView {
             return peerInfos.isEmpty ? 160 : 48
         } else if tableView === libraryTableView {
@@ -1386,8 +1389,8 @@ final class FileEntryTableCell: UITableViewCell {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         l.textColor = .label
-        l.numberOfLines = 0
-        l.lineBreakMode = .byCharWrapping
+        l.numberOfLines = 2
+        l.lineBreakMode = .byTruncatingTail
         l.setContentHuggingPriority(.defaultLow, for: .horizontal)
         l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return l
@@ -1473,13 +1476,13 @@ final class FileEntryTableCell: UITableViewCell {
         streamsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
-    func configure(entry: FileEntry) {
+    func configure(entry: FileEntry, streamCount: Int) {
         nameLabel.text = entry.name
         sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
         let progress = Float(entry.progress)
         progressBar.progress = progress
         progressLabel.text = String(format: "%.1f%%", progress * 100)
-        streamsLabel.text = "0"
+        streamsLabel.text = "\(streamCount)"
     }
 }
 
