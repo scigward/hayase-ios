@@ -1690,26 +1690,23 @@ class AnimeDetailViewController: UIViewController {
         container.setNeedsLayout()
         container.layoutIfNeeded()
 
-        // The container uses frame-based sizing (translatesAutoresizing-
-        // MaskIntoConstraints = true, the default for table header views).
-        // Those autoresizing-mask constraints change every time the frame
-        // is modified, which can make systemLayoutSizeFitting return a
-        // different (wrong) height on subsequent calls.
-        //
-        // Temporarily disable TAMIC so systemLayoutSizeFitting only sees
-        // the pure auto-layout constraints from the inner views (headerView
-        // and tabBarContainer, both of which have TAMIC = false).
-        container.translatesAutoresizingMaskIntoConstraints = false
-
+        // Measure the fitting height from the inner subviews directly.
+        // Both headerView and tabBarContainer already have TAMIC = false,
+        // so systemLayoutSizeFitting works correctly on them without
+        // needing to toggle TAMIC on the container.  Toggling TAMIC on
+        // the container triggers layout invalidation that can cause an
+        // infinite viewDidLayoutSubviews → sizeHeaderView cycle.
         let targetSize = CGSize(width: tableView.frame.width,
                                 height: UIView.layoutFittingCompressedSize.height)
-        let height = container.systemLayoutSizeFitting(
+        let headerH = headerView.systemLayoutSizeFitting(
             targetSize,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel).height
-
-        // Restore frame-based layout so the table view can position the header.
-        container.translatesAutoresizingMaskIntoConstraints = true
+        let tabBarH = tabBarContainer.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel).height
+        let height = headerH + tabBarH
 
         if abs(container.frame.height - height) > 1 {
             container.frame.size.height = height
