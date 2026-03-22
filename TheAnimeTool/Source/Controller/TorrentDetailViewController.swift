@@ -893,14 +893,14 @@ final class TorrentDetailViewController: UIViewController {
 
     // MARK: - UIView helpers
 
-    private static func makeValueLabel() -> UILabel {
+    static func makeValueLabel() -> UILabel {
         let l = UILabel()
         l.font = .systemFont(ofSize: 18, weight: .bold)
         l.textColor = .label
         return l
     }
 
-    private static func makeDotLabel() -> UIView {
+    static func makeDotLabel() -> UIView {
         let v = UIView()
         v.layer.cornerRadius = 4
         v.clipsToBounds = true
