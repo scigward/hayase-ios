@@ -973,8 +973,7 @@ class DownloadsViewController: UIViewController {
         libraryTableView.translatesAutoresizingMaskIntoConstraints = false
         libraryTableView.delegate = self
         libraryTableView.dataSource = self
-        // Note: LibraryEntryCell is defined in TorrentDetailViewController.swift
-        libraryTableView.register(LibraryEntryCell.self, forCellReuseIdentifier: LibraryEntryCell.reuseID)
+        libraryTableView.register(LibraryColumnCell.self, forCellReuseIdentifier: LibraryColumnCell.reuseID)
         libraryTableView.rowHeight = 56
         libraryTableView.estimatedRowHeight = 56
         libraryTableView.backgroundColor = .systemBackground
@@ -1193,7 +1192,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 return cell
             }
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as! LibraryEntryCell
+                withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as! LibraryColumnCell
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
             cell.configure(handle: entry.handle, entity: entry.entity)
@@ -1317,14 +1316,16 @@ final class FileEntryTableCell: UITableViewCell {
         l.textColor = .label
         l.numberOfLines = 0
         l.lineBreakMode = .byCharWrapping
+        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return l
     }()
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 12)
-        l.textColor = .secondaryLabel
-        l.textAlignment = .right
+        l.textColor = .label
+        l.textAlignment = .left
         return l
     }()
 
@@ -1347,8 +1348,8 @@ final class FileEntryTableCell: UITableViewCell {
     private let streamsLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 12)
-        l.textColor = .secondaryLabel
-        l.textAlignment = .center
+        l.textColor = .label
+        l.textAlignment = .left
         return l
     }()
 
@@ -1365,38 +1366,39 @@ final class FileEntryTableCell: UITableViewCell {
     private func setupCellUI() {
         selectionStyle = .none
 
+        // Progress: bar on top, label below
         let progressStack = UIStackView(arrangedSubviews: [progressBar, progressLabel])
         progressStack.axis = .vertical
         progressStack.spacing = 2
         progressStack.alignment = .fill
 
+        // Horizontal stack matching column header widths:
+        // File Name (flex) | Size (60) | Progress (70) | Streams (50)
+        let stack = UIStackView(arrangedSubviews: [nameLabel, sizeLabel, progressStack, streamsLabel])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+            progressBar.heightAnchor.constraint(equalToConstant: 6),
+
+            // Match column header widths
+            sizeLabel.widthAnchor.constraint(equalToConstant: 60),
+            progressStack.widthAnchor.constraint(equalToConstant: 70),
+            streamsLabel.widthAnchor.constraint(equalToConstant: 50),
+        ])
+
         sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
         sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         streamsLabel.setContentHuggingPriority(.required, for: .horizontal)
         streamsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let infoRow = UIStackView(arrangedSubviews: [sizeLabel, progressStack, streamsLabel])
-        infoRow.axis = .horizontal
-        infoRow.spacing = 12
-        infoRow.alignment = .center
-
-        let mainStack = UIStackView(arrangedSubviews: [nameLabel, infoRow])
-        mainStack.axis = .vertical
-        mainStack.spacing = 4
-        mainStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(mainStack)
-
-        NSLayoutConstraint.activate([
-            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
-
-            progressBar.heightAnchor.constraint(equalToConstant: 6),
-            progressStack.widthAnchor.constraint(equalToConstant: 80),
-            sizeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
-            streamsLabel.widthAnchor.constraint(equalToConstant: 50),
-        ])
     }
 
     func configure(entry: FileEntry) {
@@ -1406,5 +1408,133 @@ final class FileEntryTableCell: UITableViewCell {
         progressBar.progress = progress
         progressLabel.text = String(format: "%.1f%%", progress * 100)
         streamsLabel.text = "0"
+    }
+}
+
+// MARK: - LibraryColumnCell
+
+/// Columnar library cell matching Hayase table layout.
+/// Displays data aligned with column headers: Series | Episode | Files | Size | Status
+final class LibraryColumnCell: UITableViewCell {
+    static let reuseID = "LibraryColumnCell"
+
+    private let seriesLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = .label
+        l.numberOfLines = 2
+        l.lineBreakMode = .byTruncatingTail
+        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return l
+    }()
+
+    private let episodeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = .secondaryLabel
+        l.textAlignment = .left
+        return l
+    }()
+
+    private let filesLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = .label
+        l.textAlignment = .left
+        return l
+    }()
+
+    private let sizeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = .label
+        l.textAlignment = .left
+        return l
+    }()
+
+    private let statusLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12, weight: .medium)
+        l.textAlignment = .center
+        l.layer.cornerRadius = 4
+        l.clipsToBounds = true
+        return l
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupCellUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupCellUI()
+    }
+
+    private func setupCellUI() {
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        let stack = UIStackView(arrangedSubviews: [seriesLabel, episodeLabel, filesLabel, sizeLabel, statusLabel])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+            // Match column header widths exactly
+            episodeLabel.widthAnchor.constraint(equalToConstant: 55),
+            filesLabel.widthAnchor.constraint(equalToConstant: 35),
+            sizeLabel.widthAnchor.constraint(equalToConstant: 50),
+            statusLabel.widthAnchor.constraint(equalToConstant: 45),
+        ])
+
+        episodeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        episodeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        filesLabel.setContentHuggingPriority(.required, for: .horizontal)
+        filesLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    func configure(handle: TorrentHandle, entity: Torrents?) {
+        let snap = handle.snapshot
+
+        // Series name from CoreData
+        let animeName = entity?.animes?.animeTitleEnglish
+            ?? entity?.animes?.animeTitleJapanese
+            ?? "?"
+        seriesLabel.text = animeName
+
+        // Episode count
+        let videoCount = entity?.videos?.count ?? 0
+        episodeLabel.text = videoCount > 0 ? "\(videoCount)" : "?"
+
+        // Files count
+        filesLabel.text = "\(snap.files.count)"
+
+        // Size
+        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(snap.total)
+
+        // Status
+        let isComplete = snap.total > 0 && snap.totalDone >= snap.total
+        if isComplete {
+            statusLabel.text = "✓"
+            statusLabel.textColor = .systemGreen
+        } else {
+            let progress: Float = snap.total > 0
+                ? Float(Double(snap.totalDone) / Double(snap.total))
+                : 0
+            statusLabel.text = String(format: "%.0f%%", progress * 100)
+            statusLabel.textColor = .systemBlue
+        }
     }
 }
