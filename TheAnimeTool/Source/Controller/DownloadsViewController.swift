@@ -1694,8 +1694,8 @@ final class PeerInfoCell: UITableViewCell {
         ipLabel.text = peer.ip
         clientLabel.text = String(peer.client.prefix(21))
         progressLabel.text = String(format: "%.1f%%", peer.progress * 100)
-        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.downloadSpeed))) + "/s"
-        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.uploadSpeed))) + "/s"
+        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.downloadSpeed)) * 8) + "/s"
+        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.uploadSpeed)) * 8) + "/s"
         downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalDownload)))
         uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalUpload)))
         flagsLabel.text = peer.connectionFlags.joined(separator: " ")
