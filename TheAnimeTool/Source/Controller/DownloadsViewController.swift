@@ -27,10 +27,8 @@ class DownloadsViewController: UIViewController {
     /// All active handles for the library tab
     private var libraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
 
-    private var previousSegmentIndex: Int = 0
-    private static let settingsSegmentIndex = 4
-
-    private var filesViewController: UIViewController?
+    private var selectedTabIndex: Int = 0
+    private static let settingsTabIndex = 4
 
     // MARK: - Page header
 
@@ -51,13 +49,10 @@ class DownloadsViewController: UIViewController {
         return l
     }()
 
-    // MARK: - Segmented control & containers
+    // MARK: - Tab bar & containers
 
-    private let segmentedControl: UISegmentedControl = {
-        let sc = UISegmentedControl(items: ["Overview", "Files", "Peers", "Library", "Settings"])
-        sc.selectedSegmentIndex = 0
-        return sc
-    }()
+    private var tabButtons: [UIButton] = []
+    private let tabBarContainer = UIView()
 
     private let containerView = UIView()
 
@@ -137,29 +132,70 @@ class DownloadsViewController: UIViewController {
     private let persistDot   = TorrentDetailViewController.makeDotLabel()
     private let streamingDot = TorrentDetailViewController.makeDotLabel()
 
+    // MARK: - Files tab
+
+    private let filesView = UIView()
+    private var filesTableView: UITableView!
+    private let filesSearchField: UITextField = {
+        let tf = UITextField()
+        tf.placeholder = "Search by File Name..."
+        tf.font = .systemFont(ofSize: 14)
+        tf.borderStyle = .none
+        tf.backgroundColor = .secondarySystemBackground
+        tf.layer.cornerRadius = 6
+        tf.clipsToBounds = true
+        tf.clearButtonMode = .whileEditing
+        tf.returnKeyType = .search
+        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        icon.tintColor = .secondaryLabel
+        icon.contentMode = .scaleAspectFit
+        icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 32, height: 20))
+        container.addSubview(icon)
+        tf.leftView = container
+        tf.leftViewMode = .always
+        return tf
+    }()
+    private var fileEntries: [FileEntry] = []
+    private var filteredFileEntries: [FileEntry] = []
+
     // MARK: - Peers tab
 
-    private lazy var peersView: UIView = {
-        let v = UIView()
-        v.isHidden = true
-        return v
-    }()
-
-    private let peerSeedersValue  = TorrentDetailViewController.makeValueLabel()
-    private let peerLeechersValue = TorrentDetailViewController.makeValueLabel()
-    private let peerWiresValue    = TorrentDetailViewController.makeValueLabel()
+    private let peersView = UIView()
+    private var peersTableView: UITableView!
 
     // MARK: - Library tab
 
-    private lazy var libraryScrollView: UIScrollView = {
-        let sv = UIScrollView()
-        sv.showsVerticalScrollIndicator = true
-        sv.alwaysBounceVertical = true
-        return sv
-    }()
-
+    private let libraryView = UIView()
     private var libraryTableView: UITableView!
-    private var libraryTableHeightConstraint: NSLayoutConstraint?
+    private let librarySearchField: UITextField = {
+        let tf = UITextField()
+        tf.placeholder = "Search by Torrent Name..."
+        tf.font = .systemFont(ofSize: 14)
+        tf.borderStyle = .none
+        tf.backgroundColor = .secondarySystemBackground
+        tf.layer.cornerRadius = 6
+        tf.clipsToBounds = true
+        tf.clearButtonMode = .whileEditing
+        tf.returnKeyType = .search
+        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        icon.tintColor = .secondaryLabel
+        icon.contentMode = .scaleAspectFit
+        icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 32, height: 20))
+        container.addSubview(icon)
+        tf.leftView = container
+        tf.leftViewMode = .always
+        return tf
+    }()
+    private var filteredLibraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
+    private let librarySelectionLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13)
+        l.textColor = .secondaryLabel
+        l.text = "0 of 0 row(s) selected."
+        return l
+    }()
 
     // MARK: - Empty state
 
@@ -201,6 +237,7 @@ class DownloadsViewController: UIViewController {
         setupContainerView()
         setupEmptyLabel()
         buildOverviewUI()
+        buildFilesUI()
         buildPeersUI()
         buildLibraryUI()
         setupNotifications()
@@ -286,8 +323,8 @@ class DownloadsViewController: UIViewController {
         selectedHandle = handle
         selectedEntity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(hex).first
         emptyLabel.isHidden = true
-        segmentedControl.selectedSegmentIndex = 0
-        previousSegmentIndex = 0
+        selectedTabIndex = 0
+        updateTabButtonAppearances()
         showTab(0)
         update()
     }
@@ -297,17 +334,20 @@ class DownloadsViewController: UIViewController {
     private func setupPageHeader() {
         pageTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         pageSubtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        segmentedControl.addTarget(self, action: #selector(segmentChanged(_:)), for: .valueChanged)
+        tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
 
         let separator = UIView()
         separator.backgroundColor = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
 
+        let tabGrid = buildTabGrid()
+        tabGrid.translatesAutoresizingMaskIntoConstraints = false
+        tabBarContainer.addSubview(tabGrid)
+
         view.addSubview(pageTitleLabel)
         view.addSubview(pageSubtitleLabel)
         view.addSubview(separator)
-        view.addSubview(segmentedControl)
+        view.addSubview(tabBarContainer)
 
         NSLayoutConstraint.activate([
             pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -323,9 +363,14 @@ class DownloadsViewController: UIViewController {
             separator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             separator.heightAnchor.constraint(equalToConstant: 0.5),
 
-            segmentedControl.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
-            segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            segmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            tabBarContainer.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
+            tabBarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            tabBarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+
+            tabGrid.topAnchor.constraint(equalTo: tabBarContainer.topAnchor),
+            tabGrid.leadingAnchor.constraint(equalTo: tabBarContainer.leadingAnchor),
+            tabGrid.trailingAnchor.constraint(equalTo: tabBarContainer.trailingAnchor),
+            tabGrid.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor),
         ])
     }
 
@@ -334,7 +379,7 @@ class DownloadsViewController: UIViewController {
         view.addSubview(containerView)
 
         NSLayoutConstraint.activate([
-            containerView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 8),
+            containerView.topAnchor.constraint(equalTo: tabBarContainer.bottomAnchor, constant: 8),
             containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -350,16 +395,76 @@ class DownloadsViewController: UIViewController {
         ])
     }
 
-    // MARK: - Segmented control
+    // MARK: - Tab bar
 
-    @objc private func segmentChanged(_ sender: UISegmentedControl) {
-        if sender.selectedSegmentIndex == Self.settingsSegmentIndex {
-            sender.selectedSegmentIndex = previousSegmentIndex
+    private func buildTabGrid() -> UIView {
+        let vStack = UIStackView()
+        vStack.axis = .vertical
+        vStack.spacing = 4
+
+        tabButtons.removeAll()
+
+        let titles = ["Overview", "Files", "Peers", "Library", "Settings"]
+        for rowStart in stride(from: 0, to: titles.count, by: 2) {
+            let hStack = UIStackView()
+            hStack.axis = .horizontal
+            hStack.spacing = 8
+            hStack.distribution = .fillEqually
+
+            let btn1 = makeTabButton(title: titles[rowStart], tag: rowStart)
+            hStack.addArrangedSubview(btn1)
+            tabButtons.append(btn1)
+
+            if rowStart + 1 < titles.count {
+                let btn2 = makeTabButton(title: titles[rowStart + 1], tag: rowStart + 1)
+                hStack.addArrangedSubview(btn2)
+                tabButtons.append(btn2)
+            }
+
+            vStack.addArrangedSubview(hStack)
+        }
+
+        return vStack
+    }
+
+    private func makeTabButton(title: String, tag: Int) -> UIButton {
+        let btn = UIButton(type: .system)
+        btn.setTitle(title, for: .normal)
+        btn.contentHorizontalAlignment = .leading
+        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.layer.cornerRadius = 6
+        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        btn.tag = tag
+        btn.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
+        updateTabButtonAppearance(btn, isSelected: tag == selectedTabIndex)
+        return btn
+    }
+
+    private func updateTabButtonAppearance(_ btn: UIButton, isSelected: Bool) {
+        if isSelected {
+            btn.backgroundColor = .label
+            btn.setTitleColor(.systemBackground, for: .normal)
+        } else {
+            btn.backgroundColor = .clear
+            btn.setTitleColor(.label, for: .normal)
+        }
+    }
+
+    private func updateTabButtonAppearances() {
+        for btn in tabButtons {
+            updateTabButtonAppearance(btn, isSelected: btn.tag == selectedTabIndex)
+        }
+    }
+
+    @objc private func tabButtonTapped(_ sender: UIButton) {
+        let index = sender.tag
+        if index == Self.settingsTabIndex {
             let settingsVC = SettingsViewController()
             navigationController?.pushViewController(settingsVC, animated: true)
         } else {
-            previousSegmentIndex = sender.selectedSegmentIndex
-            showTab(sender.selectedSegmentIndex)
+            selectedTabIndex = index
+            updateTabButtonAppearances()
+            showTab(index)
         }
     }
 
@@ -386,9 +491,9 @@ class DownloadsViewController: UIViewController {
 
     private func showTab(_ index: Int) {
         overviewScrollView.removeFromSuperview()
+        filesView.removeFromSuperview()
         peersView.removeFromSuperview()
-        libraryScrollView.removeFromSuperview()
-        removeFilesChild()
+        libraryView.removeFromSuperview()
 
         updatePageHeader(for: index)
 
@@ -406,7 +511,16 @@ class DownloadsViewController: UIViewController {
             update()
 
         case 1:  // Files
-            embedFilesVC()
+            filesView.isHidden = false
+            containerView.addSubview(filesView)
+            filesView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                filesView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                filesView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                filesView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                filesView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            ])
+            refreshFiles()
 
         case 2:  // Peers
             peersView.isHidden = false
@@ -418,17 +532,16 @@ class DownloadsViewController: UIViewController {
                 peersView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
                 peersView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
-            updatePeersTab()
 
         case 3:  // Library
-            libraryScrollView.isHidden = false
-            containerView.addSubview(libraryScrollView)
-            libraryScrollView.translatesAutoresizingMaskIntoConstraints = false
+            libraryView.isHidden = false
+            containerView.addSubview(libraryView)
+            libraryView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                libraryScrollView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                libraryScrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                libraryScrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                libraryScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+                libraryView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                libraryView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                libraryView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                libraryView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
             refreshLibrary()
 
@@ -437,33 +550,65 @@ class DownloadsViewController: UIViewController {
         }
     }
 
-    // MARK: - Files tab (child VC)
+    // MARK: - Files tab
 
-    private func embedFilesVC() {
-        let sb = UIStoryboard(name: "Main", bundle: nil)
-        guard let vc = sb.instantiateViewController(withIdentifier: "VideoListVC")
-                as? VideoListViewController else { return }
-        vc.torrentEntity = selectedEntity
-        filesViewController = vc
+    private func buildFilesUI() {
+        filesView.backgroundColor = .systemBackground
 
-        addChild(vc)
-        vc.view.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(vc.view)
+        filesSearchField.translatesAutoresizingMaskIntoConstraints = false
+        filesSearchField.addTarget(self, action: #selector(filesSearchChanged), for: .editingChanged)
+        filesView.addSubview(filesSearchField)
+
+        let borderContainer = UIView()
+        borderContainer.layer.cornerRadius = 6
+        borderContainer.layer.borderWidth = 1
+        borderContainer.layer.borderColor = UIColor.separator.cgColor
+        borderContainer.clipsToBounds = true
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        filesView.addSubview(borderContainer)
+
+        filesTableView = UITableView(frame: .zero, style: .plain)
+        filesTableView.translatesAutoresizingMaskIntoConstraints = false
+        filesTableView.delegate = self
+        filesTableView.dataSource = self
+        filesTableView.register(FileEntryTableCell.self, forCellReuseIdentifier: FileEntryTableCell.reuseID)
+        filesTableView.rowHeight = UITableView.automaticDimension
+        filesTableView.estimatedRowHeight = 48
+        filesTableView.backgroundColor = .systemBackground
+        filesTableView.separatorInset = .zero
+        borderContainer.addSubview(filesTableView)
+
         NSLayoutConstraint.activate([
-            vc.view.topAnchor.constraint(equalTo: containerView.topAnchor),
-            vc.view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            vc.view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            vc.view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            filesSearchField.topAnchor.constraint(equalTo: filesView.topAnchor, constant: 16),
+            filesSearchField.leadingAnchor.constraint(equalTo: filesView.leadingAnchor, constant: 16),
+            filesSearchField.trailingAnchor.constraint(equalTo: filesView.trailingAnchor, constant: -16),
+            filesSearchField.heightAnchor.constraint(equalToConstant: 36),
+
+            borderContainer.topAnchor.constraint(equalTo: filesSearchField.bottomAnchor, constant: 12),
+            borderContainer.leadingAnchor.constraint(equalTo: filesView.leadingAnchor, constant: 16),
+            borderContainer.trailingAnchor.constraint(equalTo: filesView.trailingAnchor, constant: -16),
+            borderContainer.bottomAnchor.constraint(equalTo: filesView.bottomAnchor, constant: -16),
+
+            filesTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            filesTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            filesTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            filesTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
         ])
-        vc.didMove(toParent: self)
     }
 
-    private func removeFilesChild() {
-        guard let vc = filesViewController else { return }
-        vc.willMove(toParent: nil)
-        vc.view.removeFromSuperview()
-        vc.removeFromParent()
-        filesViewController = nil
+    @objc private func filesSearchChanged() {
+        refreshFiles()
+    }
+
+    private func refreshFiles() {
+        fileEntries = selectedHandle?.snapshot.files ?? []
+        let query = filesSearchField.text?.lowercased() ?? ""
+        if query.isEmpty {
+            filteredFileEntries = fileEntries
+        } else {
+            filteredFileEntries = fileEntries.filter { $0.name.lowercased().contains(query) }
+        }
+        filesTableView?.reloadData()
     }
 
     // MARK: - Data update
@@ -533,17 +678,10 @@ class DownloadsViewController: UIViewController {
         let isStreaming = snap.state == .downloading && snap.isSequential
         setDot(streamingDot, enabled: isStreaming)
 
-        // Update peers tab if visible
-        if segmentedControl.selectedSegmentIndex == 2 {
-            updatePeersTab()
+        // Update files tab if visible
+        if selectedTabIndex == 1 {
+            refreshFiles()
         }
-    }
-
-    private func updatePeersTab() {
-        guard let snap = selectedHandle?.snapshot else { return }
-        peerSeedersValue.text  = "\(snap.numberOfSeeds)"
-        peerLeechersValue.text = "\(snap.numberOfLeechers)"
-        peerWiresValue.text    = "\(snap.numberOfPeers)"
     }
 
     private func setDot(_ dot: UIView, enabled: Bool) {
@@ -756,84 +894,123 @@ class DownloadsViewController: UIViewController {
     private func buildPeersUI() {
         peersView.backgroundColor = .systemBackground
 
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        peersView.addSubview(stack)
+        let borderContainer = UIView()
+        borderContainer.layer.cornerRadius = 6
+        borderContainer.layer.borderWidth = 1
+        borderContainer.layer.borderColor = UIColor.separator.cgColor
+        borderContainer.clipsToBounds = true
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        peersView.addSubview(borderContainer)
+
+        peersTableView = UITableView(frame: .zero, style: .plain)
+        peersTableView.translatesAutoresizingMaskIntoConstraints = false
+        peersTableView.delegate = self
+        peersTableView.dataSource = self
+        peersTableView.rowHeight = 48
+        peersTableView.backgroundColor = .systemBackground
+        peersTableView.separatorInset = .zero
+        peersTableView.allowsSelection = false
+        borderContainer.addSubview(peersTableView)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: peersView.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: peersView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: peersView.trailingAnchor, constant: -16),
+            borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor, constant: 16),
+            borderContainer.leadingAnchor.constraint(equalTo: peersView.leadingAnchor, constant: 16),
+            borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor, constant: -16),
+            borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor, constant: -16),
+
+            peersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            peersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            peersTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            peersTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
         ])
-
-        let iconView = makeIcon("person.2.fill", tint: .label, size: 20)
-        let title = UILabel()
-        title.text = "Peers & Connections"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
-        title.textColor = .label
-        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
-        titleRow.axis = .horizontal
-        titleRow.spacing = 8
-        titleRow.alignment = .center
-        stack.addArrangedSubview(titleRow)
-
-        stack.addArrangedSubview(makeFlatStatRow([
-            StatItem(label: peerSeedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
-            StatItem(label: peerLeechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-            StatItem(label: peerWiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
-        ]))
     }
 
     // MARK: - Build Library UI
 
     private func buildLibraryUI() {
-        libraryScrollView.translatesAutoresizingMaskIntoConstraints = false
+        libraryView.backgroundColor = .systemBackground
 
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        libraryScrollView.addSubview(stack)
+        librarySearchField.translatesAutoresizingMaskIntoConstraints = false
+        librarySearchField.addTarget(self, action: #selector(librarySearchChanged), for: .editingChanged)
+        libraryView.addSubview(librarySearchField)
 
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: libraryScrollView.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: libraryScrollView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: libraryScrollView.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: libraryScrollView.bottomAnchor, constant: -24),
-            stack.widthAnchor.constraint(equalTo: libraryScrollView.widthAnchor, constant: -32),
-        ])
+        let rescanBtn = UIButton(type: .system)
+        rescanBtn.setTitle("Rescan", for: .normal)
+        rescanBtn.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        rescanBtn.layer.cornerRadius = 6
+        rescanBtn.layer.borderWidth = 1
+        rescanBtn.layer.borderColor = UIColor.separator.cgColor
+        rescanBtn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        rescanBtn.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
 
-        let iconView = makeIcon("books.vertical.fill", tint: .label, size: 20)
-        let title = UILabel()
-        title.text = "Library"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
-        title.textColor = .label
-        let titleRow = UIStackView(arrangedSubviews: [iconView, title])
-        titleRow.axis = .horizontal
-        titleRow.spacing = 8
-        titleRow.alignment = .center
-        stack.addArrangedSubview(titleRow)
+        let deleteBtn = UIButton(type: .system)
+        deleteBtn.setTitle("Delete", for: .normal)
+        deleteBtn.setTitleColor(.systemRed, for: .normal)
+        deleteBtn.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        deleteBtn.layer.cornerRadius = 6
+        deleteBtn.layer.borderWidth = 1
+        deleteBtn.layer.borderColor = UIColor.separator.cgColor
+        deleteBtn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
 
-        let subtitle = UILabel()
-        subtitle.text = "Downloaded torrents and their content."
-        subtitle.font = .systemFont(ofSize: 14, weight: .regular)
-        subtitle.textColor = .secondaryLabel
-        stack.addArrangedSubview(subtitle)
+        let buttonRow = UIStackView(arrangedSubviews: [rescanBtn, deleteBtn])
+        buttonRow.axis = .horizontal
+        buttonRow.spacing = 8
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
+        libraryView.addSubview(buttonRow)
 
-        libraryTableView = UITableView(frame: .zero, style: .insetGrouped)
+        librarySelectionLabel.translatesAutoresizingMaskIntoConstraints = false
+        libraryView.addSubview(librarySelectionLabel)
+
+        let borderContainer = UIView()
+        borderContainer.layer.cornerRadius = 6
+        borderContainer.layer.borderWidth = 1
+        borderContainer.layer.borderColor = UIColor.separator.cgColor
+        borderContainer.clipsToBounds = true
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        libraryView.addSubview(borderContainer)
+
+        libraryTableView = UITableView(frame: .zero, style: .plain)
         libraryTableView.translatesAutoresizingMaskIntoConstraints = false
         libraryTableView.delegate = self
         libraryTableView.dataSource = self
         libraryTableView.register(LibraryEntryCell.self, forCellReuseIdentifier: LibraryEntryCell.reuseID)
-        libraryTableView.rowHeight = UITableView.automaticDimension
-        libraryTableView.estimatedRowHeight = 80
-        libraryTableView.isScrollEnabled = false
-        libraryTableView.backgroundColor = .clear
+        libraryTableView.rowHeight = 56
+        libraryTableView.estimatedRowHeight = 56
+        libraryTableView.backgroundColor = .systemBackground
+        libraryTableView.separatorInset = .zero
+        borderContainer.addSubview(libraryTableView)
 
-        stack.addArrangedSubview(libraryTableView)
-        libraryTableView.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
+        NSLayoutConstraint.activate([
+            librarySearchField.topAnchor.constraint(equalTo: libraryView.topAnchor, constant: 16),
+            librarySearchField.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+            librarySearchField.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+            librarySearchField.heightAnchor.constraint(equalToConstant: 36),
+
+            buttonRow.topAnchor.constraint(equalTo: librarySearchField.bottomAnchor, constant: 8),
+            buttonRow.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+
+            librarySelectionLabel.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: 8),
+            librarySelectionLabel.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+            librarySelectionLabel.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+
+            borderContainer.topAnchor.constraint(equalTo: librarySelectionLabel.bottomAnchor, constant: 8),
+            borderContainer.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+            borderContainer.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+            borderContainer.bottomAnchor.constraint(equalTo: libraryView.bottomAnchor, constant: -16),
+
+            libraryTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            libraryTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            libraryTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            libraryTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+        ])
+    }
+
+    @objc private func librarySearchChanged() {
+        refreshLibrary()
+    }
+
+    @objc private func rescanLibrary() {
+        refreshLibrary()
     }
 
     private func refreshLibrary() {
@@ -841,16 +1018,16 @@ class DownloadsViewController: UIViewController {
             .map { (hash: $0.key, handle: $0.value,
                     entity: TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash($0.key).first) }
             .sorted { $0.handle.snapshot.name < $1.handle.snapshot.name }
-        libraryTableView?.reloadData()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, let tv = self.libraryTableView else { return }
-            tv.layoutIfNeeded()
-            self.libraryTableHeightConstraint?.isActive = false
-            self.libraryTableHeightConstraint = tv.heightAnchor.constraint(
-                equalToConstant: max(tv.contentSize.height, 100))
-            self.libraryTableHeightConstraint?.isActive = true
+        let query = librarySearchField.text?.lowercased() ?? ""
+        if query.isEmpty {
+            filteredLibraryEntries = libraryEntries
+        } else {
+            filteredLibraryEntries = libraryEntries.filter {
+                $0.handle.snapshot.name.lowercased().contains(query)
+            }
         }
+        librarySelectionLabel.text = "0 of \(filteredLibraryEntries.count) row(s) selected."
+        libraryTableView?.reloadData()
     }
 
     // MARK: - UI helpers
@@ -959,24 +1136,269 @@ class DownloadsViewController: UIViewController {
 // MARK: - UITableViewDataSource & UITableViewDelegate
 
 extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
+
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return 1
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        guard tableView === libraryTableView else { return 0 }
-        return libraryEntries.count
+        if tableView === filesTableView {
+            return max(filteredFileEntries.count, 1)
+        } else if tableView === peersTableView {
+            return 1 // always empty state
+        } else if tableView === libraryTableView {
+            return max(filteredLibraryEntries.count, 1)
+        }
+        return 0
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as! LibraryEntryCell
-        guard indexPath.row < libraryEntries.count else { return cell }
-        let entry = libraryEntries[indexPath.row]
-        cell.configure(handle: entry.handle, entity: entry.entity)
-        return cell
+        if tableView === filesTableView {
+            if filteredFileEntries.isEmpty {
+                let cell = UITableViewCell()
+                cell.textLabel?.text = "No files downloaded yet."
+                cell.textLabel?.textAlignment = .center
+                cell.textLabel?.textColor = .secondaryLabel
+                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.selectionStyle = .none
+                return cell
+            }
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as! FileEntryTableCell
+            guard indexPath.row < filteredFileEntries.count else { return cell }
+            cell.configure(entry: filteredFileEntries[indexPath.row])
+            return cell
+        } else if tableView === peersTableView {
+            let cell = UITableViewCell()
+            cell.textLabel?.text = "No peers connected yet."
+            cell.textLabel?.textAlignment = .center
+            cell.textLabel?.textColor = .secondaryLabel
+            cell.textLabel?.font = .systemFont(ofSize: 14)
+            cell.selectionStyle = .none
+            return cell
+        } else if tableView === libraryTableView {
+            if filteredLibraryEntries.isEmpty {
+                let cell = UITableViewCell()
+                cell.textLabel?.text = "No torrents downloaded yet."
+                cell.textLabel?.textAlignment = .center
+                cell.textLabel?.textColor = .secondaryLabel
+                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.selectionStyle = .none
+                return cell
+            }
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as! LibraryEntryCell
+            guard indexPath.row < filteredLibraryEntries.count else { return cell }
+            let entry = filteredLibraryEntries[indexPath.row]
+            cell.configure(handle: entry.handle, entity: entry.entity)
+            return cell
+        }
+        return UITableViewCell()
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.row < libraryEntries.count else { return }
-        let entry = libraryEntries[indexPath.row]
-        selectTorrent(hex: entry.hash, handle: entry.handle)
+        if tableView === libraryTableView {
+            guard indexPath.row < filteredLibraryEntries.count else { return }
+            let entry = filteredLibraryEntries[indexPath.row]
+            selectTorrent(hex: entry.hash, handle: entry.handle)
+        }
+    }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        if tableView === filesTableView {
+            return makeColumnHeader(columns: [
+                ("File Name", nil),
+                ("Size", 60),
+                ("Progress", 70),
+                ("Streams", 50),
+            ])
+        } else if tableView === peersTableView {
+            return makeColumnHeader(columns: [
+                ("IP Address", nil),
+                ("Client", 60),
+                ("Progress", 60),
+                ("DL", 30),
+                ("UL", 30),
+                ("Country", 50),
+            ])
+        } else if tableView === libraryTableView {
+            return makeColumnHeader(columns: [
+                ("Series", nil),
+                ("Episode", 55),
+                ("Files", 35),
+                ("Size", 50),
+                ("Status", 45),
+            ])
+        }
+        return nil
+    }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if tableView === filesTableView || tableView === peersTableView || tableView === libraryTableView {
+            return 48
+        }
+        return 0
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if tableView === filesTableView {
+            return filteredFileEntries.isEmpty ? 160 : UITableView.automaticDimension
+        } else if tableView === peersTableView {
+            return 160
+        } else if tableView === libraryTableView {
+            return filteredLibraryEntries.isEmpty ? 160 : 56
+        }
+        return UITableView.automaticDimension
+    }
+
+    private func makeColumnHeader(columns: [(String, CGFloat?)]) -> UIView {
+        let header = UIView()
+        header.backgroundColor = .secondarySystemBackground
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+        ])
+
+        for (title, fixedWidth) in columns {
+            let label = UILabel()
+            label.text = title
+            label.font = .systemFont(ofSize: 12, weight: .medium)
+            label.textColor = .secondaryLabel
+            if let w = fixedWidth {
+                label.widthAnchor.constraint(equalToConstant: w).isActive = true
+                label.setContentHuggingPriority(.required, for: .horizontal)
+                label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            } else {
+                label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            }
+            stack.addArrangedSubview(label)
+        }
+
+        let separator = UIView()
+        separator.backgroundColor = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(separator)
+        NSLayoutConstraint.activate([
+            separator.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 0.5),
+        ])
+
+        return header
+    }
+}
+
+// MARK: - FileEntryTableCell
+
+final class FileEntryTableCell: UITableViewCell {
+    static let reuseID = "FileEntryTableCell"
+
+    private let nameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        l.textColor = .label
+        l.numberOfLines = 0
+        l.lineBreakMode = .byCharWrapping
+        return l
+    }()
+
+    private let sizeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12)
+        l.textColor = .secondaryLabel
+        l.textAlignment = .right
+        return l
+    }()
+
+    private let progressBar: UIProgressView = {
+        let pv = UIProgressView(progressViewStyle: .bar)
+        pv.layer.cornerRadius = 1
+        pv.clipsToBounds = true
+        pv.trackTintColor = .secondarySystemFill
+        return pv
+    }()
+
+    private let progressLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .secondaryLabel
+        l.textAlignment = .center
+        return l
+    }()
+
+    private let streamsLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12)
+        l.textColor = .secondaryLabel
+        l.textAlignment = .center
+        return l
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupCellUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupCellUI()
+    }
+
+    private func setupCellUI() {
+        selectionStyle = .none
+
+        let progressStack = UIStackView(arrangedSubviews: [progressBar, progressLabel])
+        progressStack.axis = .vertical
+        progressStack.spacing = 2
+        progressStack.alignment = .fill
+
+        sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        streamsLabel.setContentHuggingPriority(.required, for: .horizontal)
+        streamsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let infoRow = UIStackView(arrangedSubviews: [sizeLabel, progressStack, streamsLabel])
+        infoRow.axis = .horizontal
+        infoRow.spacing = 12
+        infoRow.alignment = .center
+
+        let mainStack = UIStackView(arrangedSubviews: [nameLabel, infoRow])
+        mainStack.axis = .vertical
+        mainStack.spacing = 4
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(mainStack)
+
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+            progressBar.heightAnchor.constraint(equalToConstant: 6),
+            progressStack.widthAnchor.constraint(equalToConstant: 80),
+            sizeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            streamsLabel.widthAnchor.constraint(equalToConstant: 50),
+        ])
+    }
+
+    func configure(entry: FileEntry) {
+        nameLabel.text = entry.name
+        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
+        let progress = Float(entry.progress)
+        progressBar.progress = progress
+        progressLabel.text = String(format: "%.0f%%", progress * 100)
+        streamsLabel.text = "0"
     }
 }
