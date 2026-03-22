@@ -1152,6 +1152,23 @@ private final class AnimeInfoHeaderView: UIView {
         }
     }
 
+    /// Pre-set preferredMaxLayoutWidth on title/romaji labels so that
+    /// the constraint engine uses correct multi-line intrinsic heights
+    /// on the very first layout pass.  Without this, the labels start
+    /// with preferredMaxLayoutWidth = 0, which makes intrinsicContentSize
+    /// return a single-line height; the header is then measured too short
+    /// and the title text is clipped.
+    func updateLabelWidths(forContainerWidth width: CGFloat) {
+        let maxW = width - 24   // contentStack 12-pt left + right margins
+        guard maxW > 0 else { return }
+        titleLabel.preferredMaxLayoutWidth = maxW
+        romajiLabel.preferredMaxLayoutWidth = maxW
+        // Explicitly invalidate so the constraint engine picks up the
+        // updated intrinsic sizes during the next layout pass.
+        titleLabel.invalidateIntrinsicContentSize()
+        romajiLabel.invalidateIntrinsicContentSize()
+    }
+
     // MARK: - Actions
 
     @objc private func shareTapped()       { onShare?() }
@@ -1683,9 +1700,17 @@ class AnimeDetailViewController: UIViewController {
               tableView.frame.width > 0 else { return }
         isSizingHeader = true
         defer { isSizingHeader = false }
-        // Force a layout pass so the textColumn width constraint resolves,
-        // preferredMaxLayoutWidth is set on labels, and their intrinsic
-        // heights reflect the correct line count.
+
+        // Pre-set preferredMaxLayoutWidth on title/romaji labels BEFORE
+        // the layout pass.  On the very first call the labels still have
+        // preferredMaxLayoutWidth = 0 (UILabel default), so
+        // intrinsicContentSize returns a single-line height.  The
+        // subsequent layoutIfNeeded triggers layoutSubviews which sets it,
+        // but by then the constraint engine may have already cached the
+        // stale (single-line) intrinsic sizes.  Setting it up-front
+        // ensures the first layout pass uses correct multi-line heights.
+        headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
+
         container.frame.size.width = tableView.frame.width
         container.setNeedsLayout()
         container.layoutIfNeeded()
