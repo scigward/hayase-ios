@@ -1693,7 +1693,13 @@ class AnimeDetailViewController: UIViewController {
             tabBarContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             tabBarContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             tabBarContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tabBarContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            // NOTE: intentionally NO tabBarContainer.bottom → container.bottom.
+            // The container has TAMIC=true (table header view) which generates
+            // autoresizing constraints.  A bottom pin would over-constrain the
+            // vertical axis: autoresizing fixes height at required priority,
+            // so the constraint solver would compress headerView to fit,
+            // clipping the romaji/title text.  Instead, sizeHeaderView()
+            // measures each subview individually and sums their heights.
         ])
         // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
         container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
@@ -1709,36 +1715,45 @@ class AnimeDetailViewController: UIViewController {
 
         let width = tableView.frame.width
 
-        // Pre-set preferredMaxLayoutWidth on title/romaji labels so the
-        // constraint engine uses correct multi-line intrinsic heights.
+        // Pre-set preferredMaxLayoutWidth on title/romaji labels BEFORE
+        // the measurement.  On the very first call the labels still have
+        // preferredMaxLayoutWidth = 0 (UILabel default), so
+        // intrinsicContentSize returns a single-line height.  Setting it
+        // up-front ensures the constraint solve uses correct multi-line
+        // heights.
         headerView.updateLabelWidths(forContainerWidth: width)
 
-        // Temporarily disable TAMIC on the container.  As the table header
-        // view, the container has TAMIC = true which generates autoresizing
-        // constraints that fix its height to container.frame.height at
-        // required priority.  Those autoresizing constraints cause
-        // systemLayoutSizeFitting to return the *placeholder* height
-        // instead of the natural content height.  By disabling TAMIC for
-        // the measurement, the only height-determining constraints are the
-        // subview chain (headerView top→bottom + tabBarContainer bottom→
-        // container bottom), which gives the correct content-based height.
-        container.translatesAutoresizingMaskIntoConstraints = false
+        // Measure headerView and tabBarContainer SEPARATELY via
+        // systemLayoutSizeFitting.  Both subviews have TAMIC = false
+        // (constraint-based), so there are no autoresizing constraints
+        // to interfere with the measurement.
+        //
+        // We do NOT toggle TAMIC on the container or add a bottom
+        // constraint, because:
+        //  • TAMIC toggles trigger layout invalidation → infinite
+        //    viewDidLayoutSubviews → sizeHeaderView cycle → app hang.
+        //  • A bottom constraint + TAMIC autoresizing over-constrains
+        //    the vertical axis, causing the constraint solver to
+        //    compress headerView and clip the romaji/title labels.
+        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
 
-        let fittingSize = container.systemLayoutSizeFitting(
-            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+        let headerHeight = headerView.systemLayoutSizeFitting(
+            target,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
-        let height = ceil(fittingSize.height)
 
-        // Restore TAMIC so UIKit can manage the header view's position
-        // within the table view via frame-based layout.
-        container.translatesAutoresizingMaskIntoConstraints = true
+        let tabBarHeight = tabBarContainer.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel)
+
+        let height = ceil(headerHeight.height + tabBarHeight.height)
 
         // Only re-assign the header when the height changed by more than
         // half a point — avoids redundant tableHeaderView assignments that
         // would trigger unnecessary layout passes.
         if abs(container.frame.height - height) > 0.5 {
-            container.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            container.frame.size.height = height
             tableView.tableHeaderView = container
         }
     }
