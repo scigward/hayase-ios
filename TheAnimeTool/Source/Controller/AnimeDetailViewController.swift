@@ -1699,7 +1699,7 @@ class AnimeDetailViewController: UIViewController {
             // vertical axis: autoresizing fixes height at required priority,
             // so the constraint solver would compress headerView to fit,
             // clipping the romaji/title text.  Instead, sizeHeaderView()
-            // measures each subview individually and sums their heights.
+            // uses layoutIfNeeded + frame.maxY to read the actual position.
         ])
         // 600 is a placeholder height — sizeHeaderView() corrects it in viewDidLayoutSubviews
         container.frame = CGRect(x: 0, y: 0, width: tableView.frame.width, height: 600)
@@ -1716,38 +1716,26 @@ class AnimeDetailViewController: UIViewController {
         let width = tableView.frame.width
 
         // Pre-set preferredMaxLayoutWidth on title/romaji labels BEFORE
-        // the measurement.  On the very first call the labels still have
+        // the layout pass.  On the very first call the labels still have
         // preferredMaxLayoutWidth = 0 (UILabel default), so
-        // intrinsicContentSize returns a single-line height.  Setting it
-        // up-front ensures the constraint solve uses correct multi-line
-        // heights.
+        // intrinsicContentSize returns a single-line height.  The
+        // subsequent layoutIfNeeded triggers layoutSubviews which sets it,
+        // but by then the constraint engine may have already cached the
+        // stale (single-line) intrinsic sizes.  Setting it up-front
+        // ensures the first layout pass uses correct multi-line heights.
         headerView.updateLabelWidths(forContainerWidth: width)
 
-        // Measure headerView and tabBarContainer SEPARATELY via
-        // systemLayoutSizeFitting.  Both subviews have TAMIC = false
-        // (constraint-based), so there are no autoresizing constraints
-        // to interfere with the measurement.
-        //
-        // We do NOT toggle TAMIC on the container or add a bottom
-        // constraint, because:
-        //  • TAMIC toggles trigger layout invalidation → infinite
-        //    viewDidLayoutSubviews → sizeHeaderView cycle → app hang.
-        //  • A bottom constraint + TAMIC autoresizing over-constrains
-        //    the vertical axis, causing the constraint solver to
-        //    compress headerView and clip the romaji/title labels.
-        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        container.frame.size.width = width
+        container.setNeedsLayout()
+        container.layoutIfNeeded()
 
-        let headerHeight = headerView.systemLayoutSizeFitting(
-            target,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel)
-
-        let tabBarHeight = tabBarContainer.systemLayoutSizeFitting(
-            target,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel)
-
-        let height = ceil(headerHeight.height + tabBarHeight.height)
+        // Read the actual laid-out bottom edge of the bottommost subview.
+        // This is more reliable than calling systemLayoutSizeFitting on
+        // each subview separately — that runs an independent constraint
+        // solve that can return slightly different values than the actual
+        // layout, causing the tab bar to overlap section cells by a few
+        // points.  ceil() prevents any sub-pixel rounding overlap.
+        let height = ceil(tabBarContainer.frame.maxY)
 
         // Only re-assign the header when the height changed by more than
         // half a point — avoids redundant tableHeaderView assignments that
