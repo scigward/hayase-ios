@@ -190,6 +190,7 @@ class DownloadsViewController: UIViewController {
         return tf
     }()
     private var filteredLibraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
+    private var selectedLibraryHashes: Set<String> = []
     private let librarySelectionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13)
@@ -694,6 +695,11 @@ class DownloadsViewController: UIViewController {
         if selectedTabIndex == 2 {
             refreshPeers()
         }
+
+        // Update library tab if visible
+        if selectedTabIndex == 3 {
+            refreshLibrary()
+        }
     }
 
     private func setDot(_ dot: UIView, enabled: Bool) {
@@ -963,6 +969,7 @@ class DownloadsViewController: UIViewController {
         deleteBtn.tintColor = .white
         deleteBtn.backgroundColor = .systemRed
         deleteBtn.layer.cornerRadius = 6
+        deleteBtn.addTarget(self, action: #selector(deleteSelectedLibraryEntries), for: .touchUpInside)
         deleteBtn.translatesAutoresizingMaskIntoConstraints = false
 
         let buttonRow = UIStackView(arrangedSubviews: [rescanBtn, deleteBtn])
@@ -1044,8 +1051,44 @@ class DownloadsViewController: UIViewController {
                 $0.handle.snapshot.name.lowercased().contains(query)
             }
         }
-        librarySelectionLabel.text = "0 of \(filteredLibraryEntries.count) row(s) selected."
+        // Prune selections that no longer exist
+        let currentHashes = Set(filteredLibraryEntries.map { $0.hash })
+        selectedLibraryHashes.formIntersection(currentHashes)
+        updateLibrarySelectionLabel()
         libraryTableView?.reloadData()
+    }
+
+    private func updateLibrarySelectionLabel() {
+        librarySelectionLabel.text = "\(selectedLibraryHashes.count) of \(filteredLibraryEntries.count) row(s) selected."
+    }
+
+    @objc private func deleteSelectedLibraryEntries() {
+        guard !selectedLibraryHashes.isEmpty else { return }
+
+        let count = selectedLibraryHashes.count
+        let alert = UIAlertController(
+            title: "Delete \(count) torrent\(count == 1 ? "" : "s")?",
+            message: "This will remove the selected torrent\(count == 1 ? "" : "s") and delete all associated files.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            guard let self = self else { return }
+            let service = TorrentService.sharedTorrentService
+            for hash in self.selectedLibraryHashes {
+                if let handle = service.handles[hash] {
+                    service.session.removeTorrent(handle, deleteFiles: true)
+                }
+            }
+            // Clear selected torrent if it was deleted
+            if self.selectedLibraryHashes.contains(self.selectedHex) {
+                self.selectedHandle = nil
+                self.selectedHex = ""
+                self.selectedEntity = nil
+            }
+            self.selectedLibraryHashes.removeAll()
+            self.refreshLibrary()
+        })
+        present(alert, animated: true)
     }
 
     // MARK: - UI helpers
@@ -1216,6 +1259,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
             cell.configure(handle: entry.handle, entity: entry.entity)
+            cell.accessoryType = selectedLibraryHashes.contains(entry.hash) ? .checkmark : .none
             return cell
         }
         return UITableViewCell()
@@ -1226,7 +1270,13 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === libraryTableView {
             guard indexPath.row < filteredLibraryEntries.count else { return }
             let entry = filteredLibraryEntries[indexPath.row]
-            selectTorrent(hex: entry.hash, handle: entry.handle)
+            if selectedLibraryHashes.contains(entry.hash) {
+                selectedLibraryHashes.remove(entry.hash)
+            } else {
+                selectedLibraryHashes.insert(entry.hash)
+            }
+            updateLibrarySelectionLabel()
+            tableView.reloadRows(at: [indexPath], with: .none)
         }
     }
 
