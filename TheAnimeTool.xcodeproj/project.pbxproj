@@ -1023,7 +1023,7 @@
 				);
 				INFOPLIST_FILE = TheAnimeTool/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
+				PRODUCT_BUNDLE_IDENTIFIER = app.hayase;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -1048,7 +1048,7 @@
 				);
 				INFOPLIST_FILE = TheAnimeTool/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeTool;
+				PRODUCT_BUNDLE_IDENTIFIER = app.hayase;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "TheAnimeTool/TheAnimeTool-Bridging-Header.h";
 			};
