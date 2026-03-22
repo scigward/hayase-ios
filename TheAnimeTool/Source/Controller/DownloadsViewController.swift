@@ -159,6 +159,14 @@ class DownloadsViewController: UIViewController {
     private var fileEntries: [FileEntry] = []
     private var filteredFileEntries: [FileEntry] = []
 
+    /// Column sort state for the Files tab (mirrors Hayase addSortBy plugin with toggleOrder: ['asc','desc']).
+    /// Tap cycle: unsorted → asc → desc → unsorted.
+    private enum FileSortColumn: Int { case name = 0, size = 1, progress = 2, streams = 3 }
+    private var filesSortColumn: FileSortColumn?
+    private var filesSortAscending: Bool = true
+
+    private static let filesRowHeight: CGFloat = 48
+
     // MARK: - Peers tab
 
     private let peersView = UIView()
@@ -575,10 +583,13 @@ class DownloadsViewController: UIViewController {
         filesTableView.delegate = self
         filesTableView.dataSource = self
         filesTableView.register(FileEntryTableCell.self, forCellReuseIdentifier: FileEntryTableCell.reuseID)
-        filesTableView.rowHeight = UITableView.automaticDimension
-        filesTableView.estimatedRowHeight = 48
+        filesTableView.rowHeight = Self.filesRowHeight
+        filesTableView.estimatedRowHeight = Self.filesRowHeight
         filesTableView.backgroundColor = .systemBackground
         filesTableView.separatorInset = .zero
+        if #available(iOS 15.0, *) {
+            filesTableView.sectionHeaderTopPadding = 0
+        }
         borderContainer.addSubview(filesTableView)
 
         NSLayoutConstraint.activate([
@@ -610,6 +621,25 @@ class DownloadsViewController: UIViewController {
             filteredFileEntries = fileEntries
         } else {
             filteredFileEntries = fileEntries.filter { $0.name.lowercased().contains(query) }
+        }
+        // Apply column sort (mirrors Hayase addSortBy plugin: asc → desc → clear)
+        if let sortCol = filesSortColumn {
+            let ascending = filesSortAscending
+            let sequential = selectedHandle?.snapshot.isSequential == true
+            filteredFileEntries.sort { a, b in
+                switch sortCol {
+                case .name:
+                    return ascending ? a.name < b.name : a.name > b.name
+                case .size:
+                    return ascending ? a.size < b.size : a.size > b.size
+                case .progress:
+                    return ascending ? a.progress < b.progress : a.progress > b.progress
+                case .streams:
+                    let aS = (sequential && a.priority != .dontDownload) ? 1 : 0
+                    let bS = (sequential && b.priority != .dontDownload) ? 1 : 0
+                    return ascending ? aS < bS : aS > bS
+                }
+            }
         }
         filesTableView?.reloadData()
     }
@@ -1285,12 +1315,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         if tableView === filesTableView {
-            return makeColumnHeader(columns: [
-                ("File Name", nil),
-                ("Size", 60),
-                ("Progress", 70),
-                ("Streams", 50),
-            ])
+            return makeFileColumnHeader()
         } else if tableView === peersTableView {
             return makeColumnHeader(columns: [
                 ("IP Address", nil),
@@ -1323,7 +1348,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if tableView === filesTableView {
-            return filteredFileEntries.isEmpty ? 160 : 48
+            return filteredFileEntries.isEmpty ? 160 : Self.filesRowHeight
         } else if tableView === peersTableView {
             return peerInfos.isEmpty ? 160 : 48
         } else if tableView === libraryTableView {
@@ -1377,6 +1402,88 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         ])
 
         return header
+    }
+
+    /// Builds a sortable column header for the Files tab.
+    /// Matches Hayase's addSortBy plugin: tapping a column cycles asc → desc → clear.
+    private func makeFileColumnHeader() -> UIView {
+        let header = UIView()
+        header.backgroundColor = .systemBackground
+
+        let columns: [(String, CGFloat?, FileSortColumn)] = [
+            ("File Name", nil, .name),
+            ("Size", 60, .size),
+            ("Progress", 70, .progress),
+            ("Streams", 50, .streams),
+        ]
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+        ])
+
+        for (title, fixedWidth, sortCol) in columns {
+            let isActive = filesSortColumn == sortCol
+            var displayTitle = title
+            if isActive { displayTitle += filesSortAscending ? " ▲" : " ▼" }
+
+            let btn = UIButton(type: .system)
+            btn.tag = sortCol.rawValue
+            btn.setTitle(displayTitle, for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
+            btn.setTitleColor(isActive ? .label : .secondaryLabel, for: .normal)
+            btn.contentHorizontalAlignment = .left
+            btn.addTarget(self, action: #selector(fileColumnHeaderTapped(_:)), for: .touchUpInside)
+
+            if let w = fixedWidth {
+                btn.widthAnchor.constraint(equalToConstant: w).isActive = true
+                btn.setContentHuggingPriority(.required, for: .horizontal)
+                btn.setContentCompressionResistancePriority(.required, for: .horizontal)
+            } else {
+                btn.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                btn.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            }
+            stack.addArrangedSubview(btn)
+        }
+
+        let separator = UIView()
+        separator.backgroundColor = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(separator)
+        NSLayoutConstraint.activate([
+            separator.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 0.5),
+        ])
+
+        return header
+    }
+
+    /// Handles tap on a Files column header button.
+    /// Tap cycle per column: unsorted → ascending (▲) → descending (▼) → unsorted.
+    /// Matches Hayase's column sort dropdown with Asc/Desc options.
+    @objc private func fileColumnHeaderTapped(_ sender: UIButton) {
+        guard let col = FileSortColumn(rawValue: sender.tag) else { return }
+        if filesSortColumn == col {
+            if filesSortAscending {
+                filesSortAscending = false
+            } else {
+                filesSortColumn = nil   // third tap: clear sort
+            }
+        } else {
+            filesSortColumn = col
+            filesSortAscending = true
+        }
+        refreshFiles()
     }
 }
 
