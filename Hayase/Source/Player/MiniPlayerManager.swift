@@ -110,7 +110,29 @@ final class MiniPlayerManager {
 
     // MARK: - Init
 
-    private init() {}
+    private init() {
+        // Observe torrent-will-be-removed notifications so we can tear down any
+        // active mini-player whose torrent is about to be freed. Without this,
+        // TorrentStreamer.stop() / LocalStreamServer / statsTimer would access
+        // the deallocated TorrentHandle and crash (use-after-free / segfault).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTorrentWillBeRemoved(_:)),
+            name: NSNotification.Name(TorrentService.TorrentWillBeRemovedNotification),
+            object: nil)
+    }
+
+    /// Called when a torrent is about to be removed from the session.
+    /// If the mini-player is streaming that torrent, close it immediately
+    /// so that `tearDownPlayer()` runs BEFORE the handle is freed.
+    @objc private func handleTorrentWillBeRemoved(_ notification: Notification) {
+        guard let removedHash = notification.userInfo?["torrentHash"] as? String,
+              let player = activePlayer,
+              let playerHash = player.torrentHandle?.infoHashes.best.hex,
+              playerHash == removedHash else { return }
+        // The mini-player's torrent is being deleted — close immediately.
+        close()
+    }
 
     // MARK: - Public API
 

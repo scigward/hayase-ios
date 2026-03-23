@@ -17,6 +17,12 @@ public class TorrentService: NSObject, SessionDelegate {
     static let sharedTorrentService = TorrentService()
     static let TorrentInControllerDidUpdateNotification    = "TorrentInControllerDidUpdateNotification"
     static let TorrentInControllerUpdateFailedNotification = "TorrentInControllerUpdateFailedNotification"
+    /// Posted on the main thread when a torrent is about to be removed from the
+    /// session. `userInfo["torrentHash"]` contains the hex info-hash string.
+    /// Consumers (e.g. MiniPlayerManager) observe this to tear down any player
+    /// that is streaming the torrent being deleted, preventing use-after-free
+    /// crashes in TorrentStreamer/LocalStreamServer.
+    static let TorrentWillBeRemovedNotification = "TorrentServiceTorrentWillBeRemovedNotification"
 
     // MARK: - LibTorrent session + handle tracking
     let session: Session
@@ -229,6 +235,7 @@ public class TorrentService: NSObject, SessionDelegate {
         let toRemove = handles.filter { $0.key != exceptHash }
         for (hex, handle) in toRemove {
             print("TorrentService: persist OFF — removing torrent \(hex)")
+            notifyWillRemove(hex: hex)
             session.removeTorrent(handle, deleteFiles: true)
         }
     }
@@ -244,6 +251,25 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     // MARK: - Public API
+
+    /// Posts `TorrentWillBeRemovedNotification` synchronously on the main thread
+    /// so that consumers (e.g. MiniPlayerManager) can tear down any active player
+    /// referencing this torrent BEFORE the handle is freed by libtorrent.
+    private func notifyWillRemove(hex: String) {
+        NotificationCenter.default.post(
+            name: NSNotification.Name(TorrentService.TorrentWillBeRemovedNotification),
+            object: self,
+            userInfo: ["torrentHash": hex])
+    }
+
+    /// Safely removes a torrent from the session. Posts a notification BEFORE
+    /// removal so that any active player/streamer referencing the handle can
+    /// tear down first, preventing use-after-free crashes.
+    func safeRemoveTorrent(_ handle: TorrentHandle, deleteFiles: Bool) {
+        let hex = handle.infoHashes.best.hex
+        notifyWillRemove(hex: hex)
+        session.removeTorrent(handle, deleteFiles: deleteFiles)
+    }
 
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
         let fetchRequest = NSFetchRequest<Torrents>(entityName: Torrents.entityName)

@@ -348,6 +348,7 @@ final class LocalStreamServer {
             if !data.isEmpty && data.allSatisfy({ $0 == 0 }) {
                 // All zeros: piece data not flushed at all. Retry with flush.
                 for _ in 0..<5 {
+                    guard !isStopped else { break }
                     torrentHandle.flushCache()
                     Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
@@ -368,7 +369,7 @@ final class LocalStreamServer {
                     // Data changed — flush was still in progress. Use newer
                     // read and give one more chance for it to stabilize.
                     data = verifyData
-                    torrentHandle.flushCache()
+                    if !isStopped { torrentHandle.flushCache() }
                     Thread.sleep(forTimeInterval: 0.03)
                     fileHandle.seek(toFileOffset: currentOffset)
                     let finalData = fileHandle.readData(ofLength: readLength)
@@ -426,7 +427,8 @@ final class LocalStreamServer {
     /// Checks if a local piece (0-based index within the file) has been downloaded.
     /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func isLocalPieceDownloaded(_ localIndex: Int) -> Bool {
-        snapshotQueue.sync {
+        guard !isStopped else { return false }
+        return snapshotQueue.sync {
             torrentHandle.updateSnapshot()
             guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                   let pieces = entry.pieces as? [NSNumber],
@@ -525,7 +527,9 @@ final class LocalStreamServer {
         while !isStopped {
             var allReady = true
             var missingPieces = 0
+            guard !isStopped else { break }
             snapshotQueue.sync {
+                guard !isStopped else { return }
                 torrentHandle.updateSnapshot()
                 if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                    let pieces = entry.pieces as? [NSNumber] {
@@ -573,6 +577,7 @@ final class LocalStreamServer {
                 // Flush libtorrent's disk write cache so piece data is on the
                 // filesystem before we read it with FileHandle. Without this,
                 // hash-verified pieces may still be in memory, causing zero reads.
+                guard !isStopped else { break }
                 torrentHandle.flushCache()
                 // Give libtorrent's disk I/O thread time to complete the flush.
                 // flushCache() posts a job asynchronously — data may not be in
@@ -592,6 +597,7 @@ final class LocalStreamServer {
 
             let now = Date()
             if now.timeIntervalSince(lastPriorityBoost) >= reboostInterval {
+                guard !isStopped else { break }
                 applyPriorityBoost()
                 lastPriorityBoost = now
             }
@@ -601,6 +607,7 @@ final class LocalStreamServer {
             // zero or few seeds. Re-announcing brings in fresh connections
             // that can supply the pieces we're stuck on.
             if now.timeIntervalSince(lastReannounce) >= reannounceInterval {
+                guard !isStopped else { break }
                 torrentHandle.forceReannounce()
                 lastReannounce = now
             }
@@ -618,6 +625,7 @@ final class LocalStreamServer {
                 var seeds = 0
                 var dlMB = "0.0"
                 snapshotQueue.sync {
+                    guard !isStopped else { return }
                     let snap = torrentHandle.snapshot
                     peers = Int(snap.numberOfPeers)
                     seeds = Int(snap.numberOfSeeds)

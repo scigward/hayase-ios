@@ -180,6 +180,11 @@ final class VideoPlayerViewController: UIViewController {
         streamServer?.stop()
         streamer?.stop()
         surface.stop()
+        // Nil out references so no timer or callback can touch the handle
+        // after the torrent is removed from the session (use-after-free).
+        streamer = nil
+        streamServer = nil
+        torrentHandle = nil
     }
 
     override var prefersStatusBarHidden: Bool              { !controlsVisible }

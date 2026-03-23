@@ -335,6 +335,16 @@ final class TorrentStreamer {
         isActive = false
         seekPieceTarget = -1
         seekStartTime = nil
+        // If the torrent was already removed from the session (e.g. the user
+        // deleted it), accessing the handle would crash (use-after-free).
+        // Skip priority restoration — the handle is gone so there's nothing
+        // to restore.
+        let hex = torrentHandle.infoHashes.best.hex
+        guard TorrentService.sharedTorrentService.handles[hex] != nil else {
+            lastDeadlinePiece = -1
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: stopped (handle already removed)") }
+            return
+        }
         resetActiveWindow()
         // Restore all file pieces to default priority so libtorrent resumes
         // normal downloading. This fixes the false "100% downloaded" display

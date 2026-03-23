@@ -1106,7 +1106,7 @@ class DownloadsViewController: UIViewController {
             let service = TorrentService.sharedTorrentService
             for hash in self.selectedLibraryHashes {
                 if let handle = service.handles[hash] {
-                    service.session.removeTorrent(handle, deleteFiles: true)
+                    service.safeRemoveTorrent(handle, deleteFiles: true)
                 }
             }
             // Clear selected torrent if it was deleted
