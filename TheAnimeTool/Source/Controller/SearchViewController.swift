@@ -164,6 +164,9 @@ class SearchViewController: UIViewController {
     private var currentPage  = 1
     private var hasNextPage  = true
     private var isFetching   = false
+    /// Incremented on every reset fetch. Allows in-flight callbacks from a prior fetch to be
+    /// discarded when a newer reset (e.g. from a View More prefill) has already started.
+    private var fetchRequestID = 0
     private var currentTitle = ""
     private var debounceTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
@@ -225,7 +228,13 @@ class SearchViewController: UIViewController {
         setupHeaderView()
         setupCollectionView()
         setupOverlays()
-        fetchResults(reset: true)
+        // Hayase: goto('/app/search', { state: { search: variables } }) creates a fresh page with the
+        // state pre-applied. Mirror this: if a prefill is pending (View More tapped before this tab was
+        // ever opened), skip the default fetch here — viewWillAppear will call applyPrefill which runs
+        // the correct fetch with the prefilled filters.
+        if pendingPrefill == nil {
+            fetchResults(reset: true)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -816,10 +825,18 @@ class SearchViewController: UIViewController {
             fetchResultsByIds(ids)
             return
         }
-        if reset { currentPage = 1; hasNextPage = true }
+        if reset {
+            currentPage = 1; hasNextPage = true
+            // Force-cancel any in-flight fetch by bumping the request ID. The old callback will
+            // see a mismatched ID and discard its results. This mirrors Hayase where navigating
+            // to /app/search with new state always starts a fresh search, discarding any prior request.
+            fetchRequestID += 1
+            isFetching = false
+        }
         guard !isFetching, hasNextPage else { return }
         isFetching = true
         if reset { loadingIndicator.startAnimating(); emptyLabel.isHidden = true }
+        let myRequestID = fetchRequestID
 
         AnimeService.sharedAnimeService.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
@@ -832,7 +849,7 @@ class SearchViewController: UIViewController {
             season: selectedSeason,
             page: currentPage
         ) { [weak self] items, hasNext in
-            guard let self = self else { return }
+            guard let self = self, self.fetchRequestID == myRequestID else { return }
             if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
             self.hasNextPage = hasNext; self.currentPage += 1; self.isFetching = false
             self.loadingIndicator.stopAnimating(); self.collectionView.reloadData()
