@@ -561,10 +561,10 @@ public class AnimeService: NSObject {
     // MARK: - AniList anime search (used by SearchViewController)
 
     private let anilistSearchQuery = """
-    query ($search: String, $genre: String, $format: MediaFormat, $status: MediaStatus, $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
+    query ($search: String, $genre_in: [String], $format_in: [MediaFormat], $status_in: [MediaStatus], $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
       Page(page: $page, perPage: 20) {
         pageInfo { hasNextPage }
-        media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort, seasonYear: $seasonYear, season: $season) {
+        media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -584,12 +584,13 @@ public class AnimeService: NSObject {
     }
     """
 
-    /// Search AniList with optional title, genre, format, status, sort, seasonYear and season.
+    /// Search AniList with optional title, genres, formats, statuses, sort, seasonYear and season.
+    /// Supports multiple genres, formats and statuses (genre_in / format_in / status_in).
     /// Calls completion on the main queue with ([AnimeItem], hasNextPage).
     func searchAnimeItems(title: String?,
-                          genre: String?,
-                          format: String?,
-                          status: String?,
+                          genres: [String],
+                          formats: [String],
+                          statuses: [String],
                           sort: String,
                           seasonYear: Int? = nil,
                           season: String? = nil,
@@ -603,9 +604,9 @@ public class AnimeService: NSObject {
 
         var variables: [String: Any] = ["sort": [sort], "page": page]
         if let t = title, !t.isEmpty { variables["search"] = t }
-        if let g = genre { variables["genre"] = g }
-        if let f = format { variables["format"] = f }
-        if let s = status { variables["status"] = s }
+        if !genres.isEmpty   { variables["genre_in"] = genres }
+        if !formats.isEmpty  { variables["format_in"] = formats }
+        if !statuses.isEmpty { variables["status_in"] = statuses }
         if let y = seasonYear { variables["seasonYear"] = y }
         if let s = season { variables["season"] = s }
 
