@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A96105AB1D71ED71006D39D0"
-               BuildableName = "TheAnimeTool.app"
-               BlueprintName = "TheAnimeTool"
+               BuildableName = "Hayase.app"
+               BlueprintName = "Hayase"
                ReferencedContainer = "container:TheAnimeTool.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A96105AB1D71ED71006D39D0"
-            BuildableName = "TheAnimeTool.app"
-            BlueprintName = "TheAnimeTool"
+            BuildableName = "Hayase.app"
+            BlueprintName = "Hayase"
             ReferencedContainer = "container:TheAnimeTool.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A96105AB1D71ED71006D39D0"
-            BuildableName = "TheAnimeTool.app"
-            BlueprintName = "TheAnimeTool"
+            BuildableName = "Hayase.app"
+            BlueprintName = "Hayase"
             ReferencedContainer = "container:TheAnimeTool.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -77,8 +77,8 @@
       <BuildableReference
          BuildableIdentifier = "primary"
          BlueprintIdentifier = "A96105AB1D71ED71006D39D0"
-         BuildableName = "TheAnimeTool.app"
-         BlueprintName = "TheAnimeTool"
+         BuildableName = "Hayase.app"
+         BlueprintName = "Hayase"
          ReferencedContainer = "container:TheAnimeTool.xcodeproj">
       </BuildableReference>
    </ArchiveAction>

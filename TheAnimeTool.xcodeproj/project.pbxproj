@@ -131,14 +131,14 @@
 			containerPortal = A96105A41D71ED71006D39D0 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A96105AB1D71ED71006D39D0;
-			remoteInfo = TheAnimeTool;
+			remoteInfo = Hayase;
 		};
 		A96105CF1D71ED72006D39D0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A96105A41D71ED71006D39D0 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A96105AB1D71ED71006D39D0;
-			remoteInfo = TheAnimeTool;
+			remoteInfo = Hayase;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -158,7 +158,7 @@
 
 /* Begin PBXFileReference section */
 		FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = LibTorrent.xcodeproj; path = Component/LibTorrent-Swift/LibTorrent.xcodeproj; sourceTree = "<group>"; };
-		A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TheAnimeTool.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A96105AC1D71ED71006D39D0 /* Hayase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hayase.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A96105B41D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		A96105B91D71ED71006D39D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
 		A96105BC1D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -321,7 +321,7 @@
 		A96105AD1D71ED71006D39D0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */,
+				A96105AC1D71ED71006D39D0 /* Hayase.app */,
 				A96105C31D71ED71006D39D0 /* TheAnimeToolTests.xctest */,
 				A96105CE1D71ED72006D39D0 /* TheAnimeToolUITests.xctest */,
 			);
@@ -651,9 +651,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A96105AB1D71ED71006D39D0 /* TheAnimeTool */ = {
+		A96105AB1D71ED71006D39D0 /* Hayase */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "TheAnimeTool" */;
+			buildConfigurationList = A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "Hayase" */;
 			buildPhases = (
 				A96105A81D71ED71006D39D0 /* Sources */,
 				A96105A91D71ED71006D39D0 /* Frameworks */,
@@ -665,13 +665,13 @@
 			dependencies = (
 				FF0001081D71ED72006D39D0 /* PBXTargetDependency */,
 			);
-			name = TheAnimeTool;
+			name = Hayase;
 			packageProductDependencies = (
 				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
 				MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */,
 			);
-			productName = TheAnimeTool;
-			productReference = A96105AC1D71ED71006D39D0 /* TheAnimeTool.app */;
+			productName = Hayase;
+			productReference = A96105AC1D71ED71006D39D0 /* Hayase.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A96105C21D71ED71006D39D0 /* TheAnimeToolTests */ = {
@@ -733,7 +733,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "TheAnimeTool" */;
+			buildConfigurationList = A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "Hayase" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -756,7 +756,7 @@
 				MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */,
 			);
 			targets = (
-				A96105AB1D71ED71006D39D0 /* TheAnimeTool */,
+				A96105AB1D71ED71006D39D0 /* Hayase */,
 				A96105C21D71ED71006D39D0 /* TheAnimeToolTests */,
 				A96105CD1D71ED72006D39D0 /* TheAnimeToolUITests */,
 			);
@@ -886,12 +886,12 @@
 		};
 		A96105C51D71ED71006D39D0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A96105AB1D71ED71006D39D0 /* TheAnimeTool */;
+			target = A96105AB1D71ED71006D39D0 /* Hayase */;
 			targetProxy = A96105C41D71ED71006D39D0 /* PBXContainerItemProxy */;
 		};
 		A96105D01D71ED72006D39D0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A96105AB1D71ED71006D39D0 /* TheAnimeTool */;
+			target = A96105AB1D71ED71006D39D0 /* Hayase */;
 			targetProxy = A96105CF1D71ED72006D39D0 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -1062,7 +1062,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeToolTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TheAnimeTool.app/TheAnimeTool";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hayase.app/Hayase";
 			};
 			name = Debug;
 		};
@@ -1074,7 +1074,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeToolTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TheAnimeTool.app/TheAnimeTool";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hayase.app/Hayase";
 			};
 			name = Release;
 		};
@@ -1085,7 +1085,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeToolUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_TARGET_NAME = TheAnimeTool;
+				TEST_TARGET_NAME = Hayase;
 			};
 			name = Debug;
 		};
@@ -1096,14 +1096,14 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.ToolS.TheAnimeToolUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_TARGET_NAME = TheAnimeTool;
+				TEST_TARGET_NAME = Hayase;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "TheAnimeTool" */ = {
+		A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "Hayase" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A96105D51D71ED72006D39D0 /* Debug */,
@@ -1112,7 +1112,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "TheAnimeTool" */ = {
+		A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "Hayase" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A96105D81D71ED72006D39D0 /* Debug */,
