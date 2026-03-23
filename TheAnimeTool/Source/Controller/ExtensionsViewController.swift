@@ -50,7 +50,7 @@ final class ExtensionsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Extensions"
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        view.backgroundColor = .black
         navigationItem.largeTitleDisplayMode = .never
 
         setupSegmentedControl()
@@ -163,7 +163,7 @@ final class ExtensionsViewController: UIViewController {
     private func setupTableView() {
         tableView = UITableView(frame: .zero, style: .plain)
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        tableView.backgroundColor = .black
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 24, right: 0)
         tableView.delegate   = self
@@ -176,7 +176,7 @@ final class ExtensionsViewController: UIViewController {
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: importBar.bottomAnchor, constant: 8),
+            tableView.topAnchor.constraint(equalTo: importBar.bottomAnchor, constant: 4),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -481,13 +481,13 @@ final class ExtensionCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor(white: 0.04, alpha: 1)
+        backgroundColor = .black
         selectionStyle = .none
 
         toggleSwitch.addTarget(self, action: #selector(toggleChanged), for: .valueChanged)
         optionsButton.addTarget(self, action: #selector(optionsTapped), for: .touchUpInside)
 
-        // Card: bg-neutral-950 px-4 py-3 rounded-md
+        // Card: bg-neutral-950 on black background — neutral-950 (#0a0a0a) on black (#000)
         let card = UIView()
         card.backgroundColor = UIColor(white: 0.039, alpha: 1)  // bg-neutral-950
         card.layer.cornerRadius = 8
@@ -622,10 +622,8 @@ final class RepoCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor(white: 0.04, alpha: 1)
+        backgroundColor = .black
         selectionStyle = .none
-
-        // bg-neutral-950 (matches ExtensionCell and Hayase)
         let card = UIView()
         card.backgroundColor = UIColor(white: 0.039, alpha: 1)
         card.layer.cornerRadius = 8
@@ -702,10 +700,6 @@ final class BadgeFlowView: UIView {
     private let hSpacing: CGFloat = 6   // gap-2 ≈ 8pt; 6pt matches native badge spacing
     private let vSpacing: CGFloat = 4
 
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: computeHeight(for: bounds.width))
-    }
-
     func setItems(_ items: [Item]) {
         labels.forEach { $0.removeFromSuperview() }
         labels = items.map { item in
@@ -730,12 +724,12 @@ final class BadgeFlowView: UIView {
         setNeedsLayout()
     }
 
-    private func computeHeight(for width: CGFloat) -> CGFloat {
+    private func flowHeight(for width: CGFloat) -> CGFloat {
         guard !labels.isEmpty, width > 0 else { return 0 }
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for l in labels {
             let sz = l.intrinsicContentSize
-            if x + sz.width > width, x > 0 {
+            if x > 0, x + sz.width > width {
                 x = 0; y += rowH + vSpacing; rowH = 0
             }
             x += sz.width + hSpacing
@@ -744,24 +738,36 @@ final class BadgeFlowView: UIView {
         return y + rowH
     }
 
+    // Called by UITableView.automaticDimension to determine cell height.
+    // targetSize.width is the constrained width; return height that fits.
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority h: UILayoutPriority,
+        verticalFittingPriority v: UILayoutPriority
+    ) -> CGSize {
+        let w = targetSize.width > 0 ? targetSize.width : bounds.width
+        return CGSize(width: w, height: max(1, flowHeight(for: w)))
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let w = bounds.width > 0 ? bounds.width : (superview?.bounds.width ?? UIScreen.main.bounds.width - 120)
+        return CGSize(width: UIView.noIntrinsicMetric, height: flowHeight(for: w))
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard !labels.isEmpty else { return }
         let width = bounds.width
+        guard width > 0 else { return }
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for l in labels {
             let sz = l.intrinsicContentSize
-            if x + sz.width > width, x > 0 {
+            if x > 0, x + sz.width > width {
                 x = 0; y += rowH + vSpacing; rowH = 0
             }
             l.frame = CGRect(x: x, y: y, width: sz.width, height: sz.height)
             x += sz.width + hSpacing
             rowH = max(rowH, sz.height)
-        }
-        let newHeight = y + rowH
-        if abs(bounds.height - newHeight) > 0.5 {
-            invalidateIntrinsicContentSize()
-            superview?.setNeedsLayout()
         }
     }
 }
