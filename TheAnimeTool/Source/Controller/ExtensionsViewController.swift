@@ -439,7 +439,7 @@ final class ExtensionCell: UITableViewCell {
         return iv
     }()
 
-    // Status dot — PENDING(yellow)/COMPLETED(green)/DROPPED(red)
+    // Status dot — PENDING(gray)/COMPLETED(green)/DROPPED(red) from Hayase StatusDot.svelte
     private let statusDot: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 4
@@ -513,13 +513,20 @@ final class ExtensionCell: UITableViewCell {
         let leftCol = UIStackView(arrangedSubviews: [topRow, badgesView])
         leftCol.axis = .vertical; leftCol.spacing = 12
 
-        // rightCol: optionsButton + switch (flex-col justify-between items-end)
-        let rightCol = UIStackView(arrangedSubviews: [optionsButton, toggleSwitch])
-        rightCol.axis = .vertical; rightCol.spacing = 10; rightCol.alignment = .center
+        // rightCol: flex justify-between flex-col items-end pb-1.5 (Hayase ExtensionSettings)
+        // Flexible spacer between bolt/trash and switch replicates justify-between / mt-auto.
+        let rightSpacer = UIView()
+        rightSpacer.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        rightSpacer.setContentCompressionResistancePriority(.fittingSizeLevel, for: .vertical)
+        let rightCol = UIStackView(arrangedSubviews: [optionsButton, rightSpacer, toggleSwitch])
+        rightCol.axis = .vertical; rightCol.spacing = 0; rightCol.alignment = .trailing
+        // pb-1.5 = 6pt bottom padding on right column (inside the card's bottom padding)
+        rightCol.isLayoutMarginsRelativeArrangement = true
+        rightCol.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: 6, right: 0)
 
-        // outerRow: leftCol (flex-1) + rightCol (w-auto)
+        // outerRow: leftCol fills available width; rightCol stretches to full card height (.fill)
         let outerRow = UIStackView(arrangedSubviews: [leftCol, rightCol])
-        outerRow.axis = .horizontal; outerRow.spacing = 12; outerRow.alignment = .top
+        outerRow.axis = .horizontal; outerRow.spacing = 12; outerRow.alignment = .fill
         outerRow.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(outerRow)
 
@@ -543,10 +550,11 @@ final class ExtensionCell: UITableViewCell {
         idLabel.text    = config.id
         toggleSwitch.isOn = enabled
 
-        // Status dot: green = worker loaded (COMPLETED), yellow = pending (PENDING)
+        // Status dot colors from Hayase StatusDot.svelte:
+        // COMPLETED = rgb(123,213,85) green; PENDING = rgb(180,180,180) gray
         statusDot.backgroundColor = hasWorker
-            ? UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
-            : UIColor(red: 0.900, green: 0.700, blue: 0.100, alpha: 1)
+            ? UIColor(red: 123/255, green: 213/255, blue: 85/255, alpha: 1)   // COMPLETED
+            : UIColor(white: 180/255, alpha: 1)                               // PENDING
 
         // Options button: Bolt icon when has options (Hayase <Bolt size={18} />), Trash when none
         let hasOpts = !(config.options?.isEmpty ?? true)
