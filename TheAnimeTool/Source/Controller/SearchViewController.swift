@@ -26,6 +26,8 @@ private struct FilterOption {
 
 private enum FilterType: Int, CaseIterable {
     case genre, year, season, format, status, sort
+    /// Synthetic type used only for the trace.moe "IDs" chip — not shown in filter panel.
+    case trace
 
     var label: String {
         switch self {
@@ -35,6 +37,7 @@ private enum FilterType: Int, CaseIterable {
         case .format: return "Formats"
         case .status: return "Status"
         case .sort:   return "Sort"
+        case .trace:  return "IDs"
         }
     }
 
@@ -114,8 +117,22 @@ private enum FilterType: Int, CaseIterable {
                 .init(displayName: "Trending Asc",     apiValue: "TRENDING"),
                 .init(displayName: "Updated Date Asc", apiValue: "UPDATED_AT"),
             ]
+        case .trace:
+            return []
         }
     }
+}
+
+// MARK: - trace.moe response (private to this file)
+
+private struct TraceMoeResponse: Decodable {
+    let result: [TraceMoeHit]
+    let error: String?
+}
+
+private struct TraceMoeHit: Decodable {
+    /// AniList anime ID returned by trace.moe
+    let anilist: Int
 }
 
 // MARK: - SearchViewController
@@ -149,6 +166,10 @@ class SearchViewController: UIViewController {
     private var isFetching   = false
     private var currentTitle = ""
     private var debounceTimer: Timer?
+    /// Set when a trace.moe image search is active; causes grid to show trace results.
+    private var traceIds: [Int]?
+    /// True while the trace.moe network request is in-flight.
+    private var isTracing = false
 
     // MARK: - Views
     private var headerView: UIView!
@@ -209,7 +230,8 @@ class SearchViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(false, animated: animated)
+        // Hayase has no navigation bar on the search page
+        navigationController?.setNavigationBarHidden(true, animated: animated)
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
@@ -217,6 +239,12 @@ class SearchViewController: UIViewController {
             pendingPrefill = nil
             applyPrefill(genre: pending.genre, sort: pending.sort)
         }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Restore nav bar for pushed view controllers (e.g. AnimeDetailViewController)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
     // MARK: - Prefill from Home
@@ -260,8 +288,10 @@ class SearchViewController: UIViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         headerView.backgroundColor = Self.bgBlack
         view.addSubview(headerView)
+        // Pin to view.topAnchor (not safeArea) so black bg fills behind the status bar,
+        // exactly like Hayase's sticky `bg-black` header that starts at the very top.
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
@@ -356,8 +386,10 @@ class SearchViewController: UIViewController {
         titleRowStack.layoutMargins = UIEdgeInsets(top: 20, left: 8, bottom: 8, right: 8) // pt-5, px-2
         titleRowStack.isLayoutMarginsRelativeArrangement = true
         headerView.addSubview(titleRowStack)
+        // Anchor to safeAreaLayoutGuide so content starts below the status bar.
+        // The layoutMargins.top = 20 provides the pt-5 breathing room inside.
         NSLayoutConstraint.activate([
-            titleRowStack.topAnchor.constraint(equalTo: headerView.topAnchor),
+            titleRowStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             titleRowStack.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
             titleRowStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
         ])
@@ -394,7 +426,7 @@ class SearchViewController: UIViewController {
         ])
 
         filterPickerButtons = []
-        for type in FilterType.allCases {
+        for type in FilterType.allCases where type != .trace {
             let (item, picker) = makeFilterItem(for: type)
             filterStack.addArrangedSubview(item)
             filterPickerButtons.append(picker)
@@ -526,6 +558,7 @@ class SearchViewController: UIViewController {
         case .format: return selectedFormats.contains(option.apiValue)
         case .status: return selectedStatuses.contains(option.apiValue)
         case .sort:   return selectedSort == option.apiValue
+        case .trace:  return false
         }
     }
 
@@ -567,6 +600,8 @@ class SearchViewController: UIViewController {
             }
         case .sort:
             selectedSort = (selectedSort == option.apiValue) ? "TRENDING_DESC" : option.apiValue
+        case .trace:
+            break  // trace chips are not shown in the filter panel picker
         }
         refreshFilterPickers(); rebuildActiveChips()
     }
@@ -579,6 +614,7 @@ class SearchViewController: UIViewController {
         case .format:  selectedFormats = [];  activeChipEntries.removeAll { $0.type == .format }
         case .status:  selectedStatuses = []; activeChipEntries.removeAll { $0.type == .status }
         case .sort:    selectedSort = "TRENDING_DESC"
+        case .trace:   clearTrace(); return   // clearTrace() handles its own fetch
         }
         refreshFilterPickers(); rebuildActiveChips(); updateBoltTint()
     }
@@ -605,7 +641,10 @@ class SearchViewController: UIViewController {
         case .status:
             return selectedStatuses.isEmpty ? "Any" : selectedStatuses.map { displayLabel($0, in: .status) }.joined(separator: ", ")
         case .sort:
+            // "Accuracy" matches Hayase's placeholder='Accuracy' on the Sort ComboBox
             return selectedSort.map { displayLabel($0, in: .sort) } ?? "Accuracy"
+        case .trace:
+            return "IDs"
         }
     }
 
@@ -614,7 +653,9 @@ class SearchViewController: UIViewController {
     }
 
     private func refreshFilterPickers() {
-        for (i, type) in FilterType.allCases.enumerated() {
+        // filterPickerButtons maps to FilterType.allCases excluding .trace
+        let panelTypes = FilterType.allCases.filter { $0 != .trace }
+        for (i, type) in panelTypes.enumerated() {
             guard i < filterPickerButtons.count else { continue }
             filterPickerButtons[i].setTitle(pickerTitle(for: type), for: .normal)
         }
@@ -700,6 +741,7 @@ class SearchViewController: UIViewController {
         case .format:  selectedFormats.removeAll { $0 == apiValue };  activeChipEntries.removeAll { $0.type == .format && $0.apiValue == apiValue }
         case .status:  selectedStatuses.removeAll { $0 == apiValue }; activeChipEntries.removeAll { $0.type == .status && $0.apiValue == apiValue }
         case .sort:    selectedSort = "TRENDING_DESC"
+        case .trace:   clearTrace(); return  // clearTrace() handles its own fetch
         }
         refreshFilterPickers(); rebuildActiveChips(); updateBoltTint(); fetchResults(reset: true)
     }
@@ -766,6 +808,11 @@ class SearchViewController: UIViewController {
     // MARK: - Fetch
 
     private func fetchResults(reset: Bool) {
+        // When trace.moe results are active, always re-fetch by IDs instead of normal search
+        if let ids = traceIds {
+            fetchResultsByIds(ids)
+            return
+        }
         if reset { currentPage = 1; hasNextPage = true }
         guard !isFetching, hasNextPage else { return }
         isFetching = true
@@ -776,6 +823,7 @@ class SearchViewController: UIViewController {
             genres: selectedGenres,
             formats: selectedFormats,
             statuses: selectedStatuses,
+            // Hayase: filter.sort?.[0]?.value ?? 'SEARCH_MATCH' — SEARCH_MATCH = search relevance
             sort: selectedSort ?? "SEARCH_MATCH",
             seasonYear: selectedYear.flatMap { Int($0) },
             season: selectedSeason,
@@ -790,6 +838,124 @@ class SearchViewController: UIViewController {
                 self.emptyLabel.text = self.currentTitle.isEmpty
                     ? "No results found" : "No results for \"\(self.currentTitle)\""
             }
+        }
+    }
+
+    // MARK: - trace.moe image search
+    //
+    // Hayase: traceAnime(file) from $lib/utils → POST multipart to api.trace.moe/search
+    // On success: clear() all filters, set search.ids = unique anilist IDs, show results.
+    //
+
+    /// Upload an image to trace.moe and show matching anime.
+    /// Mirrors Hayase's traceReq() behaviour exactly.
+    private func performTraceSearch(imageData: Data) {
+        guard !isTracing else { return }
+        isTracing = true
+        cameraButton.tintColor = Self.activeBlue   // blue tint while loading
+        loadingIndicator.startAnimating()
+        emptyLabel.isHidden = true
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        guard let url = URL(string: "https://api.trace.moe/search") else {
+            finishTrace(success: false); return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)",
+                         forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        func append(_ s: String) { if let d = s.data(using: .utf8) { body.append(d) } }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"image\"; filename=\"image.jpg\"\r\n")
+        append("Content-Type: image/jpeg\r\n\r\n")
+        body.append(imageData)
+        append("\r\n--\(boundary)--\r\n")
+        request.httpBody = body
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isTracing = false
+                self.cameraButton.tintColor = Self.mutedFg
+                self.loadingIndicator.stopAnimating()
+
+                guard let data = data,
+                      let resp = try? JSONDecoder().decode(TraceMoeResponse.self, from: data),
+                      (resp.error ?? "").isEmpty,
+                      !resp.result.isEmpty else {
+                    self.finishTrace(success: false)
+                    return
+                }
+                // Deduplicate IDs, preserving result order
+                var seen = Set<Int>()
+                let ids = resp.result.map { $0.anilist }.filter { seen.insert($0).inserted }
+                self.applyTraceResults(ids: ids)
+            }
+        }.resume()
+    }
+
+    /// Called after trace.moe returns IDs — clears filters and shows trace results.
+    /// Mirrors Hayase's clear() + search.ids = [...] sequence.
+    private func applyTraceResults(ids: [Int]) {
+        // Clear all regular filters (mirrors Hayase's clear())
+        selectedGenres = []; selectedYear = nil; selectedSeason = nil
+        selectedFormats = []; selectedStatuses = []; selectedSort = "TRENDING_DESC"
+        currentTitle = ""; searchField.text = ""
+        activeChipEntries = []
+        // Set trace state and add "IDs" chip (matches Hayase list() returning "IDs")
+        traceIds = ids
+        activeChipEntries.append((label: "IDs", type: .trace, apiValue: "trace"))
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResultsByIds(ids)
+    }
+
+    /// Clears trace state and returns to a normal search.
+    /// Mirrors removing the "IDs" chip in Hayase (remove("IDs") → search.ids = undefined).
+    private func clearTrace() {
+        traceIds = nil
+        activeChipEntries.removeAll { $0.type == .trace }
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResults(reset: true)
+    }
+
+    /// Shows an error alert when trace.moe found nothing.
+    private func finishTrace(success: Bool) {
+        isTracing = false
+        cameraButton.tintColor = Self.mutedFg
+        loadingIndicator.stopAnimating()
+        guard !success else { return }
+        emptyLabel.isHidden = !animeResults.isEmpty
+        let alert = UIAlertController(
+            title: "Image Search",
+            message: "Couldn't find anime for the specified image.\nTry removing black bars or using a more detailed image.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Fetch by IDs (trace.moe results)
+
+    private func fetchResultsByIds(_ ids: [Int]) {
+        guard !isFetching else { return }
+        isFetching = true
+        loadingIndicator.startAnimating()
+        emptyLabel.isHidden = true
+
+        AnimeService.sharedAnimeService.fetchAnimeByIds(ids) { [weak self] items in
+            guard let self = self else { return }
+            self.animeResults = items
+            self.hasNextPage = false
+            self.currentPage = 2
+            self.isFetching = false
+            self.loadingIndicator.stopAnimating()
+            self.collectionView.reloadData()
+            self.emptyLabel.isHidden = !items.isEmpty
+            if items.isEmpty { self.emptyLabel.text = "No matching anime found" }
         }
     }
 }
@@ -837,7 +1003,14 @@ extension SearchViewController: UICollectionViewDelegate {
 extension SearchViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        // Reverse image search (trace.moe) would be integrated here
+        guard let provider = results.first?.itemProvider,
+              provider.hasItemConformingToTypeIdentifier("public.image") else { return }
+        provider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
+            guard let data = data else { return }
+            // Convert to JPEG at a moderate quality to reduce payload size for trace.moe
+            let jpegData = UIImage(data: data)?.jpegData(compressionQuality: 0.8) ?? data
+            DispatchQueue.main.async { self?.performTraceSearch(imageData: jpegData) }
+        }
     }
 }
 
@@ -847,8 +1020,11 @@ extension SearchViewController: UIImagePickerControllerDelegate, UINavigationCon
     func imagePickerController(_ picker: UIImagePickerController,
                                didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
-        // Reverse image search (trace.moe) would be integrated here
+        let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage
+        guard let jpegData = image?.jpegData(compressionQuality: 0.8) else { return }
+        performTraceSearch(imageData: jpegData)
     }
+
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
     }

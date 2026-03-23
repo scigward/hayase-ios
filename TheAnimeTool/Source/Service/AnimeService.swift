@@ -647,6 +647,76 @@ public class AnimeService: NSObject {
         }.resume()
     }
 
+    // MARK: - AniList fetch by IDs (used for trace.moe results)
+
+    private let anilistByIdsQuery = """
+    query ($ids: [Int]) {
+      Page(page: 1, perPage: 50) {
+        media(type: ANIME, id_in: $ids, sort: POPULARITY_DESC) {
+          id
+          title { english romaji }
+          coverImage { large medium color }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          status
+          seasonYear
+          format
+          startDate { year }
+          favourites
+          trailer { id site }
+          description(asHtml: false)
+        }
+      }
+    }
+    """
+
+    /// Fetch specific anime from AniList by their IDs.
+    /// Used after a successful trace.moe image search.
+    func fetchAnimeByIds(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let body: [String: Any] = ["query": anilistByIdsQuery, "variables": ["ids": ids]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let pageData = response.data?.Page else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items: [AnimeItem] = (pageData.media ?? []).compactMap { media in
+                guard let id = media.id else { return nil }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc,
+                    year: media.seasonYear,
+                    startYear: media.startDate?.year,
+                    format: media.format,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
+            }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
     func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
         // Matches Hayase home/+page.svelte exactly — no "Airing Today" (that's only in schedule)
         let season = AnimeService.currentAniListSeason()
