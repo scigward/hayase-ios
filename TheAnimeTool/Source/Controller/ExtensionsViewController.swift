@@ -68,12 +68,14 @@ final class ExtensionsViewController: UIViewController {
     // MARK: - Setup
 
     private func setupSegmentedControl() {
+        // Hayase Tabs.List: bg-muted rounded-lg; active = bg-primary (white) text-background (dark); inactive = text-muted-foreground (gray)
+        // --muted = #27272a, --primary = #fafafa, --primary-foreground = #18181b, --muted-foreground = #a1a1aa
         segmentedControl = UISegmentedControl(items: ["Extensions", "Repositories"])
         segmentedControl.selectedSegmentIndex = 0
-        segmentedControl.selectedSegmentTintColor = UIColor(white: 0.25, alpha: 1)
-        segmentedControl.backgroundColor = UIColor(white: 0.1, alpha: 1)
-        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .normal)
-        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor.white, .font: UIFont.systemFont(ofSize: 13, weight: .bold)], for: .selected)
+        segmentedControl.selectedSegmentTintColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1) // primary #fafafa
+        segmentedControl.backgroundColor = UIColor(red: 39/255, green: 39/255, blue: 42/255, alpha: 1)            // muted #27272a
+        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor(red: 161/255, green: 161/255, blue: 170/255, alpha: 1)], for: .normal) // muted-foreground #a1a1aa
+        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1), .font: UIFont.systemFont(ofSize: 13, weight: .semibold)], for: .selected) // primary-foreground #18181b
         segmentedControl.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(segmentedControl)
@@ -110,26 +112,27 @@ final class ExtensionsViewController: UIViewController {
         importField.leftViewMode = .always
         importField.translatesAutoresizingMaskIntoConstraints = false
 
-        // Button: w-full on mobile (Hayase default flex-col), with + icon (Hayase <Plus />)
+        // Button: default variant = bg-primary text-primary-foreground, size=default = h-9(36pt) px-4(16pt) py-2(8pt)
+        // primary = #fafafa (white), primary-foreground = #18181b (dark)
         importButton = UIButton(type: .system)
         importButton.setImage(
             UIImage(systemName: "plus",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)),
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)),
             for: .normal)
         importButton.setTitle("Import Extensions", for: .normal)
-        importButton.setTitleColor(UIColor(white: 0.05, alpha: 1), for: .normal)
-        importButton.tintColor = UIColor(white: 0.05, alpha: 1)
-        importButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
-        importButton.backgroundColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
+        importButton.setTitleColor(UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1), for: .normal)
+        importButton.tintColor = UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1)
+        importButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        importButton.backgroundColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1)  // primary #fafafa
         importButton.layer.cornerRadius = 8
         importButton.addTarget(self, action: #selector(importTapped), for: .touchUpInside)
-        // Use edge insets to place icon left of title with proper 8pt gap (Hayase mr-2)
-        importButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 18, bottom: 10, right: 18)
+        // px-4=16pt, py-2=8pt. Icon mr-2 gap via imageEdgeInsets.
+        importButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         importButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 8)
         importButton.translatesAutoresizingMaskIntoConstraints = false
 
         importSpinner = UIActivityIndicatorView(style: .medium)
-        importSpinner.color = UIColor(white: 0.05, alpha: 1)
+        importSpinner.color = UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1)  // primary-foreground
         importSpinner.hidesWhenStopped = true
         importSpinner.translatesAutoresizingMaskIntoConstraints = false
 
@@ -152,7 +155,7 @@ final class ExtensionsViewController: UIViewController {
             importButton.topAnchor.constraint(equalTo: importField.bottomAnchor, constant: 10),
             importButton.leadingAnchor.constraint(equalTo: importBar.leadingAnchor),
             importButton.trailingAnchor.constraint(equalTo: importBar.trailingAnchor),
-            importButton.heightAnchor.constraint(equalToConstant: 40),
+            importButton.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 36pt
             importButton.bottomAnchor.constraint(equalTo: importBar.bottomAnchor),
 
             importSpinner.centerXAnchor.constraint(equalTo: importButton.centerXAnchor),
@@ -209,8 +212,8 @@ final class ExtensionsViewController: UIViewController {
     private func updateTabUI() {
         let isRepositories = selectedTab == 1
         importBar.isHidden = !isRepositories
-        // 40pt input + 10pt gap + 40pt button = 90pt (Hayase flex-col mobile layout)
-        importBarHeightConstraint.constant = isRepositories ? 90 : 0
+        // 40pt input + 10pt gap + 36pt button = 86pt (h-9 button, gap-3 between input and button)
+        importBarHeightConstraint.constant = isRepositories ? 86 : 0
         tableView.reloadData()
     }
 
@@ -266,7 +269,7 @@ final class ExtensionsViewController: UIViewController {
                 self.importButton.setTitle("Import Extensions", for: .normal)
                 self.importButton.setImage(
                     UIImage(systemName: "plus",
-                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)),
+                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)),
                     for: .normal)
                 self.importButton.isEnabled = true
             }
@@ -433,7 +436,7 @@ final class ExtensionCell: UITableViewCell {
         iv.contentMode = .scaleAspectFill
         iv.layer.cornerRadius = 8
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(white: 0.13, alpha: 1)
+        iv.backgroundColor = UIColor(white: 23/255, alpha: 1)  // bg-neutral-900 #171717
         iv.widthAnchor.constraint(equalToConstant: 40).isActive = true
         iv.heightAnchor.constraint(equalToConstant: 40).isActive = true
         return iv
@@ -474,7 +477,9 @@ final class ExtensionCell: UITableViewCell {
 
     private let toggleSwitch: UISwitch = {
         let s = UISwitch()
-        s.onTintColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
+        // Hayase switch.svelte: data-[state=checked]:bg-primary (#fafafa), thumb = bg-background (#09090b)
+        s.onTintColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1)  // primary #fafafa
+        s.thumbTintColor = UIColor(red: 9/255, green: 9/255, blue: 11/255, alpha: 1)    // background #09090b
         s.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
         return s
     }()
@@ -698,35 +703,54 @@ private func codeToEmoji(_ code: String) -> String? {
 final class BadgeFlowView: UIView {
 
     enum Item {
-        /// Standard badge: rounded bg-neutral-900 pill with bold text
+        /// Standard badge: rounded bg-neutral-900 pill with bold text, px-3 py-0.5
         case badge(String)
         /// Language emoji flags: text-xl, no background
         case flags(String)
     }
 
+    // UILabel subclass that adds px-3 (12pt) horizontal and py-0.5 (2pt) vertical padding,
+    // matching Hayase's `rounded px-3 py-0.5 font-bold bg-neutral-900 leading-snug text-sm` badge style.
+    private final class PaddedBadgeLabel: UILabel {
+        let hPad: CGFloat = 12  // px-3
+        let vPad: CGFloat = 2   // py-0.5
+
+        override var intrinsicContentSize: CGSize {
+            let base = super.intrinsicContentSize
+            return CGSize(width: base.width + hPad * 2, height: base.height + vPad * 2)
+        }
+
+        override func drawText(in rect: CGRect) {
+            super.drawText(in: rect.insetBy(dx: hPad, dy: vPad))
+        }
+    }
+
     private var labels: [UILabel] = []
-    private let hSpacing: CGFloat = 6   // gap-2 ≈ 8pt; 6pt matches native badge spacing
+    private let hSpacing: CGFloat = 8   // gap-2 = 8pt
     private let vSpacing: CGFloat = 4
 
     func setItems(_ items: [Item]) {
         labels.forEach { $0.removeFromSuperview() }
         labels = items.map { item in
-            let l = UILabel()
             switch item {
             case .badge(let text):
-                l.text = "  \(text)  "
-                l.font = .systemFont(ofSize: 10, weight: .bold)
-                l.textColor = UIColor(white: 0.85, alpha: 1)   // text-neutral-300
-                l.backgroundColor = UIColor(white: 0.13, alpha: 1)  // bg-neutral-900
-                l.layer.cornerRadius = 4   // rounded (4px)
-                l.clipsToBounds = true
-            case .flags(let text):
+                let l = PaddedBadgeLabel()
                 l.text = text
-                l.font = .systemFont(ofSize: 18)   // text-xl
+                l.font = .systemFont(ofSize: 13, weight: .bold)         // text-sm font-bold
+                l.textColor = UIColor(white: 212/255, alpha: 1)         // text-neutral-300 #d4d4d4
+                l.backgroundColor = UIColor(white: 23/255, alpha: 1)   // bg-neutral-900 #171717
+                l.layer.cornerRadius = 4                                // rounded = 4pt
+                l.clipsToBounds = true
+                addSubview(l)
+                return l
+            case .flags(let text):
+                let l = UILabel()
+                l.text = text
+                l.font = .systemFont(ofSize: 20)  // text-xl = 20pt
                 l.textColor = .white
+                addSubview(l)
+                return l
             }
-            addSubview(l)
-            return l
         }
         invalidateIntrinsicContentSize()
         setNeedsLayout()
