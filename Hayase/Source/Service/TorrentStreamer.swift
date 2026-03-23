@@ -716,11 +716,13 @@ final class TorrentStreamer {
             // Re-requesting every second ensures head/tail stay at priority 7 with
             // time-critical deadlines.
             if now.timeIntervalSince(lastReinforceTime) >= reinforceInterval {
+                guard isActive else { break }
                 requestHeadPieces()
                 requestTailPieces()
                 lastReinforceTime = now
             }
 
+            guard isActive else { break }
             torrentHandle.updateSnapshot()
             let snap = torrentHandle.snapshot
             guard let entry = snap.files.first(where: { $0.index == fileIndex }),

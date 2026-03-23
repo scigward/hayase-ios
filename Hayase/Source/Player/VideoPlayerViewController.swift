@@ -899,6 +899,7 @@ final class VideoPlayerViewController: UIViewController {
         streamer?.stop()
         streamer = nil
         currentVideoIndex -= 1
+        guard currentVideoIndex < allVideos.count else { return }
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
         if let idx = videoEntity?.videoIndex {
@@ -919,6 +920,7 @@ final class VideoPlayerViewController: UIViewController {
         streamer?.stop()
         streamer = nil
         currentVideoIndex += 1
+        guard currentVideoIndex < allVideos.count else { return }
         videoEntity = allVideos[currentVideoIndex]
         episodeNumber = currentVideoIndex + 1
         if let idx = videoEntity?.videoIndex {

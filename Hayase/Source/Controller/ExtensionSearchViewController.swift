@@ -644,12 +644,12 @@ final class ExtensionSearchViewController: UIViewController {
     @objc private func autoSelectTapped() {
         guard !filteredResults.isEmpty else { return }
         // Best: high accuracy first, then most seeders (mirrors filterAndSortResults)
-        let best = filteredResults.sorted { a, b in
+        guard let best = filteredResults.sorted(by: { a, b in
             let scoreA = a.accuracy == "high" ? 2 : a.accuracy == "medium" ? 1 : 0
             let scoreB = b.accuracy == "high" ? 2 : b.accuracy == "medium" ? 1 : 0
             if scoreA != scoreB { return scoreA > scoreB }
             return a.seeders > b.seeders
-        }.first!
+        }).first else { return }
         confirmDownload(best)
     }
 
