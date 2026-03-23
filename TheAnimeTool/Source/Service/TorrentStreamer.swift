@@ -8,17 +8,96 @@ import LibTorrent
 
 /// Manages torrent-based video streaming for a single file within a torrent.
 ///
-/// Follows the Hayase streaming model — sequential download + priority management:
-/// - Sequential download ON (biases libtorrent to download from beginning → metadata first)
-/// - All file pieces start at priority 1 (low but wanted) — every peer can contribute
-/// - Head pieces (first 8) at priority 7 + tight deadlines (MKV SeekHead/Info/Tracks)
-/// - Tail pieces (last 16) at priority 7 + tight deadlines (MKV Cues/seek index)
-/// - Active window pieces get priority 7 + tight deadlines (current playback)
-/// - Look-ahead pieces get priority 4 + relaxed deadlines (buffer ahead)
-/// - Pieces outside the window stay at priority 1 (still downloaded, just lower priority)
-/// - On seek: all deadlines cleared, old window set to priority 0 to cancel
-///   in-flight requests, new window gets priority 7 + deadlines, then old
-///   pieces restored to background priority
+/// Implements all 10 WebTorrent streaming mechanisms using libtorrent equivalents:
+///
+/// ## 1. Selections System (Priority Queue)
+/// WebTorrent: priority-sorted selection list, highest priority serviced first.
+/// libtorrent: piece priority levels 0–7. Critical pieces get priority 7 +
+/// deadlines, look-ahead gets priority 7 (no deadline), background gets
+/// priority 1. libtorrent's piece picker natively services higher-priority
+/// pieces first — equivalent to WebTorrent's sorted selection list.
+///
+/// ## 2. FileIterator (Streaming Entry Point)
+/// WebTorrent: FileIterator registers a stream selection for the file's piece
+/// range, then calls `torrent.critical()` on each needed piece as it iterates.
+/// libtorrent: `TorrentStreamer.start()` registers the file's piece range and
+/// sets initial priorities. `LocalStreamServer.waitForLocalPieces()` acts as
+/// the iterator — on each HTTP range request (equivalent to `next()` call),
+/// `applyPriorityBoost()` sets deadlines on the immediately-needed pieces
+/// (the blocking chunk) plus priority-only read-ahead on upcoming pieces.
+///
+/// ## 3. Critical Pieces System
+/// WebTorrent: `torrent.critical(start, end)` marks pieces in `_critical[]`
+/// boolean array. `_criticalLength = Math.min((1024*1024/pieceLength)|0, 2)`.
+/// libtorrent: `set_piece_deadline()` on `criticalLength` pieces (1–2, ~1 MB).
+/// Deadlines trigger `cancel_non_critical()` which is the libtorrent-native
+/// mechanism for focusing all bandwidth on urgent pieces — equivalent to
+/// WebTorrent's critical marking + hotswap combination.
+///
+/// ## 4. Hotswap Mechanism
+/// WebTorrent: `_hotswap()` cancels a slower peer's reservation and reassigns
+/// the block to a faster wire (if wire speed > 2× slowest wire's speed).
+/// libtorrent: `cancel_non_critical()` (triggered by `set_piece_deadline()`)
+/// cancels ALL in-flight requests for non-deadline pieces and sends CANCEL
+/// messages to peers. This is more aggressive than WebTorrent's per-block
+/// hotswap — it cancels all non-critical requests, not just one slow peer's.
+///
+/// ## 5. Two-Pass Wire Update Strategy
+/// WebTorrent: `_updateWire()` does two passes: (1) `trySelectWire(false)` —
+/// request pieces without hotswap; (2) `trySelectWire(true)` — if the first
+/// pass fails, enable hotswap for ALL pieces to fill the pipeline.
+/// libtorrent: handles this internally via its request queue. Normal requests
+/// go through the piece picker; deadline-triggered `cancel_non_critical()`
+/// acts as the aggressive second pass when critical pieces aren't being served.
+///
+/// ## 6. Speed Ranker (Avoiding Slow Peers)
+/// WebTorrent: `speedRanker()` skips pieces if a faster peer is already
+/// downloading the same piece and can complete it sooner.
+/// libtorrent: peer scheduling and bandwidth allocation handle this natively.
+/// libtorrent's piece picker considers peer download speed when assigning
+/// requests and avoids duplicate block requests across peers.
+///
+/// ## 7. Priority Shuffle (Round-Robin Fairness)
+/// WebTorrent: `shufflePriority()` rotates high-priority selections within
+/// the same priority group for round-robin fairness among multiple streams.
+/// libtorrent: N/A for single-file streaming. When multiple files stream,
+/// libtorrent's piece picker distributes requests across all high-priority
+/// pieces by default.
+///
+/// ## 8. Dynamic Pipeline Length
+/// WebTorrent: dynamically calculates outstanding requests per wire to fill
+/// 0.5–1 second of download time, respecting the peer's `reqq` limit.
+/// libtorrent: manages request pipelining internally based on connection
+/// speed, round-trip time, and peer limits. No manual tuning needed.
+///
+/// ## 9. Sequential vs. Rarest-First Strategy
+/// WebTorrent: static configuration via `opts.strategy`, defaults to
+/// `'sequential'`. No automatic runtime switching (future goal per FAQ).
+/// libtorrent: `setSequentialDownload(true)` set once in `start()`, never
+/// toggled. Biases piece picker to prefer pieces in ascending order.
+/// Deadlines on critical pieces handle immediate urgency; no need for
+/// rarest-first switching during streaming.
+///
+/// ## 10. Selection Garbage Collection
+/// WebTorrent: `_gcSelections()` advances offset to skip downloaded pieces,
+/// removes fully-satisfied selections, and notifies waiting consumers.
+/// libtorrent: `resetPiecesOutsideWindow()` advances the priority window
+/// past downloaded pieces, resetting old pieces to background priority.
+/// `updatePlaybackPosition()` with `minPieceUpdateDistance` gates how
+/// often the window advances — preventing excessive libtorrent calls while
+/// ensuring continuous progress.
+///
+/// ## Additional: MKV Metadata Pieces
+/// Head/tail pieces always get priority 7 + tight deadlines for MKV container
+/// metadata (SeekHead/Info/Tracks at head, Cues/seek-index at tail). This is
+/// specific to video streaming and has no WebTorrent equivalent — WebTorrent
+/// doesn't need container metadata pre-fetching because browsers handle this.
+///
+/// ## Seek Behavior
+/// On seek: all deadlines cleared atomically via `clearPieceDeadlines()`, old
+/// window cancelled (priority 0), new critical window set with tight deadlines,
+/// rest of window at priority 7 only. The atomic clear triggers
+/// `cancel_non_critical()`, focusing all bandwidth on the new position.
 final class TorrentStreamer {
 
     // MARK: - Notifications
@@ -48,22 +127,11 @@ final class TorrentStreamer {
     /// Deadline step per piece in the critical range (ms).
     private let criticalDeadlineStep: Int32 = 50
 
-    /// Deadline in milliseconds for the first look-ahead piece.
-    private let lookAheadDeadlineBase: Int32 = 500
-
-    /// Deadline step per piece in the look-ahead range (ms).
-    private let lookAheadDeadlineStep: Int32 = 100
-
     /// Minimum piece distance before we re-evaluate deadlines. Prevents
     /// excessive libtorrent calls when playback advances smoothly.
     private let minPieceUpdateDistance = 3
 
     // -- Seek-specific settings --
-
-    /// Number of critical pieces to request after a seek. Enough for MPV to
-    /// start decoding at the new position quickly without requesting too many
-    /// pieces that would dilute per-peer request bandwidth.
-    private let seekCriticalPieceCount = 12
 
     /// Very tight deadline base for seek operations (ms).
     private let seekDeadlineBase: Int32 = 5
@@ -99,6 +167,17 @@ final class TorrentStreamer {
 
     /// Computed at `start()` — number of pieces from the END of the file.
     private var tailPieceCount = 16
+
+    // -- Critical length (WebTorrent-style) --
+
+    /// Number of pieces that receive tight deadlines (the "critical" window).
+    /// Modelled after WebTorrent's `_criticalLength`:
+    ///   `Math.min((1024 * 1024 / pieceLength) | 0, 2)`
+    /// This covers ~1 MB of data — just enough for MPV to parse a cluster and
+    /// start decoding. Only these pieces trigger libtorrent's
+    /// cancel_non_critical() mechanism (equivalent to WebTorrent hotswap).
+    /// Computed at `start()` based on actual piece length.
+    private var criticalLength = 2
 
     // MARK: - State
 
@@ -193,7 +272,16 @@ final class TorrentStreamer {
         headPieceCount = max(1, min(8, Self.headByteTarget / pl))
         tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
-        // Enable sequential download — Hayase streaming model.
+        // WebTorrent critical length: ~1 MB worth of pieces, capped at 2.
+        // Only these pieces get deadlines; the rest of the window gets
+        // priority only. This concentrates libtorrent's cancel_non_critical()
+        // on the pieces needed RIGHT NOW for playback.
+        criticalLength = max(1, min(2, 1_048_576 / pl))
+
+        // Enable sequential download — static, never toggled (WebTorrent model).
+        // Sequential ordering ensures pieces near playback are preferred by
+        // the piece picker. Deadlines on critical pieces handle immediate
+        // urgency; no need to switch between sequential and rarest-first.
         torrentHandle.setSequentialDownload(true)
 
         // Set non-metadata file pieces to a background priority.
@@ -214,8 +302,8 @@ final class TorrentStreamer {
 
         let plMB = String(format: "%.1f", Double(pl) / 1_048_576)
         let modeStr = streamedDownloadMode ? " [streamed]" : ""
-        StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount)\(modeStr)")
-        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount) streamedDownload=\(streamedDownloadMode)") }
+        StreamingLogger.shared.info("Streaming: \(totalFilePieces) pieces × \(plMB) MB, head=\(headPieceCount) tail=\(tailPieceCount) critical=\(criticalLength)\(modeStr)")
+        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: start file=\(fileIndex) pieces=\(beginPiece)–\(endPiece) (\(totalFilePieces) total) pieceLen=\(pl) head=\(headPieceCount) tail=\(tailPieceCount) critical=\(criticalLength) streamedDownload=\(streamedDownloadMode)") }
 
         // Force re-announce to all trackers so we discover peers immediately.
         // This is critical for low-seeder torrents: the torrent may have been
@@ -277,10 +365,8 @@ final class TorrentStreamer {
         // reaches the seek target. MPV's keyframe-seeking often reports a
         // position several pieces before the requested seek position. The
         // difference exceeds minPieceUpdateDistance, triggering
-        // setDeadlinesFrom() with the full normal window (50+ pieces).
-        // This overwrites the tight 12-piece seek window, diluting
-        // bandwidth across many pieces and significantly slowing the
-        // initial piece fetch at the seek target. We suppress until:
+        // setDeadlinesFrom() with a window that overwrites the tight seek
+        // window. We suppress until:
         // (a) playback reaches/passes the seek target, or
         // (b) a safety timeout expires (prevents indefinite suppression
         //     if MPV is stuck before the target).
@@ -296,15 +382,10 @@ final class TorrentStreamer {
             }
         }
 
-        // Only update deadlines when the playback front has moved at least
+        // Only update when the playback front has moved at least
         // minPieceUpdateDistance pieces since the last update. This gates
         // how often we call into libtorrent while still ensuring the
-        // look-ahead window continuously advances as playback progresses.
-        // We deliberately do NOT skip based on buffered seconds — doing so
-        // would stall the look-ahead window while the buffer is healthy,
-        // causing pieces beyond the window to have no deadline boosts.
-        // When the buffer eventually depletes, those pieces aren't ready
-        // and playback stutters.
+        // priority window continuously advances as playback progresses.
         if lastDeadlinePiece >= 0 && abs(currentPiece - lastDeadlinePiece) < minPieceUpdateDistance {
             return
         }
@@ -312,9 +393,10 @@ final class TorrentStreamer {
         setDeadlinesFrom(pieceIndex: currentPiece)
     }
 
-    /// Called when the user seeks to a new position. Always forces a deadline
-    /// update with more aggressive deadlines than normal playback, so pieces
-    /// at the seek target arrive quickly.
+    /// Called when the user seeks to a new position. Clears old deadlines,
+    /// cancels in-flight requests, and sets tight deadlines on the critical
+    /// pieces at the new position (WebTorrent model: critical + priority-only
+    /// look-ahead, same as normal playback but forced immediately).
     func seekTo(fraction: Double) {
         guard isActive, totalFilePieces > 0 else { return }
 
@@ -351,11 +433,11 @@ final class TorrentStreamer {
             }
         }
 
-        // 3. Set aggressive deadlines for the seek target. Because the
+        // 3. Set critical deadlines at the seek target. Because the
         //    time-critical list was emptied above, the first set_piece_deadline
         //    call triggers cancel_non_critical() inside libtorrent, which
         //    cancels ALL non-deadline peer requests — focusing bandwidth
-        //    entirely on the new seek position.
+        //    entirely on the new seek position's critical pieces.
         setDeadlinesFrom(pieceIndex: targetPiece, force: true, isSeek: true)
 
         // 4. Restore old-window pieces that aren't in the new window back to
@@ -465,9 +547,18 @@ final class TorrentStreamer {
         return secondsPerPiece > 0 ? Int(ceil(seconds / secondsPerPiece)) : 0
     }
 
-    /// Sets piece deadlines for a window starting at `pieceIndex`.
-    /// - Normal playback: ~10s critical + ~90s look-ahead (dynamically computed)
-    /// - Seek mode: larger critical window with tighter deadlines
+    /// Sets piece priorities for a window starting at `pieceIndex`.
+    ///
+    /// WebTorrent-aligned approach:
+    /// - Only the first `criticalLength` pieces (1–2, ~1 MB) get deadlines.
+    ///   This is the equivalent of WebTorrent's critical() mechanism — these
+    ///   pieces trigger libtorrent's cancel_non_critical(), focusing all
+    ///   bandwidth on the immediate playback need.
+    /// - The rest of the window gets priority 7 but NO deadlines. Sequential
+    ///   ordering + elevated priority ensures they download in order without
+    ///   competing for deadline-driven bandwidth.
+    /// - On seek: same structure but with tighter deadline values.
+    ///
     /// Only pieces that fall OUTSIDE the new window are reset to background
     /// priority. Pieces that overlap between the old and new windows keep their
     /// boosted state — this avoids a priority gap that disrupts libtorrent's
@@ -478,53 +569,42 @@ final class TorrentStreamer {
         if !force && start == lastDeadlinePiece { return }
         lastDeadlinePiece = start
 
-        // Compute dynamic piece counts from video duration.
-        let critCount: Int
+        // Compute the total priority window size from video duration.
         let bufTotal: Int
         let critBase: Int32
         let critStep: Int32
 
         if isSeek {
-            critCount = seekCriticalPieceCount
-            // On seek, minimize look-ahead to concentrate all bandwidth on the
-            // critical pieces MPV needs to resume playback. The normal look-ahead
-            // will kick in once playback advances past the critical window.
-            bufTotal  = seekCriticalPieceCount
+            // On seek, use a smaller total window to concentrate priority on
+            // the seek target. The normal window will expand once playback
+            // advances past the seek suppression.
+            bufTotal  = max(minCriticalPieces, piecesForSeconds(criticalBufferSeconds))
             critBase  = seekDeadlineBase
             critStep  = seekDeadlineStep
         } else if streamedDownloadMode {
             // Streamed download: minimal buffer — only a few seconds of playback.
-            // No look-ahead beyond the critical window.
-            critCount = max(4, piecesForSeconds(criticalBufferSeconds))
-            bufTotal  = critCount
+            bufTotal  = max(4, piecesForSeconds(criticalBufferSeconds))
             critBase  = criticalDeadlineBase
             critStep  = criticalDeadlineStep
         } else {
-            critCount = max(minCriticalPieces, piecesForSeconds(criticalBufferSeconds))
             bufTotal  = max(minBufferPieces, piecesForSeconds(targetBufferSeconds))
             critBase  = criticalDeadlineBase
             critStep  = criticalDeadlineStep
         }
 
-        // Look-ahead count is the total buffer minus critical pieces.
-        let lookCount = max(0, bufTotal - critCount)
-        let totalWindow = critCount + lookCount
-        let newWindowEnd = min(start + totalWindow - 1, endPiece)
+        let newWindowEnd = min(start + bufTotal - 1, endPiece)
 
         // Reset only pieces that fall OUTSIDE the new window.
-        // This preserves priority/deadline on overlapping pieces, preventing
+        // This preserves priority on overlapping pieces, preventing
         // libtorrent from canceling in-flight requests and causing download
         // gaps that lead to playback stutters.
         resetPiecesOutsideWindow(newStart: start, newEnd: newWindowEnd)
 
-        // All pieces in the buffer window get priority 7 (top).
-        // Using uniform priority prevents libtorrent from starving look-ahead
-        // pieces: with priority 4 look-ahead vs priority 7 critical, bandwidth
-        // concentrates on critical pieces while look-ahead pieces fall behind.
-        // When playback catches up, those pieces aren't ready → stutter.
-        // Deadlines alone provide sufficient ordering (tighter for critical,
-        // relaxed for look-ahead) without needing a priority split.
-        for i in 0..<critCount {
+        // Critical pieces (first `criticalLength`): priority 7 + tight deadlines.
+        // Only these trigger libtorrent's cancel_non_critical() — the equivalent
+        // of WebTorrent's hotswap mechanism. This focuses ALL deadline-driven
+        // bandwidth on just 1–2 pieces instead of spreading across 50+.
+        for i in 0..<criticalLength {
             let piece = start + i
             guard piece <= endPiece else { break }
             torrentHandle.setPiecePriority(piece, priority: 7)
@@ -532,12 +612,15 @@ final class TorrentStreamer {
             torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        for i in critCount..<totalWindow {
+        // Look-ahead pieces: priority 7, NO deadlines.
+        // Sequential ordering ensures these download in order. Elevated
+        // priority (7) keeps them ahead of background pieces (1). No
+        // deadlines means they don't compete with critical pieces for
+        // libtorrent's time-critical scheduling.
+        for i in criticalLength..<bufTotal {
             let piece = start + i
             guard piece <= endPiece else { break }
             torrentHandle.setPiecePriority(piece, priority: 7)
-            let deadline = lookAheadDeadlineBase + Int32(i - critCount) * lookAheadDeadlineStep
-            torrentHandle.setPieceDeadline(piece, deadline: deadline)
         }
 
         activeWindowStart = start
