@@ -90,12 +90,13 @@ final class ExtensionsViewController: UIViewController {
         importBar.isHidden = true
         view.addSubview(importBar)
 
+        // Input: bg-neutral-950 border-none (Hayase)
         importField = UITextField()
         importField.placeholder = "https://example.com/manifest.json"
         importField.attributedPlaceholder = NSAttributedString(
             string: importField.placeholder ?? "",
             attributes: [.foregroundColor: UIColor(white: 0.4, alpha: 1)])
-        importField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        importField.backgroundColor = UIColor(white: 0.039, alpha: 1)  // bg-neutral-950
         importField.textColor = .white
         importField.tintColor = .white
         importField.font = .systemFont(ofSize: 13)
@@ -109,14 +110,22 @@ final class ExtensionsViewController: UIViewController {
         importField.leftViewMode = .always
         importField.translatesAutoresizingMaskIntoConstraints = false
 
+        // Button: w-full on mobile (Hayase default flex-col), with + icon (Hayase <Plus />)
         importButton = UIButton(type: .system)
+        importButton.setImage(
+            UIImage(systemName: "plus",
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)),
+            for: .normal)
         importButton.setTitle("Import Extensions", for: .normal)
         importButton.setTitleColor(UIColor(white: 0.05, alpha: 1), for: .normal)
+        importButton.tintColor = UIColor(white: 0.05, alpha: 1)
         importButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
         importButton.backgroundColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
         importButton.layer.cornerRadius = 8
         importButton.addTarget(self, action: #selector(importTapped), for: .touchUpInside)
-        importButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        // Use edge insets to place icon left of title with proper 8pt gap (Hayase mr-2)
+        importButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 18, bottom: 10, right: 18)
+        importButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 8)
         importButton.translatesAutoresizingMaskIntoConstraints = false
 
         importSpinner = UIActivityIndicatorView(style: .medium)
@@ -126,22 +135,25 @@ final class ExtensionsViewController: UIViewController {
 
         [importField, importButton, importSpinner].forEach { importBar.addSubview($0) }
 
-        importBarHeightConstraint = importBar.heightAnchor.constraint(equalToConstant: 44)
+        // Hayase mobile: flex-col — input on top, button full-width below (gap-3 = 12pt)
+        let importBarCollapsedHeight: CGFloat = 0
+        importBarHeightConstraint = importBar.heightAnchor.constraint(equalToConstant: importBarCollapsedHeight)
         NSLayoutConstraint.activate([
             importBar.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 12),
             importBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             importBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             importBarHeightConstraint,
 
+            importField.topAnchor.constraint(equalTo: importBar.topAnchor),
             importField.leadingAnchor.constraint(equalTo: importBar.leadingAnchor),
-            importField.centerYAnchor.constraint(equalTo: importBar.centerYAnchor),
+            importField.trailingAnchor.constraint(equalTo: importBar.trailingAnchor),
             importField.heightAnchor.constraint(equalToConstant: 40),
-            importField.trailingAnchor.constraint(equalTo: importButton.leadingAnchor, constant: -10),
 
+            importButton.topAnchor.constraint(equalTo: importField.bottomAnchor, constant: 10),
+            importButton.leadingAnchor.constraint(equalTo: importBar.leadingAnchor),
             importButton.trailingAnchor.constraint(equalTo: importBar.trailingAnchor),
-            importButton.centerYAnchor.constraint(equalTo: importBar.centerYAnchor),
             importButton.heightAnchor.constraint(equalToConstant: 40),
-            importButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+            importButton.bottomAnchor.constraint(equalTo: importBar.bottomAnchor),
 
             importSpinner.centerXAnchor.constraint(equalTo: importButton.centerXAnchor),
             importSpinner.centerYAnchor.constraint(equalTo: importButton.centerYAnchor),
@@ -197,7 +209,8 @@ final class ExtensionsViewController: UIViewController {
     private func updateTabUI() {
         let isRepositories = selectedTab == 1
         importBar.isHidden = !isRepositories
-        importBarHeightConstraint.constant = isRepositories ? 44 : 0
+        // 40pt input + 10pt gap + 40pt button = 90pt (Hayase flex-col mobile layout)
+        importBarHeightConstraint.constant = isRepositories ? 90 : 0
         tableView.reloadData()
     }
 
@@ -243,6 +256,7 @@ final class ExtensionsViewController: UIViewController {
         importField.resignFirstResponder()
 
         importButton.setTitle("", for: .normal)
+        importButton.setImage(nil, for: .normal)
         importSpinner.startAnimating()
         importButton.isEnabled = false
 
@@ -250,6 +264,10 @@ final class ExtensionsViewController: UIViewController {
             defer {
                 self.importSpinner.stopAnimating()
                 self.importButton.setTitle("Import Extensions", for: .normal)
+                self.importButton.setImage(
+                    UIImage(systemName: "plus",
+                            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)),
+                    for: .normal)
                 self.importButton.isEnabled = true
             }
             do {
@@ -409,19 +427,19 @@ final class ExtensionCell: UITableViewCell {
     var onToggle:  ((Bool) -> Void)?
     var onOptions: (() -> Void)?
 
-    // Left: icon
+    // icon: size-10 rounded-md bg-neutral-900
     private let iconView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
-        iv.layer.cornerRadius = 8   // 'rounded-md' ≈ 8px
+        iv.layer.cornerRadius = 8
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(white: 0.13, alpha: 1) // bg-neutral-900
+        iv.backgroundColor = UIColor(white: 0.13, alpha: 1)
         iv.widthAnchor.constraint(equalToConstant: 40).isActive = true
         iv.heightAnchor.constraint(equalToConstant: 40).isActive = true
         return iv
     }()
 
-    // Status dot (mirrors <StatusDot variant='PENDING|COMPLETED|DROPPED' />)
+    // Status dot — PENDING(yellow)/COMPLETED(green)/DROPPED(red)
     private let statusDot: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 4
@@ -432,7 +450,7 @@ final class ExtensionCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .bold) // 'text-md font-bold'
+        l.font = .systemFont(ofSize: 14, weight: .bold)
         l.textColor = .white
         return l
     }()
@@ -440,31 +458,16 @@ final class ExtensionCell: UITableViewCell {
     private let idLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 11)
-        l.textColor = UIColor(white: 0.45, alpha: 1) // 'text-xs text-muted-foreground'
+        l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()
 
-    // Badges row (version / type / accuracy / ratio? / media / emoji flags)
-    private let badgesStack: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.spacing = 6
-        sv.alignment = .center
-        return sv
-    }()
+    // Badges: wrapping flow view (Hayase: flex-wrap gap-2)
+    private let badgesView = BadgeFlowView()
 
-    // Language emoji label (shown after badges if config.languages present)
-    private let flagsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 18)
-        l.textColor = .white
-        return l
-    }()
-
-    // Right: options gear button + enable/disable switch
+    // Right: Bolt (settings) or Trash (delete) + switch (Hayase ExtensionSettings.svelte)
     private let optionsButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "gearshape"), for: .normal)
         b.tintColor = UIColor(white: 0.6, alpha: 1)
         return b
     }()
@@ -484,36 +487,41 @@ final class ExtensionCell: UITableViewCell {
         toggleSwitch.addTarget(self, action: #selector(toggleChanged), for: .valueChanged)
         optionsButton.addTarget(self, action: #selector(optionsTapped), for: .touchUpInside)
 
-        // Card container (mirrors bg-neutral-950 px-4 py-3 rounded-md)
+        // Card: bg-neutral-950 px-4 py-3 rounded-md
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.067, alpha: 1)
+        card.backgroundColor = UIColor(white: 0.039, alpha: 1)  // bg-neutral-950
         card.layer.cornerRadius = 8
         card.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(card)
 
-        // Name row: statusDot + nameLabel
+        // name row: statusDot + nameLabel (inline, matching Hayase StatusDot before name)
         let nameRow = UIStackView(arrangedSubviews: [statusDot, nameLabel])
         nameRow.axis = .horizontal; nameRow.spacing = 6; nameRow.alignment = .center
 
-        // Badges + flags row
-        let badgeRow = UIStackView(arrangedSubviews: [badgesStack, flagsLabel])
-        badgeRow.axis = .horizontal; badgeRow.spacing = 8; badgeRow.alignment = .center
+        // nameIdCol: name row + id (flex-col)
+        let nameIdCol = UIStackView(arrangedSubviews: [nameRow, idLabel])
+        nameIdCol.axis = .vertical; nameIdCol.spacing = 3
 
-        // Info column (left side of card)
-        let infoCol = UIStackView(arrangedSubviews: [nameRow, idLabel, badgeRow])
-        infoCol.axis = .vertical; infoCol.spacing = 4
+        // topRow: icon + nameIdCol (flex-row space-x-3, items-center)
+        let topRow = UIStackView(arrangedSubviews: [iconView, nameIdCol])
+        topRow.axis = .horizontal; topRow.spacing = 12; topRow.alignment = .center
 
-        // Right column (mirrors flex justify-between flex-col items-end)
+        // badgesView needs TAMIC = false for use inside UIStackView
+        badgesView.translatesAutoresizingMaskIntoConstraints = false
+
+        // leftCol: topRow + wrapping badges (flex-col space-y-3)
+        let leftCol = UIStackView(arrangedSubviews: [topRow, badgesView])
+        leftCol.axis = .vertical; leftCol.spacing = 12
+
+        // rightCol: optionsButton + switch (flex-col justify-between items-end)
         let rightCol = UIStackView(arrangedSubviews: [optionsButton, toggleSwitch])
         rightCol.axis = .vertical; rightCol.spacing = 10; rightCol.alignment = .center
 
-        // Main row: icon + infoCol + spacer + rightCol
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let mainRow = UIStackView(arrangedSubviews: [iconView, infoCol, spacer, rightCol])
-        mainRow.axis = .horizontal; mainRow.spacing = 12; mainRow.alignment = .top
-        mainRow.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(mainRow)
+        // outerRow: leftCol (flex-1) + rightCol (w-auto)
+        let outerRow = UIStackView(arrangedSubviews: [leftCol, rightCol])
+        outerRow.axis = .horizontal; outerRow.spacing = 12; outerRow.alignment = .top
+        outerRow.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(outerRow)
 
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
@@ -521,10 +529,10 @@ final class ExtensionCell: UITableViewCell {
             card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
-            mainRow.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            mainRow.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            mainRow.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            mainRow.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+            outerRow.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            outerRow.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            outerRow.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            outerRow.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
         ])
     }
 
@@ -535,16 +543,19 @@ final class ExtensionCell: UITableViewCell {
         idLabel.text    = config.id
         toggleSwitch.isOn = enabled
 
-        // Status dot colour (PENDING=yellow, COMPLETED=green, DROPPED=red)
+        // Status dot: green = worker loaded (COMPLETED), yellow = pending (PENDING)
         statusDot.backgroundColor = hasWorker
-            ? UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)  // COMPLETED (green)
-            : UIColor(red: 0.900, green: 0.700, blue: 0.100, alpha: 1)  // PENDING (yellow)
+            ? UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
+            : UIColor(red: 0.900, green: 0.700, blue: 0.100, alpha: 1)
 
-        // Options button: show gear if has options, trash if no options
+        // Options button: Bolt icon when has options (Hayase <Bolt size={18} />), Trash when none
         let hasOpts = !(config.options?.isEmpty ?? true)
-        let iconName = hasOpts ? "gearshape" : "trash"
-        let iconColor: UIColor = hasOpts ? UIColor(white: 0.6, alpha: 1) : UIColor.systemRed
-        optionsButton.setImage(UIImage(systemName: iconName), for: .normal)
+        let iconName = hasOpts ? "bolt" : "trash"
+        let iconColor: UIColor = hasOpts ? UIColor(white: 0.6, alpha: 1) : .systemRed
+        optionsButton.setImage(
+            UIImage(systemName: iconName,
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)),
+            for: .normal)
         optionsButton.tintColor = iconColor
 
         // Icon image
@@ -557,47 +568,22 @@ final class ExtensionCell: UITableViewCell {
             }.resume()
         }
 
-        // Rebuild badges (mirrors version/type/accuracy/ratio/media badges in Hayase)
-        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        // Version
-        addBadge(config.version, bg: UIColor(white: 0.18, alpha: 1))
-
-        // Type (Torrent / NZB / URL)
+        // Build badge items (matches Hayase flex-wrap badge row + flags)
         let typeMap = ["torrent": "Torrent", "nzb": "NZB", "url": "URL"]
-        addBadge(typeMap[config.type] ?? config.type.uppercased(), bg: UIColor(white: 0.18, alpha: 1))
-
-        // Accuracy (e.g. "High Accuracy")
-        addBadge(config.accuracy.capitalized + " Accuracy", bg: UIColor(white: 0.18, alpha: 1))
-
-        // Ratio (if present)
+        var items: [BadgeFlowView.Item] = []
+        items.append(.badge(config.version))
+        items.append(.badge(typeMap[config.type] ?? config.type.uppercased()))
+        items.append(.badge(config.accuracy.capitalized + " Accuracy"))
         if let ratio = config.ratio, ratio != .null {
-            addBadge("\(ratio.stringValue) Ratio", bg: UIColor(white: 0.18, alpha: 1))
+            items.append(.badge("\(ratio.stringValue) Ratio"))
         }
-
-        // Media (e.g. "anime", "book")
-        addBadge(config.media.capitalized, bg: UIColor(white: 0.18, alpha: 1))
-
-        // Language emoji flags
+        items.append(.badge(config.media.capitalized))
+        // Language emoji flags (Hayase: font-twemoji text-xl leading-none)
         if let langs = config.languages, !langs.isEmpty {
-            flagsLabel.text = langs.compactMap { codeToEmoji($0) }.joined()
-            flagsLabel.isHidden = false
-        } else {
-            flagsLabel.text = nil
-            flagsLabel.isHidden = true
+            let flags = langs.compactMap { codeToEmoji($0) }.joined()
+            if !flags.isEmpty { items.append(.flags(flags)) }
         }
-    }
-
-    private func addBadge(_ text: String, bg: UIColor) {
-        let l = UILabel()
-        l.text = "  \(text)  "
-        l.font = .systemFont(ofSize: 10, weight: .bold)
-        l.textColor = UIColor(white: 0.85, alpha: 1) // text-neutral-300
-        l.backgroundColor = bg
-        l.layer.cornerRadius = 4
-        l.clipsToBounds = true
-        l.setContentHuggingPriority(.required, for: .horizontal)
-        badgesStack.addArrangedSubview(l)
+        badgesView.setItems(items)
     }
 
     @objc private func toggleChanged() { onToggle?(toggleSwitch.isOn) }
@@ -639,8 +625,9 @@ final class RepoCell: UITableViewCell {
         backgroundColor = UIColor(white: 0.04, alpha: 1)
         selectionStyle = .none
 
+        // bg-neutral-950 (matches ExtensionCell and Hayase)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.067, alpha: 1)
+        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
         card.layer.cornerRadius = 8
         card.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(card)
@@ -696,4 +683,85 @@ private func codeToEmoji(_ code: String) -> String? {
         emoji.append(Character(emojiScalar))
     }
     return emoji.isEmpty ? nil : emoji
+}
+
+// MARK: - BadgeFlowView
+// Implements Hayase's `flex-wrap gap-2` badge row.
+// Contains regular pill badges (bg-neutral-900, rounded, font-bold) and optional emoji flags.
+
+final class BadgeFlowView: UIView {
+
+    enum Item {
+        /// Standard badge: rounded bg-neutral-900 pill with bold text
+        case badge(String)
+        /// Language emoji flags: text-xl, no background
+        case flags(String)
+    }
+
+    private var labels: [UILabel] = []
+    private let hSpacing: CGFloat = 6   // gap-2 ≈ 8pt; 6pt matches native badge spacing
+    private let vSpacing: CGFloat = 4
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: computeHeight(for: bounds.width))
+    }
+
+    func setItems(_ items: [Item]) {
+        labels.forEach { $0.removeFromSuperview() }
+        labels = items.map { item in
+            let l = UILabel()
+            switch item {
+            case .badge(let text):
+                l.text = "  \(text)  "
+                l.font = .systemFont(ofSize: 10, weight: .bold)
+                l.textColor = UIColor(white: 0.85, alpha: 1)   // text-neutral-300
+                l.backgroundColor = UIColor(white: 0.13, alpha: 1)  // bg-neutral-900
+                l.layer.cornerRadius = 4   // rounded (4px)
+                l.clipsToBounds = true
+            case .flags(let text):
+                l.text = text
+                l.font = .systemFont(ofSize: 18)   // text-xl
+                l.textColor = .white
+            }
+            addSubview(l)
+            return l
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    private func computeHeight(for width: CGFloat) -> CGFloat {
+        guard !labels.isEmpty, width > 0 else { return 0 }
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for l in labels {
+            let sz = l.intrinsicContentSize
+            if x + sz.width > width, x > 0 {
+                x = 0; y += rowH + vSpacing; rowH = 0
+            }
+            x += sz.width + hSpacing
+            rowH = max(rowH, sz.height)
+        }
+        return y + rowH
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !labels.isEmpty else { return }
+        let width = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for l in labels {
+            let sz = l.intrinsicContentSize
+            if x + sz.width > width, x > 0 {
+                x = 0; y += rowH + vSpacing; rowH = 0
+            }
+            l.frame = CGRect(x: x, y: y, width: sz.width, height: sz.height)
+            x += sz.width + hSpacing
+            rowH = max(rowH, sz.height)
+        }
+        let newHeight = y + rowH
+        if abs(bounds.height - newHeight) > 0.5 {
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
+        }
+    }
 }

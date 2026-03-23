@@ -402,7 +402,10 @@ class SearchViewController: UIViewController {
         filterRow = UIScrollView()
         filterRow.translatesAutoresizingMaskIntoConstraints = false
         filterRow.showsHorizontalScrollIndicator = false
-        filterRow.alwaysBounceHorizontal = true
+        // Prevent vertical wiggle/bounce while scrolling horizontally
+        filterRow.showsVerticalScrollIndicator = false
+        filterRow.isDirectionalLockEnabled = true   // locks to one axis once scrolling starts
+        filterRow.alwaysBounceVertical = false
         filterRow.contentInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         headerView.addSubview(filterRow)
 
