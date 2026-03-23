@@ -1,0 +1,757 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; };
+		FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A96105B31D71ED71006D39D0 /* Main.storyboard */; };
+		A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96105B91D71ED71006D39D0 /* Assets.xcassets */; };
+		A96105BD1D71ED71006D39D0 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */; };
+		A961069E1D72FBE0006D39D0 /* Model.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */; };
+		A96106AF1D72FC2F006D39D0 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A21D72FC2F006D39D0 /* AppDelegate.swift */; };
+		A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */; };
+		A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */; };
+		A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */; };
+		A96106B31D72FC2F006D39D0 /* VideoPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */; };
+		A96106B41D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */; };
+		A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AA1D72FC2F006D39D0 /* AnimeService.swift */; };
+		A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AB1D72FC2F006D39D0 /* TorrentService.swift */; };
+		TSTRM02TSTRM02TSTRM02 /* TorrentStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */; };
+		LSRV02LSRV02LSRV0002 /* LocalStreamServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */; };
+		BRES02BRES02BRES0002 /* TorrentBatchResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */; };
+		ANTM02ANTM02ANTM0002 /* Anitomy.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANTM01ANTM01ANTM0001 /* Anitomy.swift */; };
+		A96106B71D72FC2F006D39D0 /* VideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AC1D72FC2F006D39D0 /* VideoService.swift */; };
+		A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */; };
+		DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */; };
+		DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */; };
+		DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */; };
+		THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */; };
+		DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */; };
+		DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */; };
+		DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */; };
+		DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */; };
+		EXTMOD01EXTMOD01EXTMOD01 /* ExtensionModels.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */; };
+		EXTWRK01EXTWRK01EXTWRK01 /* ExtensionWorker.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */; };
+		EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */; };
+		EXTVC001EXTVC001EXTVC001 /* ExtensionsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */; };
+		EXTSRC01EXTSRC01EXTSRC01 /* ExtensionSearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */; };
+		TRKSVC01TRKSVC01TRKSVC01 /* TrackerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */; };
+		TRKICN01TRKICN01TRKICN01 /* TrackerIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */; };
+		ACCCEL01ACCCEL01ACCCEL01 /* HayaseAccountCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */; };
+		A96106CF1D731B43006D39D0 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A96106BD1D731B43006D39D0 /* Info.plist */; };
+		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
+		A96106D11D731B43006D39D0 /* Animes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C01D731B43006D39D0 /* Animes.swift */; };
+		A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C21D731B43006D39D0 /* CoreDataService.swift */; };
+		A96106D31D731B43006D39D0 /* NSEntityDescription_Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */; };
+		A96106D41D731B43006D39D0 /* NSFetchRequest_Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */; };
+		A96106D51D731B43006D39D0 /* NSManagedObjectContext_Clear.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */; };
+		A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C81D731B43006D39D0 /* NamedEntity.swift */; };
+		A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */; };
+		A96106D81D731B43006D39D0 /* Torrents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CA1D731B43006D39D0 /* Torrents.swift */; };
+		A96106D91D731B43006D39D0 /* Users+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */; };
+		A96106DA1D731B43006D39D0 /* Users.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CC1D731B43006D39D0 /* Users.swift */; };
+		A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */; };
+		A96106DC1D731B43006D39D0 /* Videos.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CE1D731B43006D39D0 /* Videos.swift */; };
+		A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A96107161D7325D3006D39D0 /* libz.tbd */; };
+		DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DEAD0002DEAD0002DEAD0002 /* OpenSSL */; };
+		MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */; };
+		PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */; };
+		PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */; };
+		PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */; };
+		PLAYER09PLAYER09PLAYER09 /* StreamingLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */; };
+		MINIPLYR1MINIPLYR1MINIP /* MiniPlayerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */; };
+		EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */; };
+		PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		FF0001041D71ED72006D39D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = D15147652AE6AE9C000407AE;
+			remoteInfo = LibTorrent;
+		};
+		FF0001051D71ED72006D39D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = D15147642AE6AE9C000407AE;
+			remoteInfo = LibTorrent;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A961071A1D732FFF006D39D0 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = LibTorrent.xcodeproj; path = Component/LibTorrent-Swift/LibTorrent.xcodeproj; sourceTree = "<group>"; };
+		A96105AC1D71ED71006D39D0 /* Hayase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hayase.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A96105B41D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		A96105B91D71ED71006D39D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
+		A96105BC1D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A96105BE1D71ED71006D39D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Resources/Info.plist; sourceTree = "<group>"; };
+		A96105E01D72F226006D39D0 /* Hayase-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Hayase-Bridging-Header.h"; sourceTree = "<group>"; };
+		A961069D1D72FBE0006D39D0 /* Model.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Model.xcdatamodel; sourceTree = "<group>"; };
+		A96106A21D72FC2F006D39D0 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BrowseAnimeViewController.swift; sourceTree = "<group>"; };
+		A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentListViewControllerTableViewController.swift; sourceTree = "<group>"; };
+		A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoListViewController.swift; sourceTree = "<group>"; };
+		A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerController.swift; sourceTree = "<group>"; };
+		A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UITableView_KeyboardNotification.swift; sourceTree = "<group>"; };
+		A96106AA1D72FC2F006D39D0 /* AnimeService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeService.swift; sourceTree = "<group>"; };
+		A96106AB1D72FC2F006D39D0 /* TorrentService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentService.swift; sourceTree = "<group>"; };
+		TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentStreamer.swift; sourceTree = "<group>"; };
+		LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LocalStreamServer.swift; sourceTree = "<group>"; };
+		BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentBatchResolver.swift; sourceTree = "<group>"; };
+		ANTM01ANTM01ANTM0001 /* Anitomy.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Anitomy.swift; sourceTree = "<group>"; };
+		A96106AC1D72FC2F006D39D0 /* VideoService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoService.swift; sourceTree = "<group>"; };
+		A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeCollectionViewCell.swift; sourceTree = "<group>"; };
+		DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
+		DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DownloadsViewController.swift; sourceTree = "<group>"; };
+		DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeDetailViewController.swift; sourceTree = "<group>"; };
+		THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ThreadDetailViewController.swift; sourceTree = "<group>"; };
+		DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
+		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
+		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
+		DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WatchProgressService.swift; sourceTree = "<group>"; };
+		EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionModels.swift; sourceTree = "<group>"; };
+		EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionWorker.swift; sourceTree = "<group>"; };
+		EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
+		EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionsViewController.swift; sourceTree = "<group>"; };
+		EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionSearchViewController.swift; sourceTree = "<group>"; };
+		TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrackerService.swift; sourceTree = "<group>"; };
+		TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrackerIcons.swift; sourceTree = "<group>"; };
+		ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HayaseAccountCardCell.swift; sourceTree = "<group>"; };
+		PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVWrapper.swift; sourceTree = "<group>"; };
+		PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MPVSurfaceView.swift; sourceTree = "<group>"; };
+		PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
+		PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = StreamingLogger.swift; sourceTree = "<group>"; };
+		MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MiniPlayerManager.swift; sourceTree = "<group>"; };
+		EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExternalDisplayManager.swift; sourceTree = "<group>"; };
+		PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PiPController.swift; sourceTree = "<group>"; };
+		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
+		A96106C11D731B43006D39D0 /* CoreDataService.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreDataService.h; sourceTree = "<group>"; };
+		A96106C21D731B43006D39D0 /* CoreDataService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CoreDataService.swift; sourceTree = "<group>"; };
+		A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSEntityDescription_Service.swift; sourceTree = "<group>"; };
+		A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSFetchRequest_Service.swift; sourceTree = "<group>"; };
+		A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSManagedObjectContext_Clear.swift; sourceTree = "<group>"; };
+		A96106C81D731B43006D39D0 /* NamedEntity.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NamedEntity.swift; sourceTree = "<group>"; };
+		A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Torrents+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		A96106CA1D731B43006D39D0 /* Torrents.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Torrents.swift; sourceTree = "<group>"; };
+		A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Users+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		A96106CC1D731B43006D39D0 /* Users.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Users.swift; sourceTree = "<group>"; };
+		A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Videos+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		A96106CE1D731B43006D39D0 /* Videos.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Videos.swift; sourceTree = "<group>"; };
+		A96107161D7325D3006D39D0 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A96105A91D71ED71006D39D0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */,
+				FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */,
+				DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */,
+				MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A96105A31D71ED71006D39D0 = {
+			isa = PBXGroup;
+			children = (
+				FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */,
+				A96107161D7325D3006D39D0 /* libz.tbd */,
+				A96105E31D72FB6B006D39D0 /* Component */,
+				A96105AE1D71ED71006D39D0 /* Hayase */,
+				A96106BB1D731B43006D39D0 /* CoreDataService */,
+				A96105AD1D71ED71006D39D0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A96105AD1D71ED71006D39D0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A96105AC1D71ED71006D39D0 /* Hayase.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF0001071D71ED72006D39D0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FF0001061D71ED72006D39D0 /* LibTorrent.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A96105AE1D71ED71006D39D0 /* Hayase */ = {
+			isa = PBXGroup;
+			children = (
+				A96106A01D72FC2F006D39D0 /* Source */,
+				A961069B1D72FBCB006D39D0 /* Resources */,
+				A96105E01D72F226006D39D0 /* Hayase-Bridging-Header.h */,
+			);
+			path = Hayase;
+			sourceTree = "<group>";
+		};
+		A96105E31D72FB6B006D39D0 /* Component */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Component;
+			sourceTree = "<group>";
+		};
+		A961069B1D72FBCB006D39D0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A96105B91D71ED71006D39D0 /* Assets.xcassets */,
+				A96105B31D71ED71006D39D0 /* Main.storyboard */,
+				A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */,
+				A96105BE1D71ED71006D39D0 /* Info.plist */,
+				A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		A96106A01D72FC2F006D39D0 /* Source */ = {
+			isa = PBXGroup;
+			children = (
+				A96106A11D72FC2F006D39D0 /* Controller */,
+				A96106A71D72FC2F006D39D0 /* Extension */,
+				A96106A91D72FC2F006D39D0 /* Service */,
+				A96106AD1D72FC2F006D39D0 /* View */,
+				PLAYER01PLAYER01PLAYER01 /* Player */,
+			);
+			path = Source;
+			sourceTree = "<group>";
+		};
+		A96106A11D72FC2F006D39D0 /* Controller */ = {
+			isa = PBXGroup;
+			children = (
+				A96106A21D72FC2F006D39D0 /* AppDelegate.swift */,
+				A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */,
+				A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */,
+				A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */,
+				A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */,
+				DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */,
+				DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */,
+				DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */,
+				THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */,
+				DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */,
+				DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */,
+				DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */,
+				EXTVC002EXTVC002EXTVC002 /* ExtensionsViewController.swift */,
+				EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */,
+				TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */,
+				ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */,
+			);
+			path = Controller;
+			sourceTree = "<group>";
+		};
+		A96106A71D72FC2F006D39D0 /* Extension */ = {
+			isa = PBXGroup;
+			children = (
+				A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */,
+			);
+			path = Extension;
+			sourceTree = "<group>";
+		};
+		A96106A91D72FC2F006D39D0 /* Service */ = {
+			isa = PBXGroup;
+			children = (
+				A96106AA1D72FC2F006D39D0 /* AnimeService.swift */,
+				A96106AB1D72FC2F006D39D0 /* TorrentService.swift */,
+				TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */,
+				LSRV01LSRV01LSRV0001 /* LocalStreamServer.swift */,
+				BRES01BRES01BRES0001 /* TorrentBatchResolver.swift */,
+				ANTM01ANTM01ANTM0001 /* Anitomy.swift */,
+				A96106AC1D72FC2F006D39D0 /* VideoService.swift */,
+				DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */,
+				EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */,
+				EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */,
+				EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */,
+				TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */,
+			);
+			path = Service;
+			sourceTree = "<group>";
+		};
+		A96106AD1D72FC2F006D39D0 /* View */ = {
+			isa = PBXGroup;
+			children = (
+				A96106AE1D72FC2F006D39D0 /* AnimeCollectionViewCell.swift */,
+			);
+			path = View;
+			sourceTree = "<group>";
+		};
+		PLAYER01PLAYER01PLAYER01 /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				PLAYER02PLAYER02PLAYER02 /* MPVWrapper.swift */,
+				PLAYER04PLAYER04PLAYER04 /* MPVSurfaceView.swift */,
+				PLAYER06PLAYER06PLAYER06 /* VideoPlayerViewController.swift */,
+				PLAYER08PLAYER08PLAYER08 /* StreamingLogger.swift */,
+				MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */,
+				EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */,
+				PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */,
+			);
+			path = Player;
+			sourceTree = "<group>";
+		};
+		A96106BB1D731B43006D39D0 /* CoreDataService */ = {
+			isa = PBXGroup;
+			children = (
+				A96106BC1D731B43006D39D0 /* Resources */,
+				A96106BE1D731B43006D39D0 /* Source */,
+			);
+			path = CoreDataService;
+			sourceTree = "<group>";
+		};
+		A96106BC1D731B43006D39D0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A96106BD1D731B43006D39D0 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A96106BE1D731B43006D39D0 /* Source */ = {
+			isa = PBXGroup;
+			children = (
+				A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */,
+				A96106C01D731B43006D39D0 /* Animes.swift */,
+				A96106C11D731B43006D39D0 /* CoreDataService.h */,
+				A96106C21D731B43006D39D0 /* CoreDataService.swift */,
+				A96106C31D731B43006D39D0 /* Extension */,
+				A96106C71D731B43006D39D0 /* Protocol */,
+				A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */,
+				A96106CA1D731B43006D39D0 /* Torrents.swift */,
+				A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */,
+				A96106CC1D731B43006D39D0 /* Users.swift */,
+				A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */,
+				A96106CE1D731B43006D39D0 /* Videos.swift */,
+			);
+			path = Source;
+			sourceTree = "<group>";
+		};
+		A96106C31D731B43006D39D0 /* Extension */ = {
+			isa = PBXGroup;
+			children = (
+				A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */,
+				A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */,
+				A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */,
+			);
+			path = Extension;
+			sourceTree = "<group>";
+		};
+		A96106C71D731B43006D39D0 /* Protocol */ = {
+			isa = PBXGroup;
+			children = (
+				A96106C81D731B43006D39D0 /* NamedEntity.swift */,
+			);
+			path = Protocol;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A96105AB1D71ED71006D39D0 /* Hayase */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "Hayase" */;
+			buildPhases = (
+				A96105A81D71ED71006D39D0 /* Sources */,
+				A96105A91D71ED71006D39D0 /* Frameworks */,
+				A96105AA1D71ED71006D39D0 /* Resources */,
+				A961071A1D732FFF006D39D0 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FF0001081D71ED72006D39D0 /* PBXTargetDependency */,
+			);
+			name = Hayase;
+			packageProductDependencies = (
+				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
+				MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */,
+			);
+			productName = Hayase;
+			productReference = A96105AC1D71ED71006D39D0 /* Hayase.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A96105A41D71ED71006D39D0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 0730;
+				LastUpgradeCheck = 0730;
+				ORGANIZATIONNAME = "Tieria C.Monk";
+				TargetAttributes = {
+					A96105AB1D71ED71006D39D0 = {
+						CreatedOnToolsVersion = 7.3.1;
+					};
+				};
+			};
+			buildConfigurationList = A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "Hayase" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A96105A31D71ED71006D39D0;
+			productRefGroup = A96105AD1D71ED71006D39D0 /* Products */;
+			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = FF0001071D71ED72006D39D0 /* Products */;
+					ProjectRef = FF0001011D71ED72006D39D0 /* LibTorrent.xcodeproj */;
+				},
+			);
+			projectRoot = "";
+			packageReferences = (
+				DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */,
+				MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */,
+			);
+			targets = (
+				A96105AB1D71ED71006D39D0 /* Hayase */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A96105AA1D71ED71006D39D0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A96105BD1D71ED71006D39D0 /* LaunchScreen.storyboard in Resources */,
+				A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */,
+				A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A96105A81D71ED71006D39D0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A96106B31D72FC2F006D39D0 /* VideoPlayerController.swift in Sources */,
+				A96106D51D731B43006D39D0 /* NSManagedObjectContext_Clear.swift in Sources */,
+				A96106B41D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift in Sources */,
+				A96106D11D731B43006D39D0 /* Animes.swift in Sources */,
+				A96106D81D731B43006D39D0 /* Torrents.swift in Sources */,
+				A96106B71D72FC2F006D39D0 /* VideoService.swift in Sources */,
+				A96106D31D731B43006D39D0 /* NSEntityDescription_Service.swift in Sources */,
+				A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */,
+				A96106D91D731B43006D39D0 /* Users+CoreDataProperties.swift in Sources */,
+				A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */,
+				A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */,
+				A96106D41D731B43006D39D0 /* NSFetchRequest_Service.swift in Sources */,
+				A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */,
+				A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */,
+				A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */,
+				A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */,
+				A96106DA1D731B43006D39D0 /* Users.swift in Sources */,
+				A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */,
+				A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */,
+				A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */,
+				A961069E1D72FBE0006D39D0 /* Model.xcdatamodeld in Sources */,
+				A96106AF1D72FC2F006D39D0 /* AppDelegate.swift in Sources */,
+				A96106DC1D731B43006D39D0 /* Videos.swift in Sources */,
+				A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */,
+				TSTRM02TSTRM02TSTRM02 /* TorrentStreamer.swift in Sources */,
+				LSRV02LSRV02LSRV0002 /* LocalStreamServer.swift in Sources */,
+				BRES02BRES02BRES0002 /* TorrentBatchResolver.swift in Sources */,
+				ANTM02ANTM02ANTM0002 /* Anitomy.swift in Sources */,
+				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
+				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
+				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
+				THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */,
+				DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */,
+				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,
+				DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */,
+				DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */,
+				EXTMOD01EXTMOD01EXTMOD01 /* ExtensionModels.swift in Sources */,
+				EXTWRK01EXTWRK01EXTWRK01 /* ExtensionWorker.swift in Sources */,
+				EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */,
+				EXTVC001EXTVC001EXTVC001 /* ExtensionsViewController.swift in Sources */,
+				EXTSRC01EXTSRC01EXTSRC01 /* ExtensionSearchViewController.swift in Sources */,
+				TRKSVC01TRKSVC01TRKSVC01 /* TrackerService.swift in Sources */,
+				TRKICN01TRKICN01TRKICN01 /* TrackerIcons.swift in Sources */,
+				ACCCEL01ACCCEL01ACCCEL01 /* HayaseAccountCardCell.swift in Sources */,
+				PLAYER03PLAYER03PLAYER03 /* MPVWrapper.swift in Sources */,
+				PLAYER05PLAYER05PLAYER05 /* MPVSurfaceView.swift in Sources */,
+				PLAYER07PLAYER07PLAYER07 /* VideoPlayerViewController.swift in Sources */,
+				PLAYER09PLAYER09PLAYER09 /* StreamingLogger.swift in Sources */,
+				MINIPLYR1MINIPLYR1MINIP /* MiniPlayerManager.swift in Sources */,
+				EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */,
+				PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXReferenceProxy section */
+		FF0001061D71ED72006D39D0 /* LibTorrent.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = LibTorrent.framework;
+			remoteRef = FF0001041D71ED72006D39D0 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+/* End PBXReferenceProxy section */
+
+/* Begin PBXTargetDependency section */
+		FF0001081D71ED72006D39D0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = LibTorrent;
+			targetProxy = FF0001051D71ED72006D39D0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		A96105B31D71ED71006D39D0 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A96105B41D71ED71006D39D0 /* Base */,
+			);
+			name = Main.storyboard;
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A96105BC1D71ED71006D39D0 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		A96105D51D71ED72006D39D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SWIFT_VERSION = 5.0;
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A96105D61D71ED72006D39D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SWIFT_VERSION = 5.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A96105D81D71ED72006D39D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Component/**",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/include/libxml2",
+				);
+				INFOPLIST_FILE = Hayase/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = app.hayase;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Hayase/Hayase-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A96105D91D71ED72006D39D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Component/**",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/include/libxml2",
+				);
+				INFOPLIST_FILE = Hayase/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = app.hayase;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Hayase/Hayase-Bridging-Header.h";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A96105A71D71ED71006D39D0 /* Build configuration list for PBXProject "Hayase" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A96105D51D71ED72006D39D0 /* Debug */,
+				A96105D61D71ED72006D39D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A96105D71D71ED72006D39D0 /* Build configuration list for PBXNativeTarget "Hayase" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A96105D81D71ED72006D39D0 /* Debug */,
+				A96105D91D71ED72006D39D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/OpenSSL.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.5004;
+			};
+		};
+		MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/streamyfin/MPVKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = "0.40.0-av";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DEAD0002DEAD0002DEAD0002 /* OpenSSL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */;
+			productName = OpenSSL;
+		};
+		MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = "MPVKit-GPL";
+		};
+/* End XCSwiftPackageProductDependency section */
+
+/* Begin XCVersionGroup section */
+		A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				A961069D1D72FBE0006D39D0 /* Model.xcdatamodel */,
+			);
+			currentVersion = A961069D1D72FBE0006D39D0 /* Model.xcdatamodel */;
+			name = Model.xcdatamodeld;
+			path = Resources/Model.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
+	};
+	rootObject = A96105A41D71ED71006D39D0 /* Project object */;
+}

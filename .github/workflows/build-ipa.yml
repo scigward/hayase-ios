@@ -35,7 +35,7 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
             ~/.swiftpm/cache
-          key: spm-${{ runner.os }}-${{ hashFiles('TheAnimeTool.xcodeproj/project.pbxproj') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('Hayase.xcodeproj/project.pbxproj') }}
           restore-keys: |
             spm-${{ runner.os }}-
 
@@ -50,7 +50,7 @@ jobs:
       - name: Generate App Icons
         run: |
           set -euo pipefail
-          ICON_DIR="TheAnimeTool/Resources/Assets.xcassets/AppIcon.appiconset"
+          ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
           cd "$ICON_DIR"
 
           if [ ! -f "AppIcon.png" ]; then
@@ -91,8 +91,8 @@ jobs:
           for attempt in 1 2 3; do
             echo "=== Resolve attempt $attempt/3 ==="
             if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
-                -workspace TheAnimeTool.xcworkspace \
-                -scheme TheAnimeTool \
+                -workspace Hayase.xcworkspace \
+                -scheme Hayase \
                 -resolvePackageDependencies \
                 SYMROOT=${{ github.workspace }}/build/app 2>&1; then
               RESOLVED=true
@@ -109,8 +109,8 @@ jobs:
       - name: Build Hayase (Release, no signing)
         run: |
           xcodebuild \
-            -workspace TheAnimeTool.xcworkspace \
-            -scheme TheAnimeTool \
+            -workspace Hayase.xcworkspace \
+            -scheme Hayase \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
