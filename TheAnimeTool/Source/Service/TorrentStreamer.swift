@@ -9,7 +9,7 @@ import LibTorrent
 /// Manages torrent-based video streaming for a single file within a torrent.
 ///
 /// Follows the Hayase streaming model — sequential download + priority management:
-/// - Sequential download ON (biases libtorrent to download from beginning → metadata first)
+/// - Sequential download ON at start (biases libtorrent to download from beginning → metadata first)
 /// - All file pieces start at priority 1 (low but wanted) — every peer can contribute
 /// - Head pieces (first 8) at priority 7 + tight deadlines (MKV SeekHead/Info/Tracks)
 /// - Tail pieces (last 16) at priority 7 + tight deadlines (MKV Cues/seek index)
@@ -19,6 +19,15 @@ import LibTorrent
 /// - On seek: all deadlines cleared, old window set to priority 0 to cancel
 ///   in-flight requests, new window gets priority 7 + deadlines, then old
 ///   pieces restored to background priority
+///
+/// Smart Piece Selection:
+/// The system dynamically switches between sequential downloading (for immediate
+/// playback) and rarest-first strategy (for swarm health). When sufficient media
+/// is buffered (≥ targetBufferSeconds ahead of playback), it automatically reverts
+/// to rarest-first to maximize download efficiency from limited peers. When the
+/// buffer drops below rarestFirstRevertThreshold, it switches back to sequential
+/// to ensure playback continuity. This is skipped in streamed download mode where
+/// no background pieces are downloaded.
 final class TorrentStreamer {
 
     // MARK: - Notifications
@@ -57,6 +66,12 @@ final class TorrentStreamer {
     /// Minimum piece distance before we re-evaluate deadlines. Prevents
     /// excessive libtorrent calls when playback advances smoothly.
     private let minPieceUpdateDistance = 3
+
+    /// Buffer threshold (in seconds) below which we revert from rarest-first
+    /// back to sequential download to protect playback continuity. Must be
+    /// less than `targetBufferSeconds` to create a hysteresis band that
+    /// prevents rapid toggling between the two strategies.
+    private let rarestFirstRevertThreshold: Double = 30.0
 
     // -- Seek-specific settings --
 
@@ -109,6 +124,12 @@ final class TorrentStreamer {
     /// Non-window pieces get priority 0 (not wanted) and the buffer window
     /// is much smaller. Read from UserDefaults at start() time.
     private var streamedDownloadMode: Bool = false
+
+    /// Tracks whether sequential download is currently enabled in libtorrent.
+    /// Smart Piece Selection toggles this based on buffer health: sequential ON
+    /// for immediate playback, OFF (rarest-first) for swarm health when the
+    /// buffer is healthy.
+    private var isSequentialActive: Bool = true
 
     /// First piece index belonging to the target file.
     private(set) var beginPiece: Int = 0
@@ -194,7 +215,9 @@ final class TorrentStreamer {
         tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
         // Enable sequential download — Hayase streaming model.
+        // Smart Piece Selection will toggle this off once the buffer is healthy.
         torrentHandle.setSequentialDownload(true)
+        isSequentialActive = true
 
         // Set non-metadata file pieces to a background priority.
         // In streamed download mode: priority 0 (not wanted) — only download
@@ -248,6 +271,11 @@ final class TorrentStreamer {
         seekPieceTarget = -1
         seekStartTime = nil
         resetActiveWindow()
+        // Restore sequential download if Smart Piece Selection had disabled it.
+        if !isSequentialActive {
+            torrentHandle.setSequentialDownload(true)
+            isSequentialActive = true
+        }
         // Restore all file pieces to default priority so libtorrent resumes
         // normal downloading. This fixes the false "100% downloaded" display
         // in the Downloads view caused by most pieces being at priority 0
@@ -310,6 +338,30 @@ final class TorrentStreamer {
         }
 
         setDeadlinesFrom(pieceIndex: currentPiece)
+
+        // Smart Piece Selection: dynamically switch between sequential download
+        // (for immediate playback) and rarest-first (for swarm health).
+        // Skip in streamed download mode — background pieces are at priority 0
+        // (not wanted), so rarest-first has no meaningful effect.
+        if !streamedDownloadMode && lastKnownDuration > 0 {
+            let buffered = bufferedSeconds(fromFraction: clampedFraction, videoDuration: lastKnownDuration)
+            if isSequentialActive && buffered >= targetBufferSeconds {
+                // Buffer is healthy — switch to rarest-first so background
+                // pieces are downloaded in rarity order, improving swarm health
+                // and maximizing download efficiency from limited peers.
+                torrentHandle.setSequentialDownload(false)
+                isSequentialActive = false
+                StreamingLogger.shared.info("Smart Piece Selection: → rarest-first (buffer \(String(format: "%.0f", buffered))s)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: switched to rarest-first (buffer=\(String(format: "%.0f", buffered))s)") }
+            } else if !isSequentialActive && buffered < rarestFirstRevertThreshold {
+                // Buffer is running low — switch back to sequential so pieces
+                // near the playback front arrive in order for smooth playback.
+                torrentHandle.setSequentialDownload(true)
+                isSequentialActive = true
+                StreamingLogger.shared.info("Smart Piece Selection: → sequential (buffer \(String(format: "%.0f", buffered))s)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: switched to sequential (buffer=\(String(format: "%.0f", buffered))s)") }
+            }
+        }
     }
 
     /// Called when the user seeks to a new position. Always forces a deadline
@@ -325,6 +377,17 @@ final class TorrentStreamer {
         // See seekPieceTarget declaration for rationale.
         seekPieceTarget = targetPiece
         seekStartTime = Date()
+
+        // Re-enable sequential download if Smart Piece Selection had switched
+        // to rarest-first. After a seek, we need ordered pieces at the new
+        // position for smooth playback; the buffer check in
+        // updatePlaybackPosition will switch back to rarest-first once the
+        // buffer fills up again.
+        if !isSequentialActive {
+            torrentHandle.setSequentialDownload(true)
+            isSequentialActive = true
+            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: seek → restored sequential download") }
+        }
 
         // Save old window bounds before setDeadlinesFrom overwrites them.
         let oldWindowStart = activeWindowStart
