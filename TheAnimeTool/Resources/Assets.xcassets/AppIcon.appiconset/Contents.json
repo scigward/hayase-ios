@@ -1,4 +1,5 @@
-{ "images": [
+{
+  "images": [
     {
       "idiom": "iphone",
       "size": "29x29",
@@ -35,6 +36,7 @@
       "scale": "3x",
       "filename": "icon_60@3x.png"
     },
+
     {
       "idiom": "ipad",
       "size": "29x29",
@@ -76,6 +78,13 @@
       "size": "83.5x83.5",
       "scale": "2x",
       "filename": "icon_ipad_83.5@2x.png"
+    },
+
+    {
+      "idiom": "ios-marketing",
+      "size": "1024x1024",
+      "scale": "1x",
+      "filename": "icon_marketing_1024.png"
     }
   ],
   "info": {
