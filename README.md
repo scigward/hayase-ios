@@ -1,4 +1,4 @@
-# TheAnimeTool
+# Hayase
 This tool is currently in slow development.
 
 This is early experimental app only for learning at this moment. Will be rebuilt in the near future.

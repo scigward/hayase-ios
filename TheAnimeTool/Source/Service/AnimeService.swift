@@ -561,10 +561,10 @@ public class AnimeService: NSObject {
     // MARK: - AniList anime search (used by SearchViewController)
 
     private let anilistSearchQuery = """
-    query ($search: String, $genre: String, $format: MediaFormat, $status: MediaStatus, $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
+    query ($search: String, $genre_in: [String], $format_in: [MediaFormat], $status_in: [MediaStatus], $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
       Page(page: $page, perPage: 20) {
         pageInfo { hasNextPage }
-        media(type: ANIME, search: $search, genre: $genre, format: $format, status: $status, sort: $sort, seasonYear: $seasonYear, season: $season) {
+        media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -584,12 +584,13 @@ public class AnimeService: NSObject {
     }
     """
 
-    /// Search AniList with optional title, genre, format, status, sort, seasonYear and season.
+    /// Search AniList with optional title, genres, formats, statuses, sort, seasonYear and season.
+    /// Supports multiple genres, formats and statuses (genre_in / format_in / status_in).
     /// Calls completion on the main queue with ([AnimeItem], hasNextPage).
     func searchAnimeItems(title: String?,
-                          genre: String?,
-                          format: String?,
-                          status: String?,
+                          genres: [String],
+                          formats: [String],
+                          statuses: [String],
                           sort: String,
                           seasonYear: Int? = nil,
                           season: String? = nil,
@@ -603,9 +604,9 @@ public class AnimeService: NSObject {
 
         var variables: [String: Any] = ["sort": [sort], "page": page]
         if let t = title, !t.isEmpty { variables["search"] = t }
-        if let g = genre { variables["genre"] = g }
-        if let f = format { variables["format"] = f }
-        if let s = status { variables["status"] = s }
+        if !genres.isEmpty   { variables["genre_in"] = genres }
+        if !formats.isEmpty  { variables["format_in"] = formats }
+        if !statuses.isEmpty { variables["status_in"] = statuses }
         if let y = seasonYear { variables["seasonYear"] = y }
         if let s = season { variables["season"] = s }
 
@@ -643,6 +644,76 @@ public class AnimeService: NSObject {
                     coverColor: media.coverImage?.color)
             }
             DispatchQueue.main.async { completion(items, hasNext) }
+        }.resume()
+    }
+
+    // MARK: - AniList fetch by IDs (used for trace.moe results)
+
+    private let anilistByIdsQuery = """
+    query ($ids: [Int]) {
+      Page(page: 1, perPage: 50) {
+        media(type: ANIME, id_in: $ids, sort: POPULARITY_DESC) {
+          id
+          title { english romaji }
+          coverImage { large medium color }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          status
+          seasonYear
+          format
+          startDate { year }
+          favourites
+          trailer { id site }
+          description(asHtml: false)
+        }
+      }
+    }
+    """
+
+    /// Fetch specific anime from AniList by their IDs.
+    /// Used after a successful trace.moe image search.
+    func fetchAnimeByIds(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let body: [String: Any] = ["query": anilistByIdsQuery, "variables": ["ids": ids]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let pageData = response.data?.Page else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items: [AnimeItem] = (pageData.media ?? []).compactMap { media in
+                guard let id = media.id else { return nil }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+                return AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc,
+                    year: media.seasonYear,
+                    startYear: media.startDate?.year,
+                    format: media.format,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color)
+            }
+            DispatchQueue.main.async { completion(items) }
         }.resume()
     }
 

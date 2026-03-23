@@ -72,7 +72,7 @@ public class TorrentService: NSObject, SessionDelegate {
     private static func makeSettings() -> Session.Settings {
         let ud = UserDefaults.standard
         let settings = Session.Settings()
-        settings.agentName        = "TheAnimeTool"
+        settings.agentName        = "Hayase"
 
         // Torrent activity limits — default is 0 (no active torrents!) so we must set positive values.
         settings.maxActiveTorrents      = 4
