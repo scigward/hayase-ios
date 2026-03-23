@@ -472,7 +472,10 @@ final class LocalStreamServer {
         let readAheadCount = streamedMode ? 5 : 50
 
         func applyPriorityBoost() {
-            // Set priority THEN deadline on the needed pieces.
+            // Set priority + tight deadlines on the immediately-needed pieces.
+            // These are the "critical" pieces — the equivalent of WebTorrent's
+            // critical() marking. Only these get deadlines, so libtorrent's
+            // cancel_non_critical() focuses ALL bandwidth on them.
             // Priority must be > 0 or libtorrent ignores the deadline entirely.
             for localIdx in safeFirst...safeLast {
                 let globalIdx = beginPiece + localIdx
@@ -482,13 +485,12 @@ final class LocalStreamServer {
                 torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
             }
 
-            // Read-ahead: also boost pieces beyond the current chunk so
-            // libtorrent can request them from peers in parallel. This
-            // converts piece-by-piece serial fetching into parallel
-            // downloading, dramatically reducing buffering. The deadlines
-            // are slightly relaxed (500ms base) compared to the immediate
-            // pieces (5ms base) so libtorrent still prioritises the chunk
-            // the server is blocked on.
+            // Read-ahead: boost priority on pieces beyond the current chunk
+            // so libtorrent downloads them via sequential ordering. Priority
+            // only, NO deadlines — this matches WebTorrent's approach where
+            // only the critical 1–2 pieces get deadline treatment. Read-ahead
+            // pieces are downloaded by sequential mode + elevated priority
+            // without competing for deadline-driven bandwidth.
             let upperBound: Int
             if maxLocalPiece > 0 {
                 upperBound = maxLocalPiece
@@ -502,9 +504,6 @@ final class LocalStreamServer {
                 for localIdx in (safeLast + 1)...readAheadEnd {
                     let globalIdx = beginPiece + localIdx
                     torrentHandle.setPiecePriority(globalIdx, priority: 7)
-                    let offset = min(localIdx - safeFirst, 1000)
-                    let deadline = Int32(500 + offset * 50) // 500ms base + 50ms/piece
-                    torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
                 }
             }
         }
