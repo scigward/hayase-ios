@@ -65,9 +65,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Exposes the background image view so the parent VC can apply scroll-driven zoom.
     var bannerImageView: UIImageView { backgroundImageView }
 
-    /// Callback fired when the user taps a dot to manually switch items.
-    var onDotTapped: (() -> Void)?
-
     /// Callback fired when the user taps the "Watch Now" / "Continue" play button.
     var onPlayTapped: ((AnimeItem) -> Void)?
 
@@ -526,7 +523,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         displayItem(animated: true)
         // Restart the timer so the next auto-advance is a full interval from now
         startTimer()
-        onDotTapped?()
     }
 
     @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
