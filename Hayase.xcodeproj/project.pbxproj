@@ -33,6 +33,7 @@
 		DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */; };
 		DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */; };
 		DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */; };
+		DEAD001EDEAD001EDEAD001E /* EntryEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */; };
 		EXTMOD01EXTMOD01EXTMOD01 /* ExtensionModels.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */; };
 		EXTWRK01EXTWRK01EXTWRK01 /* ExtensionWorker.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */; };
 		EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */; };
@@ -123,6 +124,7 @@
 		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
 		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
 		DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WatchProgressService.swift; sourceTree = "<group>"; };
+		DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = EntryEditorViewController.swift; sourceTree = "<group>"; };
 		EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionModels.swift; sourceTree = "<group>"; };
 		EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionWorker.swift; sourceTree = "<group>"; };
 		EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 				DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */,
 				DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */,
 				DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */,
+				DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */,
 				THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */,
 				DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */,
 				DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */,
@@ -460,6 +463,7 @@
 				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
 				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
 				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
+				DEAD001EDEAD001EDEAD001E /* EntryEditorViewController.swift in Sources */,
 				THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */,
 				DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */,
 				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,
