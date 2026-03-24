@@ -314,7 +314,7 @@ final class ExtensionService {
             if idx >= 0 && idx < regularEps.count {
                 let ep = regularEps[idx]
                 eid          = (ep["anidbEid"]              as? NSNumber)?.intValue
-                tvdbEId      = (ep["tvdbEid"]               as? NSNumber)?.intValue
+                tvdbEId      = (ep["tvdbId"]                as? NSNumber)?.intValue
                 absoluteEpNum = (ep["absoluteEpisodeNumber"] as? NSNumber)?.intValue
             }
         }
