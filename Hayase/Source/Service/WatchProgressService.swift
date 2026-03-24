@@ -3,7 +3,7 @@
 //  Hayase
 //
 //  Matches Hayase's watchProgress.ts: persists episode currentTime + duration per
-//  video file. Lets VideoPlayerController restore position on re-open and lets
+//  video file. Lets VideoPlayerViewController restore position on re-open and lets
 //  BrowseAnimeViewController build the "Continue Watching" home section.
 //
 
