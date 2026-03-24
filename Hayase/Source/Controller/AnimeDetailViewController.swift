@@ -1765,9 +1765,6 @@ class AnimeDetailViewController: UIViewController {
             anilistEpisodes = animeItem?.episodes
         }
 
-        // Format for parent fallback check — available from the anime item
-        let format = animeItem?.format
-
         // Same endpoint Hayase uses: /v1/episodes (not /mappings)
         guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(id)") else { return }
 
@@ -1777,188 +1774,138 @@ class AnimeDetailViewController: UIViewController {
                   let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
-            // ── Hayase +layout.ts: Parent fallback for SPECIAL/OVA/ONA ──────────
-            // Desktop Hayase:
-            //   let eps = await episodes(id)
-            //   if (!eps?.mappings?.anidb_id) {
-            //     const parentID = getParentForSpecial(media)
-            //     if (parentID) eps = await episodes(parentID)
-            //   }
-            let mappings = json["mappings"] as? [String: Any]
-            let hasAnidbId = (mappings?["anidb_id"] as? NSNumber)?.intValue != nil
+            let episodesDict = json["episodes"] as? [String: Any] ?? [:]
+            let episodesResCount = (json["episodeCount"] as? NSNumber)?.intValue
+            let specialCount = (json["specialCount"] as? NSNumber)?.intValue ?? 0
 
-            if !hasAnidbId, let fmt = format, ["SPECIAL", "OVA", "ONA"].contains(fmt) {
-                // Fetch relations from AniList to find parent anime
-                // Mirrors: getParentForSpecial(media) → PARENT / PREQUEL / SEQUEL
-                AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations, _ in
-                    guard let self = self else { return }
-                    // Filter to anime relations and find parent
-                    // Hayase util.ts getParentForSpecial:
-                    //   animeRelations = media.relations?.edges?.filter(edge => edge?.node?.type === 'ANIME')
-                    //   return getRelation(animeRelations, 'PARENT') ?? getRelation(.., 'PREQUEL') ?? getRelation(.., 'SEQUEL')
-                    let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
-                        relations.first { $0.relationType == relType }?.media.id
-                    }.first
+            // ── Hayase: const count = episodes(media) ?? episodesRes?.episodeCount ?? 0 ──
+            let count = anilistEpisodes ?? episodesResCount ?? 0
 
-                    if let parentID,
-                       let parentURL = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(parentID)") {
-                        URLSession.shared.dataTask(with: parentURL) { [weak self] parentData, _, _ in
-                            guard let self = self else { return }
-                            if let parentData = parentData,
-                               let parentJson = try? JSONSerialization.jsonObject(with: parentData) as? [String: Any] {
-                                self.processEpisodeJSON(parentJson, anilistEpisodes: anilistEpisodes, anilistId: id)
-                            } else {
-                                // Parent fetch failed — use original data as fallback
-                                self.processEpisodeJSON(json, anilistEpisodes: anilistEpisodes, anilistId: id)
-                            }
-                        }.resume()
+            // ── Build filtered map with airdate timestamps ──
+            // Mirrors Hayase: const filtered = new Map<string, Episode & { airdatems? }>()
+            var filtered: [String: FilteredEpisode] = [:]
+            for (key, val) in episodesDict {
+                guard let info = val as? [String: Any] else { continue }
+                let airdate = info["airdate"] as? String
+                var airdatems: Double? = nil
+                if let airdate = airdate {
+                    // Try ISO 8601, then yyyy-MM-dd
+                    if let d = ISO8601DateFormatter().date(from: airdate) {
+                        airdatems = d.timeIntervalSince1970 * 1000
                     } else {
-                        // No parent found — use original data
-                        self.processEpisodeJSON(json, anilistEpisodes: anilistEpisodes, anilistId: id)
+                        let fmt = DateFormatter()
+                        fmt.dateFormat = "yyyy-MM-dd"
+                        fmt.locale = Locale(identifier: "en_US_POSIX")
+                        if let d = fmt.date(from: airdate) {
+                            airdatems = d.timeIntervalSince1970 * 1000
+                        }
                     }
                 }
-            } else {
-                // Has anidb_id or not SPECIAL/OVA/ONA — use original data directly
-                self.processEpisodeJSON(json, anilistEpisodes: anilistEpisodes, anilistId: id)
+                let anidbEid = (info["anidbEid"] as? NSNumber)?.intValue
+                filtered[key] = FilteredEpisode(key: key, info: info, airdatems: airdatems, anidbEid: anidbEid)
+            }
+
+            // ── Hayase: const hasSpecial = !!episodesRes?.specialCount ──
+            let hasSpecial = specialCount > 0
+            // ── Hayase: const hasCountMatch = (episodes(media) ?? 0) === (episodesRes?.episodeCount ?? 0) ──
+            let hasCountMatch = (anilistEpisodes ?? 0) == (episodesResCount ?? 0)
+
+            let now = Date().timeIntervalSince1970 * 1000
+
+            // Hayase banner.svelte (desktop): episodesCached(id) → images.find(Fanart)?.url
+            // If ani.zip provides a Fanart (TVDB-sourced landscape) or Poster image,
+            // use it as the banner instead of AniList's bannerImage.
+            var anizipBannerURL: String? = nil
+            if let imagesArray = json["images"] as? [[String: Any]] {
+                let fanart = imagesArray.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
+                let poster  = imagesArray.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+                anizipBannerURL = fanart ?? poster
+            }
+
+            var parsed: [AniZipEpisode] = []
+            guard count > 0 else {
+                // count == 0 → empty episode list (same as Hayase loop not executing)
+                DispatchQueue.main.async { [weak self] in
+                    self?.episodes = []
+                    self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                    if let bannerURL = anizipBannerURL {
+                        self?.headerView.updateBanner(from: bannerURL)
+                    }
+                }
+                return
+            }
+
+            for episode in 1...count {
+                // Hayase: const hasEpisode = episodesRes?.episodes?.[Number(episode)]
+                let hasEpisode = episodesDict["\(episode)"] != nil
+
+                // Hayase: const needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
+                let needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
+
+                let resolvedEntry: FilteredEpisode?
+                if needsValidation {
+                    // episodeByAirDate — without AniList airing schedule data,
+                    // airingAt is nil so this degrades to direct key lookup.
+                    resolvedEntry = self.episodeByAirDate(alDate: nil, filtered: filtered, episode: episode)
+
+                    // Hayase: remove consumed episodes (matching anidbEid or earlier dates)
+                    if let resolved = resolvedEntry {
+                        var keysToRemove: [String] = []
+                        for (key, entry) in filtered {
+                            if let eid = entry.anidbEid, let resolvedEid = resolved.anidbEid, eid == resolvedEid {
+                                keysToRemove.append(key)
+                            } else if let entryMs = entry.airdatems, entryMs < (resolved.airdatems ?? now) {
+                                keysToRemove.append(key)
+                            }
+                        }
+                        for key in keysToRemove {
+                            filtered.removeValue(forKey: key)
+                        }
+                    }
+                } else {
+                    // Simple case: direct key lookup — filtered.get('' + episode)
+                    resolvedEntry = filtered["\(episode)"]
+                }
+
+                // Parse episode data from resolved entry (or empty fallback)
+                let info = resolvedEntry?.info ?? [:]
+                let titles = info["title"] as? [String: String] ?? [:]
+                let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
+                let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let imageURL = info["image"] as? String
+                let airDate = info["airdate"] as? String ?? info["airDate"] as? String
+                let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
+                let ratingRaw = info["rating"]
+                let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
+                    ?? (ratingRaw as? String).flatMap(Double.init)
+
+                parsed.append(AniZipEpisode(
+                    number: episode,
+                    title: title.isEmpty ? "Episode \(episode)" : title,
+                    overview: overview, imageURL: imageURL, airDate: airDate,
+                    runtime: runtime, rating: rating, isFiller: false))
+            }
+
+            // Fetch filler data from ThaUnknown/filler-scrape (exact Hayase match):
+            // extensions.ts: fetch('https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json')
+            //                filler: !!fillerEpisodes[media.id]?.includes(episode)
+            AnimeDetailViewController.loadFillerSet(for: id) { fillerSet in
+                let finalEpisodes = parsed.map { ep in
+                    AniZipEpisode(number: ep.number, title: ep.title, overview: ep.overview,
+                                  imageURL: ep.imageURL, airDate: ep.airDate, runtime: ep.runtime,
+                                  rating: ep.rating, isFiller: fillerSet.contains(ep.number))
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.episodes = finalEpisodes
+                    self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                    if let bannerURL = anizipBannerURL {
+                        self?.headerView.updateBanner(from: bannerURL)
+                    }
+                }
             }
         }
         episodeFetchTask?.resume()
-    }
-
-    /// Process the ani.zip episode JSON into AniZipEpisode models and update the UI.
-    /// Extracted from fetchEpisodes() to support parent fallback for SPECIAL/OVA/ONA.
-    /// Mirrors Hayase extensions.ts makeEpisodeList(media, episodesRes).
-    private func processEpisodeJSON(_ json: [String: Any], anilistEpisodes: Int?, anilistId: Int) {
-        let episodesDict = json["episodes"] as? [String: Any] ?? [:]
-        let episodesResCount = (json["episodeCount"] as? NSNumber)?.intValue
-        let specialCount = (json["specialCount"] as? NSNumber)?.intValue ?? 0
-
-        // ── Hayase: const count = episodes(media) ?? episodesRes?.episodeCount ?? 0 ──
-        let count = anilistEpisodes ?? episodesResCount ?? 0
-
-        // ── Build filtered map with airdate timestamps ──
-        // Mirrors Hayase: const filtered = new Map<string, Episode & { airdatems? }>()
-        var filtered: [String: FilteredEpisode] = [:]
-        for (key, val) in episodesDict {
-            guard let info = val as? [String: Any] else { continue }
-            let airdate = info["airdate"] as? String
-            var airdatems: Double? = nil
-            if let airdate = airdate {
-                // Try ISO 8601, then yyyy-MM-dd
-                if let d = ISO8601DateFormatter().date(from: airdate) {
-                    airdatems = d.timeIntervalSince1970 * 1000
-                } else {
-                    let fmt = DateFormatter()
-                    fmt.dateFormat = "yyyy-MM-dd"
-                    fmt.locale = Locale(identifier: "en_US_POSIX")
-                    if let d = fmt.date(from: airdate) {
-                        airdatems = d.timeIntervalSince1970 * 1000
-                    }
-                }
-            }
-            let anidbEid = (info["anidbEid"] as? NSNumber)?.intValue
-            filtered[key] = FilteredEpisode(key: key, info: info, airdatems: airdatems, anidbEid: anidbEid)
-        }
-
-        // ── Hayase: const hasSpecial = !!episodesRes?.specialCount ──
-        let hasSpecial = specialCount > 0
-        // ── Hayase: const hasCountMatch = (episodes(media) ?? 0) === (episodesRes?.episodeCount ?? 0) ──
-        let hasCountMatch = (anilistEpisodes ?? 0) == (episodesResCount ?? 0)
-
-        let now = Date().timeIntervalSince1970 * 1000
-
-        // Hayase banner.svelte (desktop): episodesCached(id) → images.find(Fanart)?.url
-        // If ani.zip provides a Fanart (TVDB-sourced landscape) or Poster image,
-        // use it as the banner instead of AniList's bannerImage.
-        var anizipBannerURL: String? = nil
-        if let imagesArray = json["images"] as? [[String: Any]] {
-            let fanart = imagesArray.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
-            let poster  = imagesArray.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
-            anizipBannerURL = fanart ?? poster
-        }
-
-        var parsed: [AniZipEpisode] = []
-        guard count > 0 else {
-            // count == 0 → empty episode list (same as Hayase loop not executing)
-            DispatchQueue.main.async { [weak self] in
-                self?.episodes = []
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
-                if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
-                }
-            }
-            return
-        }
-
-        for episode in 1...count {
-            // Hayase: const hasEpisode = episodesRes?.episodes?.[Number(episode)]
-            let hasEpisode = episodesDict["\(episode)"] != nil
-
-            // Hayase: const needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
-            let needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
-
-            let resolvedEntry: FilteredEpisode?
-            if needsValidation {
-                // episodeByAirDate — without AniList airing schedule data,
-                // airingAt is nil so this degrades to direct key lookup.
-                resolvedEntry = self.episodeByAirDate(alDate: nil, filtered: filtered, episode: episode)
-
-                // Hayase: remove consumed episodes (matching anidbEid or earlier dates)
-                if let resolved = resolvedEntry {
-                    var keysToRemove: [String] = []
-                    for (key, entry) in filtered {
-                        if let eid = entry.anidbEid, let resolvedEid = resolved.anidbEid, eid == resolvedEid {
-                            keysToRemove.append(key)
-                        } else if let entryMs = entry.airdatems, entryMs < (resolved.airdatems ?? now) {
-                            keysToRemove.append(key)
-                        }
-                    }
-                    for key in keysToRemove {
-                        filtered.removeValue(forKey: key)
-                    }
-                }
-            } else {
-                // Simple case: direct key lookup — filtered.get('' + episode)
-                resolvedEntry = filtered["\(episode)"]
-            }
-
-            // Parse episode data from resolved entry (or empty fallback)
-            let info = resolvedEntry?.info ?? [:]
-            let titles = info["title"] as? [String: String] ?? [:]
-            let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
-            let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let imageURL = info["image"] as? String
-            let airDate = info["airdate"] as? String ?? info["airDate"] as? String
-            let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
-            let ratingRaw = info["rating"]
-            let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
-                ?? (ratingRaw as? String).flatMap(Double.init)
-
-            parsed.append(AniZipEpisode(
-                number: episode,
-                title: title.isEmpty ? "Episode \(episode)" : title,
-                overview: overview, imageURL: imageURL, airDate: airDate,
-                runtime: runtime, rating: rating, isFiller: false))
-        }
-
-        // Fetch filler data from ThaUnknown/filler-scrape (exact Hayase match):
-        // extensions.ts: fetch('https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json')
-        //                filler: !!fillerEpisodes[media.id]?.includes(episode)
-        AnimeDetailViewController.loadFillerSet(for: anilistId) { fillerSet in
-            let finalEpisodes = parsed.map { ep in
-                AniZipEpisode(number: ep.number, title: ep.title, overview: ep.overview,
-                              imageURL: ep.imageURL, airDate: ep.airDate, runtime: ep.runtime,
-                              rating: ep.rating, isFiller: fillerSet.contains(ep.number))
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.episodes = finalEpisodes
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
-                if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
-                }
-            }
-        }
     }
 
     // MARK: - Filler cache (ThaUnknown/filler-scrape)
