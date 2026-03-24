@@ -1300,4 +1300,92 @@ public class AnimeService: NSObject {
             }
         }.resume()
     }
+
+    // MARK: - Per-media airing schedule (used by AnimeDetailViewController for OVA/SPECIAL parent fallback)
+
+    /// Mirrors Hayase desktop's `dedupeAiring(media)` + `alSchedule` from `makeEpisodeList`.
+    /// Fetches AniList's `airingSchedule` for a specific anime and returns a mapping of
+    /// episode number → air date. The desktop's FullMedia fragment includes:
+    ///   aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt, e: episode } }
+    ///   notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) { n: nodes { a: airingAt, e: episode } }
+    /// For single-episode media with no schedule, synthesizes an air date from startDate.
+    struct MediaScheduleResult {
+        let schedule: [Int: Date]   // episode number → air date
+        let startDate: (year: Int?, month: Int?, day: Int?)?
+        let episodeCount: Int?
+    }
+
+    private struct MediaScheduleResponse: Codable {
+        let data: MSData?
+        struct MSData: Codable {
+            let Media: MSMedia?
+        }
+        struct MSMedia: Codable {
+            let episodes: Int?
+            let startDate: MSStartDate?
+            let aired: MSSchedule?
+            let notaired: MSSchedule?
+        }
+        struct MSStartDate: Codable {
+            let year: Int?
+            let month: Int?
+            let day: Int?
+        }
+        struct MSSchedule: Codable {
+            let n: [MSNode]?       // aliased nodes
+        }
+        struct MSNode: Codable {
+            let a: Int?            // airingAt (unix timestamp)
+            let e: Int?            // episode number
+        }
+    }
+
+    private let mediaScheduleQuery = """
+    query ($id: Int) {
+      Media(id: $id, type: ANIME) {
+        episodes
+        startDate { year month day }
+        aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
+          n: nodes { a: airingAt e: episode }
+        }
+        notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) {
+          n: nodes { a: airingAt e: episode }
+        }
+      }
+    }
+    """
+
+    /// Fetch the airing schedule for a specific anime, mirroring `dedupeAiring(media)`.
+    /// Returns episode→Date mapping (deduped by episode number), plus startDate for fallback.
+    func fetchMediaAiringSchedule(anilistID: Int, completion: @escaping (MediaScheduleResult?) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": mediaScheduleQuery, "variables": ["id": anilistID]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(MediaScheduleResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                completion(nil)
+                return
+            }
+
+            // Hayase dedupeAiring: merge aired + notaired, dedupe by episode number
+            var schedule: [Int: Date] = [:]
+            let allNodes = (media.aired?.n ?? []) + (media.notaired?.n ?? [])
+            for node in allNodes {
+                guard let ep = node.e, let at = node.a else { continue }
+                if schedule[ep] == nil {  // first occurrence wins (dedup)
+                    schedule[ep] = Date(timeIntervalSince1970: Double(at))
+                }
+            }
+
+            let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
+            completion(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
+        }.resume()
+    }
 }

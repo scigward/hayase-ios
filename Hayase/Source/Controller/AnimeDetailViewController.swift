@@ -1786,25 +1786,54 @@ class AnimeDetailViewController: UIViewController {
             let hasAnidbId = (mappings?["anidb_id"] as? NSNumber)?.intValue != nil
 
             if !hasAnidbId, let fmt = format, ["SPECIAL", "OVA", "ONA"].contains(fmt) {
-                // ── Build the OVA's own airing schedule from its ani.zip air dates ──
-                // Mirrors Hayase makeEpisodeList Step 2: build alSchedule from dedupeAiring(media).
-                // Since we don't have AniList's aired/notaired arrays, we extract air dates
-                // from the OVA's own ani.zip episodes before replacing with the parent's data.
-                // These dates are then used by episodeByAirDate to find the correct matching
-                // episodes (typically specials like S1, S2, S3) in the parent's episode map.
-                let ovaAirDates = Self.extractEpisodeAirDates(from: json)
+                // ── Hayase +layout.ts parent fallback ──
+                // Desktop: if (!eps?.mappings?.anidb_id) { parentID = getParentForSpecial(media); eps = await episodes(parentID) }
+                // Desktop makeEpisodeList: alSchedule built from dedupeAiring(media) — AniList's airingSchedule
+                // Then episodeByAirDate(alSchedule[ep], parentFiltered, ep) finds the correct special episode.
 
                 // Need parent ID — try animeItem.relations first; if empty,
                 // fetch relations from AniList before looking up the parent.
                 self.resolveParentID(format: fmt) { [weak self] parentID in
                     guard let self = self else { return }
                     if let parentID = parentID {
-                        // Re-fetch ani.zip with parent's ID
-                        self.fetchAniZipEpisodeJSON(anilistID: parentID) { [weak self] parentJSON in
+                        // ── Fetch OVA's AniList airing schedule (mirrors dedupeAiring(media)) ──
+                        // The desktop gets this from FullMedia fragment's aired/notaired fields.
+                        // We fetch it separately since our AnimeItem doesn't carry airingSchedule.
+                        AnimeService.sharedAnimeService.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
                             guard let self = self else { return }
-                            let finalJSON = parentJSON ?? json
-                            self.processEpisodeJSON(finalJSON, anilistEpisodes: anilistEpisodes,
-                                                    anilistId: id, ovaAirDates: ovaAirDates)
+
+                            // Build alSchedule: episode number → air date
+                            var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
+
+                            // Hayase makeEpisodeList Step 2 fallback for single-episode media:
+                            //   if (!alSchedule[1] && isSingleEpisode(media) && media.startDate)
+                            //     alSchedule[1] = new Date(year, month-1, day)
+                            if alSchedule[1] == nil {
+                                let item = self.animeItem
+                                let allTitles = [item?.titleEnglish, item?.titleRomaji].compactMap { $0 }
+                                let singleEp = self.isSingleEpisode(
+                                    format: fmt, titles: allTitles,
+                                    synonyms: item?.synonyms ?? [],
+                                    duration: item?.duration, episodes: anilistEpisodes)
+                                if singleEp, let sd = schedResult?.startDate,
+                                   let y = sd.year {
+                                    let m = sd.month ?? 1
+                                    let d = sd.day ?? 1
+                                    var comps = DateComponents()
+                                    comps.year = y; comps.month = m; comps.day = d
+                                    if let date = Calendar(identifier: .gregorian).date(from: comps) {
+                                        alSchedule[1] = date
+                                    }
+                                }
+                            }
+
+                            // Re-fetch ani.zip with parent's ID
+                            self.fetchAniZipEpisodeJSON(anilistID: parentID) { [weak self] parentJSON in
+                                guard let self = self else { return }
+                                let finalJSON = parentJSON ?? json
+                                self.processEpisodeJSON(finalJSON, anilistEpisodes: anilistEpisodes,
+                                                        anilistId: id, alSchedule: alSchedule)
+                            }
                         }
                     } else {
                         // No parent found — use own data as-is
@@ -1864,43 +1893,18 @@ class AnimeDetailViewController: UIViewController {
         }.resume()
     }
 
-    /// Extract per-episode air dates from an ani.zip JSON response.
-    /// Returns a dictionary mapping 1-based episode numbers to Date objects.
-    /// Mirrors Hayase makeEpisodeList Step 2 (alSchedule from dedupeAiring):
-    /// since the iOS app doesn't have AniList's aired/notaired arrays, we use
-    /// the OVA's own ani.zip episode air dates as the equivalent schedule data.
-    private static func extractEpisodeAirDates(from json: [String: Any]) -> [Int: Date] {
-        guard let episodes = json["episodes"] as? [String: Any] else { return [:] }
-        var airDates: [Int: Date] = [:]
-        let dateFmt = DateFormatter()
-        dateFmt.dateFormat = "yyyy-MM-dd"
-        dateFmt.locale = Locale(identifier: "en_US_POSIX")
-
-        for (key, val) in episodes {
-            guard let epNum = Int(key),
-                  let info = val as? [String: Any],
-                  let airdate = info["airdate"] as? String else { continue }
-            if let d = ISO8601DateFormatter().date(from: airdate) {
-                airDates[epNum] = d
-            } else if let d = dateFmt.date(from: airdate) {
-                airDates[epNum] = d
-            }
-        }
-        return airDates
-    }
-
     /// Process the ani.zip episode JSON into AniZipEpisode models and update the UI.
     /// Extracted from fetchEpisodes() so it can be called for both the primary response
     /// and the parent fallback response.
     /// Mirrors Hayase makeEpisodeList(media, episodesRes) in extensions.ts.
     ///
-    /// - Parameter ovaAirDates: When processing parent's ani.zip data for an OVA/SPECIAL,
-    ///   these are the OVA's own per-episode air dates (from its own ani.zip response).
+    /// - Parameter alSchedule: When processing parent's ani.zip data for an OVA/SPECIAL,
+    ///   this is the OVA's own per-episode airing schedule from AniList's airingSchedule
+    ///   (the equivalent of Hayase's `alSchedule` built from `dedupeAiring(media)`).
     ///   Used as the `alDate` parameter in episodeByAirDate to correctly match OVA episodes
     ///   to the parent's episodes (typically specials like S1, S2, S3) by air date proximity.
-    ///   Mirrors Hayase's alSchedule built from dedupeAiring(media) in makeEpisodeList.
     private func processEpisodeJSON(_ json: [String: Any], anilistEpisodes: Int?, anilistId: Int,
-                                    ovaAirDates: [Int: Date]? = nil) {
+                                    alSchedule: [Int: Date]? = nil) {
         let episodesDict = json["episodes"] as? [String: Any] ?? [:]
         let episodesResCount = (json["episodeCount"] as? NSNumber)?.intValue
         let specialCount = (json["specialCount"] as? NSNumber)?.intValue ?? 0
@@ -1972,11 +1976,11 @@ class AnimeDetailViewController: UIViewController {
             let resolvedEntry: FilteredEpisode?
             if needsValidation {
                 // Hayase makeEpisodeList: const airingAt = alSchedule.get(episode)
-                // Use the OVA's own air date (from its ani.zip) for this episode,
+                // Use the OVA's AniList airing schedule date for this episode,
                 // matching Hayase's alSchedule built from dedupeAiring(media).
                 // This enables episodeByAirDate to find the correct episode
                 // (e.g., special S1) in the parent's filtered map by air-date proximity.
-                let alDate = ovaAirDates?[episode]
+                let alDate = alSchedule?[episode]
                 resolvedEntry = self.episodeByAirDate(alDate: alDate, filtered: filtered, episode: episode)
 
                 // Hayase: remove consumed episodes (matching anidbEid or earlier dates)
