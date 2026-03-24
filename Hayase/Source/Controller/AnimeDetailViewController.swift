@@ -1769,9 +1769,11 @@ class AnimeDetailViewController: UIViewController {
         }
 
         editorVC.modalPresentationStyle = .pageSheet
-        if let sheet = editorVC.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabIndicator = true
+        if #available(iOS 15.0, *) {
+            if let sheet = editorVC.sheetPresentationController {
+                sheet.detents = [.medium(), .large()]
+                sheet.prefersGrabIndicator = true
+            }
         }
         present(editorVC, animated: true)
     }
