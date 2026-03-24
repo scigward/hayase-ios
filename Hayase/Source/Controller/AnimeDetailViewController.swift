@@ -1863,12 +1863,13 @@ class AnimeDetailViewController: UIViewController {
     /// Fetches the user's AniList progress for this anime and refreshes episode cells.
     /// Mirrors desktop's mediaListEntry.progress used to dim watched episodes.
     private func fetchAniListProgress() {
-        let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue
-        guard let id = id, id > 0 else { return }
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
         AniListTracking.shared.fetchProgress(anilistID: id) { [weak self] progress in
-            guard let self = self, let progress = progress, progress > 0 else { return }
+            guard let self = self else { return }
+            let newProgress = progress ?? 0
             DispatchQueue.main.async {
-                self.anilistProgress = progress
+                guard self.anilistProgress != newProgress else { return }
+                self.anilistProgress = newProgress
                 self.tableView.reloadData()
             }
         }
