@@ -90,6 +90,8 @@ final class VideoPlayerViewController: UIViewController {
     /// reduced effective speed (no active deadline boosting) to match Hayase
     /// behavior and avoid blocking LocalStreamServer.waitForLocalPieces().
     private var userRequestedPause = false
+    /// Matches Hayase player.svelte: prevents duplicate tracking calls.
+    private var trackingCompleted = false
     private var isSeeking = false
     private var tracks: [MPVTrack] = []
     private var chapters: [MPVChapter] = [] // Note: Streamyfin's renderer doesn't fetch chapters by default
@@ -564,6 +566,7 @@ final class VideoPlayerViewController: UIViewController {
         guard !path.isEmpty else { return }
         
         // Reset states for new file
+        trackingCompleted = false
         isEOFTriggered = false
         pendingRestoreTime = nil
         chapters.removeAll()
@@ -584,6 +587,9 @@ final class VideoPlayerViewController: UIViewController {
             StreamingLogger.shared.info("Streaming — waiting for head pieces…")
         }
         loadVideoURL()
+
+        // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
+        AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
     }
 
     /// Builds the URL and preset, loads the video into MPV, and starts stats.
@@ -809,6 +815,22 @@ final class VideoPlayerViewController: UIViewController {
         WatchProgressService.shared.setProgress(
             videoPath: path, anilistID: anilistID, episode: episodeNumber,
             currentTime: currentTime, duration: duration)
+    }
+
+    /// Matches Hayase player.svelte checkCompletion():
+    /// When the user is within max(180s, 10% of duration) of the end,
+    /// automatically update AniList progress for this episode.
+    private func checkCompletion() {
+        guard !trackingCompleted,
+              UserDefaults.standard.bool(forKey: "pref_autocomplete"),
+              anilistID > 0, episodeNumber > 0,
+              duration > 0, currentTime > 0 else { return }
+
+        let fromEnd = max(180.0, duration / 10.0)
+        if duration - fromEnd < currentTime {
+            trackingCompleted = true
+            AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber)
+        }
     }
 
     // MARK: - Controls visibility
@@ -1141,7 +1163,10 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         if duration > 0 {
             streamer?.updatePlaybackPosition(fraction: position / duration, videoDuration: duration)
         }
-        
+
+        // Check auto-completion (Hayase player.svelte checkCompletion)
+        checkCompletion()
+
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
         // Guard against false EOF triggers after a seek: when the server serves
         // partially-downloaded data, MPV may briefly report a position near the

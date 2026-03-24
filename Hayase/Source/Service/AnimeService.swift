@@ -42,6 +42,18 @@ struct AnimeItem {
     var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
     var relations: [AnimeRelation] = []
     var characters: [AnimeCharacter] = []
+
+    // MARK: - AniList tracking
+
+    /// Represents the authenticated user's list entry for this media (requires auth).
+    struct MediaListEntry {
+        let listID: Int          // MediaList.id (needed for DeleteMediaListEntry)
+        let status: String?      // "CURRENT", "COMPLETED", "PLANNING", "DROPPED", "PAUSED", "REPEATING"
+        let progress: Int        // episodes watched
+        let score: Int           // 0-10 (POINT_10 format)
+        let repeatCount: Int     // times rewatched
+    }
+    var mediaListEntry: MediaListEntry?
 }
 
 struct HomeSectionData {

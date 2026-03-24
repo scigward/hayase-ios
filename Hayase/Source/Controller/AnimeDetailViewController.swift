@@ -790,6 +790,7 @@ private final class AnimeInfoHeaderView: UIView {
     var onShare: (() -> Void)?
     var onPlayTrailer: (() -> Void)?
     var onWatch: (() -> Void)?
+    var onEntryEditor: (() -> Void)?
 
     private var anilistId: Int?
 
@@ -1180,7 +1181,7 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func shareTapped()       { onShare?() }
     @objc private func trailerTapped()     { onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { /* TODO: Present entry editor sheet */ }
+    @objc private func entryEditorTapped() { onEntryEditor?() }
 
     // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
 
@@ -1666,6 +1667,9 @@ class AnimeDetailViewController: UIViewController {
         headerView.onWatch = { [weak self] in
             self?.openExtensionSearch(episode: 1)
         }
+        headerView.onEntryEditor = { [weak self] in
+            self?.showEntryEditor()
+        }
 
         // Header view + tab bar are embedded in a regular table cell (section 0)
         // instead of tableHeaderView.  This eliminates the TAMIC conflict that
@@ -1675,6 +1679,96 @@ class AnimeDetailViewController: UIViewController {
         // drives the cell height naturally.
     }
 
+
+    // MARK: - AniList Entry Editor
+
+    private func showEntryEditor() {
+        guard let item = animeItem else { return }
+
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.presentEntryEditorSheet(mediaID: item.id, currentEntry: entry, totalEpisodes: item.episodes)
+            }
+        }
+    }
+
+    private func presentEntryEditorSheet(mediaID: Int, currentEntry: AnimeItem.MediaListEntry?, totalEpisodes: Int?) {
+        let message: String
+        if let entry = currentEntry {
+            message = "Status: \(entry.status ?? "—")  •  Progress: \(entry.progress)/\(totalEpisodes ?? 0)  •  Score: \(entry.score)/10"
+        } else {
+            message = "Not on your list yet"
+        }
+
+        let alert = UIAlertController(
+            title: "Update List Entry",
+            message: message,
+            preferredStyle: .actionSheet)
+
+        let statuses = ["CURRENT", "PLANNING", "COMPLETED", "DROPPED", "PAUSED", "REPEATING"]
+        let labels   = ["Watching", "Planning", "Completed", "Dropped", "Paused", "Repeating"]
+
+        for (i, status) in statuses.enumerated() {
+            let title = (currentEntry?.status == status) ? "✓ \(labels[i])" : labels[i]
+            alert.addAction(UIAlertAction(title: title, style: .default) { _ in
+                AniListTracking.shared.entry(mediaID: mediaID, status: status)
+            })
+        }
+
+        alert.addAction(UIAlertAction(title: "Set Score…", style: .default) { [weak self] _ in
+            self?.presentScorePicker(mediaID: mediaID, currentScore: currentEntry?.score ?? 0)
+        })
+
+        alert.addAction(UIAlertAction(title: "Set Progress…", style: .default) { [weak self] _ in
+            self?.presentProgressPicker(mediaID: mediaID, currentProgress: currentEntry?.progress ?? 0, total: totalEpisodes)
+        })
+
+        if let entry = currentEntry {
+            alert.addAction(UIAlertAction(title: "Remove from List", style: .destructive) { _ in
+                AniListTracking.shared.deleteEntry(listID: entry.listID)
+            })
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        // iPad popover anchor
+        alert.popoverPresentationController?.sourceView = view
+
+        present(alert, animated: true)
+    }
+
+    private func presentScorePicker(mediaID: Int, currentScore: Int) {
+        let alert = UIAlertController(title: "Set Score", message: "Current: \(currentScore)/10", preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.keyboardType = .numberPad
+            tf.placeholder = "0–10"
+            tf.text = currentScore > 0 ? "\(currentScore)" : ""
+        }
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+            guard let text = alert.textFields?.first?.text,
+                  let val = Int(text), (0...10).contains(val) else { return }
+            AniListTracking.shared.entry(mediaID: mediaID, score: val)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func presentProgressPicker(mediaID: Int, currentProgress: Int, total: Int?) {
+        let maxStr = total != nil ? "/\(total!)" : ""
+        let alert = UIAlertController(title: "Set Progress", message: "Current: \(currentProgress)\(maxStr)", preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.keyboardType = .numberPad
+            tf.placeholder = "Episode number"
+            tf.text = currentProgress > 0 ? "\(currentProgress)" : ""
+        }
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+            guard let text = alert.textFields?.first?.text,
+                  let val = Int(text), val >= 0 else { return }
+            AniListTracking.shared.entry(mediaID: mediaID, progress: val)
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
 
     // MARK: - Fetch episodes (ani.zip)
 

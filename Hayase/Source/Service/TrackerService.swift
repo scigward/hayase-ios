@@ -326,3 +326,226 @@ final class KitsuAuth {
         }.resume()
     }
 }
+
+// MARK: - AniList Tracking
+
+/// AniList GraphQL mutations and queries for tracking anime progress.
+/// Mirrors Hayase desktop's auth/client.ts (watch, setInitialState, entry, delete).
+final class AniListTracking {
+    static let shared = AniListTracking()
+    private init() {}
+
+    private let endpoint = "https://graphql.anilist.co"
+
+    // MARK: - Mutations
+
+    /// SaveMediaListEntry mutation — matches desktop Entry mutation in queries.ts
+    private let saveEntryMutation = """
+    mutation ($id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
+        SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score) {
+            id
+            status
+            progress
+            score(format: POINT_10)
+            repeat
+        }
+    }
+    """
+
+    /// DeleteMediaListEntry mutation
+    private let deleteEntryMutation = """
+    mutation ($id: Int!) {
+        DeleteMediaListEntry(id: $id) {
+            deleted
+        }
+    }
+    """
+
+    /// Fetch a single media with its mediaListEntry (requires auth token)
+    private let singleMediaQuery = """
+    query ($id: Int!) {
+        Media(id: $id, type: ANIME) {
+            id
+            status
+            episodes
+            format
+            duration
+            title { english romaji }
+            synonyms
+            mediaListEntry {
+                id
+                status
+                progress
+                score(format: POINT_10)
+                repeat
+            }
+        }
+    }
+    """
+
+    // MARK: - Private helpers
+
+    private func authRequest(query: String, variables: [String: Any], completion: @escaping ([String: Any]?) -> Void) {
+        guard let token = TrackerAccountManager.shared.token(for: .anilist),
+              let url = URL(string: endpoint) else {
+            completion(nil); return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["query": query, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any] else {
+                completion(nil); return
+            }
+            completion(dataObj)
+        }.resume()
+    }
+
+    // MARK: - Fetch current list entry for a media
+
+    /// Fetches the current media with its mediaListEntry from AniList.
+    /// Returns (mediaListEntry, mediaStatus, episodes, format, duration).
+    func fetchMediaWithEntry(anilistID: Int, completion: @escaping (AnimeItem.MediaListEntry?, String?, Int?, String?, Int?) -> Void) {
+        authRequest(query: singleMediaQuery, variables: ["id": anilistID]) { data in
+            guard let media = data?["Media"] as? [String: Any] else {
+                completion(nil, nil, nil, nil, nil); return
+            }
+            let mediaStatus = media["status"] as? String
+            let episodes = media["episodes"] as? Int
+            let format = media["format"] as? String
+            let duration = media["duration"] as? Int
+
+            var entry: AnimeItem.MediaListEntry?
+            if let mle = media["mediaListEntry"] as? [String: Any],
+               let listID = mle["id"] as? Int {
+                entry = AnimeItem.MediaListEntry(
+                    listID: listID,
+                    status: mle["status"] as? String,
+                    progress: mle["progress"] as? Int ?? 0,
+                    score: mle["score"] as? Int ?? 0,
+                    repeatCount: mle["repeat"] as? Int ?? 0)
+            }
+            completion(entry, mediaStatus, episodes, format, duration)
+        }
+    }
+
+    // MARK: - entry() — universal entry update (matches auth/client.ts entry())
+
+    /// Updates/creates a media list entry on AniList.
+    /// Mirrors auth/client.ts `entry(variables)`.
+    func entry(mediaID: Int,
+               status: String? = nil,
+               progress: Int? = nil,
+               score: Int? = nil,
+               repeatCount: Int? = nil,
+               completion: ((AnimeItem.MediaListEntry?) -> Void)? = nil) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
+            completion?(nil); return
+        }
+
+        var vars: [String: Any] = ["id": mediaID]
+        if let s = status   { vars["status"] = s }
+        if let p = progress { vars["progress"] = p }
+        // AniList scoreRaw expects 0-100; iOS UI uses 0-10 (POINT_10), so multiply by 10
+        if let sc = score   { vars["score"] = sc * 10 }
+        if let r = repeatCount { vars["repeat"] = r }
+
+        authRequest(query: saveEntryMutation, variables: vars) { data in
+            guard let entry = data?["SaveMediaListEntry"] as? [String: Any],
+                  let listID = entry["id"] as? Int else {
+                completion?(nil); return
+            }
+            let result = AnimeItem.MediaListEntry(
+                listID: listID,
+                status: entry["status"] as? String,
+                progress: entry["progress"] as? Int ?? 0,
+                score: entry["score"] as? Int ?? 0,
+                repeatCount: entry["repeat"] as? Int ?? 0)
+            completion?(result)
+        }
+    }
+
+    // MARK: - deleteEntry()
+
+    /// Deletes a media list entry from AniList.
+    func deleteEntry(listID: Int, completion: ((Bool) -> Void)? = nil) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
+            completion?(false); return
+        }
+
+        authRequest(query: deleteEntryMutation, variables: ["id": listID]) { data in
+            let deleted = (data?["DeleteMediaListEntry"] as? [String: Any])?["deleted"] as? Bool ?? false
+            completion?(deleted)
+        }
+    }
+
+    // MARK: - watch() — auto-update progress (matches auth/client.ts watch())
+
+    /// Called when the user watches an episode. Mirrors auth/client.ts `watch()`:
+    /// 1. Fetches latest media data to check current progress
+    /// 2. Won't downgrade progress (currentProgress >= newProgress → skip)
+    /// 3. Auto-determines status: COMPLETED if last episode, CURRENT otherwise
+    /// 4. Handles REPEATING status preservation
+    func watch(anilistID: Int, episodeProgress: Int) {
+        fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, mediaStatus, totalEps, _, _ in
+            guard let self else { return }
+            let total = totalEps ?? 1
+            if total < episodeProgress { return } // episode number exceeds total episodes
+
+            let currentProgress = currentEntry?.progress ?? 0
+            if currentProgress >= episodeProgress { return } // don't downgrade
+
+            // Desktop: canBeCompleted = media.status === 'FINISHED' || media.episodes != null
+            let canBeCompleted = mediaStatus == "FINISHED" || totalEps != nil
+
+            let status: String
+            if total == episodeProgress && canBeCompleted {
+                status = "COMPLETED"
+            } else if currentEntry?.status == "REPEATING" {
+                status = "REPEATING"
+            } else {
+                status = "CURRENT"
+            }
+
+            self.entry(mediaID: anilistID, status: status, progress: episodeProgress)
+        }
+    }
+
+    // MARK: - setInitialState() — matches auth/client.ts setInitialState()
+
+    /// Called when starting playback of episode 1. Handles status transitions:
+    /// - No entry → create with CURRENT, progress 0
+    /// - PLANNING/PAUSED → CURRENT, progress 0
+    /// - COMPLETED → REPEATING, progress 0 (unless single-episode media)
+    func setInitialState(anilistID: Int, episode: Int) {
+        guard episode == 1 else { return }
+
+        fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, _, totalEps, _, _ in
+            guard let self else { return }
+
+            // No existing entry → create one with CURRENT status
+            guard let currentEntry else {
+                self.entry(mediaID: anilistID, status: "CURRENT", progress: 0)
+                return
+            }
+
+            // Single-episode media (movie): don't set to REPEATING if already COMPLETED
+            if totalEps == 1 && currentEntry.status == "COMPLETED" { return }
+
+            // COMPLETED/PLANNING/PAUSED → transition
+            let transitionStatuses = ["COMPLETED", "PLANNING", "PAUSED"]
+            guard transitionStatuses.contains(currentEntry.status ?? "") else { return }
+
+            let newStatus = currentEntry.status == "COMPLETED" ? "REPEATING" : "CURRENT"
+            self.entry(mediaID: anilistID, status: newStatus, progress: 0)
+        }
+    }
+}
