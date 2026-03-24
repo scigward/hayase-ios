@@ -1754,7 +1754,7 @@ class AnimeDetailViewController: UIViewController {
     }
 
     private func presentProgressPicker(mediaID: Int, currentProgress: Int, total: Int?) {
-        let maxStr = total != nil ? "/\(total!)" : ""
+        let maxStr = total.map { "/\($0)" } ?? ""
         let alert = UIAlertController(title: "Set Progress", message: "Current: \(currentProgress)\(maxStr)", preferredStyle: .alert)
         alert.addTextField { tf in
             tf.keyboardType = .numberPad

@@ -453,8 +453,7 @@ final class AniListTracking {
         var vars: [String: Any] = ["id": mediaID]
         if let s = status   { vars["status"] = s }
         if let p = progress { vars["progress"] = p }
-        // AniList scoreRaw expects 0-100; iOS UI uses 0-10 (POINT_10), so multiply by 10
-        if let sc = score   { vars["score"] = sc * 10 }
+        if let sc = score   { vars["score"] = sc * 10 } // POINT_10 (0-10) → scoreRaw (0-100)
         if let r = repeatCount { vars["repeat"] = r }
 
         authRequest(query: saveEntryMutation, variables: vars) { data in
