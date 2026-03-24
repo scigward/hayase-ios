@@ -1772,7 +1772,7 @@ class AnimeDetailViewController: UIViewController {
         if #available(iOS 15.0, *) {
             if let sheet = editorVC.sheetPresentationController {
                 sheet.detents = [.medium(), .large()]
-                sheet.prefersGrabIndicator = true
+                sheet.prefersGrabberVisible = true
             }
         }
         present(editorVC, animated: true)
