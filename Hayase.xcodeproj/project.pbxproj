@@ -49,7 +49,6 @@
 		A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C81D731B43006D39D0 /* NamedEntity.swift */; };
 		A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */; };
 		A96106D81D731B43006D39D0 /* Torrents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CA1D731B43006D39D0 /* Torrents.swift */; };
-
 		A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */; };
 		A96106DC1D731B43006D39D0 /* Videos.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CE1D731B43006D39D0 /* Videos.swift */; };
 		A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A96107161D7325D3006D39D0 /* libz.tbd */; };
@@ -148,7 +147,6 @@
 		A96106C81D731B43006D39D0 /* NamedEntity.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NamedEntity.swift; sourceTree = "<group>"; };
 		A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Torrents+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106CA1D731B43006D39D0 /* Torrents.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Torrents.swift; sourceTree = "<group>"; };
-
 		A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Videos+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106CE1D731B43006D39D0 /* Videos.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Videos.swift; sourceTree = "<group>"; };
 		A96107161D7325D3006D39D0 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
@@ -328,7 +326,6 @@
 				A96106C71D731B43006D39D0 /* Protocol */,
 				A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */,
 				A96106CA1D731B43006D39D0 /* Torrents.swift */,
-
 				A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */,
 				A96106CE1D731B43006D39D0 /* Videos.swift */,
 			);
@@ -443,14 +440,12 @@
 				A96106D81D731B43006D39D0 /* Torrents.swift in Sources */,
 				A96106B71D72FC2F006D39D0 /* VideoService.swift in Sources */,
 				A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */,
-
 				A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */,
 				A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */,
 				A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */,
 				A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */,
 				A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */,
 				A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */,
-
 				A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */,
 				A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */,
 				A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */,
