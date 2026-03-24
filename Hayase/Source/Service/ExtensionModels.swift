@@ -195,7 +195,8 @@ struct TorrentQuery {
             "format":   item.format ?? "TV",
             "status":   item.status ?? "RELEASING"
         ]
-        if let ep = item.episodes { mediaJSON["episodes"] = ep }
+        if let ep = item.episodes   { mediaJSON["episodes"] = ep }
+        if let d  = item.duration   { mediaJSON["duration"] = d }
 
         // Build titles list — mirrors Extensions.createTitles exactly:
         //   const grouped = [...new Set(

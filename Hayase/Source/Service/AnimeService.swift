@@ -36,6 +36,7 @@ struct AnimeItem {
     var year: Int? = nil             // media.seasonYear from AniList
     var startYear: Int? = nil        // media.startDate.year — fallback when seasonYear is null (matches small.svelte)
     var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
+    var duration: Int? = nil         // media.duration from AniList — episode duration in minutes
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
     var favourites: Int? = nil           // AniList favourites count
     var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
@@ -114,6 +115,7 @@ public class AnimeService: NSObject {
         let averageScore: Float?
         let popularity: Int?
         let episodes: Int?
+        let duration: Int?
         let description: String?
         let nextAiringEpisode: NextAiringEpisode?
         let status: String?
@@ -158,6 +160,7 @@ public class AnimeService: NSObject {
           averageScore
           popularity
           episodes
+          duration
           description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
@@ -178,6 +181,7 @@ public class AnimeService: NSObject {
           averageScore
           popularity
           episodes
+          duration
           description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
@@ -344,6 +348,7 @@ public class AnimeService: NSObject {
           averageScore
           genres
           episodes
+          duration
           status
           seasonYear
           format
@@ -369,6 +374,7 @@ public class AnimeService: NSObject {
           averageScore
           genres
           episodes
+          duration
           status
           seasonYear
           format
@@ -426,6 +432,7 @@ public class AnimeService: NSObject {
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
+                    duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
@@ -487,6 +494,7 @@ public class AnimeService: NSObject {
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
+                    duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
@@ -508,6 +516,7 @@ public class AnimeService: NSObject {
           averageScore
           genres
           episodes
+          duration
           status
           seasonYear
           format
@@ -559,6 +568,7 @@ public class AnimeService: NSObject {
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
+                    duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
@@ -582,6 +592,7 @@ public class AnimeService: NSObject {
           averageScore
           genres
           episodes
+          duration
           status
           seasonYear
           format
@@ -651,6 +662,7 @@ public class AnimeService: NSObject {
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
+                    duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
@@ -672,6 +684,7 @@ public class AnimeService: NSObject {
           averageScore
           genres
           episodes
+          duration
           status
           seasonYear
           format
@@ -723,6 +736,7 @@ public class AnimeService: NSObject {
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
+                    duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
