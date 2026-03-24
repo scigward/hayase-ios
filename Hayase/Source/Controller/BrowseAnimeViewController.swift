@@ -637,19 +637,24 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     /// Applies the fade effect when the user scrolls down past the banner.
     /// `scrollOffset` is the raw contentOffset.y value.
+    /// Hayase interface: only the banner IMAGE fades (opacity-5 via hideBanner on <Banner>),
+    /// while the content (title, buttons, description) stays fully visible.
     func applyScrollFade(_ scrollOffset: CGFloat) {
         // Hayase: opacity-5 (≈ 5% opacity) when scrollTop > 100, transition-opacity duration-500
-        // We do a smooth ramp from fully visible at offset 0 to nearly invisible at offset 200.
+        // Only fade the background image and gradient — NOT the UI elements (buttons, text, logo).
         let fadeStart: CGFloat = 50
         let fadeEnd: CGFloat = 200
+        let alpha: CGFloat
         if scrollOffset <= fadeStart {
-            contentView.alpha = 1.0
+            alpha = 1.0
         } else if scrollOffset >= fadeEnd {
-            contentView.alpha = 0.05  // Hayase: opacity-5
+            alpha = 0.05  // Hayase: opacity-5
         } else {
             let progress = (scrollOffset - fadeStart) / (fadeEnd - fadeStart)
-            contentView.alpha = 1.0 - progress * 0.95
+            alpha = 1.0 - progress * 0.95
         }
+        backgroundImageView.alpha = alpha
+        gradientView.alpha = alpha
     }
 }
 

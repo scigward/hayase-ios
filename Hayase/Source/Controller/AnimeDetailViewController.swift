@@ -797,6 +797,8 @@ private final class AnimeInfoHeaderView: UIView {
     var onPlayTrailer: (() -> Void)?
     var onWatch: (() -> Void)?
     var onEntryEditor: (() -> Void)?
+    var onFavorite: (() -> Void)?
+    var onBookmark: (() -> Void)?
 
     private var anilistId: Int?
 
@@ -1056,6 +1058,8 @@ private final class AnimeInfoHeaderView: UIView {
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         entryEditorButton.addTarget(self, action: #selector(entryEditorTapped), for: .touchUpInside)
+        favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+        bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
 
         // Play + EntryEditor combo (Hayase: flex w-[180px], play rounded-r-none + editor rounded-l-none)
         let playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
@@ -1188,6 +1192,19 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func trailerTapped()     { onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
     @objc private func entryEditorTapped() { onEntryEditor?() }
+    @objc private func favoriteTapped()    { onFavorite?() }
+    @objc private func bookmarkTapped()    { onBookmark?() }
+
+    /// Updates favorite/bookmark button icons to show filled/unfilled state.
+    /// Matches interface: FavoriteButton fills heart when fav(media) is true,
+    /// BookmarkButton fills bookmark when list(media) is truthy.
+    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        let heartName = isFavorite ? "heart.fill" : "heart"
+        favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
+
+        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
+        bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+    }
 
     // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
 
@@ -1515,6 +1532,8 @@ class AnimeDetailViewController: UIViewController {
 
     private var tableView: UITableView!
     private var headerView: AnimeInfoHeaderView!
+    private var isFavorite = false
+    private var isOnList = false
     private var episodes: [AniZipEpisode] = []
     private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
     private var relations: [AnimeRelation] = []
@@ -1581,6 +1600,7 @@ class AnimeDetailViewController: UIViewController {
         fetchEpisodes()
         fetchRelationsAndCharacters()
         fetchAniListProgress()
+        refreshButtonStates()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1594,6 +1614,7 @@ class AnimeDetailViewController: UIViewController {
 
         // Refresh AniList progress when returning from the player
         fetchAniListProgress()
+        refreshButtonStates()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1654,6 +1675,30 @@ class AnimeDetailViewController: UIViewController {
         } else {
             headerView.configure(with: animeEntity)
         }
+        headerView.onFavorite = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            AniListTracking.shared.toggleFavourite(mediaID: item.id) { [weak self] _ in
+                self?.refreshButtonStates()
+            }
+        }
+
+        headerView.onBookmark = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            if self.isOnList {
+                AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+                    if let listID = entry?.listID {
+                        AniListTracking.shared.deleteEntry(listID: listID) { [weak self] _ in
+                            self?.refreshButtonStates()
+                        }
+                    }
+                }
+            } else {
+                AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING") { [weak self] _ in
+                    self?.refreshButtonStates()
+                }
+            }
+        }
+
         headerView.onShare = { [weak self] in
             guard let self = self else { return }
             let title = self.animeItem?.titleEnglish ?? self.animeItem?.titleRomaji
@@ -1704,90 +1749,31 @@ class AnimeDetailViewController: UIViewController {
     }
 
     private func presentEntryEditorSheet(mediaID: Int, currentEntry: AnimeItem.MediaListEntry?, totalEpisodes: Int?) {
-        let message: String
-        if let entry = currentEntry {
-            message = "Status: \(entry.status ?? "—")  •  Progress: \(entry.progress)/\(totalEpisodes ?? 0)  •  Score: \(entry.score)/10"
-        } else {
-            message = "Not on your list yet"
+        let editorVC = EntryEditorViewController()
+        editorVC.mediaID = mediaID
+        editorVC.totalEpisodes = totalEpisodes
+        editorVC.currentEntry = currentEntry
+        editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
+        editorVC.coverURL = animeItem?.coverURL
+        editorVC.bannerURL = animeItem?.bannerURL
+
+        editorVC.onSave = { [weak self] in
+            self?.fetchAniListProgress()
+            self?.refreshButtonStates()
+        }
+        editorVC.onDelete = { [weak self] in
+            self?.anilistProgress = 0
+            self?.isOnList = false
+            self?.tableView.reloadData()
+            self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
         }
 
-        let alert = UIAlertController(
-            title: "Update List Entry",
-            message: message,
-            preferredStyle: .actionSheet)
-
-        let statuses = ["CURRENT", "PLANNING", "COMPLETED", "DROPPED", "PAUSED", "REPEATING"]
-        let labels   = ["Watching", "Planning", "Completed", "Dropped", "Paused", "Repeating"]
-
-        for (i, status) in statuses.enumerated() {
-            let title = (currentEntry?.status == status) ? "✓ \(labels[i])" : labels[i]
-            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
-                AniListTracking.shared.entry(mediaID: mediaID, status: status) { _ in
-                    DispatchQueue.main.async { self?.fetchAniListProgress() }
-                }
-            })
+        editorVC.modalPresentationStyle = .pageSheet
+        if let sheet = editorVC.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabIndicator = true
         }
-
-        alert.addAction(UIAlertAction(title: "Set Score…", style: .default) { [weak self] _ in
-            self?.presentScorePicker(mediaID: mediaID, currentScore: currentEntry?.score ?? 0)
-        })
-
-        alert.addAction(UIAlertAction(title: "Set Progress…", style: .default) { [weak self] _ in
-            self?.presentProgressPicker(mediaID: mediaID, currentProgress: currentEntry?.progress ?? 0, total: totalEpisodes)
-        })
-
-        if let entry = currentEntry {
-            alert.addAction(UIAlertAction(title: "Remove from List", style: .destructive) { [weak self] _ in
-                AniListTracking.shared.deleteEntry(listID: entry.listID) { _ in
-                    DispatchQueue.main.async {
-                        self?.anilistProgress = 0
-                        self?.tableView.reloadData()
-                    }
-                }
-            })
-        }
-
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-        // iPad popover anchor
-        alert.popoverPresentationController?.sourceView = view
-
-        present(alert, animated: true)
-    }
-
-    private func presentScorePicker(mediaID: Int, currentScore: Int) {
-        let alert = UIAlertController(title: "Set Score", message: "Current: \(currentScore)/10", preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.keyboardType = .numberPad
-            tf.placeholder = "0–10"
-            tf.text = currentScore > 0 ? "\(currentScore)" : ""
-        }
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
-            guard let text = alert.textFields?.first?.text,
-                  let val = Int(text), (0...10).contains(val) else { return }
-            AniListTracking.shared.entry(mediaID: mediaID, score: val)
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        present(alert, animated: true)
-    }
-
-    private func presentProgressPicker(mediaID: Int, currentProgress: Int, total: Int?) {
-        let maxStr = total.map { "/\($0)" } ?? ""
-        let alert = UIAlertController(title: "Set Progress", message: "Current: \(currentProgress)\(maxStr)", preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.keyboardType = .numberPad
-            tf.placeholder = "Episode number"
-            tf.text = currentProgress > 0 ? "\(currentProgress)" : ""
-        }
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
-            guard let text = alert.textFields?.first?.text,
-                  let val = Int(text), val >= 0 else { return }
-            AniListTracking.shared.entry(mediaID: mediaID, progress: val) { _ in
-                DispatchQueue.main.async { self?.fetchAniListProgress() }
-            }
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        present(alert, animated: true)
+        present(editorVC, animated: true)
     }
 
     // MARK: - Fetch episodes (ani.zip)
@@ -1871,6 +1857,25 @@ class AnimeDetailViewController: UIViewController {
                 guard self.anilistProgress != newProgress else { return }
                 self.anilistProgress = newProgress
                 self.tableView.reloadData()
+            }
+        }
+    }
+
+    /// Refreshes the favorite/bookmark button states from AniList.
+    private func refreshButtonStates() {
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        AniListTracking.shared.checkIsFavourite(mediaID: id) { [weak self] isFav in
+            DispatchQueue.main.async {
+                self?.isFavorite = isFav
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
+            }
+        }
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.isOnList = entry != nil
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
             }
         }
     }

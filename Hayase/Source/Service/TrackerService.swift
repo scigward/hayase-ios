@@ -779,4 +779,39 @@ final class AniListTracking {
             completion(entry?.progress)
         }
     }
+
+    // MARK: - Toggle Favourite
+
+    private let toggleFavouriteMutation = """
+    mutation ($animeId: Int) {
+        ToggleFavourite(animeId: $animeId) {
+            anime { nodes { id } }
+        }
+    }
+    """
+
+    private let isFavouriteQuery = """
+    query ($id: Int) {
+        Media(id: $id) {
+            isFavourite
+        }
+    }
+    """
+
+    /// Toggles the favourite status for an anime on AniList.
+    /// Mirrors interface's `client.toggleFav(id)`.
+    func toggleFavourite(mediaID: Int, completion: ((Bool) -> Void)? = nil) {
+        authRequest(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { data in
+            let success = data?["ToggleFavourite"] != nil
+            completion?(success)
+        }
+    }
+
+    /// Checks if an anime is in the user's favourites by fetching isFavourite from AniList.
+    func checkIsFavourite(mediaID: Int, completion: @escaping (Bool) -> Void) {
+        authRequest(query: isFavouriteQuery, variables: ["id": mediaID]) { data in
+            let isFav = (data?["Media"] as? [String: Any])?["isFavourite"] as? Bool ?? false
+            completion(isFav)
+        }
+    }
 }
