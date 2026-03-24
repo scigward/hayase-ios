@@ -543,6 +543,33 @@ public class AnimeService: NSObject {
     }
     """
 
+    /// Query for fetching by IDs with optional status/onList filters.
+    /// Used by "Your List" (status: FINISHED/RELEASING) and "Sequels You Missed" (onList: false).
+    private let idInFilteredQuery = """
+    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean) {
+      Page(page: 1, perPage: 50) {
+        media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList) {
+          id
+          title { english romaji }
+          coverImage { large medium color }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          duration
+          status
+          seasonYear
+          format
+          startDate { year }
+          favourites
+          trailer { id site }
+          description(asHtml: false)
+          synonyms
+        }
+      }
+    }
+    """
+
     /// Fetches anime items by AniList IDs. Used for the "Continue Watching" home section.
     /// Calls completion on the main queue.
     func fetchSectionByIDs(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
@@ -588,6 +615,63 @@ public class AnimeService: NSObject {
             }
             let ordered = ids.compactMap { itemMap[$0] }
             DispatchQueue.main.async { completion(ordered) }
+        }.resume()
+    }
+
+    /// Fetches anime items by IDs with optional status and onList filters.
+    /// Used for "Your List" (FINISHED/RELEASING) and "Sequels You Missed" (not on list).
+    /// Calls completion on the main queue. Requires auth token for onList filter.
+    func fetchSectionByIDsFiltered(_ ids: [Int],
+                                   status: [String]? = nil,
+                                   onList: Bool? = nil,
+                                   completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Add auth token for onList filter (requires authentication)
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        var variables: [String: Any] = ["idIn": ids]
+        if let status = status { variables["status"] = status }
+        if let onList = onList { variables["onList"] = onList }
+        let body: [String: Any] = ["query": idInFilteredQuery, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            var items: [AnimeItem] = []
+            for media in mediaList {
+                guard let id = media.id else { continue }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+                items.append(AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc,
+                    synonyms: media.synonyms ?? [],
+                    year: media.seasonYear,
+                    startYear: media.startDate?.year,
+                    format: media.format,
+                    duration: media.duration,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color))
+            }
+            DispatchQueue.main.async { completion(items) }
         }.resume()
     }
 

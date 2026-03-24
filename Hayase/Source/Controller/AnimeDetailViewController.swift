@@ -218,10 +218,15 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
+
+        // Dim episodes that have been watched on AniList (matches desktop's opacity treatment
+        // for completed episodes: reduced opacity on card)
+        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
+        cardView.alpha = isWatchedOnAniList ? 0.5 : 1.0
 
         // Progress bar (Hayase EpisodesList watchProgress indicator)
         if anilistID > 0,
@@ -321,6 +326,7 @@ private final class EpisodeCell: UITableViewCell {
         fillerBadge.isHidden = true
         cardView.layer.borderWidth = 0
         cardView.layer.borderColor = UIColor.clear.cgColor
+        cardView.alpha = 1.0
         progressBar.isHidden = true
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
@@ -1510,6 +1516,7 @@ class AnimeDetailViewController: UIViewController {
     private var tableView: UITableView!
     private var headerView: AnimeInfoHeaderView!
     private var episodes: [AniZipEpisode] = []
+    private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
     private var relations: [AnimeRelation] = []
     private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
@@ -1573,6 +1580,7 @@ class AnimeDetailViewController: UIViewController {
         setupHeaderView()
         fetchEpisodes()
         fetchRelationsAndCharacters()
+        fetchAniListProgress()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1583,6 +1591,9 @@ class AnimeDetailViewController: UIViewController {
         nb?.setBackgroundImage(UIImage(), for: .default)
         nb?.shadowImage = UIImage()
         nb?.tintColor = .white  // back chevron visible over dark banner
+
+        // Refresh AniList progress when returning from the player
+        fetchAniListProgress()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1710,8 +1721,10 @@ class AnimeDetailViewController: UIViewController {
 
         for (i, status) in statuses.enumerated() {
             let title = (currentEntry?.status == status) ? "✓ \(labels[i])" : labels[i]
-            alert.addAction(UIAlertAction(title: title, style: .default) { _ in
-                AniListTracking.shared.entry(mediaID: mediaID, status: status)
+            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                AniListTracking.shared.entry(mediaID: mediaID, status: status) { _ in
+                    DispatchQueue.main.async { self?.fetchAniListProgress() }
+                }
             })
         }
 
@@ -1724,8 +1737,13 @@ class AnimeDetailViewController: UIViewController {
         })
 
         if let entry = currentEntry {
-            alert.addAction(UIAlertAction(title: "Remove from List", style: .destructive) { _ in
-                AniListTracking.shared.deleteEntry(listID: entry.listID)
+            alert.addAction(UIAlertAction(title: "Remove from List", style: .destructive) { [weak self] _ in
+                AniListTracking.shared.deleteEntry(listID: entry.listID) { _ in
+                    DispatchQueue.main.async {
+                        self?.anilistProgress = 0
+                        self?.tableView.reloadData()
+                    }
+                }
             })
         }
 
@@ -1761,10 +1779,12 @@ class AnimeDetailViewController: UIViewController {
             tf.placeholder = "Episode number"
             tf.text = currentProgress > 0 ? "\(currentProgress)" : ""
         }
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
             guard let text = alert.textFields?.first?.text,
                   let val = Int(text), val >= 0 else { return }
-            AniListTracking.shared.entry(mediaID: mediaID, progress: val)
+            AniListTracking.shared.entry(mediaID: mediaID, progress: val) { _ in
+                DispatchQueue.main.async { self?.fetchAniListProgress() }
+            }
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         present(alert, animated: true)
@@ -1838,6 +1858,20 @@ class AnimeDetailViewController: UIViewController {
         return closest.min(by: {
             abs(Int($0.key) ?? 0 - episode) < abs(Int($1.key) ?? 0 - episode)
         })
+    }
+
+    /// Fetches the user's AniList progress for this anime and refreshes episode cells.
+    /// Mirrors desktop's mediaListEntry.progress used to dim watched episodes.
+    private func fetchAniListProgress() {
+        let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue
+        guard let id = id, id > 0 else { return }
+        AniListTracking.shared.fetchProgress(anilistID: id) { [weak self] progress in
+            guard let self = self, let progress = progress, progress > 0 else { return }
+            DispatchQueue.main.async {
+                self.anilistProgress = progress
+                self.tableView.reloadData()
+            }
+        }
     }
 
     private func fetchEpisodes() {
@@ -2359,7 +2393,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 return UITableViewCell()
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
-            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID)
+            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID, anilistProgress: anilistProgress)
             return cell
 
         case .relations:

@@ -387,9 +387,18 @@ final class AniListTracking {
 
     // MARK: - Private helpers
 
+    /// Safe Int extraction from JSON values that might be Int or Double (AniList
+    /// returns Float types for some fields like score).
+    private func jsonInt(_ value: Any?) -> Int {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        return 0
+    }
+
     private func authRequest(query: String, variables: [String: Any], completion: @escaping ([String: Any]?) -> Void) {
         guard let token = TrackerAccountManager.shared.token(for: .anilist),
               let url = URL(string: endpoint) else {
+            NSLog("[AniListTracking] authRequest: no token or invalid endpoint")
             completion(nil); return
         }
         var request = URLRequest(url: url)
@@ -399,10 +408,26 @@ final class AniListTracking {
         let body: [String: Any] = ["query": query, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any] else {
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                NSLog("[AniListTracking] authRequest network error: %@", error.localizedDescription)
+                completion(nil); return
+            }
+            guard let data = data else {
+                NSLog("[AniListTracking] authRequest: no data received")
+                completion(nil); return
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                NSLog("[AniListTracking] authRequest: failed to parse JSON")
+                completion(nil); return
+            }
+            // Log GraphQL errors (e.g. invalid token, rate limiting)
+            if let errors = json["errors"] as? [[String: Any]] {
+                let messages = errors.compactMap { $0["message"] as? String }
+                NSLog("[AniListTracking] GraphQL errors: %@", messages.joined(separator: ", "))
+            }
+            guard let dataObj = json["data"] as? [String: Any] else {
+                NSLog("[AniListTracking] authRequest: no 'data' field in response")
                 completion(nil); return
             }
             completion(dataObj)
@@ -414,7 +439,8 @@ final class AniListTracking {
     /// Fetches the current media with its mediaListEntry from AniList.
     /// Returns (mediaListEntry, mediaStatus, episodes, format, duration).
     func fetchMediaWithEntry(anilistID: Int, completion: @escaping (AnimeItem.MediaListEntry?, String?, Int?, String?, Int?) -> Void) {
-        authRequest(query: singleMediaQuery, variables: ["id": anilistID]) { data in
+        authRequest(query: singleMediaQuery, variables: ["id": anilistID]) { [weak self] data in
+            guard let self else { completion(nil, nil, nil, nil, nil); return }
             guard let media = data?["Media"] as? [String: Any] else {
                 completion(nil, nil, nil, nil, nil); return
             }
@@ -441,9 +467,9 @@ final class AniListTracking {
                 entry = AnimeItem.MediaListEntry(
                     listID: listID,
                     status: mle["status"] as? String,
-                    progress: mle["progress"] as? Int ?? 0,
-                    score: mle["score"] as? Int ?? 0,
-                    repeatCount: mle["repeat"] as? Int ?? 0,
+                    progress: self.jsonInt(mle["progress"]),
+                    score: self.jsonInt(mle["score"]),
+                    repeatCount: self.jsonInt(mle["repeat"]),
                     customLists: enabledLists)
             }
             completion(entry, mediaStatus, episodes, format, duration)
@@ -480,7 +506,8 @@ final class AniListTracking {
         }
         vars["lists"] = customLists
 
-        authRequest(query: saveEntryMutation, variables: vars) { data in
+        authRequest(query: saveEntryMutation, variables: vars) { [weak self] data in
+            guard let self else { completion?(nil); return }
             guard let entry = data?["SaveMediaListEntry"] as? [String: Any],
                   let listID = entry["id"] as? Int else {
                 completion?(nil); return
@@ -497,9 +524,9 @@ final class AniListTracking {
             let result = AnimeItem.MediaListEntry(
                 listID: listID,
                 status: entry["status"] as? String,
-                progress: entry["progress"] as? Int ?? 0,
-                score: entry["score"] as? Int ?? 0,
-                repeatCount: entry["repeat"] as? Int ?? 0,
+                progress: self.jsonInt(entry["progress"]),
+                score: self.jsonInt(entry["score"]),
+                repeatCount: self.jsonInt(entry["repeat"]),
                 customLists: enabledLists)
             completion?(result)
         }
@@ -527,10 +554,29 @@ final class AniListTracking {
     /// 2. Won't downgrade progress (currentProgress >= newProgress → skip)
     /// 3. Auto-determines status: COMPLETED if last episode, CURRENT otherwise
     /// 4. Handles REPEATING status preservation
+    ///
+    /// Desktop's watch() always has a fallback `outdated` media object from the page cache.
+    /// Our iOS equivalent: if fetchMediaWithEntry fails completely (network error), we still
+    /// attempt to update progress with status CURRENT, since the mutation itself may succeed.
     func watch(anilistID: Int, episodeProgress: Int) {
         fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, mediaStatus, totalEps, _, _ in
             guard let self else { return }
-            let total = totalEps ?? 1
+
+            // If the fresh fetch failed entirely (network error, expired token, etc.)
+            // we still try to update. Desktop falls back to the cached `outdated` media
+            // object — we don't have that, so we use safe defaults.
+            guard mediaStatus != nil else {
+                NSLog("[AniListTracking] watch: fetchMediaWithEntry returned nil — attempting direct entry update for ep %d", episodeProgress)
+                self.entry(mediaID: anilistID, status: "CURRENT", progress: episodeProgress)
+                return
+            }
+
+            // Desktop: const totalEps = episodes(media) ?? 1
+            // Desktop episodes() falls back to airingSchedule and progress if media.episodes is nil.
+            // Our singleMediaQuery only fetches media.episodes, so for airing shows without
+            // an episode count, totalEps is nil. Use max(1, episodeProgress) as safe fallback
+            // to avoid aborting for episodes > 1.
+            let total = totalEps ?? max(1, episodeProgress)
             if total < episodeProgress { return } // episode number exceeds total episodes
 
             let currentProgress = currentEntry?.progress ?? 0
@@ -581,6 +627,156 @@ final class AniListTracking {
             let newStatus = currentEntry.status == "COMPLETED" ? "REPEATING" : "CURRENT"
             self.entry(mediaID: anilistID, status: newStatus, progress: 0,
                       lists: currentEntry.customLists)
+        }
+    }
+
+    // MARK: - User lists (homepage sections — matches anilist/client.ts continueIDs/planningIDs/sequelIDs)
+
+    /// Matches desktop's UserLists query in queries.ts.
+    /// Fetches the user's MediaListCollection to derive personalized home sections.
+    private let userListsQuery = """
+    query ($id: Int) {
+        MediaListCollection(userId: $id, type: ANIME, forceSingleCompletedList: true, sort: UPDATED_TIME_DESC) {
+            lists {
+                status
+                entries {
+                    id
+                    media {
+                        id
+                        status
+                        episodes
+                        mediaListEntry {
+                            id
+                            status
+                            progress
+                            score(format: POINT_10)
+                            repeat
+                        }
+                        nextAiringEpisode {
+                            episode
+                        }
+                        relations {
+                            edges {
+                                relationType(version: 2)
+                                node {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    /// Result of fetching user lists — contains IDs for personalized home sections.
+    struct UserListIDs {
+        let continueIDs: [Int]   // CURRENT/REPEATING with unwatched episodes
+        let planningIDs: [Int]   // PLANNING entries
+        let sequelIDs: [Int]     // SEQUEL relations from COMPLETED entries, not on user's list
+    }
+
+    /// Fetches the authenticated user's anime lists and derives IDs for home sections.
+    /// Mirrors desktop's anilist/client.ts: continueIDs, planningIDs, sequelIDs.
+    func fetchUserLists(completion: @escaping (UserListIDs?) -> Void) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
+            completion(nil); return
+        }
+        // Get the user's AniList viewer ID
+        guard let viewerStr = TrackerAccountManager.shared.viewer(for: .anilist)?.id,
+              let viewerID = Int(viewerStr) else {
+            completion(nil); return
+        }
+
+        authRequest(query: userListsQuery, variables: ["id": viewerID]) { data in
+            guard let collection = data?["MediaListCollection"] as? [String: Any],
+                  let lists = collection["lists"] as? [[String: Any]] else {
+                completion(nil); return
+            }
+
+            // Desktop continueIDs: CURRENT or REPEATING entries where user hasn't caught up
+            var continueIDs: [Int] = []
+            // Desktop planningIDs: PLANNING entries
+            var planningIDs: [Int] = []
+            // Desktop sequelIDs: unique SEQUEL node IDs from COMPLETED entries
+            var sequelIDs: [Int] = []
+
+            for list in lists {
+                let status = list["status"] as? String
+                let entries = list["entries"] as? [[String: Any]] ?? []
+
+                if status == "CURRENT" || status == "REPEATING" {
+                    // Matches desktop continueIDs logic:
+                    //   if (entry.media.status === 'FINISHED') return true
+                    //   progress < (nextAiringEpisode.episode ?? (progress + 2)) - 1
+                    for entry in entries {
+                        guard let media = entry["media"] as? [String: Any],
+                              let mediaID = media["id"] as? Int else { continue }
+                        let mediaStatus = media["status"] as? String
+                        if mediaStatus == "FINISHED" {
+                            continueIDs.append(mediaID)
+                        } else {
+                            let progress: Int
+                            if let mle = media["mediaListEntry"] as? [String: Any] {
+                                progress = (mle["progress"] as? Int) ?? 0
+                            } else {
+                                progress = 0
+                            }
+                            let nextEp: Int
+                            if let nae = media["nextAiringEpisode"] as? [String: Any] {
+                                nextEp = (nae["episode"] as? Int) ?? (progress + 2)
+                            } else {
+                                nextEp = progress + 2
+                            }
+                            if progress < nextEp - 1 {
+                                continueIDs.append(mediaID)
+                            }
+                        }
+                    }
+                } else if status == "PLANNING" {
+                    for entry in entries {
+                        guard let media = entry["media"] as? [String: Any],
+                              let mediaID = media["id"] as? Int else { continue }
+                        planningIDs.append(mediaID)
+                    }
+                } else if status == "COMPLETED" {
+                    // Matches desktop sequelIDs: flatMap SEQUEL relation nodes, deduplicate
+                    for entry in entries {
+                        guard let media = entry["media"] as? [String: Any],
+                              let relations = media["relations"] as? [String: Any],
+                              let edges = relations["edges"] as? [[String: Any]] else { continue }
+                        for edge in edges {
+                            if edge["relationType"] as? String == "SEQUEL",
+                               let node = edge["node"] as? [String: Any],
+                               let nodeID = node["id"] as? Int {
+                                sequelIDs.append(nodeID)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Deduplicate sequelIDs (matches desktop: [...new Set(...)])
+            let uniqueSequelIDs = Array(Set(sequelIDs))
+
+            completion(UserListIDs(
+                continueIDs: continueIDs,
+                planningIDs: planningIDs,
+                sequelIDs: uniqueSequelIDs))
+        }
+    }
+
+    // MARK: - Fetch mediaListEntry progress for a specific media
+
+    /// Fetches just the mediaListEntry.progress for a given media ID.
+    /// Used by AnimeDetailViewController to show watched episode state.
+    func fetchProgress(anilistID: Int, completion: @escaping (Int?) -> Void) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
+            completion(nil); return
+        }
+        fetchMediaWithEntry(anilistID: anilistID) { entry, _, _, _, _ in
+            completion(entry?.progress)
         }
     }
 }
