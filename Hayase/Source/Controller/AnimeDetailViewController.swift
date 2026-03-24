@@ -1779,17 +1779,7 @@ class AnimeDetailViewController: UIViewController {
             let specialCount = (json["specialCount"] as? NSNumber)?.intValue ?? 0
 
             // ── Hayase: const count = episodes(media) ?? episodesRes?.episodeCount ?? 0 ──
-            // Desktop JS treats 0 as falsy (falls through), so mirror that here:
-            // if anilistEpisodes is 0 or nil, try episodesResCount; if also 0/nil,
-            // fall back to specialCount so OVA/SPECIAL entries whose ani.zip data
-            // only has "S"-keyed episodes (specialCount > 0, episodeCount == 0) still
-            // produce an episode list.
-            let rawCount = (anilistEpisodes ?? 0) > 0
-                ? anilistEpisodes!
-                : (episodesResCount ?? 0) > 0
-                    ? episodesResCount!
-                    : 0
-            let count = rawCount > 0 ? rawCount : specialCount
+            let count = anilistEpisodes ?? episodesResCount ?? 0
 
             // ── Build filtered map with airdate timestamps ──
             // Mirrors Hayase: const filtered = new Map<string, Episode & { airdatems? }>()
@@ -1847,7 +1837,7 @@ class AnimeDetailViewController: UIViewController {
 
             for episode in 1...count {
                 // Hayase: const hasEpisode = episodesRes?.episodes?.[Number(episode)]
-                let hasEpisode = episodesDict["\(episode)"] != nil || episodesDict["S\(episode)"] != nil
+                let hasEpisode = episodesDict["\(episode)"] != nil
 
                 // Hayase: const needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
                 let needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
@@ -1856,9 +1846,7 @@ class AnimeDetailViewController: UIViewController {
                 if needsValidation {
                     // episodeByAirDate — without AniList airing schedule data,
                     // airingAt is nil so this degrades to direct key lookup.
-                    let validated = self.episodeByAirDate(alDate: nil, filtered: filtered, episode: episode)
-                    // Fallback: try "S"-prefixed key for special episodes
-                    resolvedEntry = validated ?? filtered["S\(episode)"]
+                    resolvedEntry = self.episodeByAirDate(alDate: nil, filtered: filtered, episode: episode)
 
                     // Hayase: remove consumed episodes (matching anidbEid or earlier dates)
                     if let resolved = resolvedEntry {
@@ -1876,8 +1864,7 @@ class AnimeDetailViewController: UIViewController {
                     }
                 } else {
                     // Simple case: direct key lookup — filtered.get('' + episode)
-                    // Fallback: try "S"-prefixed key for special episodes
-                    resolvedEntry = filtered["\(episode)"] ?? filtered["S\(episode)"]
+                    resolvedEntry = filtered["\(episode)"]
                 }
 
                 // Parse episode data from resolved entry (or empty fallback)
