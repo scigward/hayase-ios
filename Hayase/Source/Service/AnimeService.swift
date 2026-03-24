@@ -52,6 +52,7 @@ struct AnimeItem {
         let progress: Int        // episodes watched
         let score: Int           // 0-10 (POINT_10 format)
         let repeatCount: Int     // times rewatched
+        let customLists: [String] // names of enabled custom lists (e.g. ["Watched using Hayase"])
     }
     var mediaListEntry: MediaListEntry?
 }

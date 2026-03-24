@@ -821,8 +821,9 @@ final class VideoPlayerViewController: UIViewController {
     /// When the user is within max(180s, 10% of duration) of the end,
     /// automatically update AniList progress for this episode.
     private func checkCompletion() {
-        guard !trackingCompleted,
-              UserDefaults.standard.bool(forKey: "pref_autocomplete"),
+        // Desktop defaults playerAutocomplete to true — mirror with object(forKey:) ?? true
+        let autocomplete = UserDefaults.standard.object(forKey: "pref_autocomplete") as? Bool ?? true
+        guard !trackingCompleted, autocomplete,
               anilistID > 0, episodeNumber > 0,
               duration > 0, currentTime > 0 else { return }
 

@@ -66,9 +66,8 @@ final class TrackerAccountManager {
     // MARK: - Sync toggles
 
     func isSyncEnabled(for tracker: TrackerKind) -> Bool {
-        // Local defaults to true, others to false
-        let def = tracker == .local
-        return UserDefaults.standard.object(forKey: tracker.syncKey) as? Bool ?? def
+        // Desktop defaults: { al: true, local: true, kitsu: true, mal: true }
+        return UserDefaults.standard.object(forKey: tracker.syncKey) as? Bool ?? true
     }
 
     func setSyncEnabled(_ enabled: Bool, for tracker: TrackerKind) {
@@ -340,14 +339,16 @@ final class AniListTracking {
     // MARK: - Mutations
 
     /// SaveMediaListEntry mutation — matches desktop Entry mutation in queries.ts
+    /// Includes customLists to preserve existing lists and add "Watched using Hayase"
     private let saveEntryMutation = """
-    mutation ($id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
-        SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score) {
+    mutation ($lists: [String], $id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
+        SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score, customLists: $lists) {
             id
             status
             progress
             score(format: POINT_10)
             repeat
+            customLists(asArray: true)
         }
     }
     """
@@ -378,6 +379,7 @@ final class AniListTracking {
                 progress
                 score(format: POINT_10)
                 repeat
+                customLists(asArray: true)
             }
         }
     }
@@ -424,12 +426,25 @@ final class AniListTracking {
             var entry: AnimeItem.MediaListEntry?
             if let mle = media["mediaListEntry"] as? [String: Any],
                let listID = mle["id"] as? Int {
+                // Parse customLists(asArray: true) → [{enabled: Bool, name: String}]
+                // Filter to only enabled list names, matching desktop:
+                //   mediaList.customLists.filter(({enabled}) => enabled).map(({name}) => name)
+                var enabledLists: [String] = []
+                if let customListsArray = mle["customLists"] as? [[String: Any]] {
+                    for cl in customListsArray {
+                        if let enabled = cl["enabled"] as? Bool, enabled,
+                           let name = cl["name"] as? String {
+                            enabledLists.append(name)
+                        }
+                    }
+                }
                 entry = AnimeItem.MediaListEntry(
                     listID: listID,
                     status: mle["status"] as? String,
                     progress: mle["progress"] as? Int ?? 0,
                     score: mle["score"] as? Int ?? 0,
-                    repeatCount: mle["repeat"] as? Int ?? 0)
+                    repeatCount: mle["repeat"] as? Int ?? 0,
+                    customLists: enabledLists)
             }
             completion(entry, mediaStatus, episodes, format, duration)
         }
@@ -439,11 +454,13 @@ final class AniListTracking {
 
     /// Updates/creates a media list entry on AniList.
     /// Mirrors auth/client.ts `entry(variables)`.
+    /// `lists` param preserves existing custom lists; "Watched using Hayase" is always appended.
     func entry(mediaID: Int,
                status: String? = nil,
                progress: Int? = nil,
                score: Int? = nil,
                repeatCount: Int? = nil,
+               lists: [String]? = nil,
                completion: ((AnimeItem.MediaListEntry?) -> Void)? = nil) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
@@ -456,17 +473,34 @@ final class AniListTracking {
         if let sc = score   { vars["score"] = sc * 10 } // POINT_10 (0-10) → scoreRaw (0-100)
         if let r = repeatCount { vars["repeat"] = r }
 
+        // Desktop: variables.lists ??= []; if (!lists.includes('Watched using Hayase')) lists.push(...)
+        var customLists = lists ?? []
+        if !customLists.contains("Watched using Hayase") {
+            customLists.append("Watched using Hayase")
+        }
+        vars["lists"] = customLists
+
         authRequest(query: saveEntryMutation, variables: vars) { data in
             guard let entry = data?["SaveMediaListEntry"] as? [String: Any],
                   let listID = entry["id"] as? Int else {
                 completion?(nil); return
+            }
+            var enabledLists: [String] = []
+            if let cls = entry["customLists"] as? [[String: Any]] {
+                for cl in cls {
+                    if let enabled = cl["enabled"] as? Bool, enabled,
+                       let name = cl["name"] as? String {
+                        enabledLists.append(name)
+                    }
+                }
             }
             let result = AnimeItem.MediaListEntry(
                 listID: listID,
                 status: entry["status"] as? String,
                 progress: entry["progress"] as? Int ?? 0,
                 score: entry["score"] as? Int ?? 0,
-                repeatCount: entry["repeat"] as? Int ?? 0)
+                repeatCount: entry["repeat"] as? Int ?? 0,
+                customLists: enabledLists)
             completion?(result)
         }
     }
@@ -514,7 +548,8 @@ final class AniListTracking {
                 status = "CURRENT"
             }
 
-            self.entry(mediaID: anilistID, status: status, progress: episodeProgress)
+            self.entry(mediaID: anilistID, status: status, progress: episodeProgress,
+                      lists: currentEntry?.customLists ?? [])
         }
     }
 
@@ -544,7 +579,8 @@ final class AniListTracking {
             guard transitionStatuses.contains(currentEntry.status ?? "") else { return }
 
             let newStatus = currentEntry.status == "COMPLETED" ? "REPEATING" : "CURRENT"
-            self.entry(mediaID: anilistID, status: newStatus, progress: 0)
+            self.entry(mediaID: anilistID, status: newStatus, progress: 0,
+                      lists: currentEntry.customLists)
         }
     }
 }

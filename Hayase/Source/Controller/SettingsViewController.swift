@@ -185,7 +185,7 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_autoPiP", defaultValue: false)),
             Row(title: "Auto-Complete Episodes",
                 description: "Automatically marks episodes as complete when you finish watching them. Requires AniList login.",
-                kind: .toggle(userDefaultsKey: "pref_autocomplete", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: "pref_autocomplete", defaultValue: true)),
             Row(title: "Deband Video",
                 description: "Reduces banding (compression artifacts) on dark and compressed videos. High performance impact. Recommended for seasonal web releases, not recommended for high quality blu-ray videos.",
                 kind: .toggle(userDefaultsKey: "pref_deband", defaultValue: false)),
