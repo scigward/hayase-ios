@@ -230,7 +230,8 @@ final class ExtensionService {
         query.imdbId               = ids.imdbId
         // absoluteEpisodeNumber comes from the episode entry (separate from anidbEid).
         // Hayase: const { anidbEid, tvdbId: tvdbEId, absoluteEpisodeNumber } = ALtoAniDBEpisode(...)
-        query.absoluteEpisodeNumber = ids.absoluteEpisodeNumber ?? ids.eid
+        // When unavailable, leave nil — do NOT fallback to eid (anidbEid is a different field).
+        query.absoluteEpisodeNumber = ids.absoluteEpisodeNumber
 
         return try await search(query: query)
     }

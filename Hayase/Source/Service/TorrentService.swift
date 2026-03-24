@@ -165,6 +165,10 @@ public class TorrentService: NSObject, SessionDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             torrent.updateSnapshot()
             DispatchQueue.main.async {
+                // Guard against zombie updates: if the handle was removed between
+                // the background snapshot and this main-thread callback (e.g. by
+                // safeRemoveTorrent / removeOtherTorrents), don't re-add it.
+                guard self.handles[hex] != nil else { return }
                 self.handles[hex] = torrent
                 NotificationCenter.default.post(
                     name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
@@ -236,6 +240,10 @@ public class TorrentService: NSObject, SessionDelegate {
         for (hex, handle) in toRemove {
             print("TorrentService: persist OFF — removing torrent \(hex)")
             notifyWillRemove(hex: hex)
+            // Remove from handles BEFORE session.removeTorrent() so that any
+            // in-flight didReceiveUpdateForTorrent dispatches see the key is
+            // gone and skip re-adding the zombie handle.
+            handles.removeValue(forKey: hex)
             session.removeTorrent(handle, deleteFiles: true)
         }
     }
@@ -268,6 +276,10 @@ public class TorrentService: NSObject, SessionDelegate {
     func safeRemoveTorrent(_ handle: TorrentHandle, deleteFiles: Bool) {
         let hex = handle.infoHashes.best.hex
         notifyWillRemove(hex: hex)
+        // Remove from handles BEFORE session.removeTorrent() so that any
+        // in-flight didReceiveUpdateForTorrent dispatches see the key is
+        // gone and skip re-adding the zombie handle.
+        handles.removeValue(forKey: hex)
         session.removeTorrent(handle, deleteFiles: deleteFiles)
     }
 

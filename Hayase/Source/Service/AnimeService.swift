@@ -32,6 +32,7 @@ struct AnimeItem {
     let bannerURL: String?
     let genres: [String]
     let description: String?
+    var synonyms: [String] = []         // media.synonyms from AniList — used for extension title matching
     var year: Int? = nil             // media.seasonYear from AniList
     var startYear: Int? = nil        // media.startDate.year — fallback when seasonYear is null (matches small.svelte)
     var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
@@ -121,6 +122,7 @@ public class AnimeService: NSObject {
         let trailer: Trailer?
         let seasonYear: Int?
         let format: String?
+        let synonyms: [String]?
         struct StartDate: Codable { let year: Int? }
         let startDate: StartDate?
 
@@ -159,6 +161,7 @@ public class AnimeService: NSObject {
           description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
+          synonyms
         }
       }
     }
@@ -178,6 +181,7 @@ public class AnimeService: NSObject {
           description(asHtml: false)
           nextAiringEpisode { episode timeUntilAiring }
           status
+          synonyms
         }
       }
     }
@@ -347,6 +351,7 @@ public class AnimeService: NSObject {
           favourites
           trailer { id site }
           description(asHtml: false)
+          synonyms
         }
       }
     }
@@ -371,6 +376,7 @@ public class AnimeService: NSObject {
           favourites
           trailer { id site }
           description(asHtml: false)
+          synonyms
         }
       }
     }
@@ -416,6 +422,7 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
@@ -476,6 +483,7 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
@@ -507,6 +515,7 @@ public class AnimeService: NSObject {
           favourites
           trailer { id site }
           description(asHtml: false)
+          synonyms
         }
       }
     }
@@ -546,6 +555,7 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
@@ -579,6 +589,7 @@ public class AnimeService: NSObject {
           favourites
           trailer { id site }
           description(asHtml: false)
+          synonyms
         }
       }
     }
@@ -636,6 +647,7 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,
@@ -667,6 +679,7 @@ public class AnimeService: NSObject {
           favourites
           trailer { id site }
           description(asHtml: false)
+          synonyms
         }
       }
     }
@@ -706,6 +719,7 @@ public class AnimeService: NSObject {
                     bannerURL: media.bannerImage,
                     genres: media.genres ?? [],
                     description: desc,
+                    synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
                     startYear: media.startDate?.year,
                     format: media.format,

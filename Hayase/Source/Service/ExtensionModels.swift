@@ -191,15 +191,19 @@ struct TorrentQuery {
         var mediaJSON: [String: Any] = [
             "id":       item.id,
             "title":    titleDict,
-            "synonyms": [],
+            "synonyms": item.synonyms,
             "format":   item.format ?? "TV",
-            "status":   "RELEASING"
+            "status":   item.status ?? "RELEASING"
         ]
         if let ep = item.episodes { mediaJSON["episodes"] = ep }
 
-        // Build titles list — mirrors Extensions.createTitles
-        let candidates = [item.titleEnglish, item.titleRomaji]
-            .compactMap { $0 }.filter { $0.count > 3 }
+        // Build titles list — mirrors Extensions.createTitles exactly:
+        //   const grouped = [...new Set(
+        //     Object.values(media.title ?? {}).concat(media.synonyms)
+        //       .filter(name => name != null && name.length > 3)
+        //   )]
+        let candidates = ([item.titleEnglish, item.titleRomaji].compactMap { $0 } + item.synonyms)
+            .filter { $0.count > 3 }
         var seen = Set<String>()
         var titles: [String] = []
 
