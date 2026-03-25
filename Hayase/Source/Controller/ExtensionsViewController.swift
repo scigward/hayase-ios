@@ -574,9 +574,9 @@ final class ExtensionCell: UITableViewCell {
         // Icon image
         iconView.image = nil
         if let url = URL(string: config.icon) {
-            URLSession.shared.dataTask(with: url) { data, _, _ in
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 if let data, let img = UIImage(data: data) {
-                    DispatchQueue.main.async { self.iconView.image = img }
+                    DispatchQueue.main.async { self?.iconView.image = img }
                 }
             }.resume()
         }

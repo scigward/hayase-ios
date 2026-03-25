@@ -40,7 +40,9 @@ public class TorrentService: NSObject, SessionDelegate {
     static let SettingsDidChangeNotification = "TorrentServiceSettingsDidChangeNotification"
 
     override init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            fatalError("Documents directory unavailable")
+        }
         let downloadsURL  = docs.appendingPathComponent("downloads")
         let torrentsURL   = docs.appendingPathComponent("torrents")
         let fastResumeURL = docs.appendingPathComponent("fastResume")

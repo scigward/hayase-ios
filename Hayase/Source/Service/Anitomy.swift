@@ -616,8 +616,8 @@ private final class AnitomyTokenizer {
         }
 
         for idx in 0..<tokens.count {
-            guard tokens[idx].category == .delimiter else { continue }
-            let delimiter = tokens[idx].content.first!
+            guard tokens[idx].category == .delimiter,
+                  let delimiter = tokens[idx].content.first else { continue }
             let prev = findPreviousToken(in: tokens, before: idx, flags: .flagValid)
             var next = findNextToken(in: tokens, after: idx, flags: .flagValid)
 
@@ -651,8 +651,8 @@ private final class AnitomyTokenizer {
             }
 
             // Adjacent delimiters
-            if isUnknownToken(prev) && isDelimToken(next) {
-                let nextDelim = tokens[next!].content.first!
+            if isUnknownToken(prev) && isDelimToken(next),
+               let nextDelim = tokens[next!].content.first {
                 if delimiter != nextDelim && delimiter != "," {
                     if nextDelim == " " || nextDelim == "_" {
                         if let p = prev {
@@ -661,9 +661,9 @@ private final class AnitomyTokenizer {
                         }
                     }
                 }
-            } else if isDelimToken(prev) && isDelimToken(next) {
-                let prevDelim = tokens[prev!].content.first!
-                let nextDelim = tokens[next!].content.first!
+            } else if isDelimToken(prev) && isDelimToken(next),
+                      let prevDelim = tokens[prev!].content.first,
+                      let nextDelim = tokens[next!].content.first {
                 if prevDelim == nextDelim && prevDelim != delimiter {
                     tokens[idx].category = .unknown
                 }
@@ -1543,7 +1543,7 @@ private final class AnitomyParser {
             case .bracket:
                 element += tokens[i].content
             case .delimiter:
-                let delimiter = tokens[i].content.first!
+                guard let delimiter = tokens[i].content.first else { continue }
                 if keepDelimiters {
                     element.append(delimiter)
                 } else if i != from && i != to {
