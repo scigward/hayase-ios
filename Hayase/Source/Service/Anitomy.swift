@@ -651,8 +651,9 @@ private final class AnitomyTokenizer {
             }
 
             // Adjacent delimiters
-            if isUnknownToken(prev) && isDelimToken(next),
-               let nextDelim = tokens[next!].content.first {
+            if isUnknownToken(prev), isDelimToken(next),
+               let nextIndex = next,
+               let nextDelim = tokens[nextIndex].content.first {
                 if delimiter != nextDelim && delimiter != "," {
                     if nextDelim == " " || nextDelim == "_" {
                         if let p = prev {
@@ -661,9 +662,10 @@ private final class AnitomyTokenizer {
                         }
                     }
                 }
-            } else if isDelimToken(prev) && isDelimToken(next),
-                      let prevDelim = tokens[prev!].content.first,
-                      let nextDelim = tokens[next!].content.first {
+            } else if isDelimToken(prev), isDelimToken(next),
+                      let prevIndex = prev, let nextIndex = next,
+                      let prevDelim = tokens[prevIndex].content.first,
+                      let nextDelim = tokens[nextIndex].content.first {
                 if prevDelim == nextDelim && prevDelim != delimiter {
                     tokens[idx].category = .unknown
                 }
