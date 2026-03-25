@@ -809,8 +809,10 @@ private final class AnimeInfoHeaderView: UIView {
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
 
-    // Banner height: approximates Hayase banner-image.svelte h-[23rem] for detail page
-    private static let bannerHeight: CGFloat = 300
+    // Banner height: matches Hayase banner-image.svelte h-[23rem] = 23 × 16px ≈ 368pt for detail page.
+    // A taller banner looks more vertical, reduces the visible side-crop, and gives ~72pt of
+    // banner visible above the cover/text area (below the transparent nav bar).
+    private static let bannerHeight: CGFloat = 360
 
     // MARK: - Banner (full-width — approximates global BannerImage in Hayase)
     private let bannerImageView: UIImageView = {
