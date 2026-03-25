@@ -4,10 +4,11 @@
 //
 //  Matches Hayase's small.svelte exactly:
 //    • w-[9.5rem] = 152pt card width, aspect-ratio 152:290
-//    • Cover image fills top h-[13.5rem] = 216pt (74.5% of 290)
-//    • Below cover: title (font-black, 12.8pt, white, 2 lines), pt-3 top spacing
+//    • Cover image fixed height h-[13.5rem] = 216pt (matches CSS fixed height, not proportional)
+//    • Below cover: title (font-black, 12pt, white, 2 lines reserved), pt-3 (12pt) top spacing
 //    • Meta row: year left (calendar icon) + format right (tv icon), text-neutral-500
-//    • No separate info-bar background; no score badge overlay
+//    •   placed directly below the 2-line title reserve with pt-2 (8pt) gap — static position
+//    • No growing spacer / no bottom-anchor — meta is never pushed to the card bottom
 //
 
 import UIKit
@@ -106,32 +107,37 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         metaRow.spacing = 4
         metaRow.alignment = .center
 
-        // Spacer grows to fill remaining vertical space between title and meta row,
-        // matching small.svelte `class="grow"` on the title <p> (flex-grow:1 in CSS flexbox).
-        // Result: metaRow is always pinned to the card bottom regardless of title length.
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
-
-        // Full card stack: [cover  title  spacer  metaRow]
-        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, spacer, metaRow])
+        // Full card stack: [cover  title  metaRow]
+        // Matches small.svelte layout:
+        //   cover (h-[13.5rem] fixed) → pt-3 gap → title (line-clamp-2) → pt-2 gap → meta row
+        // No growing spacer — the title always reserves exactly 2-line height so the
+        // meta row has a static position regardless of whether the title is 1 or 2 lines,
+        // matching interface's static placement just below the 2-line title text area.
+        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, metaRow])
         cardStack.axis = .vertical
         cardStack.spacing = 0
         cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
-        cardStack.setCustomSpacing(4, after: titleLabel)
+        cardStack.setCustomSpacing(8, after: titleLabel)      // pt-2 = 8pt
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardStack)
+
+        // Title always occupies exactly 2 lines of height so the meta row sits at a
+        // static position for all titles (1-line titles get a blank second-line reserve).
+        let twoLineHeight = ceil(titleLabel.font.lineHeight * CGFloat(titleLabel.numberOfLines))
 
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: contentView.topAnchor),
             cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            // Pin bottom exactly so metaRow is always at the card bottom regardless of title length
-            cardStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Cover fills top 74.5% of cell width converted to height via aspect ratio
-            // (cell height is set by the layout to match 152:290 ratio)
-            coverImageView.heightAnchor.constraint(equalTo: contentView.widthAnchor,
-                                                   multiplier: 216.0 / 152.0),
+            // Cover height fixed at h-[13.5rem] = 216pt — matches interface's fixed cover
+            // height. Using a constant instead of being proportional to contentView.width
+            // ensures item.contentInsets (used for inter-card spacing) never shrinks the
+            // cover and inflates the gap below it.
+            coverImageView.heightAnchor.constraint(equalToConstant: 216),
+
+            // Title always reserves 2-line height for the static meta-row position.
+            titleLabel.heightAnchor.constraint(equalToConstant: twoLineHeight),
 
             calIcon.widthAnchor.constraint(equalToConstant: 12),
             calIcon.heightAnchor.constraint(equalToConstant: 12),
