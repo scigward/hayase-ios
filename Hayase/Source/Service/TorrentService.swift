@@ -124,9 +124,8 @@ public class TorrentService: NSObject, SessionDelegate {
         let persistFiles = ud.bool(forKey: "pref_persistFiles")
 
         // PeX / Persist: these prefs are read and included so that changing them
-        // triggers applyUserSettings().  Once LibTorrent-Swift exposes setters for
-        // PeX control, wire `disablePeX` into the session settings here.
-        _ = disablePeX
+        // triggers applyUserSettings(). PeX is applied per-torrent via setDisablePex(_:)
+        // when handles are added (see addPublicTrackers).
         _ = persistFiles
 
         // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
@@ -140,6 +139,11 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Mirrors Hayase's `torrentSettings.subscribe(native.updateSettings)`.
     func applyUserSettings() {
         session.settings = Self.makeSettings()
+        // Re-apply per-torrent PeX preference to all active handles.
+        let disablePeX = UserDefaults.standard.bool(forKey: "pref_disablePeX")
+        for handle in handles.values {
+            handle.setDisablePex(disablePeX)
+        }
         NotificationCenter.default.post(name: NSNotification.Name(Self.SettingsDidChangeNotification), object: nil)
     }
 
@@ -217,10 +221,16 @@ public class TorrentService: NSObject, SessionDelegate {
     /// doesn't include tracker parameters. libtorrent de-duplicates trackers
     /// internally, so calling this is safe even if the extension already provided
     /// the same URLs via `&tr=` parameters.
+    /// Also applies the `pref_disablePeX` user preference to the handle.
     private func addPublicTrackers(to handle: TorrentHandle) {
         for url in TorrentService.publicTrackers {
             handle.addTracker(url)
         }
+        // Apply PeX user preference. WebTorrent disables PeX for private torrents
+        // automatically; libtorrent does the same via torrent_flags::disable_pex.
+        // For non-private torrents, respect the user's explicit preference.
+        let disablePeX = UserDefaults.standard.bool(forKey: "pref_disablePeX")
+        handle.setDisablePex(disablePeX)
     }
 
     /// Removes all active torrents (and their downloaded files) except the one
