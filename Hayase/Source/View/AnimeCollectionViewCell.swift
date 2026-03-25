@@ -4,10 +4,14 @@
 //
 //  Matches Hayase's small.svelte exactly:
 //    • w-[9.5rem] = 152pt card width, aspect-ratio 152:290
-//    • Cover image fills top h-[13.5rem] = 216pt (74.5% of 290)
-//    • Below cover: title (font-black, 12.8pt, white, 2 lines), pt-3 top spacing
+//    • Cover image fixed height h-[13.5rem] = 216pt (matches CSS fixed height, not proportional)
+//    • Below cover: pt-3 (12pt) gap → title row [statusDot? + title, line-clamp-2] → pt-2 (8pt) gap → meta row
+//    • StatusDot: size-[0.55rem] ≈ 8.8pt circle, inline before title, hidden when no list entry
+//      Colors from StatusDot.svelte: CURRENT=rgb(61,180,242), PLANNING=rgb(247,154,99),
+//      COMPLETED=rgb(123,213,85), PAUSED=rgb(250,122,122), REPEATING=#3baeea, DROPPED=rgb(200,80,80)
 //    • Meta row: year left (calendar icon) + format right (tv icon), text-neutral-500
-//    • No separate info-bar background; no score badge overlay
+//    •   placed directly below the 2-line title reserve with pt-2 (8pt) gap — static position
+//    • No growing spacer / no bottom-anchor — meta is never pushed to the card bottom
 //
 
 import UIKit
@@ -64,6 +68,18 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         return l
     }()
 
+    // Status dot — inline circle before the title text, matching interface StatusDot.svelte.
+    // size-[0.55rem] ≈ 8.8pt; no border; hidden when user has no AniList list entry.
+    // Colors from StatusDot.svelte (not system colors):
+    //   CURRENT=rgb(61,180,242)  PLANNING=rgb(247,154,99)  COMPLETED=rgb(123,213,85)
+    //   PAUSED=rgb(250,122,122)  REPEATING=#3baeea  DROPPED=rgb(200,80,80)
+    private let statusDotView: UIView = {
+        let v = UIView()
+        v.layer.cornerRadius = 4.4   // half of 8.8pt → perfect circle
+        v.isHidden = true
+        return v
+    }()
+
     // MARK: State
 
     private var currentURLString: String?
@@ -106,37 +122,54 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         metaRow.spacing = 4
         metaRow.alignment = .center
 
-        // Spacer grows to fill remaining vertical space between title and meta row,
-        // matching small.svelte `class="grow"` on the title <p> (flex-grow:1 in CSS flexbox).
-        // Result: metaRow is always pinned to the card bottom regardless of title length.
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        // Title row: [statusDotView  titleLabel]
+        // Matches small.svelte: StatusDot is an inline <span> placed before the title text
+        // inside the same pt-3 / font-black / line-clamp-2 div.
+        // spacing = me-1 (4pt) from StatusDot.svelte.
+        let titleRow = UIStackView(arrangedSubviews: [statusDotView, titleLabel])
+        titleRow.axis = .horizontal
+        titleRow.spacing = 4   // me-1 = 4pt
+        titleRow.alignment = .top
 
-        // Full card stack: [cover  title  spacer  metaRow]
-        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleLabel, spacer, metaRow])
+        // Full card stack: [cover  titleRow  metaRow]
+        // Matches small.svelte layout:
+        //   cover (h-[13.5rem] fixed) → pt-3 gap → title row (line-clamp-2) → pt-2 gap → meta row
+        // No growing spacer — the title always reserves exactly 2-line height so the
+        // meta row has a static position regardless of whether the title is 1 or 2 lines,
+        // matching interface's static placement just below the 2-line title text area.
+        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleRow, metaRow])
         cardStack.axis = .vertical
         cardStack.spacing = 0
         cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
-        cardStack.setCustomSpacing(4, after: titleLabel)
+        cardStack.setCustomSpacing(8, after: titleRow)        // pt-2 = 8pt
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardStack)
+
+        // Title always occupies exactly 2 lines of height so the meta row sits at a
+        // static position for all titles (1-line titles get a blank second-line reserve).
+        let twoLineHeight = ceil(titleLabel.font.lineHeight * CGFloat(titleLabel.numberOfLines))
 
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: contentView.topAnchor),
             cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            // Pin bottom exactly so metaRow is always at the card bottom regardless of title length
-            cardStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Cover fills top 74.5% of cell width converted to height via aspect ratio
-            // (cell height is set by the layout to match 152:290 ratio)
-            coverImageView.heightAnchor.constraint(equalTo: contentView.widthAnchor,
-                                                   multiplier: 216.0 / 152.0),
+            // Cover height proportional to cell width — matches small.svelte aspect ratio
+            // h-[13.5rem] on a w-[9.5rem] card = 216/152 ≈ 1.421. Using a multiplier (not
+            // a constant) keeps the ratio correct for any cell width (home 152pt, search ~175pt).
+            coverImageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
+
+            // Title row always reserves 2-line height for the static meta-row position.
+            titleRow.heightAnchor.constraint(equalToConstant: twoLineHeight),
 
             calIcon.widthAnchor.constraint(equalToConstant: 12),
             calIcon.heightAnchor.constraint(equalToConstant: 12),
             tvIcon.widthAnchor.constraint(equalToConstant: 12),
             tvIcon.heightAnchor.constraint(equalToConstant: 12),
+
+            // Status dot: size-[0.55rem] = 8.8pt circle, aligned to first line of title
+            statusDotView.widthAnchor.constraint(equalToConstant: 8.8),
+            statusDotView.heightAnchor.constraint(equalToConstant: 8.8),
         ])
     }
 
@@ -156,6 +189,25 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
         formatLabel.text = formatString(item.format)
         loadCover(urlString: item.coverURL ?? "")
+        // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
+        if let status = item.mediaListEntry?.status {
+            statusDotView.backgroundColor = statusDotColor(for: status)
+            statusDotView.isHidden = false
+        } else {
+            statusDotView.isHidden = true
+        }
+    }
+
+    /// Returns the dot fill color matching StatusDot.svelte's exact RGB values.
+    private func statusDotColor(for status: String) -> UIColor {
+        switch status {
+        case "CURRENT":   return UIColor(red: 61/255,  green: 180/255, blue: 242/255, alpha: 1) // rgb(61,180,242)
+        case "PLANNING":  return UIColor(red: 247/255, green: 154/255, blue: 99/255,  alpha: 1) // rgb(247,154,99)
+        case "COMPLETED": return UIColor(red: 123/255, green: 213/255, blue: 85/255,  alpha: 1) // rgb(123,213,85)
+        case "PAUSED":    return UIColor(red: 250/255, green: 122/255, blue: 122/255, alpha: 1) // rgb(250,122,122)
+        case "REPEATING": return UIColor(red: 59/255,  green: 174/255, blue: 234/255, alpha: 1) // #3baeea
+        default:          return UIColor(red: 200/255, green: 80/255,  blue: 80/255,  alpha: 1) // rgb(200,80,80) DROPPED
+        }
     }
 
     private func formatString(_ raw: String?) -> String {
@@ -205,5 +257,8 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         titleLabel.text = nil
         yearLabel.text = nil
         formatLabel.text = nil
+        statusDotView.isHidden = true
+        statusDotView.backgroundColor = nil
     }
 }
+

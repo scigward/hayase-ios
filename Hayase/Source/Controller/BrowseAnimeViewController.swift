@@ -19,13 +19,16 @@ private final class BannerGradientView: UIView {
         super.init(frame: frame)
         // Matches Hayase's banner-image.svelte radial-gradient for mobile:
         //   radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        // Approximated as a linear gradient: light in the center-upper area, fully dark at bottom.
+        // Approximated as a linear gradient: light in the center-upper area, darkening at bottom.
+        // Bottom stop uses --background (white: 0.04) instead of pure black so the banner edge
+        // blends invisibly into the app background and no cut-off seam is visible.
+        let bgColor = UIColor(white: 0.04, alpha: 1) // --background dark, same as app bg
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
             UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
-            UIColor.black.cgColor,                           // bottom — fully dark
+            bgColor.cgColor,                                 // bottom — blends into app bg
         ]
         gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         layer.addSublayer(gradient)
@@ -74,6 +77,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
     private var clearlogoTask: URLSessionDataTask?
+    /// Tracks whether the banner is currently in the faded-out (5% opacity) state.
+    private var bannerHidden = false
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
     private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
@@ -608,6 +613,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         clearlogoImageView.image = nil
         clearlogoImageView.isHidden = true
         titleLabel.isHidden = false
+        bannerHidden = false
+        backgroundImageView.alpha = 1.0
+        gradientView.alpha = 1.0
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -637,24 +645,22 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     /// Applies the fade effect when the user scrolls down past the banner.
     /// `scrollOffset` is the raw contentOffset.y value.
-    /// Hayase interface: only the banner IMAGE fades (opacity-5 via hideBanner on <Banner>),
-    /// while the content (title, buttons, description) stays fully visible.
+    /// Matches interface: hideBanner = scrollTop > 100 → 5% opacity, else 100% opacity,
+    /// with a 500ms animated transition.
     func applyScrollFade(_ scrollOffset: CGFloat) {
-        // Hayase: opacity-5 (≈ 5% opacity) when scrollTop > 100, transition-opacity duration-500
-        // Only fade the background image and gradient — NOT the UI elements (buttons, text, logo).
-        let fadeStart: CGFloat = 50
-        let fadeEnd: CGFloat = 200
-        let alpha: CGFloat
-        if scrollOffset <= fadeStart {
-            alpha = 1.0
-        } else if scrollOffset >= fadeEnd {
-            alpha = 0.05  // Hayase: opacity-5
-        } else {
-            let progress = (scrollOffset - fadeStart) / (fadeEnd - fadeStart)
-            alpha = 1.0 - progress * 0.95
+        // Interface: hideBanner.value = target.scrollTop > 100
+        // Faded-out = 5% opacity (0.05), fully visible = 100% opacity (1.0).
+        // transition-opacity duration-500 → UIView.animate withDuration: 0.5
+        let shouldHide = scrollOffset > 100
+        guard shouldHide != bannerHidden else { return }
+        bannerHidden = shouldHide
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        // Only fade the image — keep gradientView at full opacity so its bottom stop
+        // (UIColor(white: 0.04, alpha: 1) = --background) always covers the banner edge.
+        // Fading the gradient out too exposes the raw image bottom against the background.
+        UIView.animate(withDuration: 0.5) {
+            self.backgroundImageView.alpha = targetAlpha
         }
-        backgroundImageView.alpha = alpha
-        gradientView.alpha = alpha
     }
 }
 
@@ -906,6 +912,11 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
+        // Re-sync banner fade with the current scroll position.
+        // scrollViewDidScroll does NOT fire automatically when the view re-appears (e.g. popping
+        // back from a detail VC), so the banner could be stuck in the wrong opacity state.
+        // Matches the interface: hideBanner.value = false at component init, then re-evaluated.
+        syncBannerToCurrentScrollPosition()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1109,6 +1120,8 @@ class BrowseAnimeViewController: UIViewController {
                 // Reload banner cell if it already exists
                 if self.collectionView.numberOfSections > 0 {
                     self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                    // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
+                    DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
                 }
             }
         }
@@ -1210,6 +1223,10 @@ class BrowseAnimeViewController: UIViewController {
         self.collectionView.reloadData()
         self.loadingIndicator.stopAnimating()
         self.emptyLabel.isHidden = !allSections.isEmpty
+        // prepareForReuse resets the banner cell's alpha/state; re-sync the fade.
+        // scrollViewDidScroll is not automatically re-fired after reloadData when the
+        // contentOffset hasn't changed, so we have to call this explicitly.
+        DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
     }
 
     private func performFetch() {
@@ -1388,8 +1405,20 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !isSearching else { return }
-        let offsetY = scrollView.contentOffset.y
-        // Get the banner cell (section 0, item 0) if visible
+        syncBannerToCurrentScrollPosition()
+    }
+
+    /// Applies the banner scroll effects (zoom + fade) based on the current contentOffset.
+    /// Must be called any time the scroll position or the banner cell could be stale:
+    ///   • from scrollViewDidScroll (every scroll event)
+    ///   • from viewWillAppear (returning from a child VC — scrollViewDidScroll won't re-fire)
+    ///   • after reloadData() (prepareForReuse resets the cell; the scroll event won't re-fire)
+    ///
+    /// Matches the interface's pattern:
+    ///   hideBanner.value = false        // at component init
+    ///   hideBanner.value = scrollTop > 100  // in every scroll event
+    private func syncBannerToCurrentScrollPosition() {
+        let offsetY = collectionView.contentOffset.y
         let bannerIndexPath = IndexPath(item: 0, section: 0)
         guard let bannerCell = collectionView.cellForItem(at: bannerIndexPath) as? FeaturedBannerCell else { return }
 

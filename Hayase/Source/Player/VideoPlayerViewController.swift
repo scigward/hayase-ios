@@ -782,11 +782,11 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     /// Returns the episode description for the episode label.
-    /// Hayase format: "1/24" (episode / total).
+    /// Format: "Episode N/Total" when total is known, "Episode N" otherwise.
     private func episodeDescriptionText() -> String {
         let totalEps = videoEntity?.torrents?.animes?.animeTotalEps?.intValue ?? 0
         if totalEps > 0 {
-            return "\(episodeNumber)/\(totalEps)"
+            return "Episode \(episodeNumber)/\(totalEps)"
         }
         return "Episode \(episodeNumber)"
     }

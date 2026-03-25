@@ -765,13 +765,14 @@ private final class StatsCell: UITableViewCell {
     }
 
     private static func statusColor(for status: String) -> UIColor {
+        // Matches StatusDot.svelte exact RGB values
         switch status {
-        case "CURRENT":   return .systemGreen
-        case "COMPLETED": return .systemBlue
-        case "PLANNING":  return .systemGray
-        case "DROPPED":   return .systemRed
-        case "PAUSED":    return .systemOrange
-        default:          return .systemIndigo
+        case "CURRENT":   return UIColor(red: 61/255,  green: 180/255, blue: 242/255, alpha: 1) // rgb(61,180,242)
+        case "PLANNING":  return UIColor(red: 247/255, green: 154/255, blue: 99/255,  alpha: 1) // rgb(247,154,99)
+        case "COMPLETED": return UIColor(red: 123/255, green: 213/255, blue: 85/255,  alpha: 1) // rgb(123,213,85)
+        case "PAUSED":    return UIColor(red: 250/255, green: 122/255, blue: 122/255, alpha: 1) // rgb(250,122,122)
+        case "REPEATING": return UIColor(red: 59/255,  green: 174/255, blue: 234/255, alpha: 1) // #3baeea
+        default:          return UIColor(red: 200/255, green: 80/255,  blue: 80/255,  alpha: 1) // rgb(200,80,80) DROPPED
         }
     }
 }
@@ -808,8 +809,10 @@ private final class AnimeInfoHeaderView: UIView {
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
 
-    // Banner height: approximates Hayase banner-image.svelte h-[23rem] for detail page
-    private static let bannerHeight: CGFloat = 300
+    // Banner height: slightly beyond Hayase's h-[23rem] (≈368pt) for a more vertical appearance.
+    // With the -200pt content overlap the cover/text starts at 200pt from the top, leaving
+    // ~112pt of visible banner above the cover art (below the ~88pt transparent nav bar).
+    private static let bannerHeight: CGFloat = 400
 
     // MARK: - Banner (full-width — approximates global BannerImage in Hayase)
     private let bannerImageView: UIImageView = {
@@ -821,16 +824,19 @@ private final class AnimeInfoHeaderView: UIView {
     }()
     // Linear gradient overlay matching homepage BannerGradientView (5-point linear,
     // approximating Hayase's banner-image.svelte radial-gradient for mobile).
+    // The bottom stop matches --background (white: 0.04) so the banner edge is
+    // invisible against the app background (pure black would leave a visible seam).
     private let bannerGradientView: UIView = {
         let v = UIView()
         v.isUserInteractionEnabled = false
         let gradient = CAGradientLayer()
+        let bgColor = UIColor(white: 0.04, alpha: 1)   // --background dark, same as app bg
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
             UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
-            UIColor.black.cgColor,                           // bottom — fully dark
+            bgColor.cgColor,                                 // bottom — blends into app bg
         ]
         gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         v.layer.addSublayer(gradient)
