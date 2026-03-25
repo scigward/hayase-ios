@@ -765,13 +765,14 @@ private final class StatsCell: UITableViewCell {
     }
 
     private static func statusColor(for status: String) -> UIColor {
+        // Matches StatusDot.svelte exact RGB values
         switch status {
-        case "CURRENT":   return .systemGreen
-        case "COMPLETED": return .systemBlue
-        case "PLANNING":  return .systemGray
-        case "DROPPED":   return .systemRed
-        case "PAUSED":    return .systemOrange
-        default:          return .systemIndigo
+        case "CURRENT":   return UIColor(red: 61/255,  green: 180/255, blue: 242/255, alpha: 1) // rgb(61,180,242)
+        case "PLANNING":  return UIColor(red: 247/255, green: 154/255, blue: 99/255,  alpha: 1) // rgb(247,154,99)
+        case "COMPLETED": return UIColor(red: 123/255, green: 213/255, blue: 85/255,  alpha: 1) // rgb(123,213,85)
+        case "PAUSED":    return UIColor(red: 250/255, green: 122/255, blue: 122/255, alpha: 1) // rgb(250,122,122)
+        case "REPEATING": return UIColor(red: 59/255,  green: 174/255, blue: 234/255, alpha: 1) // #3baeea
+        default:          return UIColor(red: 200/255, green: 80/255,  blue: 80/255,  alpha: 1) // rgb(200,80,80) DROPPED
         }
     }
 }
