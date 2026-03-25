@@ -158,6 +158,10 @@ public class AnimeService: NSObject {
             let id: String?
             let site: String?
         }
+        struct MediaListEntry: Codable {
+            let status: String?
+        }
+        let mediaListEntry: MediaListEntry?
     }
 
     // MARK: - NSFW filter (matches interface settings.ts: nsfw = showHentai ? null : ['Hentai'])
@@ -384,6 +388,7 @@ public class AnimeService: NSObject {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { status }
         }
       }
     }
@@ -492,6 +497,10 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Include auth token so mediaListEntry is populated for logged-in users
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         var vars = variables
         if let nsfw = nsfwGenreFilter { vars["nsfw"] = nsfw }
         var body: [String: Any] = ["query": homeSectionQuery]
@@ -509,7 +518,7 @@ public class AnimeService: NSObject {
                 guard let id = media.id else { return nil }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
                 let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
-                return AnimeItem(
+                var item = AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
                     titleRomaji: media.title?.romaji,
@@ -528,6 +537,11 @@ public class AnimeService: NSObject {
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
+                if let mle = media.mediaListEntry, let s = mle.status {
+                    item.mediaListEntry = AnimeItem.MediaListEntry(
+                        listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                }
+                return item
             }
             completion(items)
         }.resume()
@@ -555,6 +569,7 @@ public class AnimeService: NSObject {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { status }
         }
       }
     }
@@ -582,6 +597,7 @@ public class AnimeService: NSObject {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { status }
         }
       }
     }
@@ -595,6 +611,10 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Include auth token so mediaListEntry is populated for logged-in users
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let body: [String: Any] = ["query": idInQuery, "variables": ["idIn": ids]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         URLSession.shared.dataTask(with: request) { data, _, _ in
@@ -610,7 +630,7 @@ public class AnimeService: NSObject {
                 guard let id = media.id else { continue }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
                 let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
-                itemMap[id] = AnimeItem(
+                var item = AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
                     titleRomaji: media.title?.romaji,
@@ -629,6 +649,11 @@ public class AnimeService: NSObject {
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
+                if let mle = media.mediaListEntry, let s = mle.status {
+                    item.mediaListEntry = AnimeItem.MediaListEntry(
+                        listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                }
+                itemMap[id] = item
             }
             let ordered = ids.compactMap { itemMap[$0] }
             DispatchQueue.main.async { completion(ordered) }
@@ -668,7 +693,7 @@ public class AnimeService: NSObject {
                 guard let id = media.id else { continue }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
                 let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
-                items.append(AnimeItem(
+                var item = AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
                     titleRomaji: media.title?.romaji,
@@ -686,7 +711,12 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color))
+                    coverColor: media.coverImage?.color)
+                if let mle = media.mediaListEntry, let s = mle.status {
+                    item.mediaListEntry = AnimeItem.MediaListEntry(
+                        listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                }
+                items.append(item)
             }
             DispatchQueue.main.async { completion(items) }
         }.resume()
@@ -715,6 +745,7 @@ public class AnimeService: NSObject {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { status }
         }
       }
     }
@@ -737,6 +768,10 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Include auth token so mediaListEntry is populated for logged-in users
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         var variables: [String: Any] = ["sort": [sort], "page": page]
         if let t = title, !t.isEmpty { variables["search"] = t }
@@ -762,7 +797,7 @@ public class AnimeService: NSObject {
                 guard let id = media.id else { return nil }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
                 let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
-                return AnimeItem(
+                var item = AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
                     titleRomaji: media.title?.romaji,
@@ -781,6 +816,11 @@ public class AnimeService: NSObject {
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
+                if let mle = media.mediaListEntry, let s = mle.status {
+                    item.mediaListEntry = AnimeItem.MediaListEntry(
+                        listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                }
+                return item
             }
             DispatchQueue.main.async { completion(items, hasNext) }
         }.resume()
@@ -808,6 +848,7 @@ public class AnimeService: NSObject {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { status }
         }
       }
     }
@@ -821,6 +862,10 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Include auth token so mediaListEntry is populated for logged-in users
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         let body: [String: Any] = ["query": anilistByIdsQuery, "variables": ["ids": ids]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -836,7 +881,7 @@ public class AnimeService: NSObject {
                 guard let id = media.id else { return nil }
                 let desc = media.description.map { AnimeService.stripHTML($0) }
                 let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
-                return AnimeItem(
+                var item = AnimeItem(
                     id: id,
                     titleEnglish: media.title?.english,
                     titleRomaji: media.title?.romaji,
@@ -855,6 +900,11 @@ public class AnimeService: NSObject {
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
                     coverColor: media.coverImage?.color)
+                if let mle = media.mediaListEntry, let s = mle.status {
+                    item.mediaListEntry = AnimeItem.MediaListEntry(
+                        listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                }
+                return item
             }
             DispatchQueue.main.async { completion(items) }
         }.resume()

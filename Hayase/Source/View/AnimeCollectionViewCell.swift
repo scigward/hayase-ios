@@ -65,6 +65,19 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         return l
     }()
 
+    // Status dot — small circle overlay at bottom-right of cover image.
+    // Matches interface small.svelte: shows user's AniList media list status.
+    // Colors mirror AnimeDetailViewController.statusColor(for:).
+    private let statusDotView: UIView = {
+        let v = UIView()
+        v.layer.cornerRadius = 5   // 10pt diameter circle
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor(white: 0.10, alpha: 1).cgColor  // dark ring for contrast
+        v.isHidden = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
     // MARK: State
 
     private var currentURLString: String?
@@ -121,6 +134,9 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardStack)
 
+        // Status dot overlay — sits on top of the cover image at the bottom-right corner
+        contentView.addSubview(statusDotView)
+
         // Title always occupies exactly 2 lines of height so the meta row sits at a
         // static position for all titles (1-line titles get a blank second-line reserve).
         let twoLineHeight = ceil(titleLabel.font.lineHeight * CGFloat(titleLabel.numberOfLines))
@@ -143,6 +159,12 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             calIcon.heightAnchor.constraint(equalToConstant: 12),
             tvIcon.widthAnchor.constraint(equalToConstant: 12),
             tvIcon.heightAnchor.constraint(equalToConstant: 12),
+
+            // Status dot: 10pt circle at bottom-right of cover, inset 6pt from each edge
+            statusDotView.widthAnchor.constraint(equalToConstant: 10),
+            statusDotView.heightAnchor.constraint(equalToConstant: 10),
+            statusDotView.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: -6),
+            statusDotView.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: -6),
         ])
     }
 
@@ -162,6 +184,26 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
         formatLabel.text = formatString(item.format)
         loadCover(urlString: item.coverURL ?? "")
+        // Status dot — show user's AniList list status when logged in
+        if let status = item.mediaListEntry?.status {
+            statusDotView.backgroundColor = statusColor(for: status)
+            statusDotView.isHidden = false
+        } else {
+            statusDotView.isHidden = true
+        }
+    }
+
+    /// Maps AniList media list status to a dot color.
+    /// Mirrors AnimeDetailViewController.statusColor(for:).
+    private func statusColor(for status: String) -> UIColor {
+        switch status {
+        case "CURRENT":   return .systemGreen
+        case "COMPLETED": return .systemBlue
+        case "PLANNING":  return .systemGray
+        case "DROPPED":   return .systemRed
+        case "PAUSED":    return .systemOrange
+        default:          return .systemIndigo   // REPEATING
+        }
     }
 
     private func formatString(_ raw: String?) -> String {
@@ -211,5 +253,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         titleLabel.text = nil
         yearLabel.text = nil
         formatLabel.text = nil
+        statusDotView.isHidden = true
+        statusDotView.backgroundColor = nil
     }
 }
