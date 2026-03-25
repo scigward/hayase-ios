@@ -218,10 +218,15 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
+
+        // Dim episodes that have been watched on AniList (matches desktop's opacity treatment
+        // for completed episodes: reduced opacity on card)
+        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
+        cardView.alpha = isWatchedOnAniList ? 0.5 : 1.0
 
         // Progress bar (Hayase EpisodesList watchProgress indicator)
         if anilistID > 0,
@@ -321,6 +326,7 @@ private final class EpisodeCell: UITableViewCell {
         fillerBadge.isHidden = true
         cardView.layer.borderWidth = 0
         cardView.layer.borderColor = UIColor.clear.cgColor
+        cardView.alpha = 1.0
         progressBar.isHidden = true
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
@@ -790,8 +796,13 @@ private final class AnimeInfoHeaderView: UIView {
     var onShare: (() -> Void)?
     var onPlayTrailer: (() -> Void)?
     var onWatch: (() -> Void)?
+    var onEntryEditor: (() -> Void)?
+    var onFavorite: (() -> Void)?
+    var onBookmark: (() -> Void)?
 
     private var anilistId: Int?
+    /// The banner URL currently displayed (fanart > AniList banner > cover).
+    private(set) var displayedBannerURL: String?
 
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
@@ -1049,6 +1060,8 @@ private final class AnimeInfoHeaderView: UIView {
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         entryEditorButton.addTarget(self, action: #selector(entryEditorTapped), for: .touchUpInside)
+        favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+        bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
 
         // Play + EntryEditor combo (Hayase: flex w-[180px], play rounded-r-none + editor rounded-l-none)
         let playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
@@ -1180,7 +1193,20 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func shareTapped()       { onShare?() }
     @objc private func trailerTapped()     { onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { /* TODO: Present entry editor sheet */ }
+    @objc private func entryEditorTapped() { onEntryEditor?() }
+    @objc private func favoriteTapped()    { onFavorite?() }
+    @objc private func bookmarkTapped()    { onBookmark?() }
+
+    /// Updates favorite/bookmark button icons to show filled/unfilled state.
+    /// Matches interface: FavoriteButton fills heart when fav(media) is true,
+    /// BookmarkButton fills bookmark when list(media) is truthy.
+    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        let heartName = isFavorite ? "heart.fill" : "heart"
+        favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
+
+        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
+        bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+    }
 
     // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
 
@@ -1229,7 +1255,8 @@ private final class AnimeInfoHeaderView: UIView {
 
         trailerButton.isHidden = true
 
-        loadImage(from: anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM,
+        displayedBannerURL = anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM
+        loadImage(from: displayedBannerURL,
                   into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
                   into: coverImageView, task: &coverImageTask)
@@ -1287,6 +1314,7 @@ private final class AnimeInfoHeaderView: UIView {
         AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             guard let self else { return }
             let urlStr = fanartURL ?? bannerFallback
+            self.displayedBannerURL = urlStr
             self.bannerImageTask?.cancel()
             self.bannerImageTask = nil
             guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -1312,6 +1340,7 @@ private final class AnimeInfoHeaderView: UIView {
     /// Called after ani.zip episodes fetch if a Fanart/Poster image is found.
     /// Matches Hayase banner.svelte: `metadata?.images?.find(i => i.coverType === 'Fanart')?.url`
     func updateBanner(from urlString: String) {
+        displayedBannerURL = urlString
         loadImage(from: urlString, into: bannerImageView, task: &bannerImageTask)
     }
 
@@ -1508,7 +1537,10 @@ class AnimeDetailViewController: UIViewController {
 
     private var tableView: UITableView!
     private var headerView: AnimeInfoHeaderView!
+    private var isFavorite = false
+    private var isOnList = false
     private var episodes: [AniZipEpisode] = []
+    private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
     private var relations: [AnimeRelation] = []
     private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
@@ -1572,6 +1604,8 @@ class AnimeDetailViewController: UIViewController {
         setupHeaderView()
         fetchEpisodes()
         fetchRelationsAndCharacters()
+        fetchAniListProgress()
+        refreshButtonStates()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1582,6 +1616,10 @@ class AnimeDetailViewController: UIViewController {
         nb?.setBackgroundImage(UIImage(), for: .default)
         nb?.shadowImage = UIImage()
         nb?.tintColor = .white  // back chevron visible over dark banner
+
+        // Refresh AniList progress when returning from the player
+        fetchAniListProgress()
+        refreshButtonStates()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1642,6 +1680,30 @@ class AnimeDetailViewController: UIViewController {
         } else {
             headerView.configure(with: animeEntity)
         }
+        headerView.onFavorite = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            AniListTracking.shared.toggleFavourite(mediaID: item.id) { [weak self] _ in
+                self?.refreshButtonStates()
+            }
+        }
+
+        headerView.onBookmark = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            if self.isOnList {
+                AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+                    if let listID = entry?.listID {
+                        AniListTracking.shared.deleteEntry(listID: listID) { [weak self] _ in
+                            self?.refreshButtonStates()
+                        }
+                    }
+                }
+            } else {
+                AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING") { [weak self] _ in
+                    self?.refreshButtonStates()
+                }
+            }
+        }
+
         headerView.onShare = { [weak self] in
             guard let self = self else { return }
             let title = self.animeItem?.titleEnglish ?? self.animeItem?.titleRomaji
@@ -1666,6 +1728,9 @@ class AnimeDetailViewController: UIViewController {
         headerView.onWatch = { [weak self] in
             self?.openExtensionSearch(episode: 1)
         }
+        headerView.onEntryEditor = { [weak self] in
+            self?.showEntryEditor()
+        }
 
         // Header view + tab bar are embedded in a regular table cell (section 0)
         // instead of tableHeaderView.  This eliminates the TAMIC conflict that
@@ -1675,6 +1740,48 @@ class AnimeDetailViewController: UIViewController {
         // drives the cell height naturally.
     }
 
+
+    // MARK: - AniList Entry Editor
+
+    private func showEntryEditor() {
+        guard let item = animeItem else { return }
+
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.presentEntryEditorSheet(mediaID: item.id, currentEntry: entry, totalEpisodes: item.episodes)
+            }
+        }
+    }
+
+    private func presentEntryEditorSheet(mediaID: Int, currentEntry: AnimeItem.MediaListEntry?, totalEpisodes: Int?) {
+        let editorVC = EntryEditorViewController()
+        editorVC.mediaID = mediaID
+        editorVC.totalEpisodes = totalEpisodes
+        editorVC.currentEntry = currentEntry
+        editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
+        editorVC.coverURL = animeItem?.coverURL
+        editorVC.bannerURL = headerView?.displayedBannerURL ?? animeItem?.bannerURL
+
+        editorVC.onSave = { [weak self] in
+            self?.fetchAniListProgress()
+            self?.refreshButtonStates()
+        }
+        editorVC.onDelete = { [weak self] in
+            self?.anilistProgress = 0
+            self?.isOnList = false
+            self?.tableView.reloadData()
+            self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
+        }
+
+        editorVC.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sheet = editorVC.sheetPresentationController {
+                sheet.detents = [.medium(), .large()]
+                sheet.prefersGrabberVisible = true
+            }
+        }
+        present(editorVC, animated: true)
+    }
 
     // MARK: - Fetch episodes (ani.zip)
 
@@ -1744,6 +1851,40 @@ class AnimeDetailViewController: UIViewController {
         return closest.min(by: {
             abs(Int($0.key) ?? 0 - episode) < abs(Int($1.key) ?? 0 - episode)
         })
+    }
+
+    /// Fetches the user's AniList progress for this anime and refreshes episode cells.
+    /// Mirrors desktop's mediaListEntry.progress used to dim watched episodes.
+    private func fetchAniListProgress() {
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        AniListTracking.shared.fetchProgress(anilistID: id) { [weak self] progress in
+            guard let self = self else { return }
+            let newProgress = progress ?? 0
+            DispatchQueue.main.async {
+                guard self.anilistProgress != newProgress else { return }
+                self.anilistProgress = newProgress
+                self.tableView.reloadData()
+            }
+        }
+    }
+
+    /// Refreshes the favorite/bookmark button states from AniList.
+    private func refreshButtonStates() {
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        AniListTracking.shared.checkIsFavourite(mediaID: id) { [weak self] isFav in
+            DispatchQueue.main.async {
+                self?.isFavorite = isFav
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
+            }
+        }
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.isOnList = entry != nil
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
+            }
+        }
     }
 
     private func fetchEpisodes() {
@@ -2265,7 +2406,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 return UITableViewCell()
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
-            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID)
+            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID, anilistProgress: anilistProgress)
             return cell
 
         case .relations:

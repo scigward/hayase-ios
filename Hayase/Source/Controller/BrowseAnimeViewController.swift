@@ -65,9 +65,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Exposes the background image view so the parent VC can apply scroll-driven zoom.
     var bannerImageView: UIImageView { backgroundImageView }
 
-    /// Callback fired when the user taps a dot to manually switch items.
-    var onDotTapped: (() -> Void)?
-
     /// Callback fired when the user taps the "Watch Now" / "Continue" play button.
     var onPlayTapped: ((AnimeItem) -> Void)?
 
@@ -526,7 +523,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         displayItem(animated: true)
         // Restart the timer so the next auto-advance is a full interval from now
         startTimer()
-        onDotTapped?()
     }
 
     @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
@@ -641,19 +637,24 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     /// Applies the fade effect when the user scrolls down past the banner.
     /// `scrollOffset` is the raw contentOffset.y value.
+    /// Hayase interface: only the banner IMAGE fades (opacity-5 via hideBanner on <Banner>),
+    /// while the content (title, buttons, description) stays fully visible.
     func applyScrollFade(_ scrollOffset: CGFloat) {
         // Hayase: opacity-5 (≈ 5% opacity) when scrollTop > 100, transition-opacity duration-500
-        // We do a smooth ramp from fully visible at offset 0 to nearly invisible at offset 200.
+        // Only fade the background image and gradient — NOT the UI elements (buttons, text, logo).
         let fadeStart: CGFloat = 50
         let fadeEnd: CGFloat = 200
+        let alpha: CGFloat
         if scrollOffset <= fadeStart {
-            contentView.alpha = 1.0
+            alpha = 1.0
         } else if scrollOffset >= fadeEnd {
-            contentView.alpha = 0.05  // Hayase: opacity-5
+            alpha = 0.05  // Hayase: opacity-5
         } else {
             let progress = (scrollOffset - fadeStart) / (fadeEnd - fadeStart)
-            contentView.alpha = 1.0 - progress * 0.95
+            alpha = 1.0 - progress * 0.95
         }
+        backgroundImageView.alpha = alpha
+        gradientView.alpha = alpha
     }
 }
 
@@ -1120,30 +1121,95 @@ class BrowseAnimeViewController: UIViewController {
                 self.bannerItems = fetchedSections.first?.items ?? []
             }
 
-            // Prepend "Continue Watching" section from WatchProgressService (Hayase continueIDs)
-            let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-            if continueIDs.isEmpty {
-                self.isLoadingSections = false
-                self.sections = fetchedSections
-                self.collectionView.reloadData()
-                self.loadingIndicator.stopAnimating()
-                self.emptyLabel.isHidden = !fetchedSections.isEmpty
-            } else {
-                AnimeService.sharedAnimeService.fetchSectionByIDs(continueIDs) { [weak self] continueItems in
-                    guard let self = self else { return }
-                    self.isLoadingSections = false
-                    var allSections = fetchedSections
-                    if !continueItems.isEmpty {
-                        allSections.insert(HomeSectionData(title: "Continue Watching",
-                                                           items: continueItems), at: 0)
+            // Fetch personalized sections from AniList user lists
+            // (matches desktop home/+page.svelte: continueIDs, planningIDs, sequelIDs)
+            AniListTracking.shared.fetchUserLists { [weak self] userListIDs in
+                guard let self = self else { return }
+
+                guard let ids = userListIDs,
+                      (!ids.continueIDs.isEmpty || !ids.planningIDs.isEmpty || !ids.sequelIDs.isEmpty) else {
+                    // No AniList user lists — fall back to local "Continue Watching" only
+                    self.finishLoadSections(fetchedSections: fetchedSections, personalSections: [])
+                    return
+                }
+
+                let group = DispatchGroup()
+                let syncQueue = DispatchQueue(label: "com.hayase.personalSections")
+                var personalSections: [(index: Int, section: HomeSectionData)] = []
+
+                // "Continue Watching" — CURRENT/REPEATING with unwatched episodes
+                // Desktop: client.search({ ids: continueIDs.slice(0, 50), sort: ['UPDATED_AT_DESC'] })
+                if !ids.continueIDs.isEmpty {
+                    group.enter()
+                    let cappedIDs = Array(ids.continueIDs.prefix(50))
+                    AnimeService.sharedAnimeService.fetchSectionByIDs(cappedIDs) { items in
+                        if !items.isEmpty {
+                            syncQueue.sync {
+                                personalSections.append((index: 0,
+                                                         section: HomeSectionData(title: "Continue Watching", items: items)))
+                            }
+                        }
+                        group.leave()
                     }
-                    self.sections = allSections
-                    self.collectionView.reloadData()
-                    self.loadingIndicator.stopAnimating()
-                    self.emptyLabel.isHidden = !allSections.isEmpty
+                }
+
+                // "Your List" — PLANNING entries, filtered to FINISHED/RELEASING
+                // Desktop: client.search({ ids: planningIDs, status: ['FINISHED', 'RELEASING'], sort: ['START_DATE_DESC'] })
+                if !ids.planningIDs.isEmpty {
+                    group.enter()
+                    AnimeService.sharedAnimeService.fetchSectionByIDsFiltered(
+                        ids.planningIDs,
+                        status: ["FINISHED", "RELEASING"]
+                    ) { items in
+                        if !items.isEmpty {
+                            syncQueue.sync {
+                                personalSections.append((index: 1,
+                                                         section: HomeSectionData(title: "Your List", items: items)))
+                            }
+                        }
+                        group.leave()
+                    }
+                }
+
+                // "Sequels You Missed" — SEQUEL relations from COMPLETED, not on user's list
+                // Desktop: client.search({ ids: sequelIDs, status: ['FINISHED', 'RELEASING'], onList: false })
+                if !ids.sequelIDs.isEmpty {
+                    group.enter()
+                    AnimeService.sharedAnimeService.fetchSectionByIDsFiltered(
+                        ids.sequelIDs,
+                        status: ["FINISHED", "RELEASING"],
+                        onList: false
+                    ) { items in
+                        if !items.isEmpty {
+                            syncQueue.sync {
+                                personalSections.append((index: 2,
+                                                         section: HomeSectionData(title: "Sequels You Missed", items: items)))
+                            }
+                        }
+                        group.leave()
+                    }
+                }
+
+                group.notify(queue: .main) { [weak self] in
+                    guard let self = self else { return }
+                    // Sort personal sections by their intended order and prepend
+                    let sorted = personalSections.sorted { $0.index < $1.index }.map { $0.section }
+                    self.finishLoadSections(fetchedSections: fetchedSections, personalSections: sorted)
                 }
             }
         }
+    }
+
+    /// Combines personal and fetched sections and reloads the collection view.
+    private func finishLoadSections(fetchedSections: [HomeSectionData], personalSections: [HomeSectionData]) {
+        self.isLoadingSections = false
+        // Desktop order: Continue Watching, Your List, Sequels You Missed, then generic sections
+        var allSections = personalSections
+        allSections.append(contentsOf: fetchedSections)
+        self.sections = allSections
+        self.collectionView.reloadData()
+        self.loadingIndicator.stopAnimating()
+        self.emptyLabel.isHidden = !allSections.isEmpty
     }
 
     private func performFetch() {

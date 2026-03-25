@@ -17,8 +17,6 @@
 		A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */; };
 		A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */; };
 		A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */; };
-		A96106B31D72FC2F006D39D0 /* VideoPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */; };
-		A96106B41D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */; };
 		A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AA1D72FC2F006D39D0 /* AnimeService.swift */; };
 		A96106B61D72FC2F006D39D0 /* TorrentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106AB1D72FC2F006D39D0 /* TorrentService.swift */; };
 		TSTRM02TSTRM02TSTRM02 /* TorrentStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */; };
@@ -35,6 +33,7 @@
 		DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */; };
 		DEAD001ADEAD001ADEAD001A /* TorrentDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */; };
 		DEAD001CDEAD001CDEAD001C /* WatchProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */; };
+		DEAD001EDEAD001EDEAD001E /* EntryEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */; };
 		EXTMOD01EXTMOD01EXTMOD01 /* ExtensionModels.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */; };
 		EXTWRK01EXTWRK01EXTWRK01 /* ExtensionWorker.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */; };
 		EXTSVC01EXTSVC01EXTSVC01 /* ExtensionService.swift in Sources */       = {isa = PBXBuildFile; fileRef = EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */; };
@@ -47,14 +46,10 @@
 		A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */; };
 		A96106D11D731B43006D39D0 /* Animes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C01D731B43006D39D0 /* Animes.swift */; };
 		A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C21D731B43006D39D0 /* CoreDataService.swift */; };
-		A96106D31D731B43006D39D0 /* NSEntityDescription_Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */; };
-		A96106D41D731B43006D39D0 /* NSFetchRequest_Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */; };
 		A96106D51D731B43006D39D0 /* NSManagedObjectContext_Clear.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */; };
 		A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C81D731B43006D39D0 /* NamedEntity.swift */; };
 		A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */; };
 		A96106D81D731B43006D39D0 /* Torrents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CA1D731B43006D39D0 /* Torrents.swift */; };
-		A96106D91D731B43006D39D0 /* Users+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */; };
-		A96106DA1D731B43006D39D0 /* Users.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CC1D731B43006D39D0 /* Users.swift */; };
 		A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */; };
 		A96106DC1D731B43006D39D0 /* Videos.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96106CE1D731B43006D39D0 /* Videos.swift */; };
 		A96107171D7325D3006D39D0 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A96107161D7325D3006D39D0 /* libz.tbd */; };
@@ -113,8 +108,6 @@
 		A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BrowseAnimeViewController.swift; sourceTree = "<group>"; };
 		A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentListViewControllerTableViewController.swift; sourceTree = "<group>"; };
 		A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoListViewController.swift; sourceTree = "<group>"; };
-		A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VideoPlayerController.swift; sourceTree = "<group>"; };
-		A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UITableView_KeyboardNotification.swift; sourceTree = "<group>"; };
 		A96106AA1D72FC2F006D39D0 /* AnimeService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimeService.swift; sourceTree = "<group>"; };
 		A96106AB1D72FC2F006D39D0 /* TorrentService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentService.swift; sourceTree = "<group>"; };
 		TSTRM01TSTRM01TSTRM01 /* TorrentStreamer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentStreamer.swift; sourceTree = "<group>"; };
@@ -131,6 +124,7 @@
 		DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ScheduleViewController.swift; sourceTree = "<group>"; };
 		DEAD001BDEAD001BDEAD001B /* TorrentDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TorrentDetailViewController.swift; sourceTree = "<group>"; };
 		DEAD001DDEAD001DDEAD001D /* WatchProgressService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WatchProgressService.swift; sourceTree = "<group>"; };
+		DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = EntryEditorViewController.swift; sourceTree = "<group>"; };
 		EXTMOD02EXTMOD02EXTMOD02 /* ExtensionModels.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionModels.swift; sourceTree = "<group>"; };
 		EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionWorker.swift; sourceTree = "<group>"; };
 		EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */       = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
@@ -151,14 +145,10 @@
 		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
 		A96106C11D731B43006D39D0 /* CoreDataService.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreDataService.h; sourceTree = "<group>"; };
 		A96106C21D731B43006D39D0 /* CoreDataService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CoreDataService.swift; sourceTree = "<group>"; };
-		A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSEntityDescription_Service.swift; sourceTree = "<group>"; };
-		A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSFetchRequest_Service.swift; sourceTree = "<group>"; };
 		A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NSManagedObjectContext_Clear.swift; sourceTree = "<group>"; };
 		A96106C81D731B43006D39D0 /* NamedEntity.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NamedEntity.swift; sourceTree = "<group>"; };
 		A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Torrents+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106CA1D731B43006D39D0 /* Torrents.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Torrents.swift; sourceTree = "<group>"; };
-		A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Users+CoreDataProperties.swift"; sourceTree = "<group>"; };
-		A96106CC1D731B43006D39D0 /* Users.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Users.swift; sourceTree = "<group>"; };
 		A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Videos+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106CE1D731B43006D39D0 /* Videos.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Videos.swift; sourceTree = "<group>"; };
 		A96107161D7325D3006D39D0 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
@@ -240,7 +230,6 @@
 			isa = PBXGroup;
 			children = (
 				A96106A11D72FC2F006D39D0 /* Controller */,
-				A96106A71D72FC2F006D39D0 /* Extension */,
 				A96106A91D72FC2F006D39D0 /* Service */,
 				A96106AD1D72FC2F006D39D0 /* View */,
 				PLAYER01PLAYER01PLAYER01 /* Player */,
@@ -255,10 +244,10 @@
 				A96106A31D72FC2F006D39D0 /* BrowseAnimeViewController.swift */,
 				A96106A41D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift */,
 				A96106A51D72FC2F006D39D0 /* VideoListViewController.swift */,
-				A96106A61D72FC2F006D39D0 /* VideoPlayerController.swift */,
 				DEAD0011DEAD0011DEAD0011 /* SearchViewController.swift */,
 				DEAD0013DEAD0013DEAD0013 /* DownloadsViewController.swift */,
 				DEAD0015DEAD0015DEAD0015 /* AnimeDetailViewController.swift */,
+				DEAD001FDEAD001FDEAD001F /* EntryEditorViewController.swift */,
 				THRDVC02THRDVC02THRDVC02 /* ThreadDetailViewController.swift */,
 				DEAD0017DEAD0017DEAD0017 /* SettingsViewController.swift */,
 				DEAD0019DEAD0019DEAD0019 /* ScheduleViewController.swift */,
@@ -269,14 +258,6 @@
 				ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */,
 			);
 			path = Controller;
-			sourceTree = "<group>";
-		};
-		A96106A71D72FC2F006D39D0 /* Extension */ = {
-			isa = PBXGroup;
-			children = (
-				A96106A81D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift */,
-			);
-			path = Extension;
 			sourceTree = "<group>";
 		};
 		A96106A91D72FC2F006D39D0 /* Service */ = {
@@ -348,8 +329,6 @@
 				A96106C71D731B43006D39D0 /* Protocol */,
 				A96106C91D731B43006D39D0 /* Torrents+CoreDataProperties.swift */,
 				A96106CA1D731B43006D39D0 /* Torrents.swift */,
-				A96106CB1D731B43006D39D0 /* Users+CoreDataProperties.swift */,
-				A96106CC1D731B43006D39D0 /* Users.swift */,
 				A96106CD1D731B43006D39D0 /* Videos+CoreDataProperties.swift */,
 				A96106CE1D731B43006D39D0 /* Videos.swift */,
 			);
@@ -359,8 +338,6 @@
 		A96106C31D731B43006D39D0 /* Extension */ = {
 			isa = PBXGroup;
 			children = (
-				A96106C41D731B43006D39D0 /* NSEntityDescription_Service.swift */,
-				A96106C51D731B43006D39D0 /* NSFetchRequest_Service.swift */,
 				A96106C61D731B43006D39D0 /* NSManagedObjectContext_Clear.swift */,
 			);
 			path = Extension;
@@ -461,23 +438,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A96106B31D72FC2F006D39D0 /* VideoPlayerController.swift in Sources */,
 				A96106D51D731B43006D39D0 /* NSManagedObjectContext_Clear.swift in Sources */,
-				A96106B41D72FC2F006D39D0 /* UITableView_KeyboardNotification.swift in Sources */,
 				A96106D11D731B43006D39D0 /* Animes.swift in Sources */,
 				A96106D81D731B43006D39D0 /* Torrents.swift in Sources */,
 				A96106B71D72FC2F006D39D0 /* VideoService.swift in Sources */,
-				A96106D31D731B43006D39D0 /* NSEntityDescription_Service.swift in Sources */,
 				A96106B21D72FC2F006D39D0 /* VideoListViewController.swift in Sources */,
-				A96106D91D731B43006D39D0 /* Users+CoreDataProperties.swift in Sources */,
 				A96106D61D731B43006D39D0 /* NamedEntity.swift in Sources */,
 				A96106B11D72FC2F006D39D0 /* TorrentListViewControllerTableViewController.swift in Sources */,
-				A96106D41D731B43006D39D0 /* NSFetchRequest_Service.swift in Sources */,
 				A96106B01D72FC2F006D39D0 /* BrowseAnimeViewController.swift in Sources */,
 				A96106D01D731B43006D39D0 /* Animes+CoreDataProperties.swift in Sources */,
 				A96106B51D72FC2F006D39D0 /* AnimeService.swift in Sources */,
 				A96106DB1D731B43006D39D0 /* Videos+CoreDataProperties.swift in Sources */,
-				A96106DA1D731B43006D39D0 /* Users.swift in Sources */,
 				A96106B81D72FC2F006D39D0 /* AnimeCollectionViewCell.swift in Sources */,
 				A96106D21D731B43006D39D0 /* CoreDataService.swift in Sources */,
 				A96106D71D731B43006D39D0 /* Torrents+CoreDataProperties.swift in Sources */,
@@ -492,6 +463,7 @@
 				DEAD0010DEAD0010DEAD0010 /* SearchViewController.swift in Sources */,
 				DEAD0012DEAD0012DEAD0012 /* DownloadsViewController.swift in Sources */,
 				DEAD0014DEAD0014DEAD0014 /* AnimeDetailViewController.swift in Sources */,
+				DEAD001EDEAD001EDEAD001E /* EntryEditorViewController.swift in Sources */,
 				THRDVC01THRDVC01THRDVC01 /* ThreadDetailViewController.swift in Sources */,
 				DEAD0016DEAD0016DEAD0016 /* SettingsViewController.swift in Sources */,
 				DEAD0018DEAD0018DEAD0018 /* ScheduleViewController.swift in Sources */,

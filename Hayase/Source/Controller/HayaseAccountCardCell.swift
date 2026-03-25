@@ -129,8 +129,6 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     private var tracker: TrackerKind = .anilist
     weak var parentVC: UIViewController?
-    private var onLoginTapped: (() -> Void)?
-    private var onSettingsTapped: (() -> Void)?
 
     // MARK: - Init
 
@@ -539,9 +537,6 @@ final class HayaseAccountCardCell: UITableViewCell {
 // Needed for import SafariServices in the cell.
 
 import SafariServices
-
-/// Thin wrapper to avoid needing to import SafariServices in every file.
-final class SFSafariViewControllerCompat: SFSafariViewController {}
 
 /// Provides the presentation anchor window for ASWebAuthenticationSession.
 final class AniListAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {

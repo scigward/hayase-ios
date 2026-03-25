@@ -8,9 +8,6 @@ import CoreData
 import LibTorrent
 
 public class VideoService: NSObject {
-    enum VideoError: Error {
-        case invalidIndex
-    }
     static let LocalVideosDidUpdateNotification  = "LocalVideosDidUpdateNotification"
 
     let torrentEntity: Torrents

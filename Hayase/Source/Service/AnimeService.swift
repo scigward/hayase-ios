@@ -42,6 +42,19 @@ struct AnimeItem {
     var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
     var relations: [AnimeRelation] = []
     var characters: [AnimeCharacter] = []
+
+    // MARK: - AniList tracking
+
+    /// Represents the authenticated user's list entry for this media (requires auth).
+    struct MediaListEntry {
+        let listID: Int          // MediaList.id (needed for DeleteMediaListEntry)
+        let status: String?      // "CURRENT", "COMPLETED", "PLANNING", "DROPPED", "PAUSED", "REPEATING"
+        let progress: Int        // episodes watched
+        let score: Int           // 0-10 (POINT_10 format)
+        let repeatCount: Int     // times rewatched
+        let customLists: [String] // names of enabled custom lists (e.g. ["Watched using Hayase"])
+    }
+    var mediaListEntry: MediaListEntry?
 }
 
 struct HomeSectionData {
@@ -147,12 +160,22 @@ public class AnimeService: NSObject {
         }
     }
 
+    // MARK: - NSFW filter (matches interface settings.ts: nsfw = showHentai ? null : ['Hentai'])
+
+    /// Returns `["Hentai"]` when the user has NOT enabled the "Show Hentai" setting,
+    /// matching the interface repo's `genre_not_in: $nsfw` pattern.  Returns `nil` when
+    /// hentai content should be shown (no genre exclusion).
+    private var nsfwGenreFilter: [String]? {
+        let show = UserDefaults.standard.object(forKey: "pref_showHentai") as? Bool ?? false
+        return show ? nil : ["Hentai"]
+    }
+
     // MARK: - GraphQL queries
 
     private let airingAnimeQuery = """
-    query {
+    query ($nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(status: RELEASING, type: ANIME, sort: POPULARITY_DESC) {
+        media(status: RELEASING, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -171,9 +194,9 @@ public class AnimeService: NSObject {
     """
 
     private let searchAnimeQuery = """
-    query ($search: String) {
+    query ($search: String, $nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(search: $search, type: ANIME, sort: POPULARITY_DESC) {
+        media(search: $search, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -228,7 +251,9 @@ public class AnimeService: NSObject {
 
     func UpdateTempWithAiringAnimes() {
         self.ClearTempAnimes()
-        makeGraphQLRequest(query: airingAnimeQuery) { mediaList in
+        var variables: [String: Any] = [:]
+        if let nsfw = nsfwGenreFilter { variables["nsfw"] = nsfw }
+        makeGraphQLRequest(query: airingAnimeQuery, variables: variables.isEmpty ? nil : variables) { mediaList in
             DispatchQueue.main.async {
                 do {
                     try self.UpdateLocalAnimes(mediaList, isTemp: true)
@@ -241,7 +266,9 @@ public class AnimeService: NSObject {
 
     func UpdateTempAnimesWithSearchString(_ searchStr: String) {
         self.ClearTempAnimes()
-        makeGraphQLRequest(query: searchAnimeQuery, variables: ["search": searchStr]) { mediaList in
+        var variables: [String: Any] = ["search": searchStr]
+        if let nsfw = nsfwGenreFilter { variables["nsfw"] = nsfw }
+        makeGraphQLRequest(query: searchAnimeQuery, variables: variables) { mediaList in
             DispatchQueue.main.async {
                 do {
                     try self.UpdateLocalAnimes(mediaList, isTemp: true)
@@ -338,9 +365,9 @@ public class AnimeService: NSObject {
     // MARK: - Home sections (in-memory, no CoreData)
 
     private let homeSectionQuery = """
-    query ($status: MediaStatus, $sort: [MediaSort], $genre: String, $season: MediaSeason, $seasonYear: Int) {
+    query ($status: MediaStatus, $sort: [MediaSort], $genre: String, $season: MediaSeason, $seasonYear: Int, $nsfw: [String]) {
       Page(page: 1, perPage: 20) {
-        media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear) {
+        media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear, genre_not_in: $nsfw) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -364,9 +391,9 @@ public class AnimeService: NSObject {
 
     // Matches Hayase banner.svelte query: SCORE_DESC, perPage 5, current season, statusNot NOT_YET_RELEASED
     private let bannerQuery = """
-    query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $statusNot: [MediaStatus]) {
+    query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $statusNot: [MediaStatus], $nsfw: [String]) {
       Page(page: 1, perPage: 5) {
-        media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot) {
+        media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot, genre_not_in: $nsfw) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -397,12 +424,13 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let variables: [String: Any] = [
+        var variables: [String: Any] = [
             "sort": ["SCORE_DESC"],
             "season": season,
             "seasonYear": year,
             "statusNot": ["NOT_YET_RELEASED"]
         ]
+        if let nsfw = nsfwGenreFilter { variables["nsfw"] = nsfw }
         let body: [String: Any] = ["query": bannerQuery, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
@@ -464,8 +492,10 @@ public class AnimeService: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        var vars = variables
+        if let nsfw = nsfwGenreFilter { vars["nsfw"] = nsfw }
         var body: [String: Any] = ["query": homeSectionQuery]
-        body["variables"] = variables
+        body["variables"] = vars
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         URLSession.shared.dataTask(with: request) { data, _, _ in
@@ -509,6 +539,33 @@ public class AnimeService: NSObject {
     query ($idIn: [Int]) {
       Page(page: 1, perPage: 50) {
         media(type: ANIME, id_in: $idIn) {
+          id
+          title { english romaji }
+          coverImage { large medium color }
+          bannerImage
+          averageScore
+          genres
+          episodes
+          duration
+          status
+          seasonYear
+          format
+          startDate { year }
+          favourites
+          trailer { id site }
+          description(asHtml: false)
+          synonyms
+        }
+      }
+    }
+    """
+
+    /// Query for fetching by IDs with optional status/onList filters.
+    /// Used by "Your List" (status: FINISHED/RELEASING) and "Sequels You Missed" (onList: false).
+    private let idInFilteredQuery = """
+    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean) {
+      Page(page: 1, perPage: 50) {
+        media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -578,13 +635,70 @@ public class AnimeService: NSObject {
         }.resume()
     }
 
+    /// Fetches anime items by IDs with optional status and onList filters.
+    /// Used for "Your List" (FINISHED/RELEASING) and "Sequels You Missed" (not on list).
+    /// Calls completion on the main queue. Requires auth token for onList filter.
+    func fetchSectionByIDsFiltered(_ ids: [Int],
+                                   status: [String]? = nil,
+                                   onList: Bool? = nil,
+                                   completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Add auth token for onList filter (requires authentication)
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        var variables: [String: Any] = ["idIn": ids]
+        if let status = status { variables["status"] = status }
+        if let onList = onList { variables["onList"] = onList }
+        let body: [String: Any] = ["query": idInFilteredQuery, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            var items: [AnimeItem] = []
+            for media in mediaList {
+                guard let id = media.id else { continue }
+                let desc = media.description.map { AnimeService.stripHTML($0) }
+                let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+                items.append(AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: media.bannerImage,
+                    genres: media.genres ?? [],
+                    description: desc,
+                    synonyms: media.synonyms ?? [],
+                    year: media.seasonYear,
+                    startYear: media.startDate?.year,
+                    format: media.format,
+                    duration: media.duration,
+                    trailerYouTubeID: trailerID,
+                    favourites: media.favourites,
+                    coverColor: media.coverImage?.color))
+            }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
     // MARK: - AniList anime search (used by SearchViewController)
 
     private let anilistSearchQuery = """
-    query ($search: String, $genre_in: [String], $format_in: [MediaFormat], $status_in: [MediaStatus], $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason) {
+    query ($search: String, $genre_in: [String], $format_in: [MediaFormat], $status_in: [MediaStatus], $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason, $nsfw: [String]) {
       Page(page: $page, perPage: 20) {
         pageInfo { hasNextPage }
-        media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season) {
+        media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season, genre_not_in: $nsfw) {
           id
           title { english romaji }
           coverImage { large medium color }
@@ -631,6 +745,7 @@ public class AnimeService: NSObject {
         if !statuses.isEmpty { variables["status_in"] = statuses }
         if let y = seasonYear { variables["seasonYear"] = y }
         if let s = season { variables["season"] = s }
+        if let nsfw = nsfwGenreFilter { variables["nsfw"] = nsfw }
 
         let body: [String: Any] = ["query": anilistSearchQuery, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
