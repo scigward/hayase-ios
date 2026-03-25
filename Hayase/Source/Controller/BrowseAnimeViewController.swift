@@ -19,13 +19,16 @@ private final class BannerGradientView: UIView {
         super.init(frame: frame)
         // Matches Hayase's banner-image.svelte radial-gradient for mobile:
         //   radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        // Approximated as a linear gradient: light in the center-upper area, fully dark at bottom.
+        // Approximated as a linear gradient: light in the center-upper area, darkening at bottom.
+        // Bottom stop uses --background (white: 0.04) instead of pure black so the banner edge
+        // blends invisibly into the app background and no cut-off seam is visible.
+        let bgColor = UIColor(white: 0.04, alpha: 1) // --background dark, same as app bg
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
             UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
-            UIColor.black.cgColor,                           // bottom — fully dark
+            bgColor.cgColor,                                 // bottom — blends into app bg
         ]
         gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         layer.addSublayer(gradient)
