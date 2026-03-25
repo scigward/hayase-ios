@@ -809,10 +809,10 @@ private final class AnimeInfoHeaderView: UIView {
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
 
-    // Banner height: matches Hayase banner-image.svelte h-[23rem] = 23 × 16px ≈ 368pt for detail page.
-    // A taller banner looks more vertical, reduces the visible side-crop, and gives ~72pt of
-    // banner visible above the cover/text area (below the transparent nav bar).
-    private static let bannerHeight: CGFloat = 360
+    // Banner height: slightly beyond Hayase's h-[23rem] (≈368pt) for a more vertical appearance.
+    // With the -200pt content overlap the cover/text starts at 200pt from the top, leaving
+    // ~112pt of visible banner above the cover art (below the ~88pt transparent nav bar).
+    private static let bannerHeight: CGFloat = 400
 
     // MARK: - Banner (full-width — approximates global BannerImage in Hayase)
     private let bannerImageView: UIImageView = {
@@ -824,16 +824,19 @@ private final class AnimeInfoHeaderView: UIView {
     }()
     // Linear gradient overlay matching homepage BannerGradientView (5-point linear,
     // approximating Hayase's banner-image.svelte radial-gradient for mobile).
+    // The bottom stop matches --background (white: 0.04) so the banner edge is
+    // invisible against the app background (pure black would leave a visible seam).
     private let bannerGradientView: UIView = {
         let v = UIView()
         v.isUserInteractionEnabled = false
         let gradient = CAGradientLayer()
+        let bgColor = UIColor(white: 0.04, alpha: 1)   // --background dark, same as app bg
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~30% — center of radial (light)
+            UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
             UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
-            UIColor.black.cgColor,                           // bottom — fully dark
+            bgColor.cgColor,                                 // bottom — blends into app bg
         ]
         gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
         v.layer.addSublayer(gradient)
