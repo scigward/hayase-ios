@@ -655,9 +655,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        // Only fade the image — keep gradientView at full opacity so its bottom stop
+        // (UIColor(white: 0.04, alpha: 1) = --background) always covers the banner edge.
+        // Fading the gradient out too exposes the raw image bottom against the background.
         UIView.animate(withDuration: 0.5) {
             self.backgroundImageView.alpha = targetAlpha
-            self.gradientView.alpha = targetAlpha
         }
     }
 }
