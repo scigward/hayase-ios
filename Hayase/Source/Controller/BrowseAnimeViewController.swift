@@ -74,6 +74,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
     private var clearlogoTask: URLSessionDataTask?
+    /// Tracks whether the banner is currently in the faded-out (5% opacity) state.
+    private var bannerHidden = false
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
     private var dotWidthConstraints: [Int: NSLayoutConstraint] = [:]
 
@@ -608,6 +610,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         clearlogoImageView.image = nil
         clearlogoImageView.isHidden = true
         titleLabel.isHidden = false
+        bannerHidden = false
+        backgroundImageView.alpha = 1.0
+        gradientView.alpha = 1.0
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -637,24 +642,20 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     /// Applies the fade effect when the user scrolls down past the banner.
     /// `scrollOffset` is the raw contentOffset.y value.
-    /// Hayase interface: only the banner IMAGE fades (opacity-5 via hideBanner on <Banner>),
-    /// while the content (title, buttons, description) stays fully visible.
+    /// Matches interface: hideBanner = scrollTop > 100 → 5% opacity, else 100% opacity,
+    /// with a 500ms animated transition.
     func applyScrollFade(_ scrollOffset: CGFloat) {
-        // Hayase: opacity-5 (≈ 5% opacity) when scrollTop > 100, transition-opacity duration-500
-        // Only fade the background image and gradient — NOT the UI elements (buttons, text, logo).
-        let fadeStart: CGFloat = 50
-        let fadeEnd: CGFloat = 200
-        let alpha: CGFloat
-        if scrollOffset <= fadeStart {
-            alpha = 1.0
-        } else if scrollOffset >= fadeEnd {
-            alpha = 0.05  // Hayase: opacity-5
-        } else {
-            let progress = (scrollOffset - fadeStart) / (fadeEnd - fadeStart)
-            alpha = 1.0 - progress * 0.95
+        // Interface: hideBanner.value = target.scrollTop > 100
+        // Faded-out = 5% opacity (0.05), fully visible = 100% opacity (1.0).
+        // transition-opacity duration-500 → UIView.animate withDuration: 0.5
+        let shouldHide = scrollOffset > 100
+        guard shouldHide != bannerHidden else { return }
+        bannerHidden = shouldHide
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        UIView.animate(withDuration: 0.5) {
+            self.backgroundImageView.alpha = targetAlpha
+            self.gradientView.alpha = targetAlpha
         }
-        backgroundImageView.alpha = alpha
-        gradientView.alpha = alpha
     }
 }
 
