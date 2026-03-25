@@ -354,7 +354,7 @@ final class MiniPlayerManager {
         return v
     }
 
-    /// Adds the controls overlay (play/pause + close) to the mini-player.
+    /// Adds the controls overlay (play/pause) to the mini-player.
     private func addOverlay(to container: UIView) {
         guard let inner = container.viewWithTag(100) else { return }
 
@@ -383,20 +383,6 @@ final class MiniPlayerManager {
             ppBtn.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
             ppBtn.widthAnchor.constraint(equalToConstant: 36),
             ppBtn.heightAnchor.constraint(equalToConstant: 36),
-        ])
-
-        // Close button — top-right (Hayase: click close destroys player).
-        let closeBtn = UIButton(type: .system)
-        closeBtn.translatesAutoresizingMaskIntoConstraints = false
-        closeBtn.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeBtn.tintColor = .white
-        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        overlay.addSubview(closeBtn)
-        NSLayoutConstraint.activate([
-            closeBtn.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 6),
-            closeBtn.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -6),
-            closeBtn.widthAnchor.constraint(equalToConstant: 28),
-            closeBtn.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
@@ -444,10 +430,6 @@ final class MiniPlayerManager {
         activePlayer?.togglePlayPause()
         let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
         playPauseButton?.setImage(UIImage(systemName: icon), for: .normal)
-    }
-
-    @objc private func closeTapped() {
-        close()
     }
 
     // MARK: - Corner snapping (Hayase endDragging)

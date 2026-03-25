@@ -801,6 +801,8 @@ private final class AnimeInfoHeaderView: UIView {
     var onBookmark: (() -> Void)?
 
     private var anilistId: Int?
+    /// The banner URL currently displayed (fanart > AniList banner > cover).
+    private(set) var displayedBannerURL: String?
 
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
@@ -1253,7 +1255,8 @@ private final class AnimeInfoHeaderView: UIView {
 
         trailerButton.isHidden = true
 
-        loadImage(from: anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM,
+        displayedBannerURL = anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM
+        loadImage(from: displayedBannerURL,
                   into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
                   into: coverImageView, task: &coverImageTask)
@@ -1311,6 +1314,7 @@ private final class AnimeInfoHeaderView: UIView {
         AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             guard let self else { return }
             let urlStr = fanartURL ?? bannerFallback
+            self.displayedBannerURL = urlStr
             self.bannerImageTask?.cancel()
             self.bannerImageTask = nil
             guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -1336,6 +1340,7 @@ private final class AnimeInfoHeaderView: UIView {
     /// Called after ani.zip episodes fetch if a Fanart/Poster image is found.
     /// Matches Hayase banner.svelte: `metadata?.images?.find(i => i.coverType === 'Fanart')?.url`
     func updateBanner(from urlString: String) {
+        displayedBannerURL = urlString
         loadImage(from: urlString, into: bannerImageView, task: &bannerImageTask)
     }
 
@@ -1755,7 +1760,7 @@ class AnimeDetailViewController: UIViewController {
         editorVC.currentEntry = currentEntry
         editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
         editorVC.coverURL = animeItem?.coverURL
-        editorVC.bannerURL = animeItem?.bannerURL
+        editorVC.bannerURL = headerView?.displayedBannerURL ?? animeItem?.bannerURL
 
         editorVC.onSave = { [weak self] in
             self?.fetchAniListProgress()
