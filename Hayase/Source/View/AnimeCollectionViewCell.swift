@@ -154,11 +154,10 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
 
-            // Cover height fixed at h-[13.5rem] = 216pt — matches interface's fixed cover
-            // height. Using a constant instead of being proportional to contentView.width
-            // ensures item.contentInsets (used for inter-card spacing) never shrinks the
-            // cover and inflates the gap below it.
-            coverImageView.heightAnchor.constraint(equalToConstant: 216),
+            // Cover height proportional to cell width — matches small.svelte aspect ratio
+            // h-[13.5rem] on a w-[9.5rem] card = 216/152 ≈ 1.421. Using a multiplier (not
+            // a constant) keeps the ratio correct for any cell width (home 152pt, search ~175pt).
+            coverImageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
 
             // Title row always reserves 2-line height for the static meta-row position.
             titleRow.heightAnchor.constraint(equalToConstant: twoLineHeight),

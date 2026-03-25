@@ -907,6 +907,11 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
+        // Re-sync banner fade with the current scroll position.
+        // scrollViewDidScroll does NOT fire automatically when the view re-appears (e.g. popping
+        // back from a detail VC), so the banner could be stuck in the wrong opacity state.
+        // Matches the interface: hideBanner.value = false at component init, then re-evaluated.
+        syncBannerToCurrentScrollPosition()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1110,6 +1115,8 @@ class BrowseAnimeViewController: UIViewController {
                 // Reload banner cell if it already exists
                 if self.collectionView.numberOfSections > 0 {
                     self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                    // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
+                    DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
                 }
             }
         }
@@ -1211,6 +1218,10 @@ class BrowseAnimeViewController: UIViewController {
         self.collectionView.reloadData()
         self.loadingIndicator.stopAnimating()
         self.emptyLabel.isHidden = !allSections.isEmpty
+        // prepareForReuse resets the banner cell's alpha/state; re-sync the fade.
+        // scrollViewDidScroll is not automatically re-fired after reloadData when the
+        // contentOffset hasn't changed, so we have to call this explicitly.
+        DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
     }
 
     private func performFetch() {
@@ -1389,8 +1400,20 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !isSearching else { return }
-        let offsetY = scrollView.contentOffset.y
-        // Get the banner cell (section 0, item 0) if visible
+        syncBannerToCurrentScrollPosition()
+    }
+
+    /// Applies the banner scroll effects (zoom + fade) based on the current contentOffset.
+    /// Must be called any time the scroll position or the banner cell could be stale:
+    ///   • from scrollViewDidScroll (every scroll event)
+    ///   • from viewWillAppear (returning from a child VC — scrollViewDidScroll won't re-fire)
+    ///   • after reloadData() (prepareForReuse resets the cell; the scroll event won't re-fire)
+    ///
+    /// Matches the interface's pattern:
+    ///   hideBanner.value = false        // at component init
+    ///   hideBanner.value = scrollTop > 100  // in every scroll event
+    private func syncBannerToCurrentScrollPosition() {
+        let offsetY = collectionView.contentOffset.y
         let bannerIndexPath = IndexPath(item: 0, section: 0)
         guard let bannerCell = collectionView.cellForItem(at: bannerIndexPath) as? FeaturedBannerCell else { return }
 
