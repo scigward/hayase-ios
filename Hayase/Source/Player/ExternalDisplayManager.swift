@@ -129,7 +129,7 @@ final class ExternalDisplayManager {
         ])
 
         // Replace the surface in the player's view with the placeholder.
-        let playerView = surface.superview ?? player.view!
+        guard let playerView = surface.superview ?? player.view else { return }
         placeholder.frame = surface.frame
         placeholder.autoresizingMask = surface.autoresizingMask
         placeholder.translatesAutoresizingMaskIntoConstraints = surface.translatesAutoresizingMaskIntoConstraints

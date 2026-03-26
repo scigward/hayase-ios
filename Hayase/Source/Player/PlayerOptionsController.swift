@@ -382,33 +382,34 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         // Back button row
         if navigationStack.count > 1 && indexPath.row == 0 {
-            let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as! TreeItemCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
             let title = navigationStack.last?.title ?? "Back"
             cell.configure(title: "← \(title)", isActive: false, hasChevron: false, isBackRow: true)
             return cell
         }
 
         let itemIndex = navigationStack.count > 1 ? indexPath.row - 1 : indexPath.row
+        guard itemIndex >= 0, itemIndex < currentItems.count else { return UITableViewCell() }
         let item = currentItems[itemIndex]
 
         switch item {
         case .expandable(let title, _):
-            let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as! TreeItemCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
             cell.configure(title: title, isActive: false, hasChevron: true, isBackRow: false)
             return cell
 
         case .selectable(let title, let isActive, _):
-            let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as! TreeItemCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
             cell.configure(title: title, isActive: isActive, hasChevron: false, isBackRow: false)
             return cell
 
         case .action(let title, _):
-            let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as! TreeItemCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
             cell.configure(title: title, isActive: false, hasChevron: false, isBackRow: false)
             return cell
 
         case .toggle(let title, let isActive, _):
-            let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as! TreeItemCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
             cell.configure(title: title, isActive: isActive, hasChevron: false, isBackRow: false)
             return cell
         }
@@ -424,6 +425,7 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
         }
 
         let itemIndex = navigationStack.count > 1 ? indexPath.row - 1 : indexPath.row
+        guard itemIndex >= 0, itemIndex < currentItems.count else { return }
         let item = currentItems[itemIndex]
 
         switch item {

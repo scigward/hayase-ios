@@ -172,7 +172,7 @@ final class MiniPlayerManager {
         // Reparent the MPV surface into the mini-player container.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = true
-        let inner = container.viewWithTag(100)!
+        guard let inner = container.viewWithTag(100) else { return }
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
@@ -853,7 +853,7 @@ final class MiniPlayerManager {
         // Reparent the MPV surface into the mini-player container.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = true
-        let inner = container.viewWithTag(100)!
+        guard let inner = container.viewWithTag(100) else { return }
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
