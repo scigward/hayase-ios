@@ -283,7 +283,8 @@ final class KeywordManager {
             ["ED", "ENDING", "NCED", "NCOP", "OP", "OPENING", "PREVIEW", "PV"])
 
         add(.audioTerm, optDefault, [
-            "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH", "DTS", "DTS-ES", "DTS5.1",
+            "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH",
+            "DTS", "DTS-ES", "DTS5.1", "DDP", "DDP5.1", "DDP2.0",
             "DOLBY TRUEHD", "TRUEHD", "TRUEHD5.1",
             "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3", "E-AC3",
             "FLAC", "FLACX2", "FLACX3", "FLACX4", "LOSSLESS", "MP3", "OGG",
@@ -304,7 +305,7 @@ final class KeywordManager {
         add(.episodePrefix, optInvalid, ["E", "\u{7B2C}"])
 
         add(.fileExtension, optDefault,
-            ["3GP", "AVI", "DIVX", "FLV", "M2TS", "MKV", "MOV", "MP4", "MPG",
+            ["3GP", "AVI", "DIVX", "FLV", "M2TS", "M4V", "MKV", "MOV", "MP4", "MPG",
              "OGM", "RM", "RMVB", "TS", "WEBM", "WMV"])
         add(.fileExtension, optInvalid,
             ["AAC", "AIFF", "FLAC", "M4A", "MP3", "MKA", "OGG", "WAV", "WMA",
@@ -470,6 +471,7 @@ private final class AnitomyTokenizer {
         ("(", ")"), ("[", "]"), ("{", "}"),
         ("\u{300C}", "\u{300D}"), ("\u{300E}", "\u{300F}"),
         ("\u{3010}", "\u{3011}"), ("\u{FF08}", "\u{FF09}"),
+        ("\u{FF3B}", "\u{FF3D}"), ("\u{FF5B}", "\u{FF5D}"),
     ]
 
     private func tokenizeByBrackets() {
@@ -821,6 +823,7 @@ private final class AnitomyParser {
         if searchForEquivalentNumbers(&numberTokens) { return }
         if searchForSeparatedNumbers(&numberTokens) { return }
         if searchForIsolatedNumbers(&numberTokens) { return }
+        if searchForFirstNumber(&numberTokens) { return }
         _ = searchForLastNumber(&numberTokens)
     }
 
@@ -1166,6 +1169,35 @@ private final class AnitomyParser {
         return false
     }
 
+    /// C++ develop branch: starts_with_episode_number.
+    /// Handles filenames that begin with an episode number (e.g. "01 - Title.mkv").
+    private func searchForFirstNumber(_ tokenIndices: inout [Int]) -> Bool {
+        guard let firstIdx = tokenIndices.first, firstIdx == 0 || tokens[0..<firstIdx].allSatisfy({
+            $0.category == .delimiter || $0.category == .bracket
+        }) else { return false }
+
+        let tokenIndex = firstIdx
+        guard tokens[tokenIndex].category == .unknown,
+              isNumericString(tokens[tokenIndex].content) else { return false }
+
+        // A leading number is an episode if:
+        //   - There are 2 or fewer tokens total, OR
+        //   - Followed by a dash (e.g. "01 - Title"), OR
+        //   - Followed by "." then space or file extension end
+        if tokens.count <= 2 {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+
+        if tokenIndex + 1 < tokens.count && isDashCharacter(tokens[tokenIndex + 1].content) {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+        if tokenIndex + 2 < tokens.count && isDashCharacter(tokens[tokenIndex + 2].content) {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+
+        return false
+    }
+
     private func searchForLastNumber(_ tokenIndices: inout [Int]) -> Bool {
         for tokenIndex in tokenIndices.reversed() {
             guard tokenIndex > 0 else { continue }
@@ -1346,9 +1378,10 @@ private final class AnitomyParser {
     private func searchForReleaseGroup() {
         var searchFrom = 0
 
+        // Primary: find the first enclosed unidentified range
         while true {
             guard let beginIdx = findToken(in: tokens, from: searchFrom, to: tokens.count,
-                                           flags: [.flagEnclosed, .flagUnknown]) else { return }
+                                           flags: [.flagEnclosed, .flagUnknown]) else { break }
 
             let endIdx = findToken(in: tokens, from: beginIdx, to: tokens.count,
                                    flags: [.flagBracket, .flagIdentifier]) ?? tokens.count
@@ -1363,6 +1396,20 @@ private final class AnitomyParser {
             }
 
             buildElement(.releaseGroup, keepDelimiters: true, from: beginIdx, to: endIdx)
+            return
+        }
+
+        // Fallback: last free token before file extension preceded by a dash
+        // e.g. "Title.Episode.Info-Group.mkv" → "Group"
+        for i in stride(from: tokens.count - 1, through: 0, by: -1) {
+            // Skip delimiters and identified tokens (e.g., file extension)
+            guard tokens[i].category == .unknown,
+                  !tokens[i].enclosed else { continue }
+            // The token immediately before this one must be a dash delimiter
+            guard i > 0,
+                  tokens[i - 1].category == .delimiter,
+                  isDashCharacter(tokens[i - 1].content) else { break }
+            buildElement(.releaseGroup, keepDelimiters: true, from: i, to: i + 1)
             return
         }
     }
@@ -1625,7 +1672,7 @@ private final class AnitomyParser {
                     element.append(delimiter)
                 } else if i != from && i != to {
                     switch delimiter {
-                    case ",", "&":
+                    case ",", "&", "~":
                         element.append(delimiter)
                     default:
                         element.append(" ")
