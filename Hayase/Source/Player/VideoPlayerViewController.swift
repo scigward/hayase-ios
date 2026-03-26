@@ -387,8 +387,16 @@ final class VideoPlayerViewController: UIViewController {
         nextButton.addTarget(self,      action: #selector(nextTapped),      for: .touchUpInside)
         optionsButton.addTarget(self,   action: #selector(optionsTapped),   for: .touchUpInside)
 
-        prevButton.isEnabled  = allVideos.count > 1 && currentVideoIndex > 0
-        nextButton.isEnabled  = allVideos.count > 1 && currentVideoIndex < allVideos.count - 1
+        // Initial enable state mirrors loadVideoURL() logic — use episode bounds
+        // rather than just allVideos array bounds so buttons are correct even
+        // before MPV starts (important for mini-player restore where viewDidLoad
+        // runs immediately via `_ = player.view`).
+        prevButton.isEnabled  = episodeNumber > 1
+        if totalEpisodes > 0 {
+            nextButton.isEnabled = episodeNumber < totalEpisodes
+        } else {
+            nextButton.isEnabled = true
+        }
 
         let leftStack = UIStackView(arrangedSubviews: [playPauseButton, prevButton, nextButton])
         leftStack.translatesAutoresizingMaskIntoConstraints = false
@@ -673,8 +681,12 @@ final class VideoPlayerViewController: UIViewController {
         if totalEpisodes > 0 {
             canGoNext = episodeNumber < totalEpisodes
         } else {
-            // Unknown total — allow next if there's a batch file OR callback
-            canGoNext = currentVideoIndex < allVideos.count - 1 || onEpisodeChange != nil
+            // Unknown total (ongoing anime like One Piece where AniList returns
+            // episodes: nil). The web interface's episodes() helper falls back to
+            // the latest aired episode from schedule data — iOS doesn't have that,
+            // so always allow next navigation. There's always potentially a next
+            // episode for an ongoing series.
+            canGoNext = true
         }
         prevButton.isEnabled = canGoPrev
         nextButton.isEnabled = canGoNext
