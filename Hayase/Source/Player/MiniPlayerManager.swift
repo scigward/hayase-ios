@@ -65,6 +65,11 @@ final class MiniPlayerManager {
     private let peekWidth: CGFloat = 48
     /// Seconds of inactivity before the mini-player auto-tucks to the edge.
     private let autoHideDelay: TimeInterval = 3.0
+    /// Maximum number of retry attempts when restoring the mini-player session
+    /// and the torrent metadata hasn't been parsed yet by libtorrent.
+    private let maxRestoreRetries = 10
+    /// Delay between restore retries (seconds).
+    private let restoreRetryDelay: TimeInterval = 0.5
 
     // MARK: - State
 
@@ -674,10 +679,10 @@ final class MiniPlayerManager {
             // Metadata not yet available (fastResume hasn't finished parsing).
             // Retry after a short delay so libtorrent has time to restore the
             // file list from the resume data.
-            if restoreRetries < 10 {
+            if restoreRetries < maxRestoreRetries {
                 restoreRetries += 1
-                print("MiniPlayerManager: session restore — metadata not ready, retry \(restoreRetries)/10")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                print("MiniPlayerManager: session restore — metadata not ready, retry \(restoreRetries)/\(maxRestoreRetries)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + restoreRetryDelay) { [weak self] in
                     self?.restoreSessionIfNeeded()
                 }
             } else {
