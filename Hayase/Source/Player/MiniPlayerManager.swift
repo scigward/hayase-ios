@@ -67,9 +67,11 @@ final class MiniPlayerManager {
     private let autoHideDelay: TimeInterval = 3.0
     /// Maximum number of retry attempts when restoring the mini-player session
     /// and the torrent metadata hasn't been parsed yet by libtorrent.
-    private let maxRestoreRetries = 10
+    /// Set high enough to cover re-added magnets that need DHT peer discovery
+    /// (web interface also waits for native.playTorrent() to resolve).
+    private let maxRestoreRetries = 30
     /// Delay between restore retries (seconds).
-    private let restoreRetryDelay: TimeInterval = 0.5
+    private let restoreRetryDelay: TimeInterval = 1.0
 
     // MARK: - State
 
@@ -664,10 +666,16 @@ final class MiniPlayerManager {
         let anilistID = state["anilistID"] as? Int ?? 0
         let episodeNumber = state["episodeNumber"] as? Int ?? 0
 
-        // Look up the torrent handle — libtorrent's fastResume should have
-        // already restored it during TorrentService.init().
-        guard let handle = TorrentService.sharedTorrentService.handles[hash] else {
-            print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state")
+        // Look up the torrent handle — try the handles dict first (populated
+        // from libtorrent's fastResume during TorrentService.init()), then
+        // fall back to re-adding the torrent via magnet link.  This mirrors
+        // the Hayase web interface (server.play → native.playTorrent) which
+        // always re-adds the torrent on page reload instead of relying on
+        // libtorrent's auto-restore.
+        let magnetLink = state["magnetLink"] as? String
+        guard let handle = TorrentService.sharedTorrentService.readdTorrent(
+            hash: hash, magnetLink: magnetLink) else {
+            print("MiniPlayerManager: session restore — could not obtain torrent handle for \(hash), clearing state")
             clearSessionState()
             return
         }

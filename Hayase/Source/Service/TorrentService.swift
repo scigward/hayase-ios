@@ -250,6 +250,62 @@ public class TorrentService: NSObject, SessionDelegate {
         session.removeTorrent(handle, deleteFiles: deleteFiles)
     }
 
+    /// Re-adds a torrent to the session using its hash and/or a saved magnet
+    /// link.  Mirrors Hayase web's `native.playTorrent(hash)` — on app
+    /// restart the web interface always re-adds the torrent instead of
+    /// relying on libtorrent's fastResume auto-restore.
+    ///
+    /// Returns the `TorrentHandle` synchronously if it could be obtained
+    /// (either from the existing session or by adding a new magnet URI).
+    /// The handle's metadata (file list) may still be downloading; callers
+    /// should check `snapshot.files.isEmpty` and retry.
+    func readdTorrent(hash: String, magnetLink: String?) -> TorrentHandle? {
+        // 1. Already tracked in our handles dict.
+        if let existing = handles[hash] {
+            return existing
+        }
+        // 2. Already in the libtorrent session (e.g. loaded from fastResume)
+        //    but our handles dict missed it — can happen if the hash format
+        //    (v1 vs v2) changed between sessions.
+        if let existing = session.torrents.first(where: { $0.infoHashes.best.hex == hash }) {
+            existing.updateSnapshot()
+            handles[hash] = existing
+            print("TorrentService: readdTorrent — found in session.torrents \(hash)")
+            return existing
+        }
+        // 3. Re-add via the saved magnet link or by constructing one from the
+        //    hash (web interface: `native.playTorrent(id)` where id is the hash).
+        let magnetURL: URL
+        if let link = magnetLink, !link.isEmpty, let url = URL(string: link) {
+            magnetURL = url
+        } else if let url = URL(string: "magnet:?xt=urn:btih:\(hash)") {
+            magnetURL = url
+        } else {
+            print("TorrentService: readdTorrent — could not build magnet URL for \(hash)")
+            return nil
+        }
+        guard let magnetURI = MagnetURI(with: magnetURL) else {
+            print("TorrentService: readdTorrent — invalid MagnetURI for \(hash)")
+            return nil
+        }
+        if let handle = session.addTorrent(magnetURI) {
+            let hex = handle.infoHashes.best.hex
+            handles[hex] = handle
+            handle.forceReannounce()
+            print("TorrentService: readdTorrent — added magnet, hex=\(hex)")
+            return handle
+        }
+        // 4. addTorrent returned nil → duplicate; scan session.torrents again.
+        if let existing = session.torrents.first(where: { $0.infoHashes.best.hex == hash }) {
+            existing.updateSnapshot()
+            handles[hash] = existing
+            print("TorrentService: readdTorrent — duplicate, found after add attempt \(hash)")
+            return existing
+        }
+        print("TorrentService: readdTorrent — failed for \(hash)")
+        return nil
+    }
+
     func GetTorrentEntitiesFromHash(_ hashString: String) -> [Torrents] {
         let fetchRequest = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
         fetchRequest.predicate = NSPredicate(format: "torrentHashString == %@", hashString)
