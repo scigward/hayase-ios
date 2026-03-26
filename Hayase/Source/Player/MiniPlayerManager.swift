@@ -617,6 +617,14 @@ final class MiniPlayerManager {
         clearSessionState()
     }
 
+    /// Re-saves the session state if a mini-player is currently active.
+    /// Called from AppDelegate.applicationDidEnterBackground so the latest
+    /// playback position is persisted before the system may kill the app.
+    func resaveSessionStateIfActive() {
+        guard let player = activePlayer else { return }
+        saveSessionState(player)
+    }
+
     // MARK: - Session Restore (Hayase: server.active auto-mount on launch)
 
     /// Number of retry attempts remaining when the torrent handle exists but
@@ -765,13 +773,40 @@ final class MiniPlayerManager {
             try? context.save()
         }
 
+        // Fetch all video entities for this torrent so the player can show
+        // next/prev buttons and navigate between episodes.
+        let allReq = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        allReq.predicate = NSPredicate(format: "torrents.torrentHashString == %@", hash)
+        allReq.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                                  NSSortDescriptor(key: "videoName", ascending: true)]
+        let allVideos = (try? context.fetch(allReq)) ?? [entity]
+
+        // Create a VideoService so piece prioritization and file path
+        // resolution work correctly during playback. Without this, the
+        // torrent downloads all files instead of focusing on the target.
+        let torrentEntity = entity.torrents ?? {
+            let tReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+            tReq.predicate = NSPredicate(format: "torrentHashString == %@", hash)
+            return (try? context.fetch(tReq))?.first
+        }()
+        var videoService: VideoService?
+        if let te = torrentEntity {
+            let vs = VideoService(torrentEntity: te)
+            vs.torrentHandle = handle
+            vs.selectFileForStreaming(fileIndex)
+            videoService = vs
+        }
+
         // Create the player with restored properties.
         let player = VideoPlayerViewController()
         player.videoEntity      = entity
         player.torrentHandle    = handle
+        player.videoService     = videoService
         player.fileIndex        = fileIndex
         player.anilistID        = anilistID
         player.episodeNumber    = episodeNumber
+        player.allVideos        = allVideos
+        player.currentVideoIndex = allVideos.firstIndex(of: entity) ?? 0
 
         // Force viewDidLoad → sets up surface, loads video, starts streaming.
         _ = player.view

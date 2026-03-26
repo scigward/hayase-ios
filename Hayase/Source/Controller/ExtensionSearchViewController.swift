@@ -712,6 +712,9 @@ final class ExtensionSearchViewController: UIViewController {
         try? context.save()
 
         let hud = UIAlertController(title: "Preparing playback…", message: "Adding torrent…", preferredStyle: .alert)
+        hud.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.cancelPendingPlayback()
+        })
         present(hud, animated: true)
 
         // Go directly to the video player — skip the file list page.
@@ -850,6 +853,20 @@ final class ExtensionSearchViewController: UIViewController {
         pendingVideoService = nil
         pendingEntity = nil
         pendingHud = nil
+    }
+
+    /// Cancels the in-progress direct-to-player flow and removes the
+    /// torrent that was being prepared. Called when the user taps "Cancel"
+    /// on the preparing-playback HUD.
+    private func cancelPendingPlayback() {
+        // Grab the pending torrent handle before cleanup nils the service.
+        let handle = pendingVideoService?.torrentHandle
+        cleanupPendingState()
+        // Remove the torrent so it doesn't linger in the session (the user
+        // explicitly cancelled, so the download is unwanted).
+        if let handle {
+            TorrentService.sharedTorrentService.safeRemoveTorrent(handle, deleteFiles: true)
+        }
     }
 }
 

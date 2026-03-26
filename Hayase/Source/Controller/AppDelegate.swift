@@ -80,6 +80,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return false
     }
 
+    // MARK: - Background / Termination
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Re-save the mini-player session state so the current playback
+        // position is up to date when the app is killed in the background.
+        MiniPlayerManager.shared.resaveSessionStateIfActive()
+    }
+
+    /// Whether applicationDidBecomeActive has already fired once.
+    /// Used to guard the fallback restore attempt so it only runs on cold start.
+    private var hasEnteredForeground = false
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // Fallback: retry the mini-player restore once the scene is
+        // confirmed foregroundActive. The initial async dispatch from
+        // didFinishLaunchingWithOptions may fire before the window scene
+        // is fully active, causing makePassthroughWindow to fail silently.
+        guard !hasEnteredForeground else { return }
+        hasEnteredForeground = true
+        MiniPlayerManager.shared.restoreSessionIfNeeded()
+    }
+
 	// MARK: Properties
 	var window: UIWindow?
 }
