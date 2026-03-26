@@ -284,7 +284,8 @@ final class KeywordManager {
 
         add(.audioTerm, optDefault, [
             "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH",
-            "DTS", "DTS-ES", "DTS5.1", "DDP", "DDP5.1", "DDP2.0",
+            "DTS", "DTS-ES", "DTS5.1", "DD5.1", "DD2.0",
+            "DDP", "DDP5.1", "DDP2.0",
             "DOLBY TRUEHD", "TRUEHD", "TRUEHD5.1",
             "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3", "E-AC3",
             "FLAC", "FLACX2", "FLACX3", "FLACX4", "LOSSLESS", "MP3", "OGG",
@@ -329,7 +330,7 @@ final class KeywordManager {
 
         add(.source, optDefault, [
             "BD", "BDRIP", "BLURAY", "BLU-RAY", "BLU RAY",
-            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDRIP", "DVD-RIP", "DVD RIP",
+            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDISO", "DVDRIP", "DVD-RIP", "DVD RIP",
             "R2DVD", "R2J", "R2JDVD", "R2JDVDRIP",
             "HDTV", "HDTVRIP", "TVRIP", "TV-RIP", "TV RIP",
             "WEBCAST", "WEBDL", "WEB DL", "WEBRIP",
@@ -346,7 +347,8 @@ final class KeywordManager {
 
         add(.videoTerm, optDefault, [
             "23.976FPS", "24FPS", "29.97FPS", "30FPS", "60FPS", "120FPS",
-            "8BIT", "8-BIT", "8 BIT", "8 BITS", "10BIT", "10BITS", "10-BIT", "10-BITS", "10 BIT", "10 BITS",
+            "8BIT", "8BITS", "8-BIT", "8 BIT", "8 BITS",
+            "10BIT", "10BITS", "10-BIT", "10-BITS", "10 BIT", "10 BITS",
             "HI10", "HI10P", "HI444", "HI444P", "HI444PP",
             "HDR", "HDR10", "DV", "DOLBY VISION",
             "H264", "H265", "H.264", "H.265", "H 264", "H 265",
@@ -406,10 +408,15 @@ final class KeywordManager {
     /// Pre-identify known multi-word keywords inside a range of the filename.
     func peek(filename: String, range: TokenRange, elements: AnitomyElements, preidentified: inout [TokenRange]) {
         let entries: [(ElementCategory, [String])] = [
-            (.audioTerm, ["Dual Audio"]),
-            (.videoTerm, ["H264", "H.264", "h264", "h.264"]),
+            (.audioTerm, ["Dual Audio", "Multi Audio", "Dolby TrueHD", "Dolby Atmos",
+                          "Chinese Dub", "English Dub", "German Dub", "Japanese Dub", "Korean Dub"]),
+            (.videoTerm, ["H264", "H.264", "h264", "h.264",
+                          "H265", "H.265", "h265", "h.265",
+                          "H 264", "H 265", "X 264", "X 265",
+                          "Dolby Vision", "8 bit", "8 bits", "10 bit", "10 bits"]),
             (.videoResolution, ["480p", "720p", "1080p", "1440p", "2160p"]),
-            (.source, ["Blu-Ray"]),
+            (.source, ["Blu-Ray", "Blu Ray", "DVD Rip", "TV Rip", "Web DL"]),
+            (.subtitles, ["Multi Sub", "Multi Subs", "Multiple Subtitle"]),
         ]
 
         let startIdx = filename.index(filename.startIndex, offsetBy: range.offset)
@@ -418,7 +425,7 @@ final class KeywordManager {
 
         for entry in entries {
             for keyword in entry.1 {
-                if let foundRange = substring.range(of: keyword) {
+                if let foundRange = substring.range(of: keyword, options: .caseInsensitive) {
                     let offset = range.offset + substring.distance(from: substring.startIndex, to: foundRange.lowerBound)
                     elements.insert(entry.0, keyword)
                     preidentified.append(TokenRange(offset: offset, size: keyword.count))
@@ -874,6 +881,8 @@ private final class AnitomyParser {
     private func numberComesBeforeAnotherNumber(_ tokenIndex: Int) -> Bool {
         guard let sepIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter) else { return false }
 
+        // (separator, setsBothEpisodes): true = both sides are episode numbers (e.g. "8 & 10"),
+        // false = only the first number is the episode (e.g. "01 of 24").
         let separators: [(String, Bool)] = [("&", true), ("+", true), ("~", true), ("of", false)]
         for sep in separators {
             if isStringEqualTo(tokens[sepIdx].content, sep.0) {
@@ -1463,6 +1472,7 @@ private final class AnitomyParser {
     /// e.g. "第2期" → season 2.  Matches C++ develop branch parse_season.
     private func searchForJapaneseSeasonCounter() {
         guard elements.isEmpty(.animeSeason) else { return }
+        // Pattern is a compile-time constant; force-try is safe.
         let regex = try! NSRegularExpression(pattern: "^(?:\u{7B2C})?(\\d{1,2})\u{671F}$")
         for i in 0..<tokens.count {
             guard tokens[i].category == .unknown else { continue }
@@ -1533,6 +1543,7 @@ private final class AnitomyParser {
                         let widthOk = chars[0..<i].allSatisfy { isNumericChar($0) }
                         guard widthOk else { continue }
                         let afterX = chars[(i + 1)...]
+                        guard !afterX.isEmpty else { continue }
                         // Allow optional trailing p/P/i/I after height digits
                         let lastChar = afterX.last!
                         let hasSuffix = lastChar == "p" || lastChar == "P" || lastChar == "i" || lastChar == "I"
