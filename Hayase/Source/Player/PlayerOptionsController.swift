@@ -105,6 +105,11 @@ final class PlayerOptionsController: UIViewController {
     /// Width of the menu container (web: w-64 = 16rem ≈ 256px).
     private let menuWidth: CGFloat = 264
 
+    /// Dynamic height constraint — updated whenever menu content changes.
+    private var containerHeightConstraint: NSLayoutConstraint?
+    /// Maximum height for the menu container.
+    private var maxMenuHeight: CGFloat = 500
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -124,6 +129,7 @@ final class PlayerOptionsController: UIViewController {
         let root = buildRootMenu()
         navigationStack = [(title: nil, items: root)]
         tableView.reloadData()
+        updateContainerHeight()
     }
 
     override var prefersStatusBarHidden: Bool { true }
@@ -143,12 +149,15 @@ final class PlayerOptionsController: UIViewController {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(containerView)
 
-        let maxH = min(view.bounds.height * 0.75, 500)
+        maxMenuHeight = min(view.bounds.height * 0.75, 500)
+        let heightConstraint = containerView.heightAnchor.constraint(equalToConstant: maxMenuHeight)
+        containerHeightConstraint = heightConstraint
+
         NSLayoutConstraint.activate([
             containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             containerView.widthAnchor.constraint(equalToConstant: menuWidth),
-            containerView.heightAnchor.constraint(lessThanOrEqualToConstant: maxH),
+            heightConstraint,
         ])
     }
 
@@ -317,14 +326,25 @@ final class PlayerOptionsController: UIViewController {
             containerView.addSubview(snap)
         }
         tableView.reloadData()
+        updateContainerHeight()
         tableView.transform = CGAffineTransform(translationX: -direction * menuWidth, y: 0)
         UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
             self.tableView.transform = .identity
             snapshot?.transform = CGAffineTransform(translationX: direction * self.menuWidth, y: 0)
             snapshot?.alpha = 0
+            self.view.layoutIfNeeded()
         } completion: { _ in
             snapshot?.removeFromSuperview()
         }
+    }
+
+    /// Recalculates the container height to fit the table content,
+    /// capped at `maxMenuHeight`. Called after every table reload.
+    private func updateContainerHeight() {
+        tableView.layoutIfNeeded()
+        let contentH = tableView.contentSize.height + 8 // 4pt padding top + bottom
+        let clamped = min(contentH, maxMenuHeight)
+        containerHeightConstraint?.constant = max(clamped, 48) // minimum reasonable height
     }
 
     // MARK: - Helpers
