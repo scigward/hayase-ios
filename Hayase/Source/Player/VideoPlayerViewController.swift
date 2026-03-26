@@ -1064,7 +1064,7 @@ final class VideoPlayerViewController: UIViewController {
 
     @objc private func speedLabelTapped() {
         hideWork?.cancel()
-        showSpeedPicker()
+        showOptionsSheet()
     }
 
     /// Updates the speed label text. Hayase shows "x1.5" only when rate ≠ 1.
@@ -1076,122 +1076,85 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
-    // MARK: - Options sheet
+    // MARK: - Options sheet (Hayase options.svelte — tree-style menu)
 
     private func showOptionsSheet() {
-        let sheet = UIAlertController(title: "Options", message: nil, preferredStyle: .actionSheet)
+        let optionsVC = PlayerOptionsController()
+        optionsVC.modalPresentationStyle = .overFullScreen
+        optionsVC.modalTransitionStyle = .crossDissolve
 
-        let subs = tracks.filter { $0.type == "sub" }
-        if !subs.isEmpty {
-            sheet.addAction(UIAlertAction(title: "Subtitles", style: .default) { [weak self] _ in
-                self?.showTrackPicker(type: "sub", tracks: subs)
-            })
+        // Populate data
+        optionsVC.audioTracks = tracks.filter { $0.type == "audio" }
+        optionsVC.subtitleTracks = tracks.filter { $0.type == "sub" }
+        optionsVC.chapters = chapters
+        optionsVC.currentSpeed = playbackRate
+        optionsVC.subtitleDelay = subtitleDelay
+        optionsVC.isDebandActive = UserDefaults.standard.bool(forKey: "pref_deband")
+        optionsVC.allVideos = allVideos
+        optionsVC.currentVideoEntity = videoEntity
+
+        if #available(iOS 15.0, *) {
+            optionsVC.isPiPActive = pipController?.isPictureInPictureActive ?? false
         }
 
-        let audio = tracks.filter { $0.type == "audio" }
-        if audio.count > 1 {
-            sheet.addAction(UIAlertAction(title: "Audio Track", style: .default) { [weak self] _ in
-                self?.showTrackPicker(type: "audio", tracks: audio)
-            })
+        // Wire callbacks
+        optionsVC.onSelectAudioTrack = { [weak self] trackId in
+            self?.surface.mpv.setAudioTrack(trackId)
         }
 
-        sheet.addAction(UIAlertAction(title: "Speed: \(String(format: "%gx", playbackRate))", style: .default) { [weak self] _ in
-            self?.showSpeedPicker()
-        })
-
-        // NOTE: Streamyfin's renderer doesn't expose setProperty publicly.
-        // If you make commandSync / setProperty public in MPVLayerRenderer, you can uncomment these.
-        /*
-        sheet.addAction(UIAlertAction(title: "Sub Delay: \(String(format: "%.1fs", subtitleDelay))", style: .default) { [weak self] _ in
-            self?.showSubDelayAlert()
-        })
-         
-        sheet.addAction(UIAlertAction(title: "Screenshot", style: .default) { [weak self] _ in
-             // Requires adding a public screenshot() func to MPVLayerRenderer calling: commandSync(handle, ["screenshot", "subtitles"])
-             self?.scheduleHide()
-        })
-        */
-
-        if !chapters.isEmpty {
-            sheet.addAction(UIAlertAction(title: "Chapters", style: .default) { [weak self] _ in
-                self?.showChapterPicker()
-            })
+        optionsVC.onSelectSubtitleTrack = { [weak self] trackId in
+            self?.surface.mpv.setSubtitleTrack(trackId)
         }
 
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+        optionsVC.onSetSpeed = { [weak self] rate in
+            guard let self else { return }
+            self.playbackRate = rate
+            self.surface.mpv.setSpeed(rate)
+            self.updateSpeedLabel()
+        }
+
+        optionsVC.onSeekTo = { [weak self] time in
+            self?.surface.mpv.seek(to: time)
+        }
+
+        optionsVC.onSwitchVideo = { [weak self] video in
+            guard let self else { return }
+            if let idx = self.allVideos.firstIndex(of: video), idx != self.currentVideoIndex {
+                let targetEpisode = self.episodeNumber + (idx - self.currentVideoIndex)
+                self.switchToVideo((video: video, index: idx), episode: targetEpisode)
+            }
+        }
+
+        optionsVC.onToggleDeband = { [weak self] in
+            let current = UserDefaults.standard.bool(forKey: "pref_deband")
+            let newValue = !current
+            UserDefaults.standard.set(newValue, forKey: "pref_deband")
+            self?.surface.mpv.setDeband(newValue)
+        }
+
+        optionsVC.onTogglePiP = { [weak self] in
+            guard let self else { return }
+            if #available(iOS 15.0, *) {
+                if self.pipController?.isPictureInPictureActive ?? false {
+                    self.pipController?.stopPictureInPicture()
+                } else {
+                    self.pipController?.startPictureInPicture()
+                }
+            }
+        }
+
+        optionsVC.onSubtitleDelayChanged = { [weak self] delay in
+            self?.subtitleDelay = delay
+            self?.surface.mpv.setSubtitleDelay(delay)
+        }
+
+        optionsVC.onDismiss = { [weak self] in
             self?.scheduleHide()
-        })
-
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = optionsButton
-            pop.sourceRect = optionsButton.bounds
         }
-        present(sheet, animated: true)
+
+        present(optionsVC, animated: true)
     }
 
-    private func showTrackPicker(type: String, tracks: [MPVTrack]) {
-        let title = type == "sub" ? "Subtitles" : "Audio"
-        let picker = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        if type == "sub" {
-            picker.addAction(UIAlertAction(title: "Off", style: .default) { [weak self] _ in
-                self?.surface.mpv.setSubtitleTrack(0)
-                self?.scheduleHide()
-            })
-        }
-        for track in tracks {
-            let mark = track.isSelected ? "✓ " : ""
-            picker.addAction(UIAlertAction(title: mark + track.displayName, style: .default) { [weak self] _ in
-                if type == "sub" { self?.surface.mpv.setSubtitleTrack(track.id) }
-                else             { self?.surface.mpv.setAudioTrack(track.id) }
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func showSpeedPicker() {
-        let speeds: [(String, Double)] = [
-            ("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
-            ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0),
-        ]
-        let picker = UIAlertController(title: "Playback Speed", message: nil, preferredStyle: .actionSheet)
-        for (label, rate) in speeds {
-            let mark = rate == playbackRate ? "✓ " : ""
-            picker.addAction(UIAlertAction(title: mark + label, style: .default) { [weak self] _ in
-                self?.playbackRate = rate
-                self?.surface.mpv.setSpeed(rate)
-                self?.updateSpeedLabel()
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func showChapterPicker() {
-        let picker = UIAlertController(title: "Chapters", message: nil, preferredStyle: .actionSheet)
-        for ch in chapters {
-            picker.addAction(UIAlertAction(title: "\(fmtTime(ch.time))  \(ch.title)", style: .default) { [weak self] _ in
-                self?.surface.mpv.seek(to: ch.time)
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func popoverCentre(_ vc: UIAlertController) {
-        if let pop = vc.popoverPresentationController {
-            pop.sourceView = view
-            pop.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-            pop.permittedArrowDirections = []
-        }
-    }
-    
     // Auto-plays next episode (Hayase web: next() called at EOF)
     private func handleFileEnded() {
         // Use the same logic as nextTapped — tries in-batch first, then

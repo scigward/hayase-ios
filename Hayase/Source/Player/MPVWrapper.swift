@@ -780,7 +780,23 @@ final class MPVWrapper {
     func setSubtitleFontSize(_ size: Int) {
         setProperty(name: "sub-font-size", value: String(size))
     }
-    
+
+    // MARK: - Subtitle Delay
+
+    /// Sets subtitle delay in seconds (positive = later, negative = earlier).
+    /// Mirrors options.svelte's `subtitleDelay` input field.
+    func setSubtitleDelay(_ delay: Double) {
+        setProperty(name: "sub-delay", value: String(delay))
+    }
+
+    // MARK: - Deband
+
+    /// Toggles the deband video filter (reduces banding artifacts).
+    /// Mirrors options.svelte's Deband toggle.
+    func setDeband(_ enabled: Bool) {
+        setProperty(name: "deband", value: enabled ? "yes" : "no")
+    }
+
     // MARK: - Audio Track Controls
     
     func getAudioTracks() -> [[String: Any]] {
