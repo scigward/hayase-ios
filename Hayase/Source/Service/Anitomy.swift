@@ -285,10 +285,13 @@ final class KeywordManager {
         add(.audioTerm, optDefault, [
             "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH", "DTS", "DTS-ES", "DTS5.1",
             "DOLBY TRUEHD", "TRUEHD", "TRUEHD5.1",
-            "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3",
+            "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3", "E-AC3",
             "FLAC", "FLACX2", "FLACX3", "FLACX4", "LOSSLESS", "MP3", "OGG",
             "VORBIS", "ATMOS", "DOLBY ATMOS",
-            "DUALAUDIO", "DUAL AUDIO"])
+            "DUALAUDIO", "DUAL AUDIO", "MULTIAUDIO", "MULTI AUDIO",
+            "DUB", "DUBBED", "DUBS",
+            "CHIDUB", "CHINESE DUB", "ENGDUB", "ENGLISH DUB",
+            "GERDUB", "GERMAN DUB", "JAPDUB", "JAPANESE DUB", "KOREAN DUB"])
         add(.audioTerm, optUnidentifiable, ["OPUS"])
 
         add(.deviceCompatibility, optDefault,
@@ -308,38 +311,45 @@ final class KeywordManager {
              "7Z", "RAR", "ZIP", "ASS", "SRT"])
 
         add(.language, optDefault,
-            ["ENG", "ENGLISH", "ESPANOL", "JAP", "PT-BR", "SPANISH", "VOSTFR"])
+            ["ENG", "ENGLISH", "ESPANOL", "JAP", "JPN", "PT-BR", "SPANISH", "VOSTFR",
+             "CHS", "CHT"])
         add(.language, optUnidentifiable, ["ESP", "ITA"])
 
         add(.other, optDefault,
             ["REMASTER", "REMASTERED", "UNCENSORED", "UNCUT",
              "TS", "VFR", "WIDESCREEN", "WS"])
 
-        add(.releaseGroup, optDefault, ["THORA"])
+        add(.releaseGroup, optDefault, ["THORA", "0X539", "VARYG"])
 
-        add(.releaseInformation, optDefault, ["BATCH", "COMPLETE", "PATCH", "REMUX"])
+        add(.releaseInformation, optDefault, ["BATCH", "COMPLETE", "PATCH", "REMUX", "REPACK"])
         add(.releaseInformation, optUnidentifiable, ["END", "FINAL"])
 
         add(.releaseVersion, optDefault, ["V0", "V1", "V2", "V3", "V4"])
 
         add(.source, optDefault, [
-            "BD", "BDRIP", "BLURAY", "BLU-RAY",
-            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDRIP", "DVD-RIP",
+            "BD", "BDRIP", "BLURAY", "BLU-RAY", "BLU RAY",
+            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDRIP", "DVD-RIP", "DVD RIP",
             "R2DVD", "R2J", "R2JDVD", "R2JDVDRIP",
-            "HDTV", "HDTVRIP", "TVRIP", "TV-RIP",
-            "WEBCAST", "WEBRIP"])
+            "HDTV", "HDTVRIP", "TVRIP", "TV-RIP", "TV RIP",
+            "WEBCAST", "WEBDL", "WEB DL", "WEBRIP",
+            "ADN", "AMZN", "BILI", "BILIBILI", "CR", "CRUNCHYROLL",
+            "DSNP", "FUNI", "FUNIMATION", "HIDI", "HIDIVE",
+            "HULU", "NETFLIX", "NF", "VRV", "YOUTUBE"])
+        add(.source, optUnidentifiable, ["WEB"])
 
         add(.subtitles, optDefault, [
-            "ASS", "BIG5", "DUB", "DUBBED", "HARDSUB", "HARDSUBS", "RAW",
+            "ASS", "BIG5", "HARDSUB", "HARDSUBS", "RAW",
             "SOFTSUB", "SOFTSUBS", "SUB", "SUBBED", "SUBTITLED",
-            "MULTISUB", "MULTI SUB"])
+            "MULTISUB", "MULTI SUB", "MULTI SUBS", "MULTIPLE SUBTITLE",
+            "ENGSUB", "ENGSUBS", "GERSUB"])
 
         add(.videoTerm, optDefault, [
             "23.976FPS", "24FPS", "29.97FPS", "30FPS", "60FPS", "120FPS",
-            "8BIT", "8-BIT", "10BIT", "10BITS", "10-BIT", "10-BITS",
+            "8BIT", "8-BIT", "8 BIT", "8 BITS", "10BIT", "10BITS", "10-BIT", "10-BITS", "10 BIT", "10 BITS",
             "HI10", "HI10P", "HI444", "HI444P", "HI444PP",
-            "HDR", "DV", "DOLBY VISION",
-            "H264", "H265", "H.264", "H.265", "X264", "X265", "X.264",
+            "HDR", "HDR10", "DV", "DOLBY VISION",
+            "H264", "H265", "H.264", "H.265", "H 264", "H 265",
+            "X264", "X265", "X.264", "X 264", "X 265",
             "AVC", "HEVC", "HEVC2", "DIVX", "DIVX5", "DIVX6", "XVID",
             "AV1",
             "AVI", "RMVB", "WMV", "WMV3", "WMV9",
@@ -397,7 +407,7 @@ final class KeywordManager {
         let entries: [(ElementCategory, [String])] = [
             (.audioTerm, ["Dual Audio"]),
             (.videoTerm, ["H264", "H.264", "h264", "h.264"]),
-            (.videoResolution, ["480p", "720p", "1080p", "2160p"]),
+            (.videoResolution, ["480p", "720p", "1080p", "1440p", "2160p"]),
             (.source, ["Blu-Ray"]),
         ]
 
@@ -714,6 +724,7 @@ private final class AnitomyParser {
     func parse() -> [AnitomyToken] {
         searchForKeywords()
         searchForIsolatedNumbersGlobal()
+        searchForJapaneseSeasonCounter()
 
         if options.parseEpisodeNumber {
             searchForEpisodeNumber()
@@ -860,7 +871,7 @@ private final class AnitomyParser {
     private func numberComesBeforeAnotherNumber(_ tokenIndex: Int) -> Bool {
         guard let sepIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter) else { return false }
 
-        let separators: [(String, Bool)] = [("&", true), ("of", false)]
+        let separators: [(String, Bool)] = [("&", true), ("+", true), ("~", true), ("of", false)]
         for sep in separators {
             if isStringEqualTo(tokens[sepIdx].content, sep.0) {
                 if let otherIdx = findNextToken(in: tokens, after: sepIdx, flags: .flagNotDelimiter),
@@ -1166,13 +1177,39 @@ private final class AnitomyParser {
             }
             if allPriorEnclosed { continue }
 
-            // Ignore if previous token is "Movie" or "Part"
-            if let prevIdx = findPreviousToken(in: tokens, before: tokenIndex, flags: .flagNotDelimiter),
-               tokens[prevIdx].category == .unknown {
-                if isStringEqualTo(tokens[prevIdx].content, "Movie") ||
-                   isStringEqualTo(tokens[prevIdx].content, "Part") {
+            let prevIdx = findPreviousToken(in: tokens, before: tokenIndex, flags: .flagNotDelimiter)
+            let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter)
+
+            if let pi = prevIdx {
+                let prevContent = tokens[pi].content
+                // Ignore if previous token is "Movie", "Part", "Cour", or "No"
+                if tokens[pi].category == .unknown {
+                    if isStringEqualTo(prevContent, "Movie") ||
+                       isStringEqualTo(prevContent, "Part") ||
+                       isStringEqualTo(prevContent, "Cour") ||
+                       isStringEqualTo(prevContent, "No") {
+                        continue
+                    }
+                }
+                // Ignore version numbers (e.g. "1.1", "3.33")
+                if tokens[pi].category == .delimiter, prevContent == "." {
                     continue
                 }
+                // Ignore if preceded by closing bracket "]"
+                if tokens[pi].category == .bracket, prevContent == "]" {
+                    continue
+                }
+            }
+
+            // Ignore version numbers after this token (e.g. "2.0")
+            if let ni = nextIdx, tokens[ni].category == .delimiter, tokens[ni].content == "." {
+                continue
+            }
+
+            // Ignore if surrounded by free tokens on both sides (part of title)
+            if let pi = prevIdx, let ni = nextIdx,
+               tokens[pi].category == .unknown, tokens[ni].category == .unknown {
+                continue
             }
 
             if setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true) {
@@ -1367,11 +1404,28 @@ private final class AnitomyParser {
                 continue
             }
 
-            if (number == 480 || number == 720 || number == 1080) && elements.isEmpty(.videoResolution) {
+            if (number == 480 || number == 720 || number == 1080 || number == 1440) && elements.isEmpty(.videoResolution) {
                 elements.insert(.videoResolution, tokens[i].content)
                 tokens[i].category = .identifier
                 continue
             }
+        }
+    }
+
+    /// Matches Japanese season counter pattern: 第(\d{1,2})期
+    /// e.g. "第2期" → season 2.  Matches C++ develop branch parse_season.
+    private func searchForJapaneseSeasonCounter() {
+        guard elements.isEmpty(.animeSeason) else { return }
+        let regex = try! NSRegularExpression(pattern: "^(?:\u{7B2C})?(\\d{1,2})\u{671F}$")
+        for i in 0..<tokens.count {
+            guard tokens[i].category == .unknown else { continue }
+            let content = tokens[i].content
+            let nsRange = NSRange(content.startIndex..., in: content)
+            guard let result = regex.firstMatch(in: content, range: nsRange),
+                  let r1 = Range(result.range(at: 1), in: content) else { continue }
+            elements.insert(.animeSeason, String(content[r1]))
+            tokens[i].category = .identifier
+            return
         }
     }
 
@@ -1420,7 +1474,7 @@ private final class AnitomyParser {
     }
 
     private func isResolution(_ str: String) -> Bool {
-        // ###x### or ###p
+        // ###x###[piP] or ###[piP]
         let chars = Array(str)
         let minWidthSize = 3
         let minHeightSize = 3
@@ -1429,19 +1483,21 @@ private final class AnitomyParser {
             for (i, c) in chars.enumerated() {
                 if c == "x" || c == "X" || c == "\u{00D7}" {
                     if i >= minWidthSize && i <= chars.count - (minHeightSize + 1) {
-                        var allNumeric = true
-                        for j in 0..<chars.count {
-                            if j != i && !isNumericChar(chars[j]) {
-                                allNumeric = false
-                                break
-                            }
-                        }
-                        if allNumeric { return true }
+                        let widthOk = chars[0..<i].allSatisfy { isNumericChar($0) }
+                        guard widthOk else { continue }
+                        let afterX = chars[(i + 1)...]
+                        // Allow optional trailing p/P/i/I after height digits
+                        let lastChar = afterX.last!
+                        let hasSuffix = lastChar == "p" || lastChar == "P" || lastChar == "i" || lastChar == "I"
+                        let heightPart = hasSuffix ? afterX.dropLast() : ArraySlice(afterX)
+                        let heightOk = !heightPart.isEmpty && heightPart.allSatisfy { isNumericChar($0) }
+                        if heightOk { return true }
                     }
                 }
             }
-        } else if chars.count >= minHeightSize + 1 {
-            if chars.last == "p" || chars.last == "P" {
+        }
+        if chars.count >= minHeightSize + 1 {
+            if chars.last == "p" || chars.last == "P" || chars.last == "i" || chars.last == "I" {
                 let allNumeric = chars.dropLast().allSatisfy { isNumericChar($0) }
                 if allNumeric { return true }
             }
@@ -1468,11 +1524,20 @@ private final class AnitomyParser {
                 return
             }
         }
-        if let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter),
-           isNumericString(tokens[nextIdx].content) {
-            elements.insert(.animeSeason, tokens[nextIdx].content)
-            tokens[tokenIndex].category = .identifier
-            tokens[nextIdx].category = .identifier
+        if let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter) {
+            if isNumericString(tokens[nextIdx].content) {
+                elements.insert(.animeSeason, tokens[nextIdx].content)
+                tokens[tokenIndex].category = .identifier
+                tokens[nextIdx].category = .identifier
+                return
+            }
+            // Roman numeral season (e.g. "Season II")
+            let roman = getNumberFromRoman(tokens[nextIdx].content)
+            if !roman.isEmpty {
+                elements.insert(.animeSeason, roman)
+                tokens[tokenIndex].category = .identifier
+                tokens[nextIdx].category = .identifier
+            }
         }
     }
 
@@ -1510,6 +1575,16 @@ private final class AnitomyParser {
             "9th": "9", "Ninth": "9",
         ]
         return ordinals[word] ?? ""
+    }
+
+    /// Convert Roman numeral string (I-IX) to Arabic number string.
+    /// Matches C++ develop branch from_roman_number().
+    private func getNumberFromRoman(_ word: String) -> String {
+        let romans: [String: String] = [
+            "I": "1", "II": "2", "III": "3", "IV": "4", "V": "5",
+            "VI": "6", "VII": "7", "VIII": "8", "IX": "9",
+        ]
+        return romans[word.uppercased()] ?? ""
     }
 
     private func isElementCategorySearchable(_ category: ElementCategory) -> Bool {
