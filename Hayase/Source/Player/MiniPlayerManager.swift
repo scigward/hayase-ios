@@ -587,6 +587,13 @@ final class MiniPlayerManager {
             "episodeNumber": player.episodeNumber
         ]
         UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
+
+        // Flush CoreData to disk so the Videos/Torrents entities survive a
+        // force-quit. mainQueueContext.save() only pushes to the in-memory
+        // rootContext; without this, a killed app loses all CoreData rows.
+        let ctx = CoreDataService.sharedCoreDataService.mainQueueContext
+        try? ctx.save()
+        CoreDataService.sharedCoreDataService.saveRootContext {}
     }
 
     /// Clears the persisted session state (called on explicit close).
@@ -607,6 +614,10 @@ final class MiniPlayerManager {
 
     // MARK: - Session Restore (Hayase: server.active auto-mount on launch)
 
+    /// Number of retry attempts remaining when the torrent handle exists but
+    /// its metadata (file list) has not been restored yet by libtorrent.
+    private var restoreRetries = 0
+
     /// Attempts to restore the mini-player from a previously saved session.
     /// Called from AppDelegate after TorrentService has finished initializing
     /// (which restores libtorrent handles via fastResume).
@@ -624,8 +635,7 @@ final class MiniPlayerManager {
         guard let state = UserDefaults.standard.dictionary(forKey: Self.sessionStateKey),
               let hash = state["torrentHash"] as? String,
               let fileIndexValue = state["fileIndex"],
-              let videoPath = state["videoPath"] as? String,
-              !hash.isEmpty, !videoPath.isEmpty else {
+              !hash.isEmpty else {
             return
         }
 
@@ -644,10 +654,51 @@ final class MiniPlayerManager {
         // Look up the torrent handle — libtorrent's fastResume should have
         // already restored it during TorrentService.init().
         guard let handle = TorrentService.sharedTorrentService.handles[hash] else {
-            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state") }
+            print("MiniPlayerManager: session restore — torrent handle not found for \(hash), clearing state")
             clearSessionState()
             return
         }
+
+        // Resolve the current video path from the torrent handle's snapshot.
+        // The snapshot's downloadPath always reflects the CURRENT Documents
+        // directory, so the path is correct even if the sandbox container UUID
+        // changed between launches. This avoids relying on stale paths stored
+        // in CoreData or UserDefaults.
+        handle.updateSnapshot()
+        let snapshot = handle.snapshot
+        let resolvedPath: String
+        if let entry = snapshot.files.first(where: { $0.index == Int(fileIndex) }),
+           let base = snapshot.downloadPath {
+            resolvedPath = base.appendingPathComponent(entry.path).path
+        } else if snapshot.files.isEmpty {
+            // Metadata not yet available (fastResume hasn't finished parsing).
+            // Retry after a short delay so libtorrent has time to restore the
+            // file list from the resume data.
+            if restoreRetries < 10 {
+                restoreRetries += 1
+                print("MiniPlayerManager: session restore — metadata not ready, retry \(restoreRetries)/10")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.restoreSessionIfNeeded()
+                }
+            } else {
+                print("MiniPlayerManager: session restore — metadata never became available, clearing state")
+                restoreRetries = 0
+                clearSessionState()
+            }
+            return
+        } else {
+            // Handle has files but the specific fileIndex wasn't found.
+            // Fall back to the saved path as a best-effort attempt.
+            resolvedPath = state["videoPath"] as? String ?? ""
+        }
+
+        guard !resolvedPath.isEmpty else {
+            print("MiniPlayerManager: session restore — could not resolve video path, clearing state")
+            clearSessionState()
+            return
+        }
+
+        restoreRetries = 0
 
         // Look up the Videos entity from CoreData.
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
@@ -655,27 +706,57 @@ final class MiniPlayerManager {
         fetchRequest.predicate = NSPredicate(
             format: "torrents.torrentHashString == %@ AND videoIndex == %d",
             hash, Int(fileIndex))
-        let videoEntity: Videos?
+        var entity: Videos?
         do {
-            let results = try context.fetch(fetchRequest)
-            videoEntity = results.first
+            entity = try context.fetch(fetchRequest).first
         } catch {
-            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)") }
+            print("MiniPlayerManager: session restore — CoreData fetch failed: \(error)")
+        }
+
+        // If the Videos entity doesn't exist in CoreData (e.g. the rootContext
+        // was never flushed to disk before the app was killed), create a
+        // temporary entity so the player has something to work with.
+        if entity == nil {
+            // We need a Torrents parent. Try to find it or create one.
+            let tReq = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+            tReq.predicate = NSPredicate(format: "torrentHashString == %@", hash)
+            var torrentEntity = (try? context.fetch(tReq))?.first
+            if torrentEntity == nil {
+                torrentEntity = NSEntityDescription.insertNewObject(
+                    forEntityName: Torrents.entityName, into: context) as? Torrents
+                torrentEntity?.torrentHashString = hash
+                torrentEntity?.torrentName = snapshot.name
+                torrentEntity?.torrentDownloadURL = state["magnetLink"] as? String
+            }
+
+            if let te = torrentEntity,
+               let v = NSEntityDescription.insertNewObject(
+                forEntityName: Videos.entityName, into: context) as? Videos {
+                v.videoPath  = resolvedPath
+                v.videoIndex = NSNumber(value: Int(fileIndex))
+                v.torrents   = te
+                if let fileEntry = snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
+                    v.videoName = fileEntry.name
+                    v.videoSize = NSNumber(value: Double(fileEntry.size) / 1024.0 / 1024.0)
+                }
+                try? context.save()
+                CoreDataService.sharedCoreDataService.saveRootContext {}
+                entity = v
+                print("MiniPlayerManager: session restore — created Videos entity on-the-fly")
+            }
+        }
+
+        guard let entity else {
+            print("MiniPlayerManager: session restore — could not obtain Videos entity, clearing state")
             clearSessionState()
             return
         }
 
-        // If the Videos entity doesn't exist in CoreData (e.g. data was wiped),
-        // we can't restore meaningfully.
-        guard let entity = videoEntity else {
-            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("MiniPlayerManager: session restore — no Videos entity found, clearing state") }
-            clearSessionState()
-            return
-        }
-
-        // Ensure videoPath is up to date.
-        if entity.videoPath == nil || entity.videoPath?.isEmpty == true {
-            entity.videoPath = videoPath
+        // Always refresh the videoPath from the resolved path so it reflects
+        // the current sandbox directory (the path stored in CoreData may be
+        // stale if the container UUID changed between launches).
+        if entity.videoPath != resolvedPath {
+            entity.videoPath = resolvedPath
             try? context.save()
         }
 
