@@ -591,7 +591,8 @@ final class MiniPlayerManager {
             "fileIndex":     player.fileIndex,
             "videoPath":     path,
             "anilistID":     player.anilistID,
-            "episodeNumber": player.episodeNumber
+            "episodeNumber": player.episodeNumber,
+            "totalEpisodes": player.totalEpisodes
         ]
         UserDefaults.standard.set(state, forKey: Self.sessionStateKey)
 
@@ -665,6 +666,7 @@ final class MiniPlayerManager {
 
         let anilistID = state["anilistID"] as? Int ?? 0
         let episodeNumber = state["episodeNumber"] as? Int ?? 0
+        let totalEpisodes = state["totalEpisodes"] as? Int ?? 0
 
         // Look up the torrent handle — try the handles dict first (populated
         // from libtorrent's fastResume during TorrentService.init()), then
@@ -813,6 +815,7 @@ final class MiniPlayerManager {
         player.fileIndex        = fileIndex
         player.anilistID        = anilistID
         player.episodeNumber    = episodeNumber
+        player.totalEpisodes    = totalEpisodes
         player.allVideos        = allVideos
         player.currentVideoIndex = allVideos.firstIndex(of: entity) ?? 0
 

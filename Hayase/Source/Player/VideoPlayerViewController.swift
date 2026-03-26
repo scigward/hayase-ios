@@ -29,6 +29,17 @@ final class VideoPlayerViewController: UIViewController {
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
 
+    /// Callback fired when the user taps next/prev and the target episode is
+    /// NOT in the current torrent batch. The presenting view controller should
+    /// dismiss the player and initiate a new extension search for `episode`.
+    /// Mirrors Hayase web's `playEpisode()` → `searchStore.set({ media, episode })`.
+    var onEpisodeChange: ((_ episode: Int) -> Void)?
+
+    /// Total number of episodes for this anime (from AniList metadata).
+    /// Used to determine whether next/prev buttons should be enabled when the
+    /// target episode is outside the current `allVideos` batch.
+    var totalEpisodes: Int = 0
+
     // MARK: - Player components
 
     private let surface = MPVSurfaceView()
@@ -654,8 +665,19 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase episodesmodal.svelte: title = anime name, description = episode info
         titleLabel.text = animeTitleText()
         episodeLabel.text = episodeDescriptionText()
-        prevButton.isEnabled = currentVideoIndex > 0
-        nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
+        // Hayase mediahandler.svelte: hasPrev = episode > 1; hasNext = episode < totalEps.
+        // Enable buttons based on episode bounds, not just allVideos array bounds.
+        // When onEpisodeChange is set, out-of-batch navigation triggers a new search.
+        let canGoPrev = episodeNumber > 1
+        let canGoNext: Bool
+        if totalEpisodes > 0 {
+            canGoNext = episodeNumber < totalEpisodes
+        } else {
+            // Unknown total — allow next if there's a batch file OR callback
+            canGoNext = currentVideoIndex < allVideos.count - 1 || onEpisodeChange != nil
+        }
+        prevButton.isEnabled = canGoPrev
+        nextButton.isEnabled = canGoNext
         restoreProgress(path: path)
         startStatsTimer()
     }
@@ -915,16 +937,63 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func prevTapped() {
-        guard currentVideoIndex > 0 else { return }
+        let targetEpisode = episodeNumber - 1
+        guard targetEpisode >= 1 else { return }
         saveProgress()
+
+        // Hayase web mediahandler.svelte playEpisode(): first check if the
+        // target episode exists in the current torrent batch (resolvedFiles).
+        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
+            switchToVideo(batchVideo, episode: targetEpisode)
+        } else {
+            // Episode not in batch → trigger new extension search.
+            // Mirrors web's `searchStore.set({ media, episode })`.
+            requestEpisodeChange(targetEpisode)
+        }
+    }
+
+    @objc private func nextTapped() {
+        let targetEpisode = episodeNumber + 1
+        let maxEp = totalEpisodes > 0 ? totalEpisodes : Int.max
+        guard targetEpisode <= maxEp else { return }
+        saveProgress()
+
+        // Hayase web mediahandler.svelte playEpisode(): first check if the
+        // target episode exists in the current torrent batch (resolvedFiles).
+        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
+            switchToVideo(batchVideo, episode: targetEpisode)
+        } else {
+            // Episode not in batch → trigger new extension search.
+            requestEpisodeChange(targetEpisode)
+        }
+    }
+
+    /// Finds a video in the current `allVideos` batch that matches the
+    /// target episode. For batch torrents this checks adjacent indices.
+    /// Mirrors web's `resolvedFiles.find(res => res.metadata.episode === episode)`.
+    private func findVideoInBatch(forEpisode targetEp: Int) -> (video: Videos, index: Int)? {
+        // For batch torrents, episodes are stored sequentially.
+        // The episode offset for a given video at array index `i` is:
+        //   episodeNumber - currentVideoIndex + i
+        // i.e. the same relationship that was used: episodeNumber = currentVideoIndex + 1
+        // But this only works if episodes map 1:1 to array indices starting from 1.
+        // More robust: check if moving by (targetEp - episodeNumber) stays in bounds.
+        let delta = targetEp - episodeNumber
+        let targetIndex = currentVideoIndex + delta
+        guard targetIndex >= 0 && targetIndex < allVideos.count else { return nil }
+        return (allVideos[targetIndex], targetIndex)
+    }
+
+    /// Switches to a different video file within the same torrent batch.
+    /// Called when the target episode IS found in `allVideos`.
+    private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int) {
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
         streamer = nil
-        currentVideoIndex -= 1
-        guard currentVideoIndex < allVideos.count else { return }
-        videoEntity = allVideos[currentVideoIndex]
-        episodeNumber = currentVideoIndex + 1
+        currentVideoIndex = match.index
+        videoEntity = match.video
+        episodeNumber = episode
         if let idx = videoEntity?.videoIndex {
             fileIndex = UInt(idx.intValue)
             videoService?.selectFileForStreaming(fileIndex)
@@ -935,25 +1004,13 @@ final class VideoPlayerViewController: UIViewController {
         scheduleHide()
     }
 
-    @objc private func nextTapped() {
-        guard currentVideoIndex < allVideos.count - 1 else { return }
-        saveProgress()
-        streamServer?.stop()
-        streamServer = nil
-        streamer?.stop()
-        streamer = nil
-        currentVideoIndex += 1
-        guard currentVideoIndex < allVideos.count else { return }
-        videoEntity = allVideos[currentVideoIndex]
-        episodeNumber = currentVideoIndex + 1
-        if let idx = videoEntity?.videoIndex {
-            fileIndex = UInt(idx.intValue)
-            videoService?.selectFileForStreaming(fileIndex)
-            videoService?.UpdateFilePathForFileIndex(fileIndex)
+    /// Requests an episode change for an episode NOT in the current batch.
+    /// Saves progress, then fires `onEpisodeChange` so the presenting VC
+    /// can dismiss the player and start a new search.
+    private func requestEpisodeChange(_ episode: Int) {
+        if let callback = onEpisodeChange {
+            callback(episode)
         }
-        duration = 0; currentTime = 0
-        loadCurrentVideo()
-        scheduleHide()
     }
 
     @objc private func toggleTimeFormat() {
@@ -1123,9 +1180,12 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
     
-    // Auto-plays next episode
+    // Auto-plays next episode (Hayase web: next() called at EOF)
     private func handleFileEnded() {
-        guard currentVideoIndex < allVideos.count - 1 else { return }
+        // Use the same logic as nextTapped — tries in-batch first, then
+        // falls back to onEpisodeChange for a new extension search.
+        let maxEp = totalEpisodes > 0 ? totalEpisodes : Int.max
+        guard episodeNumber + 1 <= maxEp else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
     }
 }
