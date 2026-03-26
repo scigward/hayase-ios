@@ -373,6 +373,16 @@ final class KeywordManager {
                 if keys[keyword] == nil {
                     keys[keyword] = Keyword(category: category, options: options)
                 }
+                // C++ develop: auto-generate _, ., - variants of multi-word keywords
+                // e.g. "DUAL AUDIO" → "DUAL_AUDIO", "DUAL.AUDIO", "DUAL-AUDIO"
+                if keyword.contains(" ") {
+                    for delim: Character in ["_", ".", "-"] {
+                        let variant = keyword.replacingOccurrences(of: " ", with: String(delim))
+                        if keys[variant] == nil {
+                            keys[variant] = Keyword(category: category, options: options)
+                        }
+                    }
+                }
             }
         }
     }
@@ -734,6 +744,7 @@ private final class AnitomyParser {
         searchForKeywords()
         searchForIsolatedNumbersGlobal()
         searchForJapaneseSeasonCounter()
+        searchForStandaloneSeasonPattern()
 
         if options.parseEpisodeNumber {
             searchForEpisodeNumber()
@@ -961,8 +972,9 @@ private final class AnitomyParser {
     }
 
     private func matchMultiEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        // Pattern: (\d{1,4})(?:[vV](\d))?[-~&+](\d{1,4})(?:[vV](\d))?
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,4})(?:[vV](\d))?[-~&+](\d{1,4})(?:[vV](\d))?$"#)
+        // Pattern: (\d{1,4})(?:[vV](\d))?[-~&+\u2010-\u2015](\d{1,4})(?:[vV](\d))?
+        let regex = try! NSRegularExpression(
+            pattern: "^(\\d{1,4})(?:[vV](\\d))?[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,4})(?:[vV](\\d))?$")
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1031,7 +1043,9 @@ private final class AnitomyParser {
     }
 
     private func matchFractionalEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        // Only allow .5 fractional
+        // C++ develop: only allow .5 fractional. Other decimals cause false positives
+        // with titles (e.g. "Evangelion: 1.11", "Tokyo Magnitude 8.0") or
+        // audio keywords (e.g. "5.1").
         guard word.range(of: #"^\d+\.5$"#, options: .regularExpression) != nil else { return false }
         return setEpisodeNumber(word, tokenIndex, validate: true)
     }
@@ -1109,7 +1123,8 @@ private final class AnitomyParser {
     }
 
     private func matchMultiVolumePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,2})[-~&+](\d{1,2})(?:[vV](\d))?$"#)
+        let regex = try! NSRegularExpression(
+            pattern: "^(\\d{1,2})[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,2})(?:[vV](\\d))?$")
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1191,17 +1206,28 @@ private final class AnitomyParser {
 
         // A leading number is an episode if:
         //   - There are 2 or fewer tokens total, OR
-        //   - Followed by a dash (e.g. "01 - Title"), OR
-        //   - Followed by "." then space or file extension end
+        //   - Followed by a dash (within first 2 tokens), OR
+        //   - Followed by "." then space
         if tokens.count <= 2 {
             return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
         }
 
+        // Check tokens[1] and tokens[2] for a dash
         if tokenIndex + 1 < tokens.count && isDashCharacter(tokens[tokenIndex + 1].content) {
             return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
         }
         if tokenIndex + 2 < tokens.count && isDashCharacter(tokens[tokenIndex + 2].content) {
             return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+
+        // Check if followed by "." then space (e.g. "01. Title")
+        if tokenIndex + 1 < tokens.count && tokens[tokenIndex + 1].content == "." {
+            if tokenIndex + 2 < tokens.count {
+                let nextContent = tokens[tokenIndex + 2].content
+                if !nextContent.isEmpty, nextContent.first == " " || nextContent.first == "\t" {
+                    return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+                }
+            }
         }
 
         return false
@@ -1486,6 +1512,34 @@ private final class AnitomyParser {
         }
     }
 
+    /// C++ develop: parse_season S-pattern.  Matches standalone "S2", "S01",
+    /// or "S01-S02" / "S01-02" season tokens without an accompanying episode.
+    private func searchForStandaloneSeasonPattern() {
+        guard elements.isEmpty(.animeSeason) else { return }
+        let regex = try! NSRegularExpression(pattern: "^[Ss](\\d{1,2})$")
+        for i in 0..<tokens.count {
+            guard tokens[i].category == .unknown else { continue }
+            let content = tokens[i].content
+            let nsRange = NSRange(content.startIndex..., in: content)
+            guard let result = regex.firstMatch(in: content, range: nsRange),
+                  let r1 = Range(result.range(at: 1), in: content) else { continue }
+            elements.insert(.animeSeason, String(content[r1]))
+            tokens[i].category = .identifier
+            // Check for range: next non-delimiter token could be another season or number
+            if let dashIdx = findNextToken(in: tokens, after: i, flags: .flagValid),
+               tokens[dashIdx].category == .delimiter,
+               isDashCharacter(tokens[dashIdx].content) {
+                if let nextIdx = findNextToken(in: tokens, after: dashIdx, flags: .flagNotDelimiter),
+                   tokens[nextIdx].category == .unknown,
+                   isNumericString(tokens[nextIdx].content) {
+                    elements.insert(.animeSeason, tokens[nextIdx].content)
+                    tokens[nextIdx].category = .identifier
+                }
+            }
+            return
+        }
+    }
+
     // MARK: - Validate
 
     private func validateElements() {
@@ -1635,14 +1689,14 @@ private final class AnitomyParser {
         return ordinals[word] ?? ""
     }
 
-    /// Convert Roman numeral string (I-IX) to Arabic number string.
-    /// Matches C++ develop branch from_roman_number().
+    /// Convert Roman numeral string to Arabic number string.
+    /// C++ develop branch from_roman_number() only includes II, III, IV —
+    /// single letters like "I", "V" are excluded to avoid false positives.
     private func getNumberFromRoman(_ word: String) -> String {
         let romans: [String: String] = [
-            "I": "1", "II": "2", "III": "3", "IV": "4", "V": "5",
-            "VI": "6", "VII": "7", "VIII": "8", "IX": "9",
+            "II": "2", "III": "3", "IV": "4",
         ]
-        return romans[word.uppercased()] ?? ""
+        return romans[word] ?? ""
     }
 
     private func isElementCategorySearchable(_ category: ElementCategory) -> Bool {
