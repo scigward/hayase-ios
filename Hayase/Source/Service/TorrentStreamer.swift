@@ -309,9 +309,9 @@ final class TorrentStreamer {
         // This is critical for low-seeder torrents: the torrent may have been
         // added minutes ago and trackers may have timed out. Hayase re-announces
         // on every play; libtorrent's forceReannounce() sends announce requests
-        // to ALL trackers (including anime-specific ones we added via
-        // addPublicTrackers) and the responses arrive asynchronously, bringing
-        // in fresh peer connections for the pieces we need.
+        // to all trackers embedded in the magnet URI / .torrent file, and the
+        // responses arrive asynchronously, bringing in fresh peer connections
+        // for the pieces we need.
         torrentHandle.forceReannounce()
 
         // Request head pieces for MKV SeekHead/Info/Tracks (duration + subtitle defs).

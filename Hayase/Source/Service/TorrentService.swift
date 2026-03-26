@@ -190,41 +190,6 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
-    // MARK: - Public trackers
-    // Well-known public BitTorrent announce endpoints. Appended to every torrent so peer
-    // discovery works even when the magnet URI / .torrent file includes no tracker params.
-    // Includes anime-specific trackers (nyaa, acgnxtracker, anidex, anirena) that are
-    // critical for finding peers on low-seeder anime torrents — these are the same
-    // trackers used by Hayase's torrent-client for reliable streaming.
-    static let publicTrackers = [
-        // General public trackers
-        "udp://open.stealth.si:80/announce",
-        "udp://tracker.opentrackr.org:1337/announce",
-        "udp://exodus.desync.com:6969/announce",
-        "udp://tracker.torrent.eu.org:451/announce",
-        "udp://tracker.openbittorrent.com:6969/announce",
-        // Anime-specific trackers — significantly improve peer discovery for anime releases.
-        // These use HTTP (not HTTPS) because anime tracker announce endpoints don't offer
-        // HTTPS. This is standard for BitTorrent: tracker announces only exchange peer
-        // IP/port lists, and the torrent protocol itself verifies data integrity via
-        // piece hashes.
-        "http://nyaa.tracker.wf:7777/announce",
-        "http://open.acgnxtracker.com:80/announce",
-        "http://anidex.moe:6969/announce",
-        "http://tracker.anirena.com:80/announce",
-    ]
-
-    /// Append public fallback trackers to a handle so every torrent benefits from
-    /// well-known announce endpoints even when the magnet URI / .torrent file
-    /// doesn't include tracker parameters. libtorrent de-duplicates trackers
-    /// internally, so calling this is safe even if the extension already provided
-    /// the same URLs via `&tr=` parameters.
-    private func addPublicTrackers(to handle: TorrentHandle) {
-        for url in TorrentService.publicTrackers {
-            handle.addTracker(url)
-        }
-    }
-
     /// Removes all active torrents (and their downloaded files) except the one
     /// matching `exceptHash`. Called when "Persist Files" is OFF to clean up
     /// previous torrents before a new one starts playing.
@@ -331,17 +296,12 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
-    /// Build a `magnet:?xt=urn:btih:HASH&tr=...` URL from a hex info-hash,
-    /// appending public trackers for better peer discovery.
+    /// Build a `magnet:?xt=urn:btih:HASH` URL from a hex info-hash.
+    /// Peer discovery relies on DHT, PeX, and trackers already embedded in
+    /// the magnet URI or .torrent file.
     private func magnetURLFromHash(_ hash: String?) -> URL? {
         guard let hash, !hash.isEmpty else { return nil }
-        var components = "magnet:?xt=urn:btih:\(hash)"
-        for tracker in TorrentService.publicTrackers {
-            if let encoded = tracker.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-                components += "&tr=\(encoded)"
-            }
-        }
-        return URL(string: components)
+        return URL(string: "magnet:?xt=urn:btih:\(hash)")
     }
 
     /// Add a magnet URI to the LibTorrent session.
@@ -395,12 +355,8 @@ public class TorrentService: NSObject, SessionDelegate {
                     torrentEntity.torrentHashString = hex
                     try? CoreDataService.sharedCoreDataService.mainQueueContext.save()
                 }
-                // Append well-known public trackers so peer discovery doesn't depend
-                // solely on the trackers the extension included (if any).
-                self.addPublicTrackers(to: handle)
                 // Force-reannounce immediately so trackers are contacted right away
                 // instead of waiting for libtorrent's default announce interval.
-                // MagnetURI.configureAfterAdded: is a no-op, so we must do this ourselves.
                 handle.forceReannounce()
                 completion(.success(handle))
                 return
@@ -479,8 +435,6 @@ public class TorrentService: NSObject, SessionDelegate {
                 if let handle = self.session.addTorrent(torrentFile) {
                     self.handles[hexHash] = handle
                     self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
-                    // Append well-known public trackers as fallback for peer discovery.
-                    self.addPublicTrackers(to: handle)
                     handle.forceReannounce()
                     completion(.success(handle))
                     return
