@@ -417,16 +417,20 @@ final class KeywordManager {
 
     /// Pre-identify known multi-word keywords inside a range of the filename.
     func peek(filename: String, range: TokenRange, elements: AnitomyElements, preidentified: inout [TokenRange]) {
+        // Longer keywords MUST come before shorter ones to avoid partial matches.
+        // e.g. "10 bits" must be checked before "10 bit".
         let entries: [(ElementCategory, [String])] = [
-            (.audioTerm, ["Dual Audio", "Multi Audio", "Dolby TrueHD", "Dolby Atmos",
-                          "Chinese Dub", "English Dub", "German Dub", "Japanese Dub", "Korean Dub"]),
-            (.videoTerm, ["H264", "H.264", "h264", "h.264",
-                          "H265", "H.265", "h265", "h.265",
+            (.audioTerm, ["Dolby TrueHD", "Dolby Atmos",
+                          "Japanese Dub", "Chinese Dub", "English Dub", "German Dub", "Korean Dub",
+                          "Multi Audio", "Dual Audio"]),
+            (.videoTerm, ["Dolby Vision",
+                          "H.264", "h.264", "H.265", "h.265",
                           "H 264", "H 265", "X 264", "X 265",
-                          "Dolby Vision", "8 bit", "8 bits", "10 bit", "10 bits"]),
-            (.videoResolution, ["480p", "720p", "1080p", "1440p", "2160p"]),
+                          "H264", "h264", "H265", "h265",
+                          "10 bits", "10 bit", "8 bits", "8 bit"]),
+            (.videoResolution, ["2160p", "1440p", "1080p", "720p", "480p"]),
             (.source, ["Blu-Ray", "Blu Ray", "DVD Rip", "TV Rip", "Web DL"]),
-            (.subtitles, ["Multi Sub", "Multi Subs", "Multiple Subtitle"]),
+            (.subtitles, ["Multiple Subtitle", "Multi Subs", "Multi Sub"]),
         ]
 
         let startIdx = filename.index(filename.startIndex, offsetBy: range.offset)
