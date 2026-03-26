@@ -635,8 +635,8 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "demuxer-max-back-bytes", "50MiB"],
                 ["set", "network-timeout", "600"],
             ])
-        } else if path.starts(with: "http") {
-            url = URL(string: path)!
+        } else if path.starts(with: "http"), let httpURL = URL(string: path) {
+            url = httpURL
             preset = PlayerPreset()
         } else {
             url = URL(fileURLWithPath: path)
@@ -845,7 +845,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func setControls(visible: Bool) {
         controlsVisible = visible
-        UIView.animate(withDuration: 0.25) { self.overlay.alpha = visible ? 1 : 0 }
+        UIView.animate(withDuration: 0.25) { [weak self] in self?.overlay.alpha = visible ? 1 : 0 }
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         if visible { scheduleHide() }

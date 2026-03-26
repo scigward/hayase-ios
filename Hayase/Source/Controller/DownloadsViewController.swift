@@ -399,7 +399,7 @@ class DownloadsViewController: UIViewController {
 
     private func setupEmptyLabel() {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(emptyLabel)
+        containerView.addSubview(emptyLabel)
         NSLayoutConstraint.activate([
             emptyLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
