@@ -132,6 +132,11 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: Input
     var animeItem: AnimeItem?
     var initialEpisode: Int = 1
+    /// When set to true before the VC is presented, the first search will
+    /// automatically select the best torrent result and start playback.
+    /// Used by MiniPlayerManager's restored `onEpisodeChange` to mirror the
+    /// Hayase web interface's seamless episode transition.
+    var shouldAutoSelectOnSearch = false
 
     // MARK: State
     private var results: [TorrentResult] = []
@@ -183,6 +188,9 @@ final class ExtensionSearchViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         currentEpisode = initialEpisode
+        if shouldAutoSelectOnSearch {
+            autoSelectAfterSearch = true
+        }
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.title = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""

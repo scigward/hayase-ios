@@ -819,6 +819,14 @@ final class MiniPlayerManager {
         player.allVideos        = allVideos
         player.currentVideoIndex = allVideos.firstIndex(of: entity) ?? 0
 
+        // Wire up episode change so restored players can navigate to
+        // out-of-batch episodes. Mirrors ExtensionSearchViewController's
+        // handleEpisodeChangeFromPlayer(): close mini-player → navigate to
+        // search screen → auto-select best torrent.
+        player.onEpisodeChange = { [weak self] episode in
+            self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
+        }
+
         // Force viewDidLoad → sets up surface, loads video, starts streaming.
         _ = player.view
 
@@ -858,5 +866,55 @@ final class MiniPlayerManager {
         isSnappedToRight = true
         repositionContainer()
         container.alpha = 1
+    }
+
+    // MARK: - Restored Episode Change
+
+    /// Handles an episode change request from a session-restored player whose
+    /// `onEpisodeChange` was wired up during `restoreSessionIfNeeded()`.
+    /// Mirrors `ExtensionSearchViewController.handleEpisodeChangeFromPlayer()`:
+    /// closes the mini-player, fetches the anime metadata, then navigates to a
+    /// new `ExtensionSearchViewController` with auto-select enabled.
+    private func handleRestoredEpisodeChange(episode: Int, anilistID: Int) {
+        guard anilistID > 0 else { return }
+
+        // Close the current mini-player (tears down player + torrent stream).
+        close()
+
+        // Fetch the AnimeItem so the search VC has full metadata for queries.
+        AnimeService.sharedAnimeService.fetchAnimeByIds([anilistID]) { [weak self] items in
+            guard let animeItem = items.first else { return }
+            DispatchQueue.main.async {
+                self?.presentSearchVC(animeItem: animeItem, episode: episode)
+            }
+        }
+    }
+
+    /// Finds the topmost navigation controller and pushes an
+    /// `ExtensionSearchViewController` configured to auto-select the best
+    /// result — the same seamless transition that `handleEpisodeChangeFromPlayer`
+    /// provides in the normal (non-restore) flow.
+    private func presentSearchVC(animeItem: AnimeItem, episode: Int) {
+        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+              let window = appDelegate.window else { return }
+        // Walk the VC hierarchy to find a navigation controller we can push onto.
+        var vc = window.rootViewController
+        // Dismiss any presented VCs (e.g. a fullscreen player that was just closed).
+        while let presented = vc?.presentedViewController {
+            vc = presented
+        }
+        let nav: UINavigationController?
+        if let tabBar = vc as? UITabBarController {
+            nav = tabBar.selectedViewController as? UINavigationController
+        } else {
+            nav = vc as? UINavigationController ?? vc?.navigationController
+        }
+        guard let navController = nav else { return }
+
+        let searchVC = ExtensionSearchViewController()
+        searchVC.animeItem = animeItem
+        searchVC.initialEpisode = episode
+        searchVC.shouldAutoSelectOnSearch = true
+        navController.pushViewController(searchVC, animated: true)
     }
 }
