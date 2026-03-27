@@ -1509,15 +1509,20 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     /// ISO 639-2/B → ISO 639-1 mapping for languages supported in
     /// Settings → Player → Language Settings.
+    /// Includes both bibliographic (639-2/B) and terminology (639-2/T) variants
+    /// where they differ (e.g. "idn"/"ind" both → "id").
     private static let iso639to1: [String: String] = [
-        "eng": "en",  "jpn": "ja",  "chi": "zh",  "por": "pt",
-        "spa": "es",  "ger": "de",  "pol": "pl",  "cze": "cs",
-        "dan": "da",  "gre": "el",  "fin": "fi",  "fre": "fr",
-        "hun": "hu",  "ita": "it",  "kor": "ko",  "dut": "nl",
-        "nor": "no",  "rum": "ro",  "rus": "ru",  "slo": "sk",
-        "swe": "sv",  "ara": "ar",  "idn": "id",  "heb": "he",
-        "vie": "vi",  "tha": "th",  "tur": "tr",  "hin": "hi",
-        "ben": "bn",  "per": "fa",  "mal": "ml",
+        "eng": "en",  "jpn": "ja",  "chi": "zh",  "zho": "zh",
+        "por": "pt",  "spa": "es",  "ger": "de",  "deu": "de",
+        "pol": "pl",  "cze": "cs",  "ces": "cs",  "dan": "da",
+        "gre": "el",  "ell": "el",  "fin": "fi",  "fre": "fr",
+        "fra": "fr",  "hun": "hu",  "ita": "it",  "kor": "ko",
+        "dut": "nl",  "nld": "nl",  "nor": "no",  "rum": "ro",
+        "ron": "ro",  "rus": "ru",  "slo": "sk",  "slk": "sk",
+        "swe": "sv",  "ara": "ar",  "idn": "id",  "ind": "id",
+        "heb": "he",  "vie": "vi",  "tha": "th",  "tur": "tr",
+        "hin": "hi",  "ben": "bn",  "per": "fa",  "fas": "fa",
+        "mal": "ml",
     ]
 
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
