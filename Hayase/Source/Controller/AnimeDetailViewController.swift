@@ -1557,8 +1557,6 @@ class AnimeDetailViewController: UIViewController {
     // Threads (AniList forum) and Themes (animethemes.moe)
     private var threads: [AniListThread] = []
     private var themes: [AnimeTheme] = []
-    /// Flattened (theme, entry) pairs — one row per version, matching web interface behavior.
-    private var flattenedThemeEntries: [(theme: AnimeTheme, entry: AnimeThemeEntry)] = []
     private var threadsLoading = false
     private var themesLoading = false
 
@@ -2329,10 +2327,6 @@ class AnimeDetailViewController: UIViewController {
                 let parsed = rawThemes.compactMap { AnimeTheme(dict: $0) }
                 DispatchQueue.main.async {
                     self.themes = parsed
-                    // Flatten: one row per (theme, entry) so each version is playable
-                    self.flattenedThemeEntries = parsed.flatMap { theme in
-                        theme.entries.map { entry in (theme: theme, entry: entry) }
-                    }
                     self.themesLoading = false
                     if self.activeSection == .themes {
                         self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
@@ -2372,7 +2366,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return threadsLoading ? 1 : max(threads.count, 1)  // 1 for loading/empty state
         case .themes:
             if activeSection != .themes { return 0 }
-            return themesLoading ? 1 : max(flattenedThemeEntries.count, 1)
+            return themesLoading ? 1 : max(themes.count, 1)
         case .none: return 0
         }
     }
@@ -2505,11 +2499,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
             let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
             navigationController?.pushViewController(threadVC, animated: true)
         case .themes:
-            guard !themesLoading, indexPath.row < flattenedThemeEntries.count else { return }
-            let item = flattenedThemeEntries[indexPath.row]
-            if let urlStr = item.entry.videoURL, let url = URL(string: urlStr) {
-                present(ThemePlayerViewController(videoURL: url), animated: true)
-            }
+            break  // Play buttons in cells handle theme playback
         default: break
         }
     }
@@ -2754,18 +2744,19 @@ extension AnimeDetailViewController {
         return cell
     }
 
+    /// Builds a theme card matching web interface Themes.svelte:
+    /// One card per AnimeTheme containing a header row (type + song + artist)
+    /// and one version row per entry (vN · Episodes X-Y + play button).
     func makeThemeCell(for indexPath: IndexPath) -> UITableViewCell {
-        if themesLoading || flattenedThemeEntries.isEmpty {
+        if themesLoading || themes.isEmpty {
             return makeEmptyStateCell(
                 text: "No themes found.",
                 loading: themesLoading)
         }
-        let item = flattenedThemeEntries[indexPath.row]
-        let theme = item.theme
-        let entry = item.entry
+        let theme = themes[indexPath.row]
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
-        cell.selectionStyle = .default
+        cell.selectionStyle = .none
 
         // bg-neutral-950 card
         let card = UIView()
@@ -2774,58 +2765,104 @@ extension AnimeDetailViewController {
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
-        // Type badge (OP1, ED2 …)
+        // Vertical stack inside card: header row + entry rows
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+
+        // -- Header row: [type 48pt] [song title  by artists] --
+        let headerRow = UIView()
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+
         let typeLabel = UILabel()
         typeLabel.text = theme.type
         typeLabel.font = .systemFont(ofSize: 11, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(typeLabel)
 
-        // Song title
         let songLabel = UILabel()
-        songLabel.text = theme.songTitle
-        songLabel.font = .systemFont(ofSize: 14, weight: .bold)
-        songLabel.textColor = .white
+        let songTitle = NSMutableAttributedString(
+            string: theme.songTitle,
+            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
+        if !theme.artists.isEmpty {
+            songTitle.append(NSAttributedString(
+                string: " by ",
+                attributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+            songTitle.append(NSAttributedString(
+                string: theme.artists,
+                attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
+        }
+        songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
         songLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(songLabel)
 
-        // Artists
-        let artistLabel = UILabel()
-        artistLabel.text = theme.artists.isEmpty ? "" : "by \(theme.artists)"
-        artistLabel.font = .systemFont(ofSize: 11)
-        artistLabel.textColor = UIColor(white: 0.6, alpha: 1)
-        artistLabel.numberOfLines = 1
-        artistLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            headerRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            typeLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor),
+            typeLabel.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
+            typeLabel.widthAnchor.constraint(equalToConstant: 48),
+            songLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor),
+            songLabel.centerYAnchor.constraint(equalTo: headerRow.centerYAnchor),
+            songLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+        ])
+        stack.addArrangedSubview(headerRow)
 
-        // Play button (▶ bg-custom)
+        // -- Version rows --
         let accentColor = animeItem.flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
             ?? UIColor(red: 0.24, green: 0.71, blue: 0.95, alpha: 1)
-        let playBtn = UIButton(type: .system)
-        playBtn.setTitle("▶", for: .normal)
-        playBtn.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
-        playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
-        playBtn.backgroundColor = accentColor
-        playBtn.layer.cornerRadius = 14
-        playBtn.translatesAutoresizingMaskIntoConstraints = false
 
-        // Episodes line (e.g. "v1 · Episodes 1-12")
-        let epLabel = UILabel()
-        let epParts = ["v\(entry.version)", entry.episodes.isEmpty ? nil : "Episodes \(entry.episodes)"].compactMap { $0 }
-        epLabel.text = epParts.joined(separator: " · ")
-        epLabel.font = .systemFont(ofSize: 10)
-        epLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        epLabel.translatesAutoresizingMaskIntoConstraints = false
+        for entry in theme.entries {
+            let row = UIView()
+            row.translatesAutoresizingMaskIntoConstraints = false
 
-        card.addSubview(typeLabel)
-        card.addSubview(songLabel)
-        card.addSubview(artistLabel)
-        card.addSubview(epLabel)
-        card.addSubview(playBtn)
+            let verLabel = UILabel()
+            verLabel.text = "v\(entry.version)"
+            verLabel.font = .systemFont(ofSize: 11)
+            verLabel.textColor = UIColor(white: 0.5, alpha: 1)
+            verLabel.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(verLabel)
 
-        // Store videoURL tag via associated object — simpler: use a closure via objc
-        if let urlStr = entry.videoURL {
-            playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
-            objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            let epLabel = UILabel()
+            epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
+            epLabel.font = .systemFont(ofSize: 11)
+            epLabel.textColor = UIColor(white: 0.5, alpha: 1)
+            epLabel.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(epLabel)
+
+            let playBtn = UIButton(type: .system)
+            playBtn.setTitle("▶", for: .normal)
+            playBtn.titleLabel?.font = .systemFont(ofSize: 11, weight: .bold)
+            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+            playBtn.backgroundColor = accentColor
+            playBtn.layer.cornerRadius = 12
+            playBtn.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(playBtn)
+
+            if let urlStr = entry.videoURL {
+                playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
+                objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            } else {
+                playBtn.isHidden = true
+            }
+
+            NSLayoutConstraint.activate([
+                row.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+                verLabel.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+                verLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                verLabel.widthAnchor.constraint(equalToConstant: 48),
+                epLabel.leadingAnchor.constraint(equalTo: verLabel.trailingAnchor),
+                epLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                playBtn.leadingAnchor.constraint(greaterThanOrEqualTo: epLabel.trailingAnchor, constant: 8),
+                playBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                playBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                playBtn.widthAnchor.constraint(equalToConstant: 24),
+                playBtn.heightAnchor.constraint(equalToConstant: 24),
+            ])
+            stack.addArrangedSubview(row)
         }
 
         NSLayoutConstraint.activate([
@@ -2833,27 +2870,10 @@ extension AnimeDetailViewController {
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
-
-            typeLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            typeLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            typeLabel.widthAnchor.constraint(equalToConstant: 40),
-
-            songLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
-            songLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            songLabel.trailingAnchor.constraint(equalTo: playBtn.leadingAnchor, constant: -8),
-
-            artistLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
-            artistLabel.topAnchor.constraint(equalTo: songLabel.bottomAnchor, constant: 4),
-            artistLabel.trailingAnchor.constraint(equalTo: playBtn.leadingAnchor, constant: -8),
-
-            epLabel.leadingAnchor.constraint(equalTo: typeLabel.trailingAnchor, constant: 4),
-            epLabel.topAnchor.constraint(equalTo: artistLabel.bottomAnchor, constant: 6),
-            epLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
-
-            playBtn.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            playBtn.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            playBtn.widthAnchor.constraint(equalToConstant: 28),
-            playBtn.heightAnchor.constraint(equalToConstant: 28),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
         ])
         return cell
     }

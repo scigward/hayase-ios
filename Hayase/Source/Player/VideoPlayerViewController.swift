@@ -1253,13 +1253,29 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Options sheet (Hayase options.svelte — tree-style menu)
 
     private func showOptionsSheet() {
+        // Re-read tracks from MPV so isSelected reflects the current state
+        // (didBecomeTracksReady only fires on track-list/count changes,
+        //  not when the user switches between existing tracks).
+        var freshTracks: [MPVTrack] = []
+        for s in surface.mpv.getSubtitleTracks() {
+            if let id = s["id"] as? Int {
+                freshTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
+            }
+        }
+        for a in surface.mpv.getAudioTracks() {
+            if let id = a["id"] as? Int {
+                freshTracks.append(MPVTrack(id: id, type: "audio", title: a["title"] as? String, lang: a["lang"] as? String, isSelected: a["selected"] as? Bool ?? false))
+            }
+        }
+        self.tracks = freshTracks
+
         let optionsVC = PlayerOptionsController()
         optionsVC.modalPresentationStyle = .overFullScreen
         optionsVC.modalTransitionStyle = .crossDissolve
 
         // Populate data
-        optionsVC.audioTracks = tracks.filter { $0.type == "audio" }
-        optionsVC.subtitleTracks = tracks.filter { $0.type == "sub" }
+        optionsVC.audioTracks = freshTracks.filter { $0.type == "audio" }
+        optionsVC.subtitleTracks = freshTracks.filter { $0.type == "sub" }
         optionsVC.chapters = chapters
         optionsVC.currentSpeed = playbackRate
         optionsVC.subtitleDelay = subtitleDelay
