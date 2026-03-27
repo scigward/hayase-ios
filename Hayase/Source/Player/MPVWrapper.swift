@@ -282,8 +282,26 @@ final class MPVWrapper {
             guard let handle = self.mpv else { return }
 
             self.apply(commands: preset.commands, on: handle)
-            // Stop previous playback before loading new file
-            self.command(handle, ["stop"])
+            // Stop previous playback synchronously before loading new file.
+            // Must be synchronous (commandSync) so MPV finishes tearing down
+            // the old decoder before we flush the display layer below.
+            self.commandSync(handle, ["stop"])
+
+            // Flush the display layer to clear the previous video's last frame.
+            // vo_avfoundation retains the last decoded frame in the
+            // AVSampleBufferDisplayLayer until new sample buffers arrive.
+            // Without this flush, switching between videos (or restarting
+            // playback) causes a brief flash of the old content while MPV
+            // demuxes the new file and decodes its first frame.
+            DispatchQueue.main.sync { [weak self] in
+                guard let self else { return }
+                if #available(iOS 18.0, *) {
+                    self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                } else {
+                    self.displayLayer.flushAndRemoveImage()
+                }
+            }
+
             self.updateHTTPHeaders(headers)
             // Set start position
             if let startPos = startPosition, startPos > 0 {
