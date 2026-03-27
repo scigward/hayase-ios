@@ -1557,6 +1557,8 @@ class AnimeDetailViewController: UIViewController {
     // Threads (AniList forum) and Themes (animethemes.moe)
     private var threads: [AniListThread] = []
     private var themes: [AnimeTheme] = []
+    /// Flattened (theme, entry) pairs — one row per version, matching web interface behavior.
+    private var flattenedThemeEntries: [(theme: AnimeTheme, entry: AnimeThemeEntry)] = []
     private var threadsLoading = false
     private var themesLoading = false
 
@@ -2327,6 +2329,10 @@ class AnimeDetailViewController: UIViewController {
                 let parsed = rawThemes.compactMap { AnimeTheme(dict: $0) }
                 DispatchQueue.main.async {
                     self.themes = parsed
+                    // Flatten: one row per (theme, entry) so each version is playable
+                    self.flattenedThemeEntries = parsed.flatMap { theme in
+                        theme.entries.map { entry in (theme: theme, entry: entry) }
+                    }
                     self.themesLoading = false
                     if self.activeSection == .themes {
                         self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
@@ -2366,7 +2372,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return threadsLoading ? 1 : max(threads.count, 1)  // 1 for loading/empty state
         case .themes:
             if activeSection != .themes { return 0 }
-            return themesLoading ? 1 : max(themes.count, 1)
+            return themesLoading ? 1 : max(flattenedThemeEntries.count, 1)
         case .none: return 0
         }
     }
@@ -2499,9 +2505,9 @@ extension AnimeDetailViewController: UITableViewDelegate {
             let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
             navigationController?.pushViewController(threadVC, animated: true)
         case .themes:
-            guard !themesLoading, !themes.isEmpty else { return }
-            let theme = themes[indexPath.row]
-            if let urlStr = theme.entries.first?.videoURL, let url = URL(string: urlStr) {
+            guard !themesLoading, indexPath.row < flattenedThemeEntries.count else { return }
+            let item = flattenedThemeEntries[indexPath.row]
+            if let urlStr = item.entry.videoURL, let url = URL(string: urlStr) {
                 present(ThemePlayerViewController(videoURL: url), animated: true)
             }
         default: break
@@ -2707,7 +2713,7 @@ extension AnimeDetailViewController {
         badgeStack.spacing = 4
         badgeStack.translatesAutoresizingMaskIntoConstraints = false
         for cat in thread.categories.prefix(3) {
-            let badge = UILabel()
+            let badge = ThreadBadgeLabel()
             badge.text = cat
             badge.font = .systemFont(ofSize: 9.6, weight: .bold)
             badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
@@ -2715,8 +2721,6 @@ extension AnimeDetailViewController {
             badge.layer.cornerRadius = 4
             badge.clipsToBounds = true
             badge.textAlignment = .center
-            let pad: CGFloat = 4
-            badge.layoutMargins = UIEdgeInsets(top: pad, left: pad*2, bottom: pad, right: pad*2)
             badge.translatesAutoresizingMaskIntoConstraints = false
             badgeStack.addArrangedSubview(badge)
         }
@@ -2751,12 +2755,14 @@ extension AnimeDetailViewController {
     }
 
     func makeThemeCell(for indexPath: IndexPath) -> UITableViewCell {
-        if themesLoading || themes.isEmpty {
+        if themesLoading || flattenedThemeEntries.isEmpty {
             return makeEmptyStateCell(
                 text: "No themes found.",
                 loading: themesLoading)
         }
-        let theme = themes[indexPath.row]
+        let item = flattenedThemeEntries[indexPath.row]
+        let theme = item.theme
+        let entry = item.entry
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
         cell.selectionStyle = .default
@@ -2803,9 +2809,9 @@ extension AnimeDetailViewController {
         playBtn.translatesAutoresizingMaskIntoConstraints = false
 
         // Episodes line (e.g. "v1 · Episodes 1-12")
-        let firstEntry = theme.entries.first
         let epLabel = UILabel()
-        epLabel.text = firstEntry.map { "v\($0.version) · Episodes \($0.episodes)" } ?? ""
+        let epParts = ["v\(entry.version)", entry.episodes.isEmpty ? nil : "Episodes \(entry.episodes)"].compactMap { $0 }
+        epLabel.text = epParts.joined(separator: " · ")
         epLabel.font = .systemFont(ofSize: 10)
         epLabel.textColor = UIColor(white: 0.5, alpha: 1)
         epLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2817,7 +2823,7 @@ extension AnimeDetailViewController {
         card.addSubview(playBtn)
 
         // Store videoURL tag via associated object — simpler: use a closure via objc
-        if let urlStr = firstEntry?.videoURL {
+        if let urlStr = entry.videoURL {
             playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
             objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
@@ -2864,6 +2870,23 @@ extension AnimeDetailViewController {
 }
 
 private var themeURLKey = "themeURL"
+
+/// Padded UILabel for thread category badges. UILabel's `layoutMargins` does NOT
+/// add visual padding around text — we must override `drawText(in:)` and
+/// `intrinsicContentSize` to properly inset badge text inside its background.
+private final class ThreadBadgeLabel: UILabel {
+    let hPad: CGFloat = 6   // horizontal padding
+    let vPad: CGFloat = 2   // vertical padding
+
+    override var intrinsicContentSize: CGSize {
+        let base = super.intrinsicContentSize
+        return CGSize(width: base.width + hPad * 2, height: base.height + vPad * 2)
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.insetBy(dx: hPad, dy: vPad))
+    }
+}
 
 // MARK: - ThemePlayerViewController
 // Plays animethemes.moe WebM/VP9 videos inside the app via WKWebView.
