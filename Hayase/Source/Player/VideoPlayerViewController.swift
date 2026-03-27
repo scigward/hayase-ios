@@ -1457,7 +1457,68 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             }
         }
         self.tracks = newTracks
+
+        // Auto-select preferred audio/subtitle tracks from Language Settings.
+        // Reads pref_audioLanguage / pref_subtitleLanguage set in Settings → Player.
+        applyPreferredLanguages(renderer: renderer, tracks: newTracks)
     }
+
+    /// Selects audio and subtitle tracks whose language matches the user's
+    /// preferred languages (Settings → Player → Language Settings).
+    /// Language codes in preferences are ISO 639-2/B (e.g. "eng", "jpn");
+    /// track codes from MPV may be 2-letter ISO 639-1 ("en", "ja") or
+    /// 3-letter. We normalise both sides via `Locale` for reliable matching.
+    private func applyPreferredLanguages(renderer: MPVWrapper, tracks: [MPVTrack]) {
+        let defaults = UserDefaults.standard
+        let prefAudio = defaults.string(forKey: "pref_audioLanguage") ?? "jpn"
+        let prefSub   = defaults.string(forKey: "pref_subtitleLanguage") ?? "eng"
+
+        // Audio — pick first track whose language matches the preference
+        if !prefAudio.isEmpty {
+            let audioTracks = tracks.filter { $0.type == "audio" }
+            if let match = audioTracks.first(where: { languageCodesMatch($0.lang, prefAudio) }),
+               !match.isSelected {
+                renderer.setAudioTrack(match.id)
+            }
+        }
+
+        // Subtitle — pick first track whose language matches; empty pref = OFF
+        if prefSub.isEmpty {
+            // "None" selected in settings → disable subtitles
+            let hasSub = tracks.contains { $0.type == "sub" && $0.isSelected }
+            if hasSub { renderer.disableSubtitles() }
+        } else {
+            let subTracks = tracks.filter { $0.type == "sub" }
+            if let match = subTracks.first(where: { languageCodesMatch($0.lang, prefSub) }),
+               !match.isSelected {
+                renderer.setSubtitleTrack(match.id)
+            }
+        }
+    }
+
+    /// Returns `true` when two language identifiers refer to the same language.
+    /// Handles mixed ISO 639-1 / 639-2 codes (e.g. "en" vs "eng", "ja" vs "jpn").
+    private func languageCodesMatch(_ trackLang: String?, _ prefLang: String) -> Bool {
+        guard let trackLang = trackLang, !trackLang.isEmpty else { return false }
+        if trackLang == prefLang { return true }
+        // Normalise both to ISO 639-1 (2-letter) for comparison
+        let trackNorm = Self.iso639to1[trackLang] ?? trackLang
+        let prefNorm  = Self.iso639to1[prefLang]  ?? prefLang
+        return trackNorm == prefNorm
+    }
+
+    /// ISO 639-2/B → ISO 639-1 mapping for languages supported in
+    /// Settings → Player → Language Settings.
+    private static let iso639to1: [String: String] = [
+        "eng": "en",  "jpn": "ja",  "chi": "zh",  "por": "pt",
+        "spa": "es",  "ger": "de",  "pol": "pl",  "cze": "cs",
+        "dan": "da",  "gre": "el",  "fin": "fi",  "fre": "fr",
+        "hun": "hu",  "ita": "it",  "kor": "ko",  "dut": "nl",
+        "nor": "no",  "rum": "ro",  "rus": "ru",  "slo": "sk",
+        "swe": "sv",  "ara": "ar",  "idn": "id",  "heb": "he",
+        "vie": "vi",  "tha": "th",  "tur": "tr",  "hin": "hi",
+        "ben": "bn",  "per": "fa",  "mal": "ml",
+    ]
 
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
 

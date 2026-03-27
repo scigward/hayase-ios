@@ -303,6 +303,22 @@ final class PlayerOptionsController: UIViewController {
         return items
     }
 
+    // MARK: - Active-state helpers
+
+    /// Returns `true` when any descendant of `item` is active (selected).
+    /// Used to highlight expandable language-group rows that contain the
+    /// currently-selected track — matching the web interface behaviour.
+    private func hasActiveChild(_ item: OptionItem) -> Bool {
+        switch item {
+        case .expandable(_, let children):
+            return children.contains { hasActiveChild($0) }
+        case .selectable(_, let isActive, _), .toggle(_, let isActive, _):
+            return isActive
+        case .action:
+            return false
+        }
+    }
+
     // MARK: - Navigation
 
     private var currentItems: [OptionItem] {
@@ -397,7 +413,7 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
         switch item {
         case .expandable(let title, _):
             guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: false, hasChevron: true, isBackRow: false)
+            cell.configure(title: title, isActive: hasActiveChild(item), hasChevron: true, isBackRow: false)
             return cell
 
         case .selectable(let title, let isActive, _):
