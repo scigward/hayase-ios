@@ -829,12 +829,26 @@ final class MPVWrapper {
     /// Uses the vf (video filter) pipeline instead of the `deband` property,
     /// because the property only works with vo=gpu/gpu-next, not vo=avfoundation.
     /// The @deband label allows add/remove by name.
+    ///
+    /// The lavfi deband filter is CPU-based — it must read and modify pixel
+    /// data in system memory.  Native `hwdec=videotoolbox` produces GPU-only
+    /// CVPixelBuffers that CPU filters cannot access, so the filter silently
+    /// has no effect.  Switching to `videotoolbox-copy` keeps hardware
+    /// decoding (VideoToolbox) but copies results to system memory so the
+    /// deband filter can process every frame.  When deband is turned off we
+    /// restore zero-copy `videotoolbox` for maximum performance.
     func setDeband(_ enabled: Bool) {
         guard let handle = mpv else { return }
         if enabled {
+            #if !targetEnvironment(simulator)
+            commandSync(handle, ["set", "hwdec", "videotoolbox-copy"])
+            #endif
             commandSync(handle, ["vf", "add", "@deband:deband"])
         } else {
             commandSync(handle, ["vf", "remove", "@deband"])
+            #if !targetEnvironment(simulator)
+            commandSync(handle, ["set", "hwdec", "videotoolbox"])
+            #endif
         }
     }
 
