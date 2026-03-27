@@ -189,6 +189,7 @@ final class PlayerOptionsController: UIViewController {
         var items: [OptionItem] = []
 
         // Audio — grouped by language (options.svelte: normalizeTracks)
+        // Web always nests: Audio > language > tracks (never flattens single-track groups)
         let audioGroups = groupByLanguage(audioTracks)
         if !audioGroups.isEmpty {
             let audioChildren: [OptionItem] = audioGroups.map { group in
@@ -200,21 +201,13 @@ final class PlayerOptionsController: UIViewController {
                         self?.dismissSelf()
                     }
                 }
-                if trackItems.count == 1 {
-                    // Single track in this language — show directly under language
-                    return trackItems[0]
-                }
                 return .expandable(title: langTitle, children: trackItems)
             }
-            if audioChildren.count == 1, case .expandable = audioChildren[0] {
-                // Single language group — flatten
-                items.append(.expandable(title: "Audio", children: audioChildren))
-            } else {
-                items.append(.expandable(title: "Audio", children: audioChildren))
-            }
+            items.append(.expandable(title: "Audio", children: audioChildren))
         }
 
         // Subtitles — grouped by language (options.svelte: normalizeSubs)
+        // Web always nests: Subtitles > OFF + language > tracks (never flattens)
         if !subtitleTracks.isEmpty {
             var subChildren: [OptionItem] = []
             // OFF option
@@ -233,17 +226,7 @@ final class PlayerOptionsController: UIViewController {
                         self?.dismissSelf()
                     }
                 }
-                if trackItems.count == 1 {
-                    // Single track in this language — show directly
-                    subChildren.append(.selectable(
-                        title: langTitle,
-                        isActive: group.tracks[0].isSelected) { [weak self] in
-                            self?.onSelectSubtitleTrack?(group.tracks[0].id)
-                            self?.dismissSelf()
-                        })
-                } else {
-                    subChildren.append(.expandable(title: langTitle, children: trackItems))
-                }
+                subChildren.append(.expandable(title: langTitle, children: trackItems))
             }
             items.append(.expandable(title: "Subtitles", children: subChildren))
         }
@@ -273,14 +256,13 @@ final class PlayerOptionsController: UIViewController {
         }
         items.append(.expandable(title: "Playback Rate", children: speedItems))
 
-        // Playlist (options.svelte: videoFiles)
+        // Playlist (options.svelte: videoFiles — no active highlight in web)
         if allVideos.count > 1 {
             let playlistItems: [OptionItem] = allVideos.map { video in
                 let name = video.videoName
                     ?? video.videoPath?.components(separatedBy: "/").last
                     ?? "Video"
-                let isActive = video == currentVideoEntity
-                return .selectable(title: name, isActive: isActive) { [weak self] in
+                return .action(title: name) { [weak self] in
                     self?.onSwitchVideo?(video)
                     self?.dismissSelf()
                 }
@@ -294,10 +276,11 @@ final class PlayerOptionsController: UIViewController {
             self?.dismissSelf()
         })
 
-        // Deband (options.svelte: toggle)
+        // Deband (options.svelte: toggle — web does NOT dismiss, state updates in-place)
         items.append(.toggle(title: "Deband", isActive: isDebandActive) { [weak self] in
             self?.onToggleDeband?()
-            self?.dismissSelf()
+            self?.isDebandActive.toggle()
+            self?.rebuildAndReload()
         })
 
         return items
