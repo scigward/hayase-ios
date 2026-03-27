@@ -708,8 +708,15 @@ final class MPVWrapper {
                 track["title"] = title
             }
             
+            // Language detection: try lang → demux-lang → parse from title
             if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
                 track["lang"] = lang
+            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
+                track["lang"] = demuxLang
+            } else if let title = track["title"] as? String {
+                if let parsed = Self.parseLanguageFromTitle(title) {
+                    track["lang"] = parsed
+                }
             }
             
             var selected: Int32 = 0
@@ -822,8 +829,15 @@ final class MPVWrapper {
                 track["title"] = title
             }
             
+            // Language detection: try lang → demux-lang → parse from title
             if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
                 track["lang"] = lang
+            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
+                track["lang"] = demuxLang
+            } else if let title = track["title"] as? String {
+                if let parsed = Self.parseLanguageFromTitle(title) {
+                    track["lang"] = parsed
+                }
             }
             
             if let codec = getStringProperty(handle: handle, name: "track-list/\(i)/codec") {
@@ -846,6 +860,78 @@ final class MPVWrapper {
         
         Logger.shared.log("getAudioTracks: returning \(tracks.count) audio tracks", type: "Info")
         return tracks
+    }
+
+    /// Attempts to extract an ISO 639 language code from a track title string.
+    /// Handles common patterns found in MKV/MP4 metadata, e.g.:
+    /// - "English", "Japanese", "English (US)", "Japanese 5.1 Surround"
+    /// - "eng", "jpn", "ger"
+    /// Returns the ISO 639-2/B or 639-1 code, or nil if no language is detected.
+    static func parseLanguageFromTitle(_ title: String) -> String? {
+        let lower = title.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Map of common full language names → ISO 639-2/B codes.
+        // Covers the most common languages found in anime/media files.
+        let languageMap: [(pattern: String, code: String)] = [
+            ("japanese", "jpn"),
+            ("english",  "eng"),
+            ("chinese",  "chi"),
+            ("korean",   "kor"),
+            ("french",   "fre"),
+            ("german",   "ger"),
+            ("spanish",  "spa"),
+            ("italian",  "ita"),
+            ("portuguese", "por"),
+            ("russian",  "rus"),
+            ("arabic",   "ara"),
+            ("hindi",    "hin"),
+            ("thai",     "tha"),
+            ("vietnamese", "vie"),
+            ("indonesian", "ind"),
+            ("malay",    "may"),
+            ("polish",   "pol"),
+            ("dutch",    "dut"),
+            ("turkish",  "tur"),
+            ("romanian", "rum"),
+            ("czech",    "cze"),
+            ("hungarian", "hun"),
+            ("swedish",  "swe"),
+            ("norwegian", "nor"),
+            ("danish",   "dan"),
+            ("finnish",  "fin"),
+            ("greek",    "gre"),
+            ("hebrew",   "heb"),
+            ("ukrainian", "ukr"),
+            ("catalan",  "cat"),
+            ("latvian",  "lav"),
+            ("lithuanian", "lit"),
+            ("brazilian", "por"),
+        ]
+
+        for entry in languageMap {
+            if lower.contains(entry.pattern) {
+                return entry.code
+            }
+        }
+
+        // Check for bare 3-letter ISO 639-2 codes (e.g., "eng", "jpn") at
+        // word boundaries. Only match if the code is valid per Locale.
+        let words = lower.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words where word.count == 3 {
+            if Locale.current.localizedString(forLanguageCode: word) != nil {
+                return word
+            }
+        }
+
+        // Check for 2-letter ISO 639-1 codes (e.g., "en", "ja")
+        for word in words where word.count == 2 {
+            if Locale.current.localizedString(forLanguageCode: word) != nil {
+                return word
+            }
+        }
+
+        return nil
     }
     
     func setAudioTrack(_ trackId: Int) {

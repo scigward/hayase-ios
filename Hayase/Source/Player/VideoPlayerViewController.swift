@@ -121,6 +121,10 @@ final class VideoPlayerViewController: UIViewController {
     /// delay ensures the seek works for both local files and HTTP streams (where
     /// MPV can take several seconds to buffer enough data to start playback).
     private var pendingRestoreTime: Double?
+    /// Throttle watch-progress saves to avoid writing UserDefaults on every
+    /// position callback. Saves every 5 seconds during active playback.
+    private var lastProgressSaveTime: Date = .distantPast
+
     /// True while the player is being minimized to in-app PiP. Prevents
     /// viewWillDisappear from tearing down the streaming pipeline.
     var isMinimizing = false
@@ -1202,6 +1206,16 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
         // Check auto-completion (Hayase player.svelte checkCompletion)
         checkCompletion()
+
+        // Periodically save watch progress so it survives crashes / force-quits.
+        // Throttled to once every 5 seconds to avoid excessive UserDefaults writes.
+        if duration > 0, position > 0 {
+            let now = Date()
+            if now.timeIntervalSince(lastProgressSaveTime) >= 5.0 {
+                lastProgressSaveTime = now
+                saveProgress()
+            }
+        }
 
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
         // Guard against false EOF triggers after a seek: when the server serves

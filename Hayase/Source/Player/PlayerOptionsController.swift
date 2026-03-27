@@ -276,7 +276,9 @@ final class PlayerOptionsController: UIViewController {
         // Playlist (options.svelte: videoFiles)
         if allVideos.count > 1 {
             let playlistItems: [OptionItem] = allVideos.map { video in
-                let name = video.videoPath?.components(separatedBy: "/").last ?? "Video"
+                let name = video.videoName
+                    ?? video.videoPath?.components(separatedBy: "/").last
+                    ?? "Video"
                 let isActive = video == currentVideoEntity
                 return .selectable(title: name, isActive: isActive) { [weak self] in
                     self?.onSwitchVideo?(video)
