@@ -3,16 +3,213 @@ import AVKit
 import CoreMedia
 import LibTorrent
 
-// MARK: - FatSlider
+// MARK: - SegmentedSeekBar (interface seekbar.svelte)
 
-/// UISlider subclass with a larger touch target so the seekbar is easier to hit.
-private final class FatSlider: UISlider {
-    /// Extra vertical padding (each side) added to the slider's touch area.
-    private let verticalHitPadding: CGFloat = 20
+/// A chapter-segmented progress bar matching the Hayase web interface seekbar.svelte.
+/// Each chapter forms a separate rounded bar segment with small gaps between them.
+/// Replaces UISlider + chapterLayer for a faithful recreation of the web player.
+private final class SegmentedSeekBar: UIControl {
 
+    // MARK: - Public State
+
+    /// Current playback progress 0–1.
+    var value: CGFloat = 0 {
+        didSet { layoutSegmentFills() }
+    }
+
+    /// True while the user is touching/dragging the bar.
+    private(set) var isSeeking = false
+
+    // MARK: - Segments
+
+    private struct Segment {
+        let size: CGFloat   // fraction of total width (0–1)
+        let offset: CGFloat // start position fraction (0–1)
+    }
+
+    private var segments: [Segment] = [Segment(size: 1.0, offset: 0.0)]
+
+    // MARK: - UI
+
+    /// Each element: (container view, background layer, progress fill layer).
+    private var segmentViews: [(container: UIView, bg: CALayer, fill: CALayer)] = []
+
+    // MARK: - Constants (matching interface seekbar.svelte)
+
+    /// Bar height when not being touched (h-0.5 = 2px in interface CSS).
+    private let normalHeight: CGFloat = 2
+    /// Bar height when being touched (h-1 = 4px in interface CSS).
+    private let activeHeight: CGFloat = 4
+    /// Gap between chapter segments (ml-0.5 = 2px in interface CSS).
+    private let segmentGap: CGFloat = 2
+    /// Corner radius per segment (rounded-[2px] in interface CSS).
+    private let segmentRadius: CGFloat = 2
+    /// Background color: rgba(217,217,217,0.4) from interface.
+    private let bgColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.4)
+    /// Progress fill color: white from interface.
+    private let fillColor = UIColor.white
+
+    private var barHeight: CGFloat = 2
+
+    // MARK: - Init
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        rebuildSegmentViews()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    // MARK: - Chapter Updates
+
+    func setChapters(_ chapters: [MPVChapter], duration: Double) {
+        guard duration > 0 else {
+            segments = [Segment(size: 1.0, offset: 0.0)]
+            rebuildSegmentViews()
+            return
+        }
+
+        let sorted = chapters.sorted { $0.time < $1.time }
+        var newSegments: [Segment] = []
+
+        for (i, ch) in sorted.enumerated() {
+            let start = ch.time / duration
+            let end = i + 1 < sorted.count ? sorted[i + 1].time / duration : 1.0
+            let size = CGFloat(max(0, end - start))
+            if size > 0.001 {
+                newSegments.append(Segment(size: size, offset: CGFloat(start)))
+            }
+        }
+
+        if newSegments.isEmpty {
+            newSegments = [Segment(size: 1.0, offset: 0.0)]
+        }
+
+        segments = newSegments
+        rebuildSegmentViews()
+    }
+
+    // MARK: - Build Segment Views
+
+    private func rebuildSegmentViews() {
+        segmentViews.forEach { $0.container.removeFromSuperview() }
+        segmentViews = []
+
+        for _ in segments {
+            let container = UIView()
+            container.clipsToBounds = true
+            container.layer.cornerRadius = segmentRadius
+            container.isUserInteractionEnabled = false
+
+            let bg = CALayer()
+            bg.backgroundColor = bgColor.cgColor
+            container.layer.addSublayer(bg)
+
+            let fill = CALayer()
+            fill.backgroundColor = fillColor.cgColor
+            container.layer.addSublayer(fill)
+
+            addSubview(container)
+            segmentViews.append((container, bg, fill))
+        }
+        setNeedsLayout()
+    }
+
+    // MARK: - Layout
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutSegmentFrames()
+        layoutSegmentFills()
+    }
+
+    private func layoutSegmentFrames() {
+        let totalWidth = bounds.width
+        let gaps = segmentGap * CGFloat(max(0, segments.count - 1))
+        let usable = totalWidth - gaps
+        let cy = bounds.midY
+
+        var x: CGFloat = 0
+        for (i, seg) in segments.enumerated() {
+            guard i < segmentViews.count else { break }
+            let w = usable * seg.size
+            let (container, bg, _) = segmentViews[i]
+            container.frame = CGRect(x: x, y: cy - barHeight / 2, width: w, height: barHeight)
+            container.layer.cornerRadius = min(segmentRadius, barHeight / 2)
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bg.frame = container.bounds
+            CATransaction.commit()
+
+            x += w + segmentGap
+        }
+    }
+
+    private func layoutSegmentFills() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (i, seg) in segments.enumerated() {
+            guard i < segmentViews.count else { break }
+            let (container, _, fill) = segmentViews[i]
+            let localProgress = localFill(value, offset: seg.offset, size: seg.size)
+            fill.frame = CGRect(x: 0, y: 0, width: container.bounds.width * localProgress, height: container.bounds.height)
+        }
+        CATransaction.commit()
+    }
+
+    /// Maps a global progress fraction to a local fill within a segment.
+    private func localFill(_ global: CGFloat, offset: CGFloat, size: CGFloat) -> CGFloat {
+        guard size > 0 else { return 0 }
+        return min(max((global - offset) / size, 0), 1)
+    }
+
+    // MARK: - Touch Handling (UIControl)
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        isSeeking = true
+        value = fractionForTouch(touch)
+        animateHeight(activeHeight)
+        sendActions(for: .touchDown)
+        sendActions(for: .valueChanged)
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        value = fractionForTouch(touch)
+        sendActions(for: .valueChanged)
+        return true
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        if let t = touch { value = fractionForTouch(t) }
+        isSeeking = false
+        animateHeight(normalHeight)
+        sendActions(for: .touchUpInside)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        isSeeking = false
+        animateHeight(normalHeight)
+        sendActions(for: .touchCancel)
+    }
+
+    /// Expand the hit area vertically for easier touch targeting (matching FatSlider's 20pt).
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        let expanded = bounds.insetBy(dx: 0, dy: -verticalHitPadding)
-        return expanded.contains(point)
+        bounds.insetBy(dx: 0, dy: -20).contains(point)
+    }
+
+    private func fractionForTouch(_ touch: UITouch) -> CGFloat {
+        let x = touch.location(in: self).x
+        return min(max(x / max(bounds.width, 1), 0), 1)
+    }
+
+    private func animateHeight(_ h: CGFloat) {
+        guard barHeight != h else { return }
+        barHeight = h
+        UIView.animate(withDuration: 0.075) {
+            self.layoutSegmentFrames()
+        }
     }
 }
 
@@ -79,8 +276,7 @@ final class VideoPlayerViewController: UIViewController {
     private let timeLabel     = UILabel()
 
     // Bottom bar — seekbar row
-    private let seekBar       = FatSlider()
-    private let chapterLayer  = UIView()
+    private let seekBar       = SegmentedSeekBar()
 
     // Bottom bar — controls row
     private let prevButton      = UIButton(type: .system)
@@ -356,22 +552,12 @@ final class VideoPlayerViewController: UIViewController {
         timeLabel.layer.shadowRadius = 3
         bottomBar.addSubview(timeLabel)
 
-        // --- Row 2: Seekbar (full width) ---
+        // --- Row 2: Seekbar (full width, chapter-segmented — matching interface seekbar.svelte) ---
         seekBar.translatesAutoresizingMaskIntoConstraints = false
-        seekBar.minimumValue = 0
-        seekBar.maximumValue = 1
-        seekBar.minimumTrackTintColor = .white
-        seekBar.maximumTrackTintColor = UIColor(white: 0.85, alpha: 0.4) // rgba(217,217,217,0.4)
-        seekBar.setThumbImage(UIImage(), for: .normal)   // No visible thumb at rest — Hayase uses bar only
-        seekBar.setThumbImage(circleThumb(diameter: 14), for: .highlighted)
         seekBar.addTarget(self, action: #selector(seekBegan),   for: .touchDown)
         seekBar.addTarget(self, action: #selector(seekChanged), for: .valueChanged)
         seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside])
         bottomBar.addSubview(seekBar)
-
-        chapterLayer.translatesAutoresizingMaskIntoConstraints = false
-        chapterLayer.isUserInteractionEnabled = false
-        bottomBar.addSubview(chapterLayer)
 
         // --- Row 3: Controls ---
         // Left side: play/pause, prev, next
@@ -454,11 +640,6 @@ final class VideoPlayerViewController: UIViewController {
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
             seekBar.heightAnchor.constraint(equalToConstant: 32),
-
-            chapterLayer.leadingAnchor.constraint(equalTo: seekBar.leadingAnchor),
-            chapterLayer.trailingAnchor.constraint(equalTo: seekBar.trailingAnchor),
-            chapterLayer.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
-            chapterLayer.heightAnchor.constraint(equalToConstant: 4),
 
             // Row 3: controls
             leftStack.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
@@ -893,7 +1074,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func updateTimeUI() {
         guard !isSeeking else { return }
-        seekBar.value = duration > 0 ? Float(currentTime / duration) : 0
+        seekBar.value = duration > 0 ? CGFloat(currentTime / duration) : 0
         // Hayase format: "current / total" or "-remaining / total"
         if showRemainingTime {
             timeLabel.text = "-\(fmtTime(max(0, duration - currentTime))) / \(fmtTime(duration))"
@@ -916,22 +1097,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func updateChapterMarkers() {
-        chapterLayer.subviews.forEach { $0.removeFromSuperview() }
-        guard duration > 0, chapterLayer.bounds.width > 0 else { return }
-        for ch in chapters {
-            let x = CGFloat(ch.time / duration) * chapterLayer.bounds.width
-            let tick = UIView(frame: CGRect(x: x - 1, y: 0, width: 2, height: 4))
-            tick.backgroundColor = UIColor.white.withAlphaComponent(0.8)
-            chapterLayer.addSubview(tick)
-        }
-    }
-
-    private func circleThumb(diameter: CGFloat) -> UIImage {
-        let r = UIGraphicsImageRenderer(size: CGSize(width: diameter, height: diameter))
-        return r.image { ctx in
-            UIColor.white.setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: diameter, height: diameter))
-        }
+        seekBar.setChapters(chapters, duration: duration)
     }
 
     // MARK: - Actions
@@ -1045,6 +1211,10 @@ final class VideoPlayerViewController: UIViewController {
             timeLabel.text = "-\(fmtTime(max(0, duration - t))) / \(fmtTime(duration))"
         } else {
             timeLabel.text = "\(fmtTime(t)) / \(fmtTime(duration))"
+        }
+        // Update chapter label during seeking
+        if let ch = chapters.last(where: { $0.time <= t }) {
+            chapterLabel.text = ch.title
         }
     }
 

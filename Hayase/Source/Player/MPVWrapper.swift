@@ -808,9 +808,16 @@ final class MPVWrapper {
     // MARK: - Deband
 
     /// Toggles the deband video filter (reduces banding artifacts).
-    /// Mirrors options.svelte's Deband toggle.
+    /// Uses the vf (video filter) pipeline instead of the `deband` property,
+    /// because the property only works with vo=gpu/gpu-next, not vo=avfoundation.
+    /// The @deband label allows add/remove by name.
     func setDeband(_ enabled: Bool) {
-        setProperty(name: "deband", value: enabled ? "yes" : "no")
+        guard let handle = mpv else { return }
+        if enabled {
+            commandSync(handle, ["vf", "add", "@deband:deband"])
+        } else {
+            commandSync(handle, ["vf", "remove", "@deband"])
+        }
     }
 
     // MARK: - Audio Track Controls
