@@ -1291,6 +1291,11 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
 
+    func renderer(_ renderer: MPVWrapper, didBecomeChaptersReady chapters: [MPVChapter]) {
+        self.chapters = chapters
+        updateChapterMarkers()
+    }
+
     // MARK: - Mini-player support (Hayase wrapper.svelte)
 
     /// Returns the MPV surface view so MiniPlayerManager can reparent it.

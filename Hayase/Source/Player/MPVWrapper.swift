@@ -11,6 +11,7 @@ protocol MPVWrapperDelegate: AnyObject {
     func renderer(_ renderer: MPVWrapper, didBecomeReadyToSeek: Bool)
     func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool)
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String)
+    func renderer(_ renderer: MPVWrapper, didBecomeChaptersReady chapters: [MPVChapter])
 }
 
 /// MPV player using vo_avfoundation for video output.
@@ -467,6 +468,14 @@ final class MPVWrapper {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didChangeLoading: false)
+                }
+            }
+            // Fetch chapters now that file metadata is available
+            let chapters = getChapters()
+            if !chapters.isEmpty {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.renderer(self, didBecomeChaptersReady: chapters)
                 }
             }
             
@@ -948,6 +957,27 @@ final class MPVWrapper {
         var aid: Int64 = 0
         getProperty(handle: handle, name: "aid", format: MPV_FORMAT_INT64, value: &aid)
         return Int(aid)
+    }
+
+    // MARK: - Chapters
+
+    /// Reads chapter metadata from MPV's `chapter-list` property.
+    /// Returns an array of MPVChapter with index, title, and start time.
+    func getChapters() -> [MPVChapter] {
+        guard let handle = mpv else { return [] }
+        var chapterCount: Int64 = 0
+        getProperty(handle: handle, name: "chapter-list/count", format: MPV_FORMAT_INT64, value: &chapterCount)
+        guard chapterCount > 0 else { return [] }
+
+        var chapters: [MPVChapter] = []
+        for i in 0..<chapterCount {
+            let title = getStringProperty(handle: handle, name: "chapter-list/\(i)/title") ?? "Chapter \(i + 1)"
+            var time: Double = 0
+            getProperty(handle: handle, name: "chapter-list/\(i)/time", format: MPV_FORMAT_DOUBLE, value: &time)
+            chapters.append(MPVChapter(index: Int(i), title: title, time: time))
+        }
+        Logger.shared.log("getChapters: returning \(chapters.count) chapters", type: "Info")
+        return chapters
     }
 
     // MARK: - Technical Info
