@@ -1,4 +1,4 @@
-# TheAnimeTool
+# Hayase
 This tool is currently in slow development.
 
 This is early experimental app only for learning at this moment. Will be rebuilt in the near future.
@@ -31,7 +31,7 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 | `/app/anime/[id]` (staff tab) | ✅ ~85% | `HorizontalCardsCell` + `StaffCardCell` | Horizontal scroll, role text below portrait |
 | `/app/anime/[id]` (stats tab) | ✅ ~85% | `StatsCell` | `ScoreBarChartView` bar chart + `UIProgressView` status breakdown |
 | `/app/settings` (settings page) | ✅ ~70% | `SettingsViewController` | 6 grouped sections, toggles + UserDefaults persistence |
-| `ui/torrentclient/overview.svelte` | ✅ ~95% | `TorrentDetailViewController` | Full replica: progress+%, speed↓/↑, ETA, elapsed, seeders/leechers/peers |
+| `ui/torrentclient/overview.svelte` | ✅ ~95% | `DownloadsViewController` + `TorrentDetailViewController` | Full replica: progress+%, speed↓/↑, ETA, elapsed, seeders/leechers/peers. Downloads tab now shows Hayase torrent client page directly with segmented tabs (Overview/Files/Peers/Library/Settings) |
 | `ui/torrentclient/files/table.svelte` | ✅ ~65% | `VideoListViewController` + `VideoTableViewCell` | Downloaded/total size ("3.2 MB / 1.2 GB"), progress bar, play/skip; bypassed from extension search (direct-to-player) |
 | `/app/player` (video player) | ✅ ~95% | `VideoPlayerViewController` | PiP, episode title, download-stats floating HUD, speed control button (0.5×–2×), AirPlay route picker |
 | `ui/player/downloadstats.svelte` | ✅ ~95% | `VideoPlayerViewController.statsHUD` | Floating top-right HUD: ↓ speed + buffer + %; auto-hides on completion |
@@ -41,7 +41,7 @@ The table below tracks how much of the [Hayase](https://github.com/scigward/inte
 | `/app/w2g` (Watch2Gether) | ❌ 0% | — | Not applicable for iOS MVP |
 | `/app/chat` | ❌ 0% | — | Not applicable for iOS MVP |
 
-> **Last updated:** 2026-02-22 batch 6. Percentage increases with each Hayase UI porting commit.
+> **Last updated:** 2026-03-22 batch 7. Percentage increases with each Hayase UI porting commit.
 
 ## TODO
 0. Rebuild modules & relationships

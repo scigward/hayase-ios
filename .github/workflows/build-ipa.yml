@@ -21,6 +21,11 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # Always use the latest upstream LibTorrent-Swift from its tracked branch
+      # so that fixes pushed to the submodule repo are picked up automatically.
+      - name: Update LibTorrent-Swift to latest upstream
+        run: git submodule update --remote --recursive Component/LibTorrent-Swift
+
       # Cache resolved SPM packages so we don't re-download MPVKit/OpenSSL on every run.
       # The cache key includes the resolved versions (from project.pbxproj) so it
       # invalidates automatically when package versions change.
@@ -30,7 +35,7 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
             ~/.swiftpm/cache
-          key: spm-${{ runner.os }}-${{ hashFiles('TheAnimeTool.xcodeproj/project.pbxproj') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('Hayase.xcodeproj/project.pbxproj') }}
           restore-keys: |
             spm-${{ runner.os }}-
 
@@ -39,6 +44,42 @@ jobs:
 
       - name: Prepare LibTorrent
         run: OPENSSL_ROOT_DIR=$(brew --prefix openssl@3) ./Component/LibTorrent-Swift/make.sh
+
+      # Generate proper AppIcon images from a single 1024x1024 source icon.
+      # This fixes actool failing with: "AppIcon did not have any applicable content."
+      - name: Generate App Icons
+        run: |
+          set -euo pipefail
+          ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
+          cd "$ICON_DIR"
+
+          if [ ! -f "AppIcon.png" ]; then
+            echo "ERROR: Missing $ICON_DIR/AppIcon.png"
+            ls -la
+            exit 1
+          fi
+
+          # iPhone
+          sips -z 58 58 AppIcon.png --out icon_29@2x.png
+          sips -z 87 87 AppIcon.png --out icon_29@3x.png
+          sips -z 80 80 AppIcon.png --out icon_40@2x.png
+          sips -z 120 120 AppIcon.png --out icon_40@3x.png
+          sips -z 120 120 AppIcon.png --out icon_60@2x.png
+          sips -z 180 180 AppIcon.png --out icon_60@3x.png
+
+          # iPad
+          sips -z 29 29 AppIcon.png --out icon_ipad_29@1x.png
+          sips -z 58 58 AppIcon.png --out icon_ipad_29@2x.png
+          sips -z 40 40 AppIcon.png --out icon_ipad_40@1x.png
+          sips -z 80 80 AppIcon.png --out icon_ipad_40@2x.png
+          sips -z 76 76 AppIcon.png --out icon_ipad_76@1x.png
+          sips -z 152 152 AppIcon.png --out icon_ipad_76@2x.png
+          sips -z 167 167 AppIcon.png --out icon_ipad_83.5@2x.png
+
+          # App Store
+          sips -z 1024 1024 AppIcon.png --out icon_marketing_1024.png
+
+          ls -la
 
       # Pre-resolve SPM dependencies separately with a timeout and retry.
       # This isolates the network-dependent step from the build step, and retries
@@ -50,8 +91,8 @@ jobs:
           for attempt in 1 2 3; do
             echo "=== Resolve attempt $attempt/3 ==="
             if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
-                -workspace TheAnimeTool.xcworkspace \
-                -scheme TheAnimeTool \
+                -workspace Hayase.xcworkspace \
+                -scheme Hayase \
                 -resolvePackageDependencies \
                 SYMROOT=${{ github.workspace }}/build/app 2>&1; then
               RESOLVED=true
@@ -65,11 +106,11 @@ jobs:
             exit 1
           fi
 
-      - name: Build TheAnimeTool (Release, no signing)
+      - name: Build Hayase (Release, no signing)
         run: |
           xcodebuild \
-            -workspace TheAnimeTool.xcworkspace \
-            -scheme TheAnimeTool \
+            -workspace Hayase.xcworkspace \
+            -scheme Hayase \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
@@ -82,16 +123,16 @@ jobs:
 
       - name: Package as unsigned IPA
         run: |
-          APP_PATH=$(find build/app -name "TheAnimeTool.app" -not -path "*/Build/*" | head -1)
+          APP_PATH=$(find build/app -name "Hayase.app" -not -path "*/Build/*" | head -1)
           echo "Found app at: $APP_PATH"
           mkdir -p Payload
-          cp -r "$APP_PATH" Payload/TheAnimeTool.app
-          zip -r TheAnimeTool.ipa Payload
-          echo "IPA created: $(du -sh TheAnimeTool.ipa)"
+          cp -r "$APP_PATH" Payload/Hayase.app
+          zip -r Hayase.ipa Payload
+          echo "IPA created: $(du -sh Hayase.ipa)"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TheAnimeTool
-          path: TheAnimeTool.ipa
+          name: Hayase
+          path: Hayase.ipa
           retention-days: 14
