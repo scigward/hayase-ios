@@ -332,6 +332,16 @@ final class PlayerOptionsController: UIViewController {
         containerHeightConstraint?.constant = max(clamped, 48) // minimum reasonable height
     }
 
+    /// Rebuilds the root menu and reloads the table view.
+    /// Used for in-place state updates (e.g., Deband toggle) without dismissing.
+    private func rebuildAndReload() {
+        let root = buildRootMenu()
+        if !navigationStack.isEmpty {
+            navigationStack[0] = (title: nil, items: root)
+        }
+        tableView.reloadData()
+    }
+
     // MARK: - Helpers
 
     @objc private func dismissSelf() {
