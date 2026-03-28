@@ -115,6 +115,9 @@ class SettingsViewController: UIViewController {
     private var selectedTab: SettingsTab = .player
     private var tabButtons: [UIButton] = []
     private var tableView: UITableView!
+    /// Width constraint on the table header container — updated in viewDidLayoutSubviews
+    /// so the header always matches the actual table view width (fixes iPad split-view sizing).
+    private var headerWidthConstraint: NSLayoutConstraint?
 
     /// Sections filtered to the currently selected tab.
     private var visibleSections: [Section] {
@@ -356,9 +359,14 @@ class SettingsViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Recalculate table header height after layout
+        // Recalculate table header height after layout, and keep its width pinned to the
+        // actual table view width (important on iPad where the table may be narrower than the
+        // screen, e.g. in split-view multitasking).
         guard let header = tableView.tableHeaderView else { return }
-        let target = CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height)
+        let tableWidth = tableView.bounds.width
+        guard tableWidth > 0 else { return }
+        headerWidthConstraint?.constant = tableWidth
+        let target = CGSize(width: tableWidth, height: UIView.layoutFittingCompressedSize.height)
         let size = header.systemLayoutSizeFitting(target,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
@@ -411,6 +419,13 @@ class SettingsViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
+
+        // Explicit width constraint so Auto Layout knows how wide to make the container.
+        // viewDidLayoutSubviews keeps this in sync with the actual table view width, which
+        // ensures the header spans the full width even on iPad (with or without split view).
+        let widthConstraint = container.widthAnchor.constraint(equalToConstant: UIScreen.main.bounds.width)
+        widthConstraint.isActive = true
+        headerWidthConstraint = widthConstraint
 
         // Need a non-zero initial frame for the header sizing to work
         container.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 200)
