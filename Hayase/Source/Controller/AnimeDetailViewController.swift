@@ -180,6 +180,11 @@ private final class EpisodeCell: UITableViewCell {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(textStack)
 
+        // Thumbnail width: w-1/2 (50%) up to max-w-52 (208pt) — prevents oversized thumbs on iPad.
+        let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
+        thumbWidthPreferred.priority = .defaultHigh
+        let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
+
         NSLayoutConstraint.activate([
             // Card: margin 6pt top/bottom, 16pt left/right
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
@@ -189,11 +194,13 @@ private final class EpisodeCell: UITableViewCell {
             // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
             cardView.heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`), full height
+            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`),
+            // capped at max-w-52 (208pt) so it doesn't stretch across the full width on iPad.
             thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
-            thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5),
+            thumbWidthPreferred,
+            thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth),
 
             // Runtime badge: bottom-left of thumb
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),

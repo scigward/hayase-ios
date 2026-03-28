@@ -417,7 +417,8 @@ class SettingsViewController: UIViewController {
         return container
     }
 
-    /// Builds the 2-column tab grid matching Hayase SettingsNav.svelte:
+    /// Builds the tab grid matching Hayase SettingsNav.svelte:
+    /// 2 columns on iPhone, 3 columns on iPad.
     /// ```
     /// <nav class='grid grid-cols-2 gap-y-1 gap-x-2'>
     ///   <Button variant='ghost' class='relative font-semibold justify-start'>
@@ -433,21 +434,21 @@ class SettingsViewController: UIViewController {
 
         tabButtons.removeAll()
 
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let cols = isIPad ? 3 : 2
         let tabs = SettingsTab.allCases
-        for rowStart in stride(from: 0, to: tabs.count, by: 2) {
+        for rowStart in stride(from: 0, to: tabs.count, by: cols) {
             let hStack = UIStackView()
             hStack.axis = .horizontal
             hStack.spacing = 8  // gap-x-2 = 8px
             hStack.distribution = .fillEqually
 
-            let btn1 = makeTabButton(for: tabs[rowStart])
-            hStack.addArrangedSubview(btn1)
-            tabButtons.append(btn1)
-
-            if rowStart + 1 < tabs.count {
-                let btn2 = makeTabButton(for: tabs[rowStart + 1])
-                hStack.addArrangedSubview(btn2)
-                tabButtons.append(btn2)
+            for col in 0..<cols {
+                let idx = rowStart + col
+                guard idx < tabs.count else { break }
+                let btn = makeTabButton(for: tabs[idx])
+                hStack.addArrangedSubview(btn)
+                tabButtons.append(btn)
             }
 
             vStack.addArrangedSubview(hStack)

@@ -925,6 +925,16 @@ class BrowseAnimeViewController: UIViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            let isSearching = self.searchController.isActive || !(self.searchController.searchBar.text ?? "").isEmpty
+            let layout = isSearching ? self.makeSearchLayout() : self.makeHomeLayout()
+            self.collectionView.setCollectionViewLayout(layout, animated: false)
+        })
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         // With contentInsetAdjustmentBehavior = .never, manually account for the tab bar
@@ -1026,21 +1036,30 @@ class BrowseAnimeViewController: UIViewController {
 
     private func makeSearchLayout() -> UICollectionViewLayout {
         // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
-        // On iPhone (375-430pt wide), minmax(184px) fits 2 columns
-        let cols: CGFloat = 2
-        let totalPad: CGFloat = 16 + 16 + 8 // leading + trailing + inter-column gap
-        let itemWidth = floor((UIScreen.main.bounds.width - totalPad) / cols)
+        // On iPhone (375-430pt wide), minmax(184px) fits 2 columns; on iPad use 4 columns.
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let cols: CGFloat = isIPad ? 4 : 2
+        let interColumnGap: CGFloat = 8  // gap between adjacent items (item.contentInsets.trailing)
+        let leadingPadding: CGFloat = 16
+        let trailingPadding: CGFloat = 8
+        // Each item contributes its trailing contentInset as the gap to its right neighbour (or section
+        // trailing for the last item), so totalPad = section.leading + section.trailing + cols * gap.
+        let totalPad: CGFloat = leadingPadding + trailingPadding + interColumnGap * cols
+        // Use view bounds if already laid out, else fall back to screen width.
+        // viewWillTransition recreates the layout after each rotation so this stays accurate.
+        let containerW = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
+        let itemWidth = floor((containerW - totalPad) / cols)
         let itemHeight = floor(itemWidth * 290.0 / 152.0)
         let item = NSCollectionLayoutItem(
             layoutSize: .init(widthDimension: .absolute(itemWidth),
                               heightDimension: .absolute(itemHeight)))
-        item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 8)
+        item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: interColumnGap)
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: .init(widthDimension: .fractionalWidth(1.0),
                               heightDimension: .absolute(itemHeight + 8)),
-            subitems: [item, item])
+            subitems: Array(repeating: item, count: Int(cols)))
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 8)
+        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: leadingPadding, bottom: 8, trailing: trailingPadding)
         return UICollectionViewCompositionalLayout(section: section)
     }
 
