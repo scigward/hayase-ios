@@ -1362,10 +1362,14 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             // and pre-apply this section's genre + sort filter to SearchViewController
             header.onViewMore = { [weak self] in
                 guard let self = self else { return }
-                if let navController = self.tabBarController?.viewControllers?[1] as? UINavigationController,
-                   let searchVC = navController.viewControllers.first as? SearchViewController {
-                    searchVC.prefillSearch(genre: section.filterGenre, sort: section.filterSort)
+                guard let controllers = self.tabBarController?.viewControllers,
+                      controllers.count > 1,
+                      let navController = controllers[1] as? UINavigationController,
+                      let searchVC = navController.viewControllers.first as? SearchViewController else {
+                    self.tabBarController?.selectedIndex = 1
+                    return
                 }
+                searchVC.prefillSearch(genre: section.filterGenre, sort: section.filterSort)
                 self.tabBarController?.selectedIndex = 1
             }
         }

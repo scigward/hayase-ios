@@ -361,8 +361,11 @@ final class LocalStreamServer {
             // If libtorrent's disk thread is still writing when we read,
             // a second read after a brief delay may return different (more
             // complete) data. Skip for pieces already on disk (stable).
+            // The delays are sized for worst-case I/O latency: 30 ms for
+            // the first settle and 50 ms after an explicit flush — shorter
+            // values caused intermittent frame corruption on slower devices.
             if !alreadyOnDisk && !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
-                Thread.sleep(forTimeInterval: 0.015)
+                Thread.sleep(forTimeInterval: 0.03)
                 fileHandle.seek(toFileOffset: currentOffset)
                 let verifyData = fileHandle.readData(ofLength: readLength)
                 if verifyData != data {
@@ -370,7 +373,7 @@ final class LocalStreamServer {
                     // read and give one more chance for it to stabilize.
                     data = verifyData
                     if !isStopped { torrentHandle.flushCache() }
-                    Thread.sleep(forTimeInterval: 0.03)
+                    Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
                     let finalData = fileHandle.readData(ofLength: readLength)
                     if !finalData.isEmpty { data = finalData }

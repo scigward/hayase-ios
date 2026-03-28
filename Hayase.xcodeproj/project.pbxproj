@@ -62,6 +62,7 @@
 		MINIPLYR1MINIPLYR1MINIP /* MiniPlayerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */; };
 		EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */; };
 		PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */; };
+		PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -140,6 +141,7 @@
 		MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MiniPlayerManager.swift; sourceTree = "<group>"; };
 		EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExternalDisplayManager.swift; sourceTree = "<group>"; };
 		PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PiPController.swift; sourceTree = "<group>"; };
+		PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PlayerOptionsController.swift; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
@@ -297,6 +299,7 @@
 				MINIPLYR0MINIPLYR0MINIP /* MiniPlayerManager.swift */,
 				EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */,
 				PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */,
+				PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */,
 			);
 			path = Player;
 			sourceTree = "<group>";
@@ -484,6 +487,7 @@
 				MINIPLYR1MINIPLYR1MINIP /* MiniPlayerManager.swift in Sources */,
 				EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */,
 				PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */,
+				PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

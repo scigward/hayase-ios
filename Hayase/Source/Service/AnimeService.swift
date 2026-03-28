@@ -302,7 +302,8 @@ public class AnimeService: NSObject {
             if let foundIndex = fetchedAnimes.firstIndex(where: { $0.animeAnilistId?.intValue == anilistId }) {
                 targetAnime = fetchedAnimes[foundIndex]
             } else {
-                targetAnime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as! Animes
+                guard let newAnime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as? Animes else { continue }
+                targetAnime = newAnime
                 targetAnime.animeAnilistId = NSNumber(value: anilistId)
             }
             targetAnime.animeImgL = media.coverImage?.large
@@ -1165,7 +1166,7 @@ public class AnimeService: NSObject {
     /// Calls completion on the main queue.
     func fetchAiringForMonth(_ month: Date, completion: @escaping ([AiringScheduleEntry]) -> Void) {
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
+        cal.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
         let comps = cal.dateComponents([.year, .month], from: month)
         guard let monthStart = cal.date(from: comps),
               let monthEnd   = cal.date(byAdding: DateComponents(month: 1), to: monthStart) else {
@@ -1233,7 +1234,7 @@ public class AnimeService: NSObject {
     /// Calls completion on the main queue with a deduplicated list of AnimeItems.
     func fetchAiringForWeekday(_ weekday: Int, completion: @escaping ([AnimeItem]) -> Void) {
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
+        cal.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
         var comps = cal.dateComponents([.weekOfYear, .yearForWeekOfYear], from: Date())
         comps.weekday = weekday + 1  // Calendar.weekday is 1-indexed (1 = Sunday)
         guard let targetDay = cal.date(from: comps) else { completion([]); return }

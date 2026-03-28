@@ -132,6 +132,11 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: Input
     var animeItem: AnimeItem?
     var initialEpisode: Int = 1
+    /// When set to true before the VC is presented, the first search will
+    /// automatically select the best torrent result and start playback.
+    /// Used by MiniPlayerManager's restored `onEpisodeChange` to mirror the
+    /// Hayase web interface's seamless episode transition.
+    var shouldAutoSelectOnSearch = false
 
     // MARK: State
     private var results: [TorrentResult] = []
@@ -141,6 +146,13 @@ final class ExtensionSearchViewController: UIViewController {
     private var currentEpisode: Int = 1
     private var currentResolution = "1080"
     private var searchTask: Task<Void, Never>?
+
+    /// When true, `triggerSearch()` will auto-select the best result after
+    /// the search completes — used by `handleEpisodeChangeFromPlayer()` to
+    /// seamlessly transition to the next/prev episode without requiring the
+    /// user to manually pick a torrent. Mirrors the Hayase web interface's
+    /// automatic resolver in `mediahandler.svelte → playEpisode()`.
+    private var autoSelectAfterSearch = false
 
     // MARK: Direct-to-player state (skip VideoListViewController)
     private var pendingVideoService: VideoService?
@@ -176,6 +188,9 @@ final class ExtensionSearchViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         currentEpisode = initialEpisode
+        if shouldAutoSelectOnSearch {
+            autoSelectAfterSearch = true
+        }
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.title = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
@@ -570,6 +585,12 @@ final class ExtensionSearchViewController: UIViewController {
                 self.tableView.reloadData()
             }
             self.loadingIndicator.stopAnimating()
+            // If auto-select was requested (episode change from player),
+            // automatically pick the best result and start playback.
+            if self.autoSelectAfterSearch {
+                self.autoSelectAfterSearch = false
+                self.autoSelectTapped()
+            }
         }
     }
 
@@ -712,6 +733,9 @@ final class ExtensionSearchViewController: UIViewController {
         try? context.save()
 
         let hud = UIAlertController(title: "Preparing playback…", message: "Adding torrent…", preferredStyle: .alert)
+        hud.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.cancelPendingPlayback()
+        })
         present(hud, animated: true)
 
         // Go directly to the video player — skip the file list page.
@@ -832,8 +856,14 @@ final class ExtensionSearchViewController: UIViewController {
             player.fileIndex         = targetIndex
             player.anilistID         = Int(entity.animes?.animeAnilistId ?? 0)
             player.episodeNumber     = self.currentEpisode
+            player.totalEpisodes     = self.animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+            // Hayase web mediahandler.svelte playEpisode(): when the target
+            // episode is not in the current batch, initiate a new search.
+            player.onEpisodeChange   = { [weak self] episode in
+                self?.handleEpisodeChangeFromPlayer(episode)
+            }
             player.modalPresentationStyle = .fullScreen
             player.modalTransitionStyle   = .crossDissolve
             self.present(player, animated: true)
@@ -850,6 +880,39 @@ final class ExtensionSearchViewController: UIViewController {
         pendingVideoService = nil
         pendingEntity = nil
         pendingHud = nil
+    }
+
+    /// Cancels the in-progress direct-to-player flow and removes the
+    /// torrent that was being prepared. Called when the user taps "Cancel"
+    /// on the preparing-playback HUD.
+    private func cancelPendingPlayback() {
+        // Grab the pending torrent handle before cleanup nils the service.
+        let handle = pendingVideoService?.torrentHandle
+        cleanupPendingState()
+        // Remove the torrent so it doesn't linger in the session (the user
+        // explicitly cancelled, so the download is unwanted).
+        if let handle {
+            TorrentService.sharedTorrentService.safeRemoveTorrent(handle, deleteFiles: true)
+        }
+    }
+
+    /// Called from the VideoPlayerViewController's `onEpisodeChange` callback
+    /// when the user taps next/prev and the target episode is NOT in the
+    /// current torrent batch. Dismisses the player, updates the episode, and
+    /// triggers a new extension search — mirroring the Hayase web interface's
+    /// `searchStore.set({ media, episode })` flow from mediahandler.svelte.
+    private func handleEpisodeChangeFromPlayer(_ episode: Int) {
+        // Close the mini-player if active (the old torrent's player).
+        MiniPlayerManager.shared.close()
+        // Dismiss the fullscreen player to return to this search screen.
+        dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            // Update episode and trigger a fresh search with auto-select.
+            self.currentEpisode = episode
+            self.episodeField.text = "\(episode)"
+            self.autoSelectAfterSearch = true
+            self.triggerSearch()
+        }
     }
 }
 

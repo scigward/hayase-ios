@@ -3,16 +3,213 @@ import AVKit
 import CoreMedia
 import LibTorrent
 
-// MARK: - FatSlider
+// MARK: - SegmentedSeekBar (interface seekbar.svelte)
 
-/// UISlider subclass with a larger touch target so the seekbar is easier to hit.
-private final class FatSlider: UISlider {
-    /// Extra vertical padding (each side) added to the slider's touch area.
-    private let verticalHitPadding: CGFloat = 20
+/// A chapter-segmented progress bar matching the Hayase web interface seekbar.svelte.
+/// Each chapter forms a separate rounded bar segment with small gaps between them.
+/// Replaces UISlider + chapterLayer for a faithful recreation of the web player.
+private final class SegmentedSeekBar: UIControl {
 
+    // MARK: - Public State
+
+    /// Current playback progress 0–1.
+    var value: CGFloat = 0 {
+        didSet { layoutSegmentFills() }
+    }
+
+    /// True while the user is touching/dragging the bar.
+    private(set) var isSeeking = false
+
+    // MARK: - Segments
+
+    private struct Segment {
+        let size: CGFloat   // fraction of total width (0–1)
+        let offset: CGFloat // start position fraction (0–1)
+    }
+
+    private var segments: [Segment] = [Segment(size: 1.0, offset: 0.0)]
+
+    // MARK: - UI
+
+    /// Each element: (container view, background layer, progress fill layer).
+    private var segmentViews: [(container: UIView, bg: CALayer, fill: CALayer)] = []
+
+    // MARK: - Constants (matching interface seekbar.svelte)
+
+    /// Bar height when not being touched (h-0.5 = 2px in interface CSS).
+    private let normalHeight: CGFloat = 2
+    /// Bar height when being touched (h-1 = 4px in interface CSS).
+    private let activeHeight: CGFloat = 4
+    /// Gap between chapter segments (ml-0.5 = 2px in interface CSS).
+    private let segmentGap: CGFloat = 2
+    /// Corner radius per segment (rounded-[2px] in interface CSS).
+    private let segmentRadius: CGFloat = 2
+    /// Background color: rgba(217,217,217,0.4) from interface.
+    private let bgColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.4)
+    /// Progress fill color: white from interface.
+    private let fillColor = UIColor.white
+
+    private var barHeight: CGFloat = 2
+
+    // MARK: - Init
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        rebuildSegmentViews()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    // MARK: - Chapter Updates
+
+    func setChapters(_ chapters: [MPVChapter], duration: Double) {
+        guard duration > 0 else {
+            segments = [Segment(size: 1.0, offset: 0.0)]
+            rebuildSegmentViews()
+            return
+        }
+
+        let sorted = chapters.sorted { $0.time < $1.time }
+        var newSegments: [Segment] = []
+
+        for (i, ch) in sorted.enumerated() {
+            let start = ch.time / duration
+            let end = i + 1 < sorted.count ? sorted[i + 1].time / duration : 1.0
+            let size = CGFloat(max(0, end - start))
+            if size > 0.001 {
+                newSegments.append(Segment(size: size, offset: CGFloat(start)))
+            }
+        }
+
+        if newSegments.isEmpty {
+            newSegments = [Segment(size: 1.0, offset: 0.0)]
+        }
+
+        segments = newSegments
+        rebuildSegmentViews()
+    }
+
+    // MARK: - Build Segment Views
+
+    private func rebuildSegmentViews() {
+        segmentViews.forEach { $0.container.removeFromSuperview() }
+        segmentViews = []
+
+        for _ in segments {
+            let container = UIView()
+            container.clipsToBounds = true
+            container.layer.cornerRadius = segmentRadius
+            container.isUserInteractionEnabled = false
+
+            let bg = CALayer()
+            bg.backgroundColor = bgColor.cgColor
+            container.layer.addSublayer(bg)
+
+            let fill = CALayer()
+            fill.backgroundColor = fillColor.cgColor
+            container.layer.addSublayer(fill)
+
+            addSubview(container)
+            segmentViews.append((container, bg, fill))
+        }
+        setNeedsLayout()
+    }
+
+    // MARK: - Layout
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutSegmentFrames()
+        layoutSegmentFills()
+    }
+
+    private func layoutSegmentFrames() {
+        let totalWidth = bounds.width
+        let gaps = segmentGap * CGFloat(max(0, segments.count - 1))
+        let usable = totalWidth - gaps
+        let cy = bounds.midY
+
+        var x: CGFloat = 0
+        for (i, seg) in segments.enumerated() {
+            guard i < segmentViews.count else { break }
+            let w = usable * seg.size
+            let (container, bg, _) = segmentViews[i]
+            container.frame = CGRect(x: x, y: cy - barHeight / 2, width: w, height: barHeight)
+            container.layer.cornerRadius = min(segmentRadius, barHeight / 2)
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bg.frame = container.bounds
+            CATransaction.commit()
+
+            x += w + segmentGap
+        }
+    }
+
+    private func layoutSegmentFills() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (i, seg) in segments.enumerated() {
+            guard i < segmentViews.count else { break }
+            let (container, _, fill) = segmentViews[i]
+            let localProgress = localFill(value, offset: seg.offset, size: seg.size)
+            fill.frame = CGRect(x: 0, y: 0, width: container.bounds.width * localProgress, height: container.bounds.height)
+        }
+        CATransaction.commit()
+    }
+
+    /// Maps a global progress fraction to a local fill within a segment.
+    private func localFill(_ global: CGFloat, offset: CGFloat, size: CGFloat) -> CGFloat {
+        guard size > 0 else { return 0 }
+        return min(max((global - offset) / size, 0), 1)
+    }
+
+    // MARK: - Touch Handling (UIControl)
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        isSeeking = true
+        value = fractionForTouch(touch)
+        animateHeight(activeHeight)
+        sendActions(for: .touchDown)
+        sendActions(for: .valueChanged)
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        value = fractionForTouch(touch)
+        sendActions(for: .valueChanged)
+        return true
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        if let t = touch { value = fractionForTouch(t) }
+        isSeeking = false
+        animateHeight(normalHeight)
+        sendActions(for: .touchUpInside)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        isSeeking = false
+        animateHeight(normalHeight)
+        sendActions(for: .touchCancel)
+    }
+
+    /// Expand the hit area vertically for easier touch targeting (matching FatSlider's 20pt).
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        let expanded = bounds.insetBy(dx: 0, dy: -verticalHitPadding)
-        return expanded.contains(point)
+        bounds.insetBy(dx: 0, dy: -20).contains(point)
+    }
+
+    private func fractionForTouch(_ touch: UITouch) -> CGFloat {
+        let x = touch.location(in: self).x
+        return min(max(x / max(bounds.width, 1), 0), 1)
+    }
+
+    private func animateHeight(_ h: CGFloat) {
+        guard barHeight != h else { return }
+        barHeight = h
+        UIView.animate(withDuration: 0.075) {
+            self.layoutSegmentFrames()
+        }
     }
 }
 
@@ -28,6 +225,17 @@ final class VideoPlayerViewController: UIViewController {
     var episodeNumber: Int = 0
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
+
+    /// Callback fired when the user taps next/prev and the target episode is
+    /// NOT in the current torrent batch. The presenting view controller should
+    /// dismiss the player and initiate a new extension search for `episode`.
+    /// Mirrors Hayase web's `playEpisode()` → `searchStore.set({ media, episode })`.
+    var onEpisodeChange: ((_ episode: Int) -> Void)?
+
+    /// Total number of episodes for this anime (from AniList metadata).
+    /// Used to determine whether next/prev buttons should be enabled when the
+    /// target episode is outside the current `allVideos` batch.
+    var totalEpisodes: Int = 0
 
     // MARK: - Player components
 
@@ -68,8 +276,7 @@ final class VideoPlayerViewController: UIViewController {
     private let timeLabel     = UILabel()
 
     // Bottom bar — seekbar row
-    private let seekBar       = FatSlider()
-    private let chapterLayer  = UIView()
+    private let seekBar       = SegmentedSeekBar()
 
     // Bottom bar — controls row
     private let prevButton      = UIButton(type: .system)
@@ -110,6 +317,10 @@ final class VideoPlayerViewController: UIViewController {
     /// delay ensures the seek works for both local files and HTTP streams (where
     /// MPV can take several seconds to buffer enough data to start playback).
     private var pendingRestoreTime: Double?
+    /// Throttle watch-progress saves to avoid writing UserDefaults on every
+    /// position callback. Saves every 5 seconds during active playback.
+    private var lastProgressSaveTime: Date = .distantPast
+
     /// True while the player is being minimized to in-app PiP. Prevents
     /// viewWillDisappear from tearing down the streaming pipeline.
     var isMinimizing = false
@@ -341,22 +552,12 @@ final class VideoPlayerViewController: UIViewController {
         timeLabel.layer.shadowRadius = 3
         bottomBar.addSubview(timeLabel)
 
-        // --- Row 2: Seekbar (full width) ---
+        // --- Row 2: Seekbar (full width, chapter-segmented — matching interface seekbar.svelte) ---
         seekBar.translatesAutoresizingMaskIntoConstraints = false
-        seekBar.minimumValue = 0
-        seekBar.maximumValue = 1
-        seekBar.minimumTrackTintColor = .white
-        seekBar.maximumTrackTintColor = UIColor(white: 0.85, alpha: 0.4) // rgba(217,217,217,0.4)
-        seekBar.setThumbImage(UIImage(), for: .normal)   // No visible thumb at rest — Hayase uses bar only
-        seekBar.setThumbImage(circleThumb(diameter: 14), for: .highlighted)
         seekBar.addTarget(self, action: #selector(seekBegan),   for: .touchDown)
         seekBar.addTarget(self, action: #selector(seekChanged), for: .valueChanged)
         seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside])
         bottomBar.addSubview(seekBar)
-
-        chapterLayer.translatesAutoresizingMaskIntoConstraints = false
-        chapterLayer.isUserInteractionEnabled = false
-        bottomBar.addSubview(chapterLayer)
 
         // --- Row 3: Controls ---
         // Left side: play/pause, prev, next
@@ -376,8 +577,16 @@ final class VideoPlayerViewController: UIViewController {
         nextButton.addTarget(self,      action: #selector(nextTapped),      for: .touchUpInside)
         optionsButton.addTarget(self,   action: #selector(optionsTapped),   for: .touchUpInside)
 
-        prevButton.isEnabled  = allVideos.count > 1 && currentVideoIndex > 0
-        nextButton.isEnabled  = allVideos.count > 1 && currentVideoIndex < allVideos.count - 1
+        // Initial enable state mirrors loadVideoURL() logic — use episode bounds
+        // rather than just allVideos array bounds so buttons are correct even
+        // before MPV starts (important for mini-player restore where viewDidLoad
+        // runs immediately via `_ = player.view`).
+        prevButton.isEnabled  = episodeNumber > 1
+        if totalEpisodes > 0 {
+            nextButton.isEnabled = episodeNumber < totalEpisodes
+        } else {
+            nextButton.isEnabled = true
+        }
 
         let leftStack = UIStackView(arrangedSubviews: [playPauseButton, prevButton, nextButton])
         leftStack.translatesAutoresizingMaskIntoConstraints = false
@@ -431,11 +640,6 @@ final class VideoPlayerViewController: UIViewController {
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
             seekBar.heightAnchor.constraint(equalToConstant: 32),
-
-            chapterLayer.leadingAnchor.constraint(equalTo: seekBar.leadingAnchor),
-            chapterLayer.trailingAnchor.constraint(equalTo: seekBar.trailingAnchor),
-            chapterLayer.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
-            chapterLayer.heightAnchor.constraint(equalToConstant: 4),
 
             // Row 3: controls
             leftStack.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
@@ -635,8 +839,8 @@ final class VideoPlayerViewController: UIViewController {
                 ["set", "demuxer-max-back-bytes", "50MiB"],
                 ["set", "network-timeout", "600"],
             ])
-        } else if path.starts(with: "http") {
-            url = URL(string: path)!
+        } else if path.starts(with: "http"), let httpURL = URL(string: path) {
+            url = httpURL
             preset = PlayerPreset()
         } else {
             url = URL(fileURLWithPath: path)
@@ -654,8 +858,23 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase episodesmodal.svelte: title = anime name, description = episode info
         titleLabel.text = animeTitleText()
         episodeLabel.text = episodeDescriptionText()
-        prevButton.isEnabled = currentVideoIndex > 0
-        nextButton.isEnabled = currentVideoIndex < allVideos.count - 1
+        // Hayase mediahandler.svelte: hasPrev = episode > 1; hasNext = episode < totalEps.
+        // Enable buttons based on episode bounds, not just allVideos array bounds.
+        // When onEpisodeChange is set, out-of-batch navigation triggers a new search.
+        let canGoPrev = episodeNumber > 1
+        let canGoNext: Bool
+        if totalEpisodes > 0 {
+            canGoNext = episodeNumber < totalEpisodes
+        } else {
+            // Unknown total (ongoing anime like One Piece where AniList returns
+            // episodes: nil). The web interface's episodes() helper falls back to
+            // the latest aired episode from schedule data — iOS doesn't have that,
+            // so always allow next navigation. There's always potentially a next
+            // episode for an ongoing series.
+            canGoNext = true
+        }
+        prevButton.isEnabled = canGoPrev
+        nextButton.isEnabled = canGoNext
         restoreProgress(path: path)
         startStatsTimer()
     }
@@ -845,7 +1064,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func setControls(visible: Bool) {
         controlsVisible = visible
-        UIView.animate(withDuration: 0.25) { self.overlay.alpha = visible ? 1 : 0 }
+        UIView.animate(withDuration: 0.25) { [weak self] in self?.overlay.alpha = visible ? 1 : 0 }
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         if visible { scheduleHide() }
@@ -855,7 +1074,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func updateTimeUI() {
         guard !isSeeking else { return }
-        seekBar.value = duration > 0 ? Float(currentTime / duration) : 0
+        seekBar.value = duration > 0 ? CGFloat(currentTime / duration) : 0
         // Hayase format: "current / total" or "-remaining / total"
         if showRemainingTime {
             timeLabel.text = "-\(fmtTime(max(0, duration - currentTime))) / \(fmtTime(duration))"
@@ -878,22 +1097,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func updateChapterMarkers() {
-        chapterLayer.subviews.forEach { $0.removeFromSuperview() }
-        guard duration > 0, chapterLayer.bounds.width > 0 else { return }
-        for ch in chapters {
-            let x = CGFloat(ch.time / duration) * chapterLayer.bounds.width
-            let tick = UIView(frame: CGRect(x: x - 1, y: 0, width: 2, height: 4))
-            tick.backgroundColor = UIColor.white.withAlphaComponent(0.8)
-            chapterLayer.addSubview(tick)
-        }
-    }
-
-    private func circleThumb(diameter: CGFloat) -> UIImage {
-        let r = UIGraphicsImageRenderer(size: CGSize(width: diameter, height: diameter))
-        return r.image { ctx in
-            UIColor.white.setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: diameter, height: diameter))
-        }
+        seekBar.setChapters(chapters, duration: duration)
     }
 
     // MARK: - Actions
@@ -915,16 +1119,63 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func prevTapped() {
-        guard currentVideoIndex > 0 else { return }
+        let targetEpisode = episodeNumber - 1
+        guard targetEpisode >= 1 else { return }
         saveProgress()
+
+        // Hayase web mediahandler.svelte playEpisode(): first check if the
+        // target episode exists in the current torrent batch (resolvedFiles).
+        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
+            switchToVideo(batchVideo, episode: targetEpisode)
+        } else {
+            // Episode not in batch → trigger new extension search.
+            // Mirrors web's `searchStore.set({ media, episode })`.
+            requestEpisodeChange(targetEpisode)
+        }
+    }
+
+    @objc private func nextTapped() {
+        let targetEpisode = episodeNumber + 1
+        let maxEp = totalEpisodes > 0 ? totalEpisodes : Int.max
+        guard targetEpisode <= maxEp else { return }
+        saveProgress()
+
+        // Hayase web mediahandler.svelte playEpisode(): first check if the
+        // target episode exists in the current torrent batch (resolvedFiles).
+        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
+            switchToVideo(batchVideo, episode: targetEpisode)
+        } else {
+            // Episode not in batch → trigger new extension search.
+            requestEpisodeChange(targetEpisode)
+        }
+    }
+
+    /// Finds a video in the current `allVideos` batch that matches the
+    /// target episode. For batch torrents this checks adjacent indices.
+    /// Mirrors web's `resolvedFiles.find(res => res.metadata.episode === episode)`.
+    private func findVideoInBatch(forEpisode targetEp: Int) -> (video: Videos, index: Int)? {
+        // For batch torrents, episodes are stored sequentially.
+        // The episode offset for a given video at array index `i` is:
+        //   episodeNumber - currentVideoIndex + i
+        // i.e. the same relationship that was used: episodeNumber = currentVideoIndex + 1
+        // But this only works if episodes map 1:1 to array indices starting from 1.
+        // More robust: check if moving by (targetEp - episodeNumber) stays in bounds.
+        let delta = targetEp - episodeNumber
+        let targetIndex = currentVideoIndex + delta
+        guard targetIndex >= 0 && targetIndex < allVideos.count else { return nil }
+        return (allVideos[targetIndex], targetIndex)
+    }
+
+    /// Switches to a different video file within the same torrent batch.
+    /// Called when the target episode IS found in `allVideos`.
+    private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int) {
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
         streamer = nil
-        currentVideoIndex -= 1
-        guard currentVideoIndex < allVideos.count else { return }
-        videoEntity = allVideos[currentVideoIndex]
-        episodeNumber = currentVideoIndex + 1
+        currentVideoIndex = match.index
+        videoEntity = match.video
+        episodeNumber = episode
         if let idx = videoEntity?.videoIndex {
             fileIndex = UInt(idx.intValue)
             videoService?.selectFileForStreaming(fileIndex)
@@ -935,25 +1186,13 @@ final class VideoPlayerViewController: UIViewController {
         scheduleHide()
     }
 
-    @objc private func nextTapped() {
-        guard currentVideoIndex < allVideos.count - 1 else { return }
-        saveProgress()
-        streamServer?.stop()
-        streamServer = nil
-        streamer?.stop()
-        streamer = nil
-        currentVideoIndex += 1
-        guard currentVideoIndex < allVideos.count else { return }
-        videoEntity = allVideos[currentVideoIndex]
-        episodeNumber = currentVideoIndex + 1
-        if let idx = videoEntity?.videoIndex {
-            fileIndex = UInt(idx.intValue)
-            videoService?.selectFileForStreaming(fileIndex)
-            videoService?.UpdateFilePathForFileIndex(fileIndex)
+    /// Requests an episode change for an episode NOT in the current batch.
+    /// Saves progress, then fires `onEpisodeChange` so the presenting VC
+    /// can dismiss the player and start a new search.
+    private func requestEpisodeChange(_ episode: Int) {
+        if let callback = onEpisodeChange {
+            callback(episode)
         }
-        duration = 0; currentTime = 0
-        loadCurrentVideo()
-        scheduleHide()
     }
 
     @objc private func toggleTimeFormat() {
@@ -972,6 +1211,10 @@ final class VideoPlayerViewController: UIViewController {
             timeLabel.text = "-\(fmtTime(max(0, duration - t))) / \(fmtTime(duration))"
         } else {
             timeLabel.text = "\(fmtTime(t)) / \(fmtTime(duration))"
+        }
+        // Update chapter label during seeking
+        if let ch = chapters.last(where: { $0.time <= t }) {
+            chapterLabel.text = ch.title
         }
     }
 
@@ -995,7 +1238,7 @@ final class VideoPlayerViewController: UIViewController {
 
     @objc private func speedLabelTapped() {
         hideWork?.cancel()
-        showSpeedPicker()
+        showOptionsSheet()
     }
 
     /// Updates the speed label text. Hayase shows "x1.5" only when rate ≠ 1.
@@ -1007,125 +1250,107 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
-    // MARK: - Options sheet
+    // MARK: - Options sheet (Hayase options.svelte — tree-style menu)
 
     private func showOptionsSheet() {
-        let sheet = UIAlertController(title: "Options", message: nil, preferredStyle: .actionSheet)
+        // Re-read tracks from MPV so isSelected reflects the current state
+        // (didBecomeTracksReady only fires on track-list/count changes,
+        //  not when the user switches between existing tracks).
+        var freshTracks: [MPVTrack] = []
+        for s in surface.mpv.getSubtitleTracks() {
+            if let id = s["id"] as? Int {
+                freshTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
+            }
+        }
+        for a in surface.mpv.getAudioTracks() {
+            if let id = a["id"] as? Int {
+                freshTracks.append(MPVTrack(id: id, type: "audio", title: a["title"] as? String, lang: a["lang"] as? String, isSelected: a["selected"] as? Bool ?? false))
+            }
+        }
+        self.tracks = freshTracks
 
-        let subs = tracks.filter { $0.type == "sub" }
-        if !subs.isEmpty {
-            sheet.addAction(UIAlertAction(title: "Subtitles", style: .default) { [weak self] _ in
-                self?.showTrackPicker(type: "sub", tracks: subs)
-            })
+        let optionsVC = PlayerOptionsController()
+        optionsVC.modalPresentationStyle = .overFullScreen
+        optionsVC.modalTransitionStyle = .crossDissolve
+
+        // Populate data
+        optionsVC.audioTracks = freshTracks.filter { $0.type == "audio" }
+        optionsVC.subtitleTracks = freshTracks.filter { $0.type == "sub" }
+        optionsVC.chapters = chapters
+        optionsVC.currentSpeed = playbackRate
+        optionsVC.subtitleDelay = subtitleDelay
+        optionsVC.isDebandActive = UserDefaults.standard.bool(forKey: "pref_deband")
+        optionsVC.allVideos = allVideos
+        optionsVC.currentVideoEntity = videoEntity
+
+        if #available(iOS 15.0, *) {
+            optionsVC.isPiPActive = pipController?.isPictureInPictureActive ?? false
         }
 
-        let audio = tracks.filter { $0.type == "audio" }
-        if audio.count > 1 {
-            sheet.addAction(UIAlertAction(title: "Audio Track", style: .default) { [weak self] _ in
-                self?.showTrackPicker(type: "audio", tracks: audio)
-            })
+        // Wire callbacks
+        optionsVC.onSelectAudioTrack = { [weak self] trackId in
+            self?.surface.mpv.setAudioTrack(trackId)
         }
 
-        sheet.addAction(UIAlertAction(title: "Speed: \(String(format: "%gx", playbackRate))", style: .default) { [weak self] _ in
-            self?.showSpeedPicker()
-        })
-
-        // NOTE: Streamyfin's renderer doesn't expose setProperty publicly.
-        // If you make commandSync / setProperty public in MPVLayerRenderer, you can uncomment these.
-        /*
-        sheet.addAction(UIAlertAction(title: "Sub Delay: \(String(format: "%.1fs", subtitleDelay))", style: .default) { [weak self] _ in
-            self?.showSubDelayAlert()
-        })
-         
-        sheet.addAction(UIAlertAction(title: "Screenshot", style: .default) { [weak self] _ in
-             // Requires adding a public screenshot() func to MPVLayerRenderer calling: commandSync(handle, ["screenshot", "subtitles"])
-             self?.scheduleHide()
-        })
-        */
-
-        if !chapters.isEmpty {
-            sheet.addAction(UIAlertAction(title: "Chapters", style: .default) { [weak self] _ in
-                self?.showChapterPicker()
-            })
+        optionsVC.onSelectSubtitleTrack = { [weak self] trackId in
+            self?.surface.mpv.setSubtitleTrack(trackId)
         }
 
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+        optionsVC.onSetSpeed = { [weak self] rate in
+            guard let self else { return }
+            self.playbackRate = rate
+            self.surface.mpv.setSpeed(rate)
+            self.updateSpeedLabel()
+        }
+
+        optionsVC.onSeekTo = { [weak self] time in
+            self?.surface.mpv.seek(to: time)
+        }
+
+        optionsVC.onSwitchVideo = { [weak self] video in
+            guard let self else { return }
+            if let idx = self.allVideos.firstIndex(of: video), idx != self.currentVideoIndex {
+                let targetEpisode = self.episodeNumber + (idx - self.currentVideoIndex)
+                self.switchToVideo((video: video, index: idx), episode: targetEpisode)
+            }
+        }
+
+        optionsVC.onToggleDeband = { [weak self] in
+            let current = UserDefaults.standard.bool(forKey: "pref_deband")
+            let newValue = !current
+            UserDefaults.standard.set(newValue, forKey: "pref_deband")
+            self?.surface.mpv.setDeband(newValue)
+        }
+
+        optionsVC.onTogglePiP = { [weak self] in
+            guard let self else { return }
+            if #available(iOS 15.0, *) {
+                if self.pipController?.isPictureInPictureActive ?? false {
+                    self.pipController?.stopPictureInPicture()
+                } else {
+                    self.pipController?.startPictureInPicture()
+                }
+            }
+        }
+
+        optionsVC.onSubtitleDelayChanged = { [weak self] delay in
+            self?.subtitleDelay = delay
+            self?.surface.mpv.setSubtitleDelay(delay)
+        }
+
+        optionsVC.onDismiss = { [weak self] in
             self?.scheduleHide()
-        })
-
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = optionsButton
-            pop.sourceRect = optionsButton.bounds
         }
-        present(sheet, animated: true)
+
+        present(optionsVC, animated: true)
     }
 
-    private func showTrackPicker(type: String, tracks: [MPVTrack]) {
-        let title = type == "sub" ? "Subtitles" : "Audio"
-        let picker = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        if type == "sub" {
-            picker.addAction(UIAlertAction(title: "Off", style: .default) { [weak self] _ in
-                self?.surface.mpv.setSubtitleTrack(0)
-                self?.scheduleHide()
-            })
-        }
-        for track in tracks {
-            let mark = track.isSelected ? "✓ " : ""
-            picker.addAction(UIAlertAction(title: mark + track.displayName, style: .default) { [weak self] _ in
-                if type == "sub" { self?.surface.mpv.setSubtitleTrack(track.id) }
-                else             { self?.surface.mpv.setAudioTrack(track.id) }
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func showSpeedPicker() {
-        let speeds: [(String, Double)] = [
-            ("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
-            ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0),
-        ]
-        let picker = UIAlertController(title: "Playback Speed", message: nil, preferredStyle: .actionSheet)
-        for (label, rate) in speeds {
-            let mark = rate == playbackRate ? "✓ " : ""
-            picker.addAction(UIAlertAction(title: mark + label, style: .default) { [weak self] _ in
-                self?.playbackRate = rate
-                self?.surface.mpv.setSpeed(rate)
-                self?.updateSpeedLabel()
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func showChapterPicker() {
-        let picker = UIAlertController(title: "Chapters", message: nil, preferredStyle: .actionSheet)
-        for ch in chapters {
-            picker.addAction(UIAlertAction(title: "\(fmtTime(ch.time))  \(ch.title)", style: .default) { [weak self] _ in
-                self?.surface.mpv.seek(to: ch.time)
-                self?.scheduleHide()
-            })
-        }
-        picker.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.scheduleHide() })
-        popoverCentre(picker)
-        present(picker, animated: true)
-    }
-
-    private func popoverCentre(_ vc: UIAlertController) {
-        if let pop = vc.popoverPresentationController {
-            pop.sourceView = view
-            pop.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-            pop.permittedArrowDirections = []
-        }
-    }
-    
-    // Auto-plays next episode
+    // Auto-plays next episode (Hayase web: next() called at EOF)
     private func handleFileEnded() {
-        guard currentVideoIndex < allVideos.count - 1 else { return }
+        // Use the same logic as nextTapped — tries in-batch first, then
+        // falls back to onEpisodeChange for a new extension search.
+        let maxEp = totalEpisodes > 0 ? totalEpisodes : Int.max
+        guard episodeNumber + 1 <= maxEp else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
     }
 }
@@ -1167,6 +1392,16 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
         // Check auto-completion (Hayase player.svelte checkCompletion)
         checkCompletion()
+
+        // Periodically save watch progress so it survives crashes / force-quits.
+        // Throttled to once every 5 seconds to avoid excessive UserDefaults writes.
+        if duration > 0, position > 0 {
+            let now = Date()
+            if now.timeIntervalSince(lastProgressSaveTime) >= 5.0 {
+                lastProgressSaveTime = now
+                saveProgress()
+            }
+        }
 
         // Emulating EOF (Streamyfin's renderer doesn't natively expose an EOF event).
         // Guard against false EOF triggers after a seek: when the server serves
@@ -1238,9 +1473,80 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             }
         }
         self.tracks = newTracks
+
+        // Auto-select preferred audio/subtitle tracks from Language Settings.
+        // Reads pref_audioLanguage / pref_subtitleLanguage set in Settings → Player.
+        applyPreferredLanguages(renderer: renderer, tracks: newTracks)
     }
 
+    /// Selects audio and subtitle tracks whose language matches the user's
+    /// preferred languages (Settings → Player → Language Settings).
+    /// Language codes in preferences are ISO 639-2/B (e.g. "eng", "jpn");
+    /// track codes from MPV may be 2-letter ISO 639-1 ("en", "ja") or
+    /// 3-letter. We normalise both sides via `Locale` for reliable matching.
+    private func applyPreferredLanguages(renderer: MPVWrapper, tracks: [MPVTrack]) {
+        let defaults = UserDefaults.standard
+        let prefAudio = defaults.string(forKey: "pref_audioLanguage") ?? "jpn"
+        let prefSub   = defaults.string(forKey: "pref_subtitleLanguage") ?? "eng"
+
+        // Audio — pick first track whose language matches the preference
+        if !prefAudio.isEmpty {
+            let audioTracks = tracks.filter { $0.type == "audio" }
+            if let match = audioTracks.first(where: { languageCodesMatch($0.lang, prefAudio) }),
+               !match.isSelected {
+                renderer.setAudioTrack(match.id)
+            }
+        }
+
+        // Subtitle — pick first track whose language matches; empty pref = OFF
+        if prefSub.isEmpty {
+            // "None" selected in settings → disable subtitles
+            let hasSub = tracks.contains { $0.type == "sub" && $0.isSelected }
+            if hasSub { renderer.disableSubtitles() }
+        } else {
+            let subTracks = tracks.filter { $0.type == "sub" }
+            if let match = subTracks.first(where: { languageCodesMatch($0.lang, prefSub) }),
+               !match.isSelected {
+                renderer.setSubtitleTrack(match.id)
+            }
+        }
+    }
+
+    /// Returns `true` when two language identifiers refer to the same language.
+    /// Handles mixed ISO 639-1 / 639-2 codes (e.g. "en" vs "eng", "ja" vs "jpn").
+    private func languageCodesMatch(_ trackLang: String?, _ prefLang: String) -> Bool {
+        guard let trackLang = trackLang, !trackLang.isEmpty else { return false }
+        if trackLang == prefLang { return true }
+        // Normalise both to ISO 639-1 (2-letter) for comparison
+        let trackNorm = Self.iso639to1[trackLang] ?? trackLang
+        let prefNorm  = Self.iso639to1[prefLang]  ?? prefLang
+        return trackNorm == prefNorm
+    }
+
+    /// ISO 639-2/B → ISO 639-1 mapping for languages supported in
+    /// Settings → Player → Language Settings.
+    /// Includes both bibliographic (639-2/B) and terminology (639-2/T) variants
+    /// where they differ (e.g. "idn"/"ind" both → "id").
+    private static let iso639to1: [String: String] = [
+        "eng": "en",  "jpn": "ja",  "chi": "zh",  "zho": "zh",
+        "por": "pt",  "spa": "es",  "ger": "de",  "deu": "de",
+        "pol": "pl",  "cze": "cs",  "ces": "cs",  "dan": "da",
+        "gre": "el",  "ell": "el",  "fin": "fi",  "fre": "fr",
+        "fra": "fr",  "hun": "hu",  "ita": "it",  "kor": "ko",
+        "dut": "nl",  "nld": "nl",  "nor": "no",  "rum": "ro",
+        "ron": "ro",  "rus": "ru",  "slo": "sk",  "slk": "sk",
+        "swe": "sv",  "ara": "ar",  "idn": "id",  "ind": "id",
+        "heb": "he",  "vie": "vi",  "tha": "th",  "tur": "tr",
+        "hin": "hi",  "ben": "bn",  "per": "fa",  "fas": "fa",
+        "mal": "ml",
+    ]
+
     func renderer(_ renderer: MPVWrapper, didSelectAudioOutput audioOutput: String) { }
+
+    func renderer(_ renderer: MPVWrapper, didBecomeChaptersReady chapters: [MPVChapter]) {
+        self.chapters = chapters
+        updateChapterMarkers()
+    }
 
     // MARK: - Mini-player support (Hayase wrapper.svelte)
 

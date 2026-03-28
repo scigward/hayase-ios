@@ -199,12 +199,18 @@ final class EntryEditorViewController: UIViewController {
         }
         contentStack.addArrangedSubview(fieldsContainer)
 
-        // Buttons container (px-4 py-3 gap-3)
-        let buttonsContainer = UIView()
+        // Buttons container (px-4 py-3 gap-3) — use UIStackView so hidden button
+        // collapses automatically without leaving dead space
+        let buttonsStack = UIStackView()
+        buttonsStack.axis = .vertical
+        buttonsStack.spacing = 12
+        buttonsStack.translatesAutoresizingMaskIntoConstraints = false
         [saveButton, cancelButton, deleteButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            buttonsContainer.addSubview($0)
+            buttonsStack.addArrangedSubview($0)
         }
+        let buttonsContainer = UIView()
+        buttonsContainer.addSubview(buttonsStack)
         contentStack.addArrangedSubview(buttonsContainer)
 
         // Actions
@@ -276,22 +282,15 @@ final class EntryEditorViewController: UIViewController {
             repeatField.heightAnchor.constraint(equalToConstant: 40),
             repeatField.bottomAnchor.constraint(equalTo: fieldsContainer.bottomAnchor, constant: -12),
 
-            // Buttons: vertical stack, px-4 py-3 gap-3
-            saveButton.topAnchor.constraint(equalTo: buttonsContainer.topAnchor, constant: 12),
-            saveButton.leadingAnchor.constraint(equalTo: buttonsContainer.leadingAnchor, constant: 16),
-            saveButton.trailingAnchor.constraint(equalTo: buttonsContainer.trailingAnchor, constant: -16),
+            // Buttons: vertical stack via UIStackView, px-4 py-3
+            buttonsStack.topAnchor.constraint(equalTo: buttonsContainer.topAnchor, constant: 12),
+            buttonsStack.leadingAnchor.constraint(equalTo: buttonsContainer.leadingAnchor, constant: 16),
+            buttonsStack.trailingAnchor.constraint(equalTo: buttonsContainer.trailingAnchor, constant: -16),
+            buttonsStack.bottomAnchor.constraint(equalTo: buttonsContainer.bottomAnchor, constant: -16),
+
             saveButton.heightAnchor.constraint(equalToConstant: 40),
-
-            cancelButton.topAnchor.constraint(equalTo: saveButton.bottomAnchor, constant: 12),
-            cancelButton.leadingAnchor.constraint(equalTo: buttonsContainer.leadingAnchor, constant: 16),
-            cancelButton.trailingAnchor.constraint(equalTo: buttonsContainer.trailingAnchor, constant: -16),
             cancelButton.heightAnchor.constraint(equalToConstant: 40),
-
-            deleteButton.topAnchor.constraint(equalTo: cancelButton.bottomAnchor, constant: 12),
-            deleteButton.leadingAnchor.constraint(equalTo: buttonsContainer.leadingAnchor, constant: 16),
-            deleteButton.trailingAnchor.constraint(equalTo: buttonsContainer.trailingAnchor, constant: -16),
             deleteButton.heightAnchor.constraint(equalToConstant: 40),
-            deleteButton.bottomAnchor.constraint(equalTo: buttonsContainer.bottomAnchor, constant: -16),
         ])
     }
 

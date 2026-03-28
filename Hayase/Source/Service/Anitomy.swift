@@ -283,12 +283,17 @@ final class KeywordManager {
             ["ED", "ENDING", "NCED", "NCOP", "OP", "OPENING", "PREVIEW", "PV"])
 
         add(.audioTerm, optDefault, [
-            "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH", "DTS", "DTS-ES", "DTS5.1",
+            "2.0CH", "2CH", "5.1", "5.1CH", "7.1", "7.1CH",
+            "DTS", "DTS-ES", "DTS5.1", "DD5.1", "DD2.0",
+            "DDP", "DDP5.1", "DDP2.0",
             "DOLBY TRUEHD", "TRUEHD", "TRUEHD5.1",
-            "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3",
+            "AAC", "AACX2", "AACX3", "AACX4", "AC3", "EAC3", "E-AC-3", "E-AC3",
             "FLAC", "FLACX2", "FLACX3", "FLACX4", "LOSSLESS", "MP3", "OGG",
             "VORBIS", "ATMOS", "DOLBY ATMOS",
-            "DUALAUDIO", "DUAL AUDIO"])
+            "DUALAUDIO", "DUAL AUDIO", "MULTIAUDIO", "MULTI AUDIO",
+            "DUB", "DUBBED", "DUBS",
+            "CHIDUB", "CHINESE DUB", "ENGDUB", "ENGLISH DUB",
+            "GERDUB", "GERMAN DUB", "JAPDUB", "JAPANESE DUB", "KOREAN DUB"])
         add(.audioTerm, optUnidentifiable, ["OPUS"])
 
         add(.deviceCompatibility, optDefault,
@@ -301,45 +306,53 @@ final class KeywordManager {
         add(.episodePrefix, optInvalid, ["E", "\u{7B2C}"])
 
         add(.fileExtension, optDefault,
-            ["3GP", "AVI", "DIVX", "FLV", "M2TS", "MKV", "MOV", "MP4", "MPG",
+            ["3GP", "AVI", "DIVX", "FLV", "M2TS", "M4V", "MKV", "MOV", "MP4", "MPG",
              "OGM", "RM", "RMVB", "TS", "WEBM", "WMV"])
         add(.fileExtension, optInvalid,
             ["AAC", "AIFF", "FLAC", "M4A", "MP3", "MKA", "OGG", "WAV", "WMA",
              "7Z", "RAR", "ZIP", "ASS", "SRT"])
 
         add(.language, optDefault,
-            ["ENG", "ENGLISH", "ESPANOL", "JAP", "PT-BR", "SPANISH", "VOSTFR"])
+            ["ENG", "ENGLISH", "ESPANOL", "JAP", "JPN", "PT-BR", "SPANISH", "VOSTFR",
+             "CHS", "CHT"])
         add(.language, optUnidentifiable, ["ESP", "ITA"])
 
         add(.other, optDefault,
             ["REMASTER", "REMASTERED", "UNCENSORED", "UNCUT",
              "TS", "VFR", "WIDESCREEN", "WS"])
 
-        add(.releaseGroup, optDefault, ["THORA"])
+        add(.releaseGroup, optDefault, ["THORA", "0X539", "VARYG"])
 
-        add(.releaseInformation, optDefault, ["BATCH", "COMPLETE", "PATCH", "REMUX"])
+        add(.releaseInformation, optDefault, ["BATCH", "COMPLETE", "PATCH", "REMUX", "REPACK"])
         add(.releaseInformation, optUnidentifiable, ["END", "FINAL"])
 
         add(.releaseVersion, optDefault, ["V0", "V1", "V2", "V3", "V4"])
 
         add(.source, optDefault, [
-            "BD", "BDRIP", "BLURAY", "BLU-RAY",
-            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDRIP", "DVD-RIP",
+            "BD", "BDRIP", "BLURAY", "BLU-RAY", "BLU RAY",
+            "DVD", "DVD5", "DVD9", "DVD-R2J", "DVDISO", "DVDRIP", "DVD-RIP", "DVD RIP",
             "R2DVD", "R2J", "R2JDVD", "R2JDVDRIP",
-            "HDTV", "HDTVRIP", "TVRIP", "TV-RIP",
-            "WEBCAST", "WEBRIP"])
+            "HDTV", "HDTVRIP", "TVRIP", "TV-RIP", "TV RIP",
+            "WEBCAST", "WEBDL", "WEB DL", "WEBRIP",
+            "ADN", "AMZN", "BILI", "BILIBILI", "CR", "CRUNCHYROLL",
+            "DSNP", "FUNI", "FUNIMATION", "HIDI", "HIDIVE",
+            "HULU", "NETFLIX", "NF", "VRV", "YOUTUBE"])
+        add(.source, optUnidentifiable, ["WEB"])
 
         add(.subtitles, optDefault, [
-            "ASS", "BIG5", "DUB", "DUBBED", "HARDSUB", "HARDSUBS", "RAW",
+            "ASS", "BIG5", "HARDSUB", "HARDSUBS", "RAW",
             "SOFTSUB", "SOFTSUBS", "SUB", "SUBBED", "SUBTITLED",
-            "MULTISUB", "MULTI SUB"])
+            "MULTISUB", "MULTI SUB", "MULTI SUBS", "MULTIPLE SUBTITLE",
+            "ENGSUB", "ENGSUBS", "GERSUB"])
 
         add(.videoTerm, optDefault, [
             "23.976FPS", "24FPS", "29.97FPS", "30FPS", "60FPS", "120FPS",
-            "8BIT", "8-BIT", "10BIT", "10BITS", "10-BIT", "10-BITS",
+            "8BIT", "8BITS", "8-BIT", "8 BIT", "8 BITS",
+            "10BIT", "10BITS", "10-BIT", "10-BITS", "10 BIT", "10 BITS",
             "HI10", "HI10P", "HI444", "HI444P", "HI444PP",
-            "HDR", "DV", "DOLBY VISION",
-            "H264", "H265", "H.264", "H.265", "X264", "X265", "X.264",
+            "HDR", "HDR10", "DV", "DOLBY VISION",
+            "H264", "H265", "H.264", "H.265", "H 264", "H 265",
+            "X264", "X265", "X.264", "X 264", "X 265",
             "AVC", "HEVC", "HEVC2", "DIVX", "DIVX5", "DIVX6", "XVID",
             "AV1",
             "AVI", "RMVB", "WMV", "WMV3", "WMV9",
@@ -359,6 +372,16 @@ final class KeywordManager {
             } else {
                 if keys[keyword] == nil {
                     keys[keyword] = Keyword(category: category, options: options)
+                }
+                // C++ develop: auto-generate _, ., - variants of multi-word keywords
+                // e.g. "DUAL AUDIO" → "DUAL_AUDIO", "DUAL.AUDIO", "DUAL-AUDIO"
+                if keyword.contains(" ") {
+                    for delim: Character in ["_", ".", "-"] {
+                        let variant = keyword.replacingOccurrences(of: " ", with: String(delim))
+                        if keys[variant] == nil {
+                            keys[variant] = Keyword(category: category, options: options)
+                        }
+                    }
                 }
             }
         }
@@ -394,11 +417,20 @@ final class KeywordManager {
 
     /// Pre-identify known multi-word keywords inside a range of the filename.
     func peek(filename: String, range: TokenRange, elements: AnitomyElements, preidentified: inout [TokenRange]) {
+        // Longer keywords MUST come before shorter ones to avoid partial matches.
+        // e.g. "10 bits" must be checked before "10 bit".
         let entries: [(ElementCategory, [String])] = [
-            (.audioTerm, ["Dual Audio"]),
-            (.videoTerm, ["H264", "H.264", "h264", "h.264"]),
-            (.videoResolution, ["480p", "720p", "1080p", "2160p"]),
-            (.source, ["Blu-Ray"]),
+            (.audioTerm, ["Dolby TrueHD", "Dolby Atmos",
+                          "Japanese Dub", "Chinese Dub", "English Dub", "German Dub", "Korean Dub",
+                          "Multi Audio", "Dual Audio"]),
+            (.videoTerm, ["Dolby Vision",
+                          "H.264", "h.264", "H.265", "h.265",
+                          "H 264", "H 265", "X 264", "X 265",
+                          "H264", "h264", "H265", "h265",
+                          "10 bits", "10 bit", "8 bits", "8 bit"]),
+            (.videoResolution, ["2160p", "1440p", "1080p", "720p", "480p"]),
+            (.source, ["Blu-Ray", "Blu Ray", "DVD Rip", "TV Rip", "Web DL"]),
+            (.subtitles, ["Multiple Subtitle", "Multi Subs", "Multi Sub"]),
         ]
 
         let startIdx = filename.index(filename.startIndex, offsetBy: range.offset)
@@ -407,7 +439,7 @@ final class KeywordManager {
 
         for entry in entries {
             for keyword in entry.1 {
-                if let foundRange = substring.range(of: keyword) {
+                if let foundRange = substring.range(of: keyword, options: .caseInsensitive) {
                     let offset = range.offset + substring.distance(from: substring.startIndex, to: foundRange.lowerBound)
                     elements.insert(entry.0, keyword)
                     preidentified.append(TokenRange(offset: offset, size: keyword.count))
@@ -460,6 +492,7 @@ private final class AnitomyTokenizer {
         ("(", ")"), ("[", "]"), ("{", "}"),
         ("\u{300C}", "\u{300D}"), ("\u{300E}", "\u{300F}"),
         ("\u{3010}", "\u{3011}"), ("\u{FF08}", "\u{FF09}"),
+        ("\u{FF3B}", "\u{FF3D}"), ("\u{FF5B}", "\u{FF5D}"),
     ]
 
     private func tokenizeByBrackets() {
@@ -616,8 +649,8 @@ private final class AnitomyTokenizer {
         }
 
         for idx in 0..<tokens.count {
-            guard tokens[idx].category == .delimiter else { continue }
-            let delimiter = tokens[idx].content.first!
+            guard tokens[idx].category == .delimiter,
+                  let delimiter = tokens[idx].content.first else { continue }
             let prev = findPreviousToken(in: tokens, before: idx, flags: .flagValid)
             var next = findNextToken(in: tokens, after: idx, flags: .flagValid)
 
@@ -651,8 +684,9 @@ private final class AnitomyTokenizer {
             }
 
             // Adjacent delimiters
-            if isUnknownToken(prev) && isDelimToken(next) {
-                let nextDelim = tokens[next!].content.first!
+            if isUnknownToken(prev), isDelimToken(next),
+               let nextIndex = next,
+               let nextDelim = tokens[nextIndex].content.first {
                 if delimiter != nextDelim && delimiter != "," {
                     if nextDelim == " " || nextDelim == "_" {
                         if let p = prev {
@@ -661,9 +695,10 @@ private final class AnitomyTokenizer {
                         }
                     }
                 }
-            } else if isDelimToken(prev) && isDelimToken(next) {
-                let prevDelim = tokens[prev!].content.first!
-                let nextDelim = tokens[next!].content.first!
+            } else if isDelimToken(prev), isDelimToken(next),
+                      let prevIndex = prev, let nextIndex = next,
+                      let prevDelim = tokens[prevIndex].content.first,
+                      let nextDelim = tokens[nextIndex].content.first {
                 if prevDelim == nextDelim && prevDelim != delimiter {
                     tokens[idx].category = .unknown
                 }
@@ -712,6 +747,8 @@ private final class AnitomyParser {
     func parse() -> [AnitomyToken] {
         searchForKeywords()
         searchForIsolatedNumbersGlobal()
+        searchForJapaneseSeasonCounter()
+        searchForStandaloneSeasonPattern()
 
         if options.parseEpisodeNumber {
             searchForEpisodeNumber()
@@ -808,6 +845,7 @@ private final class AnitomyParser {
         if searchForEquivalentNumbers(&numberTokens) { return }
         if searchForSeparatedNumbers(&numberTokens) { return }
         if searchForIsolatedNumbers(&numberTokens) { return }
+        if searchForFirstNumber(&numberTokens) { return }
         _ = searchForLastNumber(&numberTokens)
     }
 
@@ -858,7 +896,9 @@ private final class AnitomyParser {
     private func numberComesBeforeAnotherNumber(_ tokenIndex: Int) -> Bool {
         guard let sepIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter) else { return false }
 
-        let separators: [(String, Bool)] = [("&", true), ("of", false)]
+        // (separator, setsBothEpisodes): true = both sides are episode numbers (e.g. "8 & 10"),
+        // false = only the first number is the episode (e.g. "01 of 24").
+        let separators: [(String, Bool)] = [("&", true), ("+", true), ("~", true), ("of", false)]
         for sep in separators {
             if isStringEqualTo(tokens[sepIdx].content, sep.0) {
                 if let otherIdx = findNextToken(in: tokens, after: sepIdx, flags: .flagNotDelimiter),
@@ -936,8 +976,9 @@ private final class AnitomyParser {
     }
 
     private func matchMultiEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        // Pattern: (\d{1,4})(?:[vV](\d))?[-~&+](\d{1,4})(?:[vV](\d))?
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,4})(?:[vV](\d))?[-~&+](\d{1,4})(?:[vV](\d))?$"#)
+        // Pattern: (\d{1,4})(?:[vV](\d))?[-~&+\u2010-\u2015](\d{1,4})(?:[vV](\d))?
+        let regex = try! NSRegularExpression(
+            pattern: "^(\\d{1,4})(?:[vV](\\d))?[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,4})(?:[vV](\\d))?$")
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1006,7 +1047,9 @@ private final class AnitomyParser {
     }
 
     private func matchFractionalEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        // Only allow .5 fractional
+        // C++ develop: only allow .5 fractional. Other decimals cause false positives
+        // with titles (e.g. "Evangelion: 1.11", "Tokyo Magnitude 8.0") or
+        // audio keywords (e.g. "5.1").
         guard word.range(of: #"^\d+\.5$"#, options: .regularExpression) != nil else { return false }
         return setEpisodeNumber(word, tokenIndex, validate: true)
     }
@@ -1084,7 +1127,8 @@ private final class AnitomyParser {
     }
 
     private func matchMultiVolumePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,2})[-~&+](\d{1,2})(?:[vV](\d))?$"#)
+        let regex = try! NSRegularExpression(
+            pattern: "^(\\d{1,2})[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,2})(?:[vV](\\d))?$")
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1153,6 +1197,46 @@ private final class AnitomyParser {
         return false
     }
 
+    /// C++ develop branch: starts_with_episode_number.
+    /// Handles filenames that begin with an episode number (e.g. "01 - Title.mkv").
+    private func searchForFirstNumber(_ tokenIndices: inout [Int]) -> Bool {
+        guard let firstIdx = tokenIndices.first, firstIdx == 0 || tokens[0..<firstIdx].allSatisfy({
+            $0.category == .delimiter || $0.category == .bracket
+        }) else { return false }
+
+        let tokenIndex = firstIdx
+        guard tokens[tokenIndex].category == .unknown,
+              isNumericString(tokens[tokenIndex].content) else { return false }
+
+        // A leading number is an episode if:
+        //   - There are 2 or fewer tokens total, OR
+        //   - Followed by a dash (within first 2 tokens), OR
+        //   - Followed by "." then space
+        if tokens.count <= 2 {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+
+        // Check tokens[1] and tokens[2] for a dash
+        if tokenIndex + 1 < tokens.count && isDashCharacter(tokens[tokenIndex + 1].content) {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+        if tokenIndex + 2 < tokens.count && isDashCharacter(tokens[tokenIndex + 2].content) {
+            return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+        }
+
+        // Check if followed by "." then space (e.g. "01. Title")
+        if tokenIndex + 1 < tokens.count && tokens[tokenIndex + 1].content == "." {
+            if tokenIndex + 2 < tokens.count {
+                let nextContent = tokens[tokenIndex + 2].content
+                if !nextContent.isEmpty, nextContent.first == " " || nextContent.first == "\t" {
+                    return setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true)
+                }
+            }
+        }
+
+        return false
+    }
+
     private func searchForLastNumber(_ tokenIndices: inout [Int]) -> Bool {
         for tokenIndex in tokenIndices.reversed() {
             guard tokenIndex > 0 else { continue }
@@ -1164,13 +1248,39 @@ private final class AnitomyParser {
             }
             if allPriorEnclosed { continue }
 
-            // Ignore if previous token is "Movie" or "Part"
-            if let prevIdx = findPreviousToken(in: tokens, before: tokenIndex, flags: .flagNotDelimiter),
-               tokens[prevIdx].category == .unknown {
-                if isStringEqualTo(tokens[prevIdx].content, "Movie") ||
-                   isStringEqualTo(tokens[prevIdx].content, "Part") {
+            let prevIdx = findPreviousToken(in: tokens, before: tokenIndex, flags: .flagNotDelimiter)
+            let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter)
+
+            if let pi = prevIdx {
+                let prevContent = tokens[pi].content
+                // Ignore if previous token is "Movie", "Part", "Cour", or "No"
+                if tokens[pi].category == .unknown {
+                    if isStringEqualTo(prevContent, "Movie") ||
+                       isStringEqualTo(prevContent, "Part") ||
+                       isStringEqualTo(prevContent, "Cour") ||
+                       isStringEqualTo(prevContent, "No") {
+                        continue
+                    }
+                }
+                // Ignore version numbers (e.g. "1.1", "3.33")
+                if tokens[pi].category == .delimiter, prevContent == "." {
                     continue
                 }
+                // Ignore if preceded by closing bracket "]"
+                if tokens[pi].category == .bracket, prevContent == "]" {
+                    continue
+                }
+            }
+
+            // Ignore version numbers after this token (e.g. "2.0")
+            if let ni = nextIdx, tokens[ni].category == .delimiter, tokens[ni].content == "." {
+                continue
+            }
+
+            // Ignore if surrounded by free tokens on both sides (part of title)
+            if let pi = prevIdx, let ni = nextIdx,
+               tokens[pi].category == .unknown, tokens[ni].category == .unknown {
+                continue
             }
 
             if setEpisodeNumber(tokens[tokenIndex].content, tokenIndex, validate: true) {
@@ -1307,9 +1417,10 @@ private final class AnitomyParser {
     private func searchForReleaseGroup() {
         var searchFrom = 0
 
+        // Primary: find the first enclosed unidentified range
         while true {
             guard let beginIdx = findToken(in: tokens, from: searchFrom, to: tokens.count,
-                                           flags: [.flagEnclosed, .flagUnknown]) else { return }
+                                           flags: [.flagEnclosed, .flagUnknown]) else { break }
 
             let endIdx = findToken(in: tokens, from: beginIdx, to: tokens.count,
                                    flags: [.flagBracket, .flagIdentifier]) ?? tokens.count
@@ -1324,6 +1435,20 @@ private final class AnitomyParser {
             }
 
             buildElement(.releaseGroup, keepDelimiters: true, from: beginIdx, to: endIdx)
+            return
+        }
+
+        // Fallback: last free token before file extension preceded by a dash
+        // e.g. "Title.Episode.Info-Group.mkv" → "Group"
+        for i in stride(from: tokens.count - 1, through: 0, by: -1) {
+            // Skip delimiters and identified tokens (e.g., file extension)
+            guard tokens[i].category == .unknown,
+                  !tokens[i].enclosed else { continue }
+            // The token immediately before this one must be a dash delimiter
+            guard i > 0,
+                  tokens[i - 1].category == .delimiter,
+                  isDashCharacter(tokens[i - 1].content) else { break }
+            buildElement(.releaseGroup, keepDelimiters: true, from: i, to: i + 1)
             return
         }
     }
@@ -1365,11 +1490,57 @@ private final class AnitomyParser {
                 continue
             }
 
-            if (number == 480 || number == 720 || number == 1080) && elements.isEmpty(.videoResolution) {
+            if (number == 480 || number == 720 || number == 1080 || number == 1440) && elements.isEmpty(.videoResolution) {
                 elements.insert(.videoResolution, tokens[i].content)
                 tokens[i].category = .identifier
                 continue
             }
+        }
+    }
+
+    /// Matches Japanese season counter pattern: 第(\d{1,2})期
+    /// e.g. "第2期" → season 2.  Matches C++ develop branch parse_season.
+    private func searchForJapaneseSeasonCounter() {
+        guard elements.isEmpty(.animeSeason) else { return }
+        // Pattern is a compile-time constant; force-try is safe.
+        let regex = try! NSRegularExpression(pattern: "^(?:\u{7B2C})?(\\d{1,2})\u{671F}$")
+        for i in 0..<tokens.count {
+            guard tokens[i].category == .unknown else { continue }
+            let content = tokens[i].content
+            let nsRange = NSRange(content.startIndex..., in: content)
+            guard let result = regex.firstMatch(in: content, range: nsRange),
+                  let r1 = Range(result.range(at: 1), in: content) else { continue }
+            elements.insert(.animeSeason, String(content[r1]))
+            tokens[i].category = .identifier
+            return
+        }
+    }
+
+    /// C++ develop: parse_season S-pattern.  Matches standalone "S2", "S01",
+    /// or "S01-S02" / "S01-02" season tokens without an accompanying episode.
+    private func searchForStandaloneSeasonPattern() {
+        guard elements.isEmpty(.animeSeason) else { return }
+        let regex = try! NSRegularExpression(pattern: "^[Ss](\\d{1,2})$")
+        for i in 0..<tokens.count {
+            guard tokens[i].category == .unknown else { continue }
+            let content = tokens[i].content
+            let nsRange = NSRange(content.startIndex..., in: content)
+            guard let result = regex.firstMatch(in: content, range: nsRange),
+                  let r1 = Range(result.range(at: 1), in: content) else { continue }
+            elements.insert(.animeSeason, String(content[r1]))
+            tokens[i].category = .identifier
+            // Check for range: next non-delimiter token could be another season or number
+            if let dashIdx = findNextToken(in: tokens, after: i, flags: .flagValid),
+               tokens[dashIdx].category == .delimiter,
+               isDashCharacter(tokens[dashIdx].content) {
+                if let nextIdx = findNextToken(in: tokens, after: dashIdx, flags: .flagNotDelimiter),
+                   tokens[nextIdx].category == .unknown,
+                   isNumericString(tokens[nextIdx].content) {
+                    elements.insert(.animeSeason, tokens[nextIdx].content)
+                    tokens[nextIdx].category = .identifier
+                }
+            }
+            return
         }
     }
 
@@ -1418,7 +1589,7 @@ private final class AnitomyParser {
     }
 
     private func isResolution(_ str: String) -> Bool {
-        // ###x### or ###p
+        // ###x###[piP] or ###[piP]
         let chars = Array(str)
         let minWidthSize = 3
         let minHeightSize = 3
@@ -1427,19 +1598,22 @@ private final class AnitomyParser {
             for (i, c) in chars.enumerated() {
                 if c == "x" || c == "X" || c == "\u{00D7}" {
                     if i >= minWidthSize && i <= chars.count - (minHeightSize + 1) {
-                        var allNumeric = true
-                        for j in 0..<chars.count {
-                            if j != i && !isNumericChar(chars[j]) {
-                                allNumeric = false
-                                break
-                            }
-                        }
-                        if allNumeric { return true }
+                        let widthOk = chars[0..<i].allSatisfy { isNumericChar($0) }
+                        guard widthOk else { continue }
+                        let afterX = chars[(i + 1)...]
+                        guard !afterX.isEmpty else { continue }
+                        // Allow optional trailing p/P/i/I after height digits
+                        let lastChar = afterX.last!
+                        let hasSuffix = lastChar == "p" || lastChar == "P" || lastChar == "i" || lastChar == "I"
+                        let heightPart = hasSuffix ? afterX.dropLast() : ArraySlice(afterX)
+                        let heightOk = !heightPart.isEmpty && heightPart.allSatisfy { isNumericChar($0) }
+                        if heightOk { return true }
                     }
                 }
             }
-        } else if chars.count >= minHeightSize + 1 {
-            if chars.last == "p" || chars.last == "P" {
+        }
+        if chars.count >= minHeightSize + 1 {
+            if chars.last == "p" || chars.last == "P" || chars.last == "i" || chars.last == "I" {
                 let allNumeric = chars.dropLast().allSatisfy { isNumericChar($0) }
                 if allNumeric { return true }
             }
@@ -1466,11 +1640,20 @@ private final class AnitomyParser {
                 return
             }
         }
-        if let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter),
-           isNumericString(tokens[nextIdx].content) {
-            elements.insert(.animeSeason, tokens[nextIdx].content)
-            tokens[tokenIndex].category = .identifier
-            tokens[nextIdx].category = .identifier
+        if let nextIdx = findNextToken(in: tokens, after: tokenIndex, flags: .flagNotDelimiter) {
+            if isNumericString(tokens[nextIdx].content) {
+                elements.insert(.animeSeason, tokens[nextIdx].content)
+                tokens[tokenIndex].category = .identifier
+                tokens[nextIdx].category = .identifier
+                return
+            }
+            // Roman numeral season (e.g. "Season II")
+            let roman = getNumberFromRoman(tokens[nextIdx].content)
+            if !roman.isEmpty {
+                elements.insert(.animeSeason, roman)
+                tokens[tokenIndex].category = .identifier
+                tokens[nextIdx].category = .identifier
+            }
         }
     }
 
@@ -1510,6 +1693,16 @@ private final class AnitomyParser {
         return ordinals[word] ?? ""
     }
 
+    /// Convert Roman numeral string to Arabic number string.
+    /// C++ develop branch from_roman_number() only includes II, III, IV —
+    /// single letters like "I", "V" are excluded to avoid false positives.
+    private func getNumberFromRoman(_ word: String) -> String {
+        let romans: [String: String] = [
+            "II": "2", "III": "3", "IV": "4",
+        ]
+        return romans[word] ?? ""
+    }
+
     private func isElementCategorySearchable(_ category: ElementCategory) -> Bool {
         switch category {
         case .animeSeasonPrefix, .animeType, .audioTerm, .deviceCompatibility,
@@ -1543,12 +1736,12 @@ private final class AnitomyParser {
             case .bracket:
                 element += tokens[i].content
             case .delimiter:
-                let delimiter = tokens[i].content.first!
+                guard let delimiter = tokens[i].content.first else { continue }
                 if keepDelimiters {
                     element.append(delimiter)
                 } else if i != from && i != to {
                     switch delimiter {
-                    case ",", "&":
+                    case ",", "&", "~":
                         element.append(delimiter)
                     default:
                         element.append(" ")
