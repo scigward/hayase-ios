@@ -1519,6 +1519,17 @@ private final class HTabBar: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Natural width = sum of all button intrinsic widths + inter-button spacing + 8pt
+    /// scrollView insets (4pt each side).  This lets Auto Layout size the muted container
+    /// to fit its content rather than stretching it to the full available width, so the
+    /// dark bg ends right after the last tab button on both iPhone and iPad.
+    override var intrinsicContentSize: CGSize {
+        let totalButtonWidth = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
+        let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+        let width = totalButtonWidth + totalSpacing + 8   // 8 = 2 × 4pt scrollView insets
+        return CGSize(width: width, height: UIView.noIntrinsicMetric)
+    }
+
     @objc private func tabTapped(_ sender: UIButton) {
         selectedIndex = sender.tag
         onChange?(sender.tag)
@@ -1587,12 +1598,16 @@ class AnimeDetailViewController: UIViewController {
         v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tabBar)
-        // Full-width tab bar with 16pt inset on each side.
+        // tabBar is pinned to the leading edge and capped at the trailing edge.
+        // intrinsicContentSize makes it shrink-to-fit the buttons; lessThanOrEqualTo
+        // allows it to grow up to the full available width when tabs overflow (scrollable).
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
             tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
             tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
-            tabBar.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
+            // lessThanOrEqualTo: lets tabBar shrink to its intrinsicContentSize (buttons only),
+            // while still allowing it to grow up to the full width when tabs overflow (scrollable).
+            tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16),
             tabBar.heightAnchor.constraint(equalToConstant: 36), // h-9 = 36pt
         ])
         return v
