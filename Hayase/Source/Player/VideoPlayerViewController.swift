@@ -1595,7 +1595,8 @@ extension VideoPlayerViewController: PiPControllerDelegate {
                 .compactMap({ $0 as? UIWindowScene }).first,
                let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                 var top = root
-                while let presented = top.presentedViewController { top = presented }
+                while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+                guard top !== self else { completionHandler(false); return }
                 self.modalPresentationStyle = .fullScreen
                 top.present(self, animated: true) {
                     completionHandler(true)

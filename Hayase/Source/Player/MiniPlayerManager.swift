@@ -216,7 +216,7 @@ final class MiniPlayerManager {
         isTucked = false
 
         // Find a presenting VC.
-        guard let presenter = topViewController() else { return }
+        guard let presenter = topViewController(), presenter !== player else { return }
 
         // Reparent the surface back into the player VC's view.
         let surface = player.surfaceView
@@ -562,7 +562,7 @@ final class MiniPlayerManager {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
               let window = appDelegate.window else { return nil }
         var vc = window.rootViewController
-        while let presented = vc?.presentedViewController {
+        while let presented = vc?.presentedViewController, !presented.isBeingDismissed {
             vc = presented
         }
         return vc
