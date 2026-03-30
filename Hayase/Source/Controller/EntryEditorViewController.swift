@@ -49,35 +49,27 @@ final class EntryEditorViewController: UIViewController {
 
     // Status
     private let statusButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.baseForegroundColor = .white
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = .systemFont(ofSize: 15)
-            return out
-        }
-        config.background.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        config.background.cornerRadius = 8
-        let b = UIButton(configuration: config)
+        let b = UIButton(type: .system)
+        b.setTitle("Watching", for: .normal)
+        b.setTitleColor(.white, for: .normal)
+        b.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        b.layer.cornerRadius = 8
         b.contentHorizontalAlignment = .leading
+        b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        b.titleLabel?.font = .systemFont(ofSize: 15)
         return b
     }()
 
     // Score
     private let scoreButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.baseForegroundColor = .white
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = .systemFont(ofSize: 15)
-            return out
-        }
-        config.background.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        config.background.cornerRadius = 8
-        let b = UIButton(configuration: config)
+        let b = UIButton(type: .system)
+        b.setTitle("0", for: .normal)
+        b.setTitleColor(.white, for: .normal)
+        b.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        b.layer.cornerRadius = 8
         b.contentHorizontalAlignment = .leading
+        b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        b.titleLabel?.font = .systemFont(ofSize: 15)
         return b
     }()
 
