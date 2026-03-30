@@ -74,13 +74,11 @@ class DownloadsViewController: UIViewController {
         return l
     }()
 
-    private let statusBadge: UILabel = {
-        let l = UILabel()
+    private let statusBadge: TorrentPillBadge = {
+        let l = TorrentPillBadge(horizontalPadding: 10, verticalPadding: 4)
         l.font = .systemFont(ofSize: 12, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
-        l.layer.cornerRadius = 10
-        l.clipsToBounds = true
         return l
     }()
 
@@ -105,6 +103,7 @@ class DownloadsViewController: UIViewController {
         pv.layer.cornerRadius = 6
         pv.clipsToBounds = true
         pv.trackTintColor = .secondarySystemFill
+        pv.progressTintColor = .white
         return pv
     }()
 
@@ -666,10 +665,10 @@ class DownloadsViewController: UIViewController {
 
         // Status badge (Hayase: blue for Seeding, green for Downloading)
         if completed {
-            statusBadge.text = "  Seeding  "
+            statusBadge.text = "Seeding"
             statusBadge.backgroundColor = .systemBlue
         } else {
-            statusBadge.text = "  Downloading  "
+            statusBadge.text = "Downloading"
             statusBadge.backgroundColor = .systemGreen
         }
 
@@ -1516,6 +1515,7 @@ final class FileEntryTableCell: UITableViewCell {
         pv.layer.cornerRadius = 3
         pv.clipsToBounds = true
         pv.trackTintColor = .secondarySystemFill
+        pv.progressTintColor = .white
         return pv
     }()
 

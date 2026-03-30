@@ -95,13 +95,11 @@ final class TorrentDetailViewController: UIViewController {
         return l
     }()
 
-    private let statusBadge: UILabel = {
-        let l = UILabel()
+    private let statusBadge: TorrentPillBadge = {
+        let l = TorrentPillBadge(horizontalPadding: 10, verticalPadding: 4)
         l.font = .systemFont(ofSize: 12, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
-        l.layer.cornerRadius = 10
-        l.clipsToBounds = true
         return l
     }()
 
@@ -136,6 +134,7 @@ final class TorrentDetailViewController: UIViewController {
         pv.layer.cornerRadius = 6
         pv.clipsToBounds = true
         pv.trackTintColor = .secondarySystemFill
+        pv.progressTintColor = .white
         return pv
     }()
 
@@ -399,10 +398,10 @@ final class TorrentDetailViewController: UIViewController {
 
         // Status badge (Hayase: blue for Seeding, green for Downloading)
         if completed {
-            statusBadge.text = "  Seeding  "
+            statusBadge.text = "Seeding"
             statusBadge.backgroundColor = .systemBlue
         } else {
-            statusBadge.text = "  Downloading  "
+            statusBadge.text = "Downloading"
             statusBadge.backgroundColor = .systemGreen
         }
 
@@ -1037,13 +1036,11 @@ final class LibraryEntryCell: UITableViewCell {
         return l
     }()
 
-    private let statusBadge: UILabel = {
-        let l = UILabel()
+    private let statusBadge: TorrentPillBadge = {
+        let l = TorrentPillBadge(horizontalPadding: 6, verticalPadding: 2)
         l.font = .systemFont(ofSize: 10, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
-        l.layer.cornerRadius = 6
-        l.clipsToBounds = true
         return l
     }()
 
@@ -1127,18 +1124,55 @@ final class LibraryEntryCell: UITableViewCell {
         let isComplete = snap.total > 0 && snap.totalDone >= snap.total
 
         if isComplete {
-            statusBadge.text = " Complete "
+            statusBadge.text = "Complete"
             statusBadge.backgroundColor = .systemGreen
             progressBar.progress = 1.0
-            progressBar.progressTintColor = .systemGreen
+            progressBar.progressTintColor = .white
         } else {
-            statusBadge.text = String(format: " %.0f%% ", progress * 100)
+            statusBadge.text = String(format: "%.0f%%", progress * 100)
             statusBadge.backgroundColor = .systemBlue
             progressBar.progress = progress
-            progressBar.progressTintColor = .systemBlue
+            progressBar.progressTintColor = .white
         }
 
         // Torrent name
         torrentNameLabel.text = snap.name.isEmpty ? "Unknown torrent" : snap.name
+    }
+}
+
+// MARK: - TorrentPillBadge
+
+/// Pill-shaped badge label with proper internal padding (used for Downloading/Seeding status).
+/// Matches the existing ThreadBadgeLabel / PaddedBadgeLabel pattern.
+final class TorrentPillBadge: UILabel {
+    private let hPad: CGFloat
+    private let vPad: CGFloat
+
+    init(horizontalPadding: CGFloat = 10, verticalPadding: CGFloat = 4) {
+        self.hPad = horizontalPadding
+        self.vPad = verticalPadding
+        super.init(frame: .zero)
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) {
+        self.hPad = 10
+        self.vPad = 4
+        super.init(coder: coder)
+        clipsToBounds = true
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.insetBy(dx: hPad, dy: vPad))
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + hPad * 2, height: s.height + vPad * 2)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
     }
 }
