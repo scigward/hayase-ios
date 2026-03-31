@@ -507,6 +507,19 @@ final class MPVWrapper {
                     self.delegate?.renderer(self, didChangeLoading: true)
                 }
             }
+            // Flush the display layer so the stale pre-seek frame is not visible
+            // while MPV decodes the new seek position. Without this flush, the
+            // AVSampleBufferDisplayLayer holds the last rendered frame and shows
+            // it briefly before the first decoded frame at the target position
+            // arrives — causing a visible "flash" of old content.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if #available(iOS 18.0, *) {
+                    self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                } else {
+                    self.displayLayer.flushAndRemoveImage()
+                }
+            }
             
         case MPV_EVENT_PLAYBACK_RESTART:
             // Video playback has started/restarted (including after seek)
@@ -601,6 +614,24 @@ final class MPVWrapper {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.delegate?.renderer(self, didChangeLoading: buffering)
+                    }
+                }
+                // Flush the display layer when a cache stall starts so the layer
+                // shows black rather than a stale old frame. AVSampleBufferDisplayLayer
+                // internally advances its clock even while MPV is paused-for-cache;
+                // after ~10 s the layer's presentation clock passes the last
+                // enqueued buffer's display time and the layer drops the correct
+                // current frame, reverting to an older buffered frame. Flushing on
+                // stall start avoids this by clearing the layer immediately — the
+                // user sees black while buffering rather than a misleading old frame.
+                if buffering {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        if #available(iOS 18.0, *) {
+                            self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                        } else {
+                            self.displayLayer.flushAndRemoveImage()
+                        }
                     }
                 }
             }

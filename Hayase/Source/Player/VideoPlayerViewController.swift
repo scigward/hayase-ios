@@ -950,7 +950,6 @@ final class VideoPlayerViewController: UIViewController {
     private func startStatsTimer() {
         statsTimer?.invalidate()
         guard torrentHandle != nil else { return }
-        guard !isFileFullyDownloaded() else { return }
         statsHUD.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -960,22 +959,22 @@ final class VideoPlayerViewController: UIViewController {
 
     private func updateStats() {
         guard let handle = torrentHandle else { return }
+        handle.updateSnapshot()
         let snap = handle.snapshot
-        // Use byte-level file progress instead of snap.progress, which only
-        // counts "wanted" pieces. Since TorrentStreamer sets most pieces to
-        // priority 0, snap.progress can falsely report 1.0 when only a few
-        // pieces are downloaded — causing the streamer to be stopped and
-        // all subsequent seeks to fail (no pieces requested).
         if isFileFullyDownloaded() {
-            statsTimer?.invalidate()
-            statsHUD.isHidden = true
             // Stop the streamer — piece management is no longer needed.
             // Do NOT stop streamServer here: MPV is still reading from the
             // HTTP URL. Stopping the server mid-playback causes read errors
             // and playback failure. The server is stopped in viewWillDisappear
             // and prev/next episode transitions.
-            streamer?.stop()
-            streamer = nil
+            if streamer != nil {
+                streamer?.stop()
+                streamer = nil
+            }
+            // Keep the HUD visible showing seeding stats (upload speed + peers).
+            let peers = snap.numberOfSeeds
+            let upBits = fmtBits(snap.uploadRate * 8)
+            statsHUD.text = "👤 \(peers)    ↑ \(upBits)/s"
             return
         }
         // Hayase downloadstats.svelte format: peers ↓speed ↑speed
