@@ -509,19 +509,17 @@ final class MPVWrapper {
             }
             // NOTE: Do NOT flush AVSampleBufferDisplayLayer here.
             //
-            // vo_avfoundation already handles this internally: when mpv issues a
-            // seek, the playback core sends VOCTRL_RESET to the video output
-            // synchronously — BEFORE MPV_EVENT_SEEK is queued for Swift clients.
-            // VOCTRL_RESET calls [displayLayer flushAndRemoveImage] at exactly
-            // the right moment (before any new frames arrive).
+            // vo_avfoundation handles the layer flush internally via VOCTRL_RESET,
+            // which fires BEFORE MPV_EVENT_SEEK is delivered to Swift.  Adding a
+            // second async flush here would wipe newly-decoded post-seek frames,
+            // creating a gap in the queue and producing a flash.
             //
-            // Dispatching an additional async flush here fires AFTER vo_avfoundation
-            // has already (1) flushed stale frames and (2) started enqueuing new
-            // post-seek frames.  That second flush wipes the newly-decoded frames,
-            // creating a multi-second gap in the display layer queue. The layer
-            // then shows the last rendered image until new frames refill the queue,
-            // producing the "flash of old frame a few seconds after seeking" that
-            // the user observes.
+            // The paused-for-cache flush (which clears pre-queued frames during
+            // mid-stream stalls) is also suppressed while isSeeking==true.  After
+            // a seek, paused-for-cache fires during the initial buffer-fill window.
+            // If we flush then, MPV re-decodes from the keyframe before the seek
+            // point and those keyframe→seek-point frames display as a brief flash
+            // of "previously-played" content.  See the paused-for-cache handler.
             
         case MPV_EVENT_PLAYBACK_RESTART:
             // Video playback has started/restarted (including after seek)
@@ -618,17 +616,28 @@ final class MPVWrapper {
                         self.delegate?.renderer(self, didChangeLoading: buffering)
                     }
                 }
-                // When a cache stall starts, flush the display layer's queued
-                // (but not yet displayed) sample buffers WITHOUT removing the
-                // currently displayed image. MPV pre-queues several seconds of
+                // When a MID-STREAM cache stall starts (not during a seek),
+                // flush the display layer's queued-but-not-yet-displayed sample
+                // buffers WITHOUT removing the currently displayed image.
+                //
+                // Root cause of stall glitch: MPV pre-queues several seconds of
                 // frames into AVSampleBufferDisplayLayer; as the layer's
                 // presentation clock continues advancing during a stall, those
                 // pre-queued future frames eventually become due and get rendered,
                 // making the video appear to jump to a "wrong" (older-looking)
-                // frame. Calling flush() — which discards pending queue entries
-                // but keeps the currently shown frame — freezes the display at
-                // the exact stall position without showing a black screen.
-                if buffering {
+                // frame. Calling flush() discards those pending queue entries and
+                // freezes the display at the exact stall position — no black screen.
+                //
+                // WHY we skip this during a seek (isSeeking == true):
+                // After a seek, vo_avfoundation calls VOCTRL_RESET which flushes
+                // the layer, then immediately starts enqueuing new post-seek frames.
+                // paused-for-cache fires during this initial buffer-fill window.
+                // If we also flush here, we discard those newly-decoded post-seek
+                // frames and MPV has to re-decode from the keyframe before the seek
+                // point. Those keyframe→seek-point frames then display rapidly as a
+                // brief "flash of previously-played frames." Suppressing the flush
+                // during a seek lets the post-seek frames display normally.
+                if buffering && !isSeeking {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         if #available(iOS 18.0, *) {
