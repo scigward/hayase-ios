@@ -616,21 +616,23 @@ final class MPVWrapper {
                         self.delegate?.renderer(self, didChangeLoading: buffering)
                     }
                 }
-                // Flush the display layer when a cache stall starts so the layer
-                // shows black rather than a stale old frame. AVSampleBufferDisplayLayer
-                // internally advances its clock even while MPV is paused-for-cache;
-                // after ~10 s the layer's presentation clock passes the last
-                // enqueued buffer's display time and the layer drops the correct
-                // current frame, reverting to an older buffered frame. Flushing on
-                // stall start avoids this by clearing the layer immediately — the
-                // user sees black while buffering rather than a misleading old frame.
+                // When a cache stall starts, flush the display layer's queued
+                // (but not yet displayed) sample buffers WITHOUT removing the
+                // currently displayed image. MPV pre-queues several seconds of
+                // frames into AVSampleBufferDisplayLayer; as the layer's
+                // presentation clock continues advancing during a stall, those
+                // pre-queued future frames eventually become due and get rendered,
+                // making the video appear to jump to a "wrong" (older-looking)
+                // frame. Calling flush() — which discards pending queue entries
+                // but keeps the currently shown frame — freezes the display at
+                // the exact stall position without showing a black screen.
                 if buffering {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         if #available(iOS 18.0, *) {
-                            self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                            self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: false, completionHandler: nil)
                         } else {
-                            self.displayLayer.flushAndRemoveImage()
+                            self.displayLayer.flush()
                         }
                     }
                 }

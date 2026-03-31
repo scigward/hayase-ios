@@ -971,11 +971,6 @@ final class VideoPlayerViewController: UIViewController {
                 streamer?.stop()
                 streamer = nil
             }
-            // Keep the HUD visible showing seeding stats (upload speed + peers).
-            let peers = snap.numberOfSeeds
-            let upBits = fmtBits(snap.uploadRate * 8)
-            statsHUD.text = "👤 \(peers)    ↑ \(upBits)/s"
-            return
         }
         // Hayase downloadstats.svelte format: peers ↓speed ↑speed
         let peers = snap.numberOfSeeds
