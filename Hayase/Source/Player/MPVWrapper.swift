@@ -507,19 +507,21 @@ final class MPVWrapper {
                     self.delegate?.renderer(self, didChangeLoading: true)
                 }
             }
-            // Flush the display layer so the stale pre-seek frame is not visible
-            // while MPV decodes the new seek position. Without this flush, the
-            // AVSampleBufferDisplayLayer holds the last rendered frame and shows
-            // it briefly before the first decoded frame at the target position
-            // arrives — causing a visible "flash" of old content.
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if #available(iOS 18.0, *) {
-                    self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
-                } else {
-                    self.displayLayer.flushAndRemoveImage()
-                }
-            }
+            // NOTE: Do NOT flush AVSampleBufferDisplayLayer here.
+            //
+            // vo_avfoundation already handles this internally: when mpv issues a
+            // seek, the playback core sends VOCTRL_RESET to the video output
+            // synchronously — BEFORE MPV_EVENT_SEEK is queued for Swift clients.
+            // VOCTRL_RESET calls [displayLayer flushAndRemoveImage] at exactly
+            // the right moment (before any new frames arrive).
+            //
+            // Dispatching an additional async flush here fires AFTER vo_avfoundation
+            // has already (1) flushed stale frames and (2) started enqueuing new
+            // post-seek frames.  That second flush wipes the newly-decoded frames,
+            // creating a multi-second gap in the display layer queue. The layer
+            // then shows the last rendered image until new frames refill the queue,
+            // producing the "flash of old frame a few seconds after seeking" that
+            // the user observes.
             
         case MPV_EVENT_PLAYBACK_RESTART:
             // Video playback has started/restarted (including after seek)
