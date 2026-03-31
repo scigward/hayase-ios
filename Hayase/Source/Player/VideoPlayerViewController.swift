@@ -959,7 +959,6 @@ final class VideoPlayerViewController: UIViewController {
 
     private func updateStats() {
         guard let handle = torrentHandle else { return }
-        handle.updateSnapshot()
         let snap = handle.snapshot
         if isFileFullyDownloaded() {
             // Stop the streamer — piece management is no longer needed.
