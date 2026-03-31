@@ -1153,6 +1153,8 @@ final class TorrentPillBadge: UILabel {
         self.vPad = verticalPadding
         super.init(frame: .zero)
         clipsToBounds = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
     required init?(coder: NSCoder) {
@@ -1160,6 +1162,8 @@ final class TorrentPillBadge: UILabel {
         self.vPad = 4
         super.init(coder: coder)
         clipsToBounds = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
     override func drawText(in rect: CGRect) {
