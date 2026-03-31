@@ -827,6 +827,9 @@ final class MiniPlayerManager {
             self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
         }
 
+        // Start the restored player paused so it does not auto-play on launch.
+        player.shouldStartPaused = true
+
         // Force viewDidLoad → sets up surface, loads video, starts streaming.
         _ = player.view
 
