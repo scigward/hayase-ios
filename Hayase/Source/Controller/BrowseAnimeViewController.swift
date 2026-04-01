@@ -927,10 +927,10 @@ class BrowseAnimeViewController: UIViewController {
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
+        guard isViewLoaded else { return }
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self else { return }
-            let isSearching = self.searchController.isActive || !(self.searchController.searchBar.text ?? "").isEmpty
-            let layout = isSearching ? self.makeSearchLayout() : self.makeHomeLayout()
+            let layout = self.isSearching ? self.makeSearchLayout() : self.makeHomeLayout()
             self.collectionView.setCollectionViewLayout(layout, animated: false)
         })
     }
@@ -1488,4 +1488,3 @@ extension BrowseAnimeViewController: UISearchResultsUpdating {
         }
     }
 }
-
