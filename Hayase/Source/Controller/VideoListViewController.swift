@@ -43,7 +43,7 @@ final class VideoTableViewCell: UITableViewCell {
 
     private let progressView: UIProgressView = {
         let p = UIProgressView(progressViewStyle: .bar)
-        p.progressTintColor = .systemIndigo
+        p.progressTintColor = .white
         p.trackTintColor = .systemGray5
         p.layer.cornerRadius = 2
         p.clipsToBounds = true

@@ -256,6 +256,14 @@ class SearchViewController: UIViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            self.collectionView.setCollectionViewLayout(self.makeLayout(), animated: false)
+        })
+    }
+
     // MARK: - Prefill from Home
 
     func prefillSearch(genre: String?, sort: String?) {
@@ -778,9 +786,13 @@ class SearchViewController: UIViewController {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        let cols: CGFloat = 2; let hPad: CGFloat = 16; let gap: CGFloat = 16
-        let screenW    = min(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
-        let itemWidth  = floor((screenW - hPad * 2 - gap * (cols - 1)) / cols)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let cols: CGFloat = isIPad ? 4 : 2
+        let hPad: CGFloat = 16; let gap: CGFloat = 16
+        // Use view bounds if already laid out, else fall back to screen width.
+        // viewWillTransition recreates the layout after each rotation so this stays accurate.
+        let containerW = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
+        let itemWidth  = floor((containerW - hPad * 2 - gap * (cols - 1)) / cols)
         let itemHeight = floor(itemWidth * 290.0 / 152.0)
         let item = NSCollectionLayoutItem(
             layoutSize: .init(widthDimension: .absolute(itemWidth), heightDimension: .absolute(itemHeight)))

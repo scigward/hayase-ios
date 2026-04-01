@@ -115,6 +115,9 @@ class SettingsViewController: UIViewController {
     private var selectedTab: SettingsTab = .player
     private var tabButtons: [UIButton] = []
     private var tableView: UITableView!
+    /// Width constraint on the table header container — updated in viewDidLayoutSubviews
+    /// so the header always matches the actual table view width (fixes iPad split-view sizing).
+    private var headerWidthConstraint: NSLayoutConstraint?
 
     /// Sections filtered to the currently selected tab.
     private var visibleSections: [Section] {
@@ -356,9 +359,14 @@ class SettingsViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Recalculate table header height after layout
+        // Recalculate table header height after layout, and keep its width pinned to the
+        // actual table view width (important on iPad where the table may be narrower than the
+        // screen, e.g. in split-view multitasking).
         guard let header = tableView.tableHeaderView else { return }
-        let target = CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height)
+        let tableWidth = tableView.bounds.width
+        guard tableWidth > 0 else { return }
+        headerWidthConstraint?.constant = tableWidth
+        let target = CGSize(width: tableWidth, height: UIView.layoutFittingCompressedSize.height)
         let size = header.systemLayoutSizeFitting(target,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
@@ -412,12 +420,20 @@ class SettingsViewController: UIViewController {
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
 
+        // Explicit width constraint so Auto Layout knows how wide to make the container.
+        // viewDidLayoutSubviews keeps this in sync with the actual table view width, which
+        // ensures the header spans the full width even on iPad (with or without split view).
+        let widthConstraint = container.widthAnchor.constraint(equalToConstant: UIScreen.main.bounds.width)
+        widthConstraint.isActive = true
+        headerWidthConstraint = widthConstraint
+
         // Need a non-zero initial frame for the header sizing to work
         container.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 200)
         return container
     }
 
-    /// Builds the 2-column tab grid matching Hayase SettingsNav.svelte:
+    /// Builds the tab grid matching Hayase SettingsNav.svelte:
+    /// 2 columns on iPhone, 3 columns on iPad.
     /// ```
     /// <nav class='grid grid-cols-2 gap-y-1 gap-x-2'>
     ///   <Button variant='ghost' class='relative font-semibold justify-start'>
@@ -433,21 +449,21 @@ class SettingsViewController: UIViewController {
 
         tabButtons.removeAll()
 
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let cols = isIPad ? 3 : 2
         let tabs = SettingsTab.allCases
-        for rowStart in stride(from: 0, to: tabs.count, by: 2) {
+        for rowStart in stride(from: 0, to: tabs.count, by: cols) {
             let hStack = UIStackView()
             hStack.axis = .horizontal
             hStack.spacing = 8  // gap-x-2 = 8px
             hStack.distribution = .fillEqually
 
-            let btn1 = makeTabButton(for: tabs[rowStart])
-            hStack.addArrangedSubview(btn1)
-            tabButtons.append(btn1)
-
-            if rowStart + 1 < tabs.count {
-                let btn2 = makeTabButton(for: tabs[rowStart + 1])
-                hStack.addArrangedSubview(btn2)
-                tabButtons.append(btn2)
+            for col in 0..<cols {
+                let idx = rowStart + col
+                guard idx < tabs.count else { break }
+                let btn = makeTabButton(for: tabs[idx])
+                hStack.addArrangedSubview(btn)
+                tabButtons.append(btn)
             }
 
             vStack.addArrangedSubview(hStack)

@@ -291,6 +291,10 @@ final class VideoPlayerViewController: UIViewController {
     private var duration: Double = 0
     private var currentTime: Double = 0
     private(set) var isPaused = false
+    /// Set to `true` before loading a video to start it paused on the first
+    /// play event. Used for session restore on app launch so the mini-player
+    /// does not auto-play on launch.
+    var shouldStartPaused = false
     /// Tracks whether the pause was explicitly requested by the user (tap on
     /// play/pause button) rather than caused by MPV (e.g. buffer underrun).
     /// Note: we no longer fully pause the torrent — downloading continues at
@@ -898,11 +902,12 @@ final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Streaming setup
 
-    /// Creates a TorrentStreamer and LocalStreamServer for the active file
-    /// if the torrent is still downloading. The streamer manages piece deadlines
-    /// for proactive prefetching. The HTTP server serves the file to MPV,
-    /// blocking byte-range responses until the required pieces are downloaded.
-    /// This lets MPV handle buffering and seeking natively — no polling needed.
+    /// Creates a TorrentStreamer and LocalStreamServer for the active file.
+    /// The streamer manages piece deadlines for proactive prefetching and is
+    /// only created when the file is still downloading. The HTTP server is
+    /// always started so MPV reads from a consistent HTTP URL regardless of
+    /// download state — this avoids issues (e.g. next-episode navigation
+    /// stalling) that arise from switching between HTTP and file:// URLs.
     private func setupStreamer() {
         // Stop any previous streamer / server
         streamServer?.stop()
@@ -911,18 +916,20 @@ final class VideoPlayerViewController: UIViewController {
         streamer = nil
 
         guard let handle = torrentHandle else { return }
-        // Only create a streamer when the file is not yet fully downloaded.
-        // Use byte-level file progress (entry.downloaded >= entry.size) which
-        // is accurate regardless of piece priority settings.
-        guard !isFileFullyDownloaded() else { return }
 
-        let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
-        s.start()
-        streamer = s
-        StreamingLogger.shared.info("Streamer started — pieces \(s.beginPiece)–\(s.endPiece) (\(s.totalFilePieces) total)")
+        // Create a TorrentStreamer only when the file is not yet fully downloaded.
+        // It manages piece deadlines for proactive prefetching; not needed once
+        // all pieces are on disk.
+        if !isFileFullyDownloaded() {
+            let s = TorrentStreamer(torrentHandle: handle, fileIndex: fileIndex)
+            s.start()
+            streamer = s
+            StreamingLogger.shared.info("Streamer started — pieces \(s.beginPiece)–\(s.endPiece) (\(s.totalFilePieces) total)")
+        }
 
-        // Start a local HTTP server so MPV reads from HTTP instead of a
-        // file with holes. The server gates responses on piece availability.
+        // Always start a local HTTP server so MPV reads from HTTP regardless of
+        // download state. The server gates responses on piece availability while
+        // downloading; for fully-downloaded files all pieces return immediately.
         let path = videoEntity?.videoPath ?? ""
         guard !path.isEmpty else { return }
 
@@ -943,7 +950,6 @@ final class VideoPlayerViewController: UIViewController {
     private func startStatsTimer() {
         statsTimer?.invalidate()
         guard torrentHandle != nil else { return }
-        guard !isFileFullyDownloaded() else { return }
         statsHUD.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -954,22 +960,16 @@ final class VideoPlayerViewController: UIViewController {
     private func updateStats() {
         guard let handle = torrentHandle else { return }
         let snap = handle.snapshot
-        // Use byte-level file progress instead of snap.progress, which only
-        // counts "wanted" pieces. Since TorrentStreamer sets most pieces to
-        // priority 0, snap.progress can falsely report 1.0 when only a few
-        // pieces are downloaded — causing the streamer to be stopped and
-        // all subsequent seeks to fail (no pieces requested).
         if isFileFullyDownloaded() {
-            statsTimer?.invalidate()
-            statsHUD.isHidden = true
             // Stop the streamer — piece management is no longer needed.
             // Do NOT stop streamServer here: MPV is still reading from the
             // HTTP URL. Stopping the server mid-playback causes read errors
             // and playback failure. The server is stopped in viewWillDisappear
             // and prev/next episode transitions.
-            streamer?.stop()
-            streamer = nil
-            return
+            if streamer != nil {
+                streamer?.stop()
+                streamer = nil
+            }
         }
         // Hayase downloadstats.svelte format: peers ↓speed ↑speed
         let peers = snap.numberOfSeeds
@@ -1425,6 +1425,13 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     }
 
     func renderer(_ renderer: MPVWrapper, didChangePause isPaused: Bool) {
+        // Session restore: pause immediately on the first play event so the
+        // mini-player does not auto-play on app launch.
+        if !isPaused && shouldStartPaused {
+            shouldStartPaused = false
+            surface.mpv.pausePlayback()
+            return  // The resulting pause callback handles all UI updates.
+        }
         self.isPaused = isPaused
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
@@ -1595,7 +1602,8 @@ extension VideoPlayerViewController: PiPControllerDelegate {
                 .compactMap({ $0 as? UIWindowScene }).first,
                let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                 var top = root
-                while let presented = top.presentedViewController { top = presented }
+                while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+                guard top !== self else { completionHandler(false); return }
                 self.modalPresentationStyle = .fullScreen
                 top.present(self, animated: true) {
                     completionHandler(true)
