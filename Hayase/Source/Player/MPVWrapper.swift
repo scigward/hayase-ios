@@ -187,6 +187,13 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
 
+        // Point MPV at the directory where MatroskaMetadataService extracts
+        // embedded fonts (TTF/OTF) from MKV containers. This mirrors the web
+        // version's approach of serving font attachments via HTTP for JASSUB.
+        // On iOS, MPV reads fonts directly from disk for ASS/SSA rendering.
+        let fontsDir = MatroskaMetadataService.shared.fontsDirectory.path
+        checkError(mpv_set_option_string(handle, "sub-fonts-dir", fontsDir))
+
         // Tell MPV the stream is always seekable. This prevents MPV from
         // giving up on seeking in partially-downloaded local files.
         checkError(mpv_set_option_string(handle, "force-seekable", "yes"))

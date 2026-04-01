@@ -63,6 +63,8 @@
 		EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */; };
 		PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */; };
 		PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */; };
+		MKMETA02MKMETA02MKMETA /* MatroskaMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */; };
+		MKSWFT03MKSWFT03MKSWFT /* MatroskaSwift in Frameworks */ = {isa = PBXBuildFile; productRef = MKSWFT02MKSWFT02MKSWFT /* MatroskaSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,6 +144,7 @@
 		EXTDISP00EXTDISP00EXTDI /* ExternalDisplayManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExternalDisplayManager.swift; sourceTree = "<group>"; };
 		PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PiPController.swift; sourceTree = "<group>"; };
 		PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PlayerOptionsController.swift; sourceTree = "<group>"; };
+		MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MatroskaMetadataService.swift; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
@@ -165,6 +168,7 @@
 				FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */,
 				DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */,
 				MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */,
+				MKSWFT03MKSWFT03MKSWFT /* MatroskaSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -277,6 +281,7 @@
 				EXTWRK02EXTWRK02EXTWRK02 /* ExtensionWorker.swift */,
 				EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */,
 				TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */,
+				MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */,
 			);
 			path = Service;
 			sourceTree = "<group>";
@@ -375,6 +380,7 @@
 			packageProductDependencies = (
 				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
 				MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */,
+				MKSWFT02MKSWFT02MKSWFT /* MatroskaSwift */,
 			);
 			productName = Hayase;
 			productReference = A96105AC1D71ED71006D39D0 /* Hayase.app */;
@@ -416,6 +422,7 @@
 			packageReferences = (
 				DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */,
 				MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */,
+				MKSWFT01MKSWFT01MKSWFT /* XCRemoteSwiftPackageReference "matroska-swift" */,
 			);
 			targets = (
 				A96105AB1D71ED71006D39D0 /* Hayase */,
@@ -488,6 +495,7 @@
 				EXTDISP01EXTDISP01EXTDI /* ExternalDisplayManager.swift in Sources */,
 				PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */,
 				PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */,
+				MKMETA02MKMETA02MKMETA /* MatroskaMetadataService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -700,6 +708,14 @@
 				minimumVersion = "0.40.0-av";
 			};
 		};
+		MKSWFT01MKSWFT01MKSWFT /* XCRemoteSwiftPackageReference "matroska-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Smearedo/matroska-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -712,6 +728,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */;
 			productName = "MPVKit-GPL";
+		};
+		MKSWFT02MKSWFT02MKSWFT /* MatroskaSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MKSWFT01MKSWFT01MKSWFT /* XCRemoteSwiftPackageReference "matroska-swift" */;
+			productName = MatroskaSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 
