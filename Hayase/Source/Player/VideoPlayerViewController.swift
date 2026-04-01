@@ -966,7 +966,7 @@ final class VideoPlayerViewController: UIViewController {
         let hash = handle.infoHashes.best.hex
         guard let basePath = snap.downloadPath else { return }
 
-        let files: [(name: String, url: URL)] = snap.files.enumerated().map { _, entry in
+        let files: [(name: String, url: URL)] = snap.files.map { entry in
             let fullPath = basePath.appendingPathComponent(entry.path)
             return (name: entry.name, url: fullPath)
         }

@@ -66,6 +66,25 @@ final class MatroskaMetadataService {
 
     private let queue = DispatchQueue(label: "com.hayase.matroska-metadata", attributes: .concurrent)
 
+    /// File extensions recognised as font attachments.
+    private static let fontExtensions: Set<String> = ["ttf", "otf", "woff", "woff2"]
+
+    /// MIME types recognised as font attachments.
+    private static let fontMimeTypes: Set<String> = [
+        "font/ttf", "font/otf", "font/woff", "font/woff2",
+        "application/x-truetype-font", "application/vnd.ms-opentype",
+        "application/font-sfnt", "application/font-woff"
+    ]
+
+    /// Returns `true` when `filename` or `mimetype` indicate a font file.
+    private static func isFontAttachment(filename: String, mimetype: String) -> Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if fontExtensions.contains(ext) { return true }
+        if fontMimeTypes.contains(mimetype) { return true }
+        if mimetype.contains("font") { return true }
+        return false
+    }
+
     private init() {
         let tmpBase = FileManager.default.temporaryDirectory
             .appendingPathComponent("hayase-fonts", isDirectory: true)
@@ -127,7 +146,10 @@ final class MatroskaMetadataService {
     /// ```
     private func metadata(hash: String, id: Int) -> MatroskaSubtitles? {
         let key = hash + String(id)
-        return queue.sync {
+
+        // Use a barrier write to prevent duplicate parsing when multiple
+        // threads request metadata for the same file simultaneously.
+        return queue.sync(flags: .barrier) {
             guard let fileURL = fileMap[key] else { return nil }
 
             if let cached = metadataMap[fileURL] {
@@ -138,9 +160,7 @@ final class MatroskaMetadataService {
             let parser = MatroskaSubtitleParser()
             guard let result = try? parser.parse(fileAt: fileURL) else { return nil }
 
-            queue.async(flags: .barrier) { [weak self] in
-                self?.metadataMap[fileURL] = result
-            }
+            metadataMap[fileURL] = result
             return result
         }
     }
@@ -188,14 +208,7 @@ final class MatroskaMetadataService {
         var fontCount = 0
 
         for attachment in attachmentList {
-            let lower = attachment.filename.lowercased()
-            let isFontFile = lower.hasSuffix(".ttf") || lower.hasSuffix(".otf")
-                || lower.hasSuffix(".woff") || lower.hasSuffix(".woff2")
-            let isFontMime = attachment.mimetype.contains("font")
-                || attachment.mimetype == "application/x-truetype-font"
-                || attachment.mimetype == "application/vnd.ms-opentype"
-
-            if isFontFile || isFontMime {
+            if Self.isFontAttachment(filename: attachment.filename, mimetype: attachment.mimetype) {
                 let destURL = fontsDirectory.appendingPathComponent(attachment.filename)
                 try? attachment.data.write(to: destURL, options: .atomic)
                 fontCount += 1
