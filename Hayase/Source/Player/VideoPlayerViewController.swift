@@ -396,7 +396,6 @@ final class VideoPlayerViewController: UIViewController {
         ExternalDisplayManager.shared.unregister(self)
         streamServer?.stop()
         streamer?.stop()
-        MatroskaMetadataService.shared.destroy()
         surface.stop()
         // Nil out references so no timer or callback can touch the handle
         // after the torrent is removed from the session (use-after-free).
@@ -918,11 +917,6 @@ final class VideoPlayerViewController: UIViewController {
 
         guard let handle = torrentHandle else { return }
 
-        // Register MKV files with MatroskaMetadataService for font/track/chapter
-        // extraction. This mirrors the web's `attachments.register(torrent.files,
-        // torrent.infoHash)` called in `playTorrent()`.
-        registerMatroskaMetadata(handle: handle)
-
         // Create a TorrentStreamer only when the file is not yet fully downloaded.
         // It manages piece deadlines for proactive prefetching; not needed once
         // all pieces are on disk.
@@ -949,46 +943,20 @@ final class VideoPlayerViewController: UIViewController {
             if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
             // Fall back to direct file path (original behavior)
         }
-
-        // Extract embedded MKV fonts asynchronously once the file is on disk.
-        // For streaming files the head pieces (MKV header) are already
-        // prioritised by TorrentStreamer, so the file is parseable as soon as
-        // those pieces land. For fully-downloaded files this runs immediately.
-        extractMatroskaFonts(path: path, handle: handle)
     }
 
-    // MARK: - Matroska metadata helpers
+    // MARK: - Matroska language parsing
 
-    /// Registers the current torrent's files with `MatroskaMetadataService`,
-    /// mirroring the web's `attachments.register(torrent.files, torrent.infoHash)`.
-    private func registerMatroskaMetadata(handle: TorrentHandle) {
-        let snap = handle.snapshot
-        let hash = handle.infoHashes.best.hex
-        guard let basePath = snap.downloadPath else { return }
-
-        let files: [(name: String, url: URL)] = snap.files.map { entry in
-            let fullPath = basePath.appendingPathComponent(entry.path)
-            return (name: entry.name, url: fullPath)
-        }
-
-        MatroskaMetadataService.shared.register(files: files, hash: hash)
-    }
-
-    /// Extracts embedded fonts from the MKV container on a background thread.
-    /// Fonts are written to a temp directory that MPV reads via `--sub-fonts-dir`.
-    /// This mirrors the web's font-attachment extraction and HTTP serving.
-    private func extractMatroskaFonts(path: String, handle: TorrentHandle) {
-        let hash = handle.infoHashes.best.hex
-        let id = Int(fileIndex)
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let count = MatroskaMetadataService.shared.extractFonts(hash: hash, id: id)
-            if count > 0 {
-                DispatchQueue.main.async {
-                    StreamingLogger.shared.info("Extracted \(count) embedded font(s) from MKV")
-                }
-            }
-        }
+    /// Returns a `file://` URL for the current MKV on disk (if available)
+    /// so `matroska-swift` can parse subtitle track languages directly from
+    /// the container header. Returns `nil` for non-file or unknown paths.
+    private func mkvFileURLForLanguageParsing() -> URL? {
+        guard let path = videoEntity?.videoPath, !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+        guard ext == "mkv" || ext == "webm" else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return url
     }
 
     // MARK: - Download stats
@@ -1303,7 +1271,8 @@ final class VideoPlayerViewController: UIViewController {
         // (didBecomeTracksReady only fires on track-list/count changes,
         //  not when the user switches between existing tracks).
         var freshTracks: [MPVTrack] = []
-        for s in surface.mpv.getSubtitleTracks() {
+        let mkvURL = mkvFileURLForLanguageParsing()
+        for s in surface.mpv.getSubtitleTracks(mkvFileURL: mkvURL) {
             if let id = s["id"] as? Int {
                 freshTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
             }
@@ -1514,8 +1483,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool) {
         // Map the [[String: Any]] Dictionaries from Streamyfin into native Swift Structs
         var newTracks: [MPVTrack] = []
-        
-        for s in renderer.getSubtitleTracks() {
+        let mkvURL = mkvFileURLForLanguageParsing()
+
+        for s in renderer.getSubtitleTracks(mkvFileURL: mkvURL) {
             if let id = s["id"] as? Int {
                 newTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
             }

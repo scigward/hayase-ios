@@ -187,13 +187,6 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
 
-        // Point MPV at the directory where MatroskaMetadataService extracts
-        // embedded fonts (TTF/OTF) from MKV containers. This mirrors the web
-        // version's approach of serving font attachments via HTTP for JASSUB.
-        // On iOS, MPV reads fonts directly from disk for ASS/SSA rendering.
-        let fontsDir = MatroskaMetadataService.shared.fontsDirectory.path
-        checkError(mpv_set_option_string(handle, "sub-fonts-dir", fontsDir))
-
         // Tell MPV the stream is always seekable. This prevents MPV from
         // giving up on seeking in partially-downloaded local files.
         checkError(mpv_set_option_string(handle, "force-seekable", "yes"))
@@ -763,12 +756,28 @@ final class MPVWrapper {
     
     // MARK: - Subtitle Controls
     
-    func getSubtitleTracks() -> [[String: Any]] {
+    /// Returns subtitle tracks with language codes.
+    ///
+    /// When `mkvFileURL` is provided, the MKV header is parsed with
+    /// `matroska-swift` to extract the Language element directly from each
+    /// subtitle TrackEntry. This is more reliable than MPV's `lang` property
+    /// which can be missing during streaming or for certain muxing tools.
+    ///
+    /// Fallback chain per track: matroska-swift → MPV lang → MPV demux-lang → title parsing.
+    func getSubtitleTracks(mkvFileURL: URL? = nil) -> [[String: Any]] {
         guard let handle = mpv else {
             Logger.shared.log("getSubtitleTracks: mpv handle is nil", type: "Warn")
             return []
         }
         var tracks: [[String: Any]] = []
+
+        // Parse MKV header for authoritative language data (cached internally)
+        let mkvLanguages: [Int: String]
+        if let fileURL = mkvFileURL {
+            mkvLanguages = MatroskaMetadataService.shared.subtitleLanguages(for: fileURL)
+        } else {
+            mkvLanguages = [:]
+        }
         
         var trackCount: Int64 = 0
         getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
@@ -786,8 +795,10 @@ final class MPVWrapper {
                 track["title"] = title
             }
             
-            // Language detection: try lang → demux-lang → parse from title
-            if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
+            // Language detection: matroska-swift → MPV lang → demux-lang → title parse
+            if let mkvLang = mkvLanguages[Int(trackId)], mkvLang != "und" {
+                track["lang"] = mkvLang
+            } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
                 track["lang"] = lang
             } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
                 track["lang"] = demuxLang
