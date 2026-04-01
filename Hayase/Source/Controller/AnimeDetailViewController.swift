@@ -2126,10 +2126,11 @@ class AnimeDetailViewController: UIViewController {
         guard count > 0 else {
             // count == 0 → empty episode list (same as Hayase loop not executing)
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = []
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = []
+                self.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
             return
@@ -2201,10 +2202,11 @@ class AnimeDetailViewController: UIViewController {
                               rating: ep.rating, isFiller: fillerSet.contains(ep.number))
             }
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = finalEpisodes
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = finalEpisodes
+                self.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
         }
