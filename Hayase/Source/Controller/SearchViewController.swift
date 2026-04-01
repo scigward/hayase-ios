@@ -258,6 +258,7 @@ class SearchViewController: UIViewController {
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
+        guard isViewLoaded else { return }
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self else { return }
             self.collectionView.setCollectionViewLayout(self.makeLayout(), animated: false)
