@@ -38,11 +38,17 @@ final class MatroskaMetadataService {
 
         // Parse on current thread, then cache with barrier write
         let parser = MatroskaSubtitleParser()
-        guard let result = try? parser.parse(fileAt: fileURL) else { return [:] }
+        let result: MatroskaSubtitles
+        do {
+            result = try parser.parse(fileAt: fileURL)
+        } catch {
+            Logger.shared.log("MatroskaMetadataService: failed to parse \(fileURL.lastPathComponent): \(error)", type: "Error")
+            return [:]
+        }
 
         var langMap: [Int: String] = [:]
         for track in result.tracks {
-            if let lang = track.language, !lang.isEmpty {
+            if let lang = track.language, !lang.isEmpty, lang != "und" {
                 langMap[track.number] = lang
             }
         }

@@ -796,11 +796,12 @@ final class MPVWrapper {
             }
             
             // Language detection: matroska-swift → MPV lang → demux-lang → title parse
+            // Skip "und" (undetermined) at every level so the next source gets a chance.
             if let mkvLang = mkvLanguages[Int(trackId)], mkvLang != "und" {
                 track["lang"] = mkvLang
-            } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
+            } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang"), lang != "und" {
                 track["lang"] = lang
-            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
+            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang"), demuxLang != "und" {
                 track["lang"] = demuxLang
             } else if let title = track["title"] as? String {
                 if let parsed = Self.parseLanguageFromTitle(title) {
