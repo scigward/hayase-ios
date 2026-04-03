@@ -158,6 +158,13 @@ final class W2GPeer: NSObject {
 }
 
 // MARK: - RTCPeerConnectionDelegate
+//
+// IMPORTANT: All RTCPeerConnectionDelegate and RTCDataChannelDelegate callbacks
+// fire on internal WebRTC threads. We MUST dispatch delegate calls to the main
+// thread because W2GClient's mutable state (msgChunks, peerChannels, peers, etc.)
+// is only safe to access from the main thread. Without this, concurrent access
+// causes dictionary corruption → EXC_BAD_ACCESS crashes and silent message drops.
+// This matches W2GTrackerClient which already dispatches to main.
 
 extension W2GPeer: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
@@ -171,7 +178,10 @@ extension W2GPeer: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         switch newState {
         case .disconnected, .failed, .closed:
-            delegate?.peerDidDisconnect(self)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.peerDidDisconnect(self)
+            }
         default:
             break
         }
@@ -181,7 +191,10 @@ extension W2GPeer: RTCPeerConnectionDelegate {
         // trickle: false — wait until gathering is complete, then fire the full SDP.
         if newState == .complete, !gatheringComplete, let localDesc = peerConnection.localDescription {
             gatheringComplete = true
-            delegate?.peer(self, didGenerateLocalSDP: localDesc)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.peer(self, didGenerateLocalSDP: localDesc)
+            }
         }
     }
 
@@ -204,11 +217,17 @@ extension W2GPeer: RTCDataChannelDelegate {
     func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
         if dataChannel.readyState == .open, !hasConnected {
             hasConnected = true
-            delegate?.peerDidConnect(self)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.peerDidConnect(self)
+            }
         }
     }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
-        delegate?.peer(self, didReceiveMessage: buffer.data)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.peer(self, didReceiveMessage: buffer.data)
+        }
     }
 }
