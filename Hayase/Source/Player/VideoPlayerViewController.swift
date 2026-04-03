@@ -373,7 +373,7 @@ final class VideoPlayerViewController: UIViewController {
             if state.paused && !self.isPaused {
                 self.surface.mpv.pausePlayback()
             } else if !state.paused && self.isPaused {
-                self.surface.mpv.resumePlayback()
+                self.surface.mpv.play()
             }
 
             // Clear the guard after a short delay to absorb async callbacks.
