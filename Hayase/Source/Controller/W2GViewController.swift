@@ -20,11 +20,45 @@ import UIKit
 
 final class W2GViewController: UIViewController {
 
+    // MARK: - Tab bar init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
+
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        configureTabBarItem()
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureTabBarItem()
+    }
+    private func configureTabBarItem() {
+        tabBarItem = UITabBarItem(
+            title: "W2G",
+            image: UIImage(systemName: "person.2"),
+            selectedImage: UIImage(systemName: "person.2.fill"))
+    }
+
     // MARK: - Properties
 
     private var client: W2GClient? { W2GLobby.shared.client }
 
-    // MARK: - UI Elements
+    /// Tracks whether we are showing the landing (create/join) or the lobby (chat) UI.
+    private var isShowingLobby = false
+
+    private var lobbyObserver: NSObjectProtocol?
+
+    // MARK: - Landing UI Elements (shown when no lobby is active)
+
+    private let landingScrollView = UIScrollView()
+    private let landingStack = UIStackView()
+    private let landingTitleLabel = UILabel()
+    private let landingSubtitleLabel = UILabel()
+    private let landingSeparator = UIView()
+    private let createButton = UIButton(type: .system)
+    private let joinSeparatorLabel = UILabel()
+    private let joinCodeField = UITextField()
+    private let joinButton = UIButton(type: .system)
+
+    // MARK: - Lobby UI Elements (shown when a lobby is active)
 
     private let titleLabel = UILabel()
     private let codeLabel = UILabel()
@@ -48,13 +82,21 @@ final class W2GViewController: UIViewController {
         view.backgroundColor = .black
         navigationItem.title = "Watch Together"
 
-        client?.delegate = self
+        // Listen for lobby changes so we can swap between landing/lobby.
+        lobbyObserver = NotificationCenter.default.addObserver(
+            forName: W2GLobby.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.updateUI()
+        }
 
-        setupHeader()
-        setupMainContent()
-        setupBottomBar()
-        setupConstraints()
-        reloadData()
+        setupLandingUI()
+        setupLobbyUI()
+        updateUI()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateUI()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -63,6 +105,155 @@ final class W2GViewController: UIViewController {
         if client?.destroyed == true {
             W2GLobby.shared.client = nil
         }
+    }
+
+    deinit {
+        if let obs = lobbyObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    // MARK: - State Management
+
+    private func updateUI() {
+        let hasLobby = client != nil
+        if hasLobby && !isShowingLobby {
+            showLobbyUI()
+        } else if !hasLobby && isShowingLobby {
+            showLandingUI()
+        } else if !hasLobby {
+            showLandingUI()
+        } else {
+            // Already showing lobby, just refresh
+            codeLabel.text = client?.code ?? ""
+            reloadData()
+        }
+    }
+
+    private func showLandingUI() {
+        isShowingLobby = false
+        landingScrollView.isHidden = false
+        // Hide lobby elements
+        for v in lobbyViews { v.isHidden = true }
+    }
+
+    private func showLobbyUI() {
+        isShowingLobby = true
+        landingScrollView.isHidden = true
+        // Show lobby elements
+        for v in lobbyViews { v.isHidden = false }
+
+        client?.delegate = self
+        codeLabel.text = client?.code ?? ""
+        reloadData()
+    }
+
+    /// All lobby-specific views (hidden when showing landing).
+    private var lobbyViews: [UIView] {
+        [titleLabel, codeLabel, subtitleLabel, separatorView,
+         chatTableView, userListTableView, bottomBar]
+    }
+
+    // MARK: - Landing UI Setup (create/join page, mirrors web /app/w2g/+page.ts)
+
+    private func setupLandingUI() {
+        landingScrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(landingScrollView)
+
+        landingStack.axis = .vertical
+        landingStack.spacing = 16
+        landingStack.alignment = .fill
+        landingStack.translatesAutoresizingMaskIntoConstraints = false
+        landingScrollView.addSubview(landingStack)
+
+        // Title
+        landingTitleLabel.text = "Watch Together"
+        landingTitleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        landingTitleLabel.textColor = .white
+
+        // Subtitle
+        landingSubtitleLabel.text = "Watch videos together with friends in real-time. Create a lobby or join an existing one."
+        landingSubtitleLabel.font = .systemFont(ofSize: 14)
+        landingSubtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        landingSubtitleLabel.numberOfLines = 0
+
+        // Separator
+        landingSeparator.backgroundColor = UIColor(white: 0.2, alpha: 1)
+        landingSeparator.translatesAutoresizingMaskIntoConstraints = false
+
+        // Create lobby button
+        createButton.setTitle("Create Lobby", for: .normal)
+        createButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        createButton.setTitleColor(.white, for: .normal)
+        createButton.backgroundColor = UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)
+        createButton.layer.cornerRadius = 10
+        createButton.addTarget(self, action: #selector(createLobbyTapped), for: .touchUpInside)
+        createButton.translatesAutoresizingMaskIntoConstraints = false
+
+        // "or join" label
+        joinSeparatorLabel.text = "or join an existing lobby"
+        joinSeparatorLabel.font = .systemFont(ofSize: 14)
+        joinSeparatorLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        joinSeparatorLabel.textAlignment = .center
+
+        // Join code field
+        joinCodeField.placeholder = "Enter lobby code"
+        joinCodeField.font = .systemFont(ofSize: 16)
+        joinCodeField.textColor = .white
+        joinCodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        joinCodeField.layer.cornerRadius = 10
+        joinCodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 0))
+        joinCodeField.leftViewMode = .always
+        joinCodeField.autocapitalizationType = .none
+        joinCodeField.autocorrectionType = .no
+        joinCodeField.returnKeyType = .join
+        joinCodeField.delegate = self
+        joinCodeField.translatesAutoresizingMaskIntoConstraints = false
+
+        // Join button
+        joinButton.setTitle("Join Lobby", for: .normal)
+        joinButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        joinButton.setTitleColor(.white, for: .normal)
+        joinButton.backgroundColor = UIColor(white: 0.15, alpha: 1)
+        joinButton.layer.cornerRadius = 10
+        joinButton.addTarget(self, action: #selector(joinLobbyTapped), for: .touchUpInside)
+        joinButton.translatesAutoresizingMaskIntoConstraints = false
+
+        landingStack.addArrangedSubview(landingTitleLabel)
+        landingStack.addArrangedSubview(landingSubtitleLabel)
+        landingStack.addArrangedSubview(landingSeparator)
+        landingStack.addArrangedSubview(createButton)
+        landingStack.addArrangedSubview(joinSeparatorLabel)
+        landingStack.addArrangedSubview(joinCodeField)
+        landingStack.addArrangedSubview(joinButton)
+
+        let safe = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            landingScrollView.topAnchor.constraint(equalTo: safe.topAnchor),
+            landingScrollView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            landingScrollView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            landingScrollView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+
+            landingStack.topAnchor.constraint(equalTo: landingScrollView.topAnchor, constant: 24),
+            landingStack.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 24),
+            landingStack.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -24),
+
+            landingSeparator.heightAnchor.constraint(equalToConstant: 0.5),
+            createButton.heightAnchor.constraint(equalToConstant: 48),
+            joinCodeField.heightAnchor.constraint(equalToConstant: 48),
+            joinButton.heightAnchor.constraint(equalToConstant: 48),
+        ])
+    }
+
+    // MARK: - Lobby UI Setup (chat + user list, mirrors web /app/w2g/[id]/+page.svelte)
+
+    private func setupLobbyUI() {
+        setupHeader()
+        setupMainContent()
+        setupBottomBar()
+        setupLobbyConstraints()
+        // Start hidden — landing is shown first
+        for v in lobbyViews { v.isHidden = true }
     }
 
     // MARK: - Setup Header (matches web's space-y-0.5 p-3 header)
@@ -164,7 +355,7 @@ final class W2GViewController: UIViewController {
 
     // MARK: - Layout Constraints
 
-    private func setupConstraints() {
+    private func setupLobbyConstraints() {
         let pad: CGFloat = 16
         let safe = view.safeAreaLayoutGuide
 
@@ -212,9 +403,23 @@ final class W2GViewController: UIViewController {
 
     // MARK: - Actions
 
+    @objc private func createLobbyTapped() {
+        // Mirrors web /app/w2g/+page.ts: creates a host lobby and redirects to lobby view.
+        W2GLobby.shared.createHostLobby()
+        // updateUI() is called automatically via the W2GLobby.didChange notification.
+    }
+
+    @objc private func joinLobbyTapped() {
+        guard let code = joinCodeField.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !code.isEmpty else { return }
+        joinCodeField.resignFirstResponder()
+        // Mirrors web /app/w2g/[id]/+page.ts: joins an existing lobby by code.
+        W2GLobby.shared.joinLobby(code: code)
+    }
+
     @objc private func quitTapped() {
         W2GLobby.shared.leave()
-        navigationController?.popViewController(animated: true)
+        // updateUI() swaps back to landing via the notification.
     }
 
     @objc private func inviteTapped() {
@@ -297,7 +502,11 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
 
 extension W2GViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        sendCurrentMessage()
+        if textField === joinCodeField {
+            joinLobbyTapped()
+        } else {
+            sendCurrentMessage()
+        }
         return true
     }
 }
