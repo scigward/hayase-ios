@@ -329,6 +329,50 @@ final class VideoPlayerViewController: UIViewController {
     /// viewWillDisappear from tearing down the streaming pipeline.
     var isMinimizing = false
 
+    // MARK: - W2G integration (mirrors player.svelte W2G hooks)
+
+    /// Observer for W2GLobby changes.
+    private var w2gObserver: NSObjectProtocol?
+    /// Suppresses outgoing W2G state updates while applying a remote state change.
+    private var isApplyingRemoteW2GState = false
+
+    /// Bind/re-bind the current W2G client's delegate for player sync.
+    private func bindW2GClient() {
+        guard let client = W2GLobby.shared.client else { return }
+        // Use a closure-based approach: store a weak ref and handle events.
+        w2gPlayerDelegate = client
+    }
+
+    /// Reference to the active W2G client for incoming player state.
+    private weak var w2gPlayerDelegate: W2GClient? {
+        didSet {
+            // The W2GViewController is the primary delegate for peers/messages.
+            // For player state, we observe via a lightweight trampoline.
+            w2gPlayerDelegate?.onPlayerStateReceived = { [weak self] state in
+                self?.applyRemoteW2GState(state)
+            }
+        }
+    }
+
+    /// Apply a remote W2G player state (seek + pause/play).
+    /// Mirrors player.svelte `function updateState(state)`.
+    private func applyRemoteW2GState(_ state: W2GPlayerState) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isApplyingRemoteW2GState = true
+            defer { self.isApplyingRemoteW2GState = false }
+
+            if abs(self.currentTime - state.time) > 2 {
+                self.surface.mpv.seek(to: state.time)
+            }
+            if state.paused && !self.isPaused {
+                self.surface.mpv.pausePlayback()
+            } else if !state.paused && self.isPaused {
+                self.surface.mpv.resumePlayback()
+            }
+        }
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -351,6 +395,15 @@ final class VideoPlayerViewController: UIViewController {
 
         loadCurrentVideo()
         scheduleHide()
+
+        // W2G: listen for remote player state changes.
+        // Mirrors player.svelte: `$: $w2globby?.on('player', updateState)`.
+        w2gObserver = NotificationCenter.default.addObserver(
+            forName: W2GLobby.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.bindW2GClient()
+        }
+        bindW2GClient()
     }
 
     override func viewDidLayoutSubviews() {
@@ -402,6 +455,9 @@ final class VideoPlayerViewController: UIViewController {
         streamer = nil
         streamServer = nil
         torrentHandle = nil
+        // W2G cleanup
+        if let obs = w2gObserver { NotificationCenter.default.removeObserver(obs) }
+        w2gPlayerDelegate = nil
     }
 
     override var prefersStatusBarHidden: Bool              { !controlsVisible }
@@ -1379,6 +1435,14 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.duration    = duration
         updateTimeUI()
 
+        // W2G: sync playback position to peers (mirrors player.svelte reactive binding).
+        // Guard against feedback loop when applying remote state.
+        if !isApplyingRemoteW2GState {
+            W2GLobby.shared.client?.playerStateChanged(
+                W2GPlayerState(paused: isPaused, time: floor(position))
+            )
+        }
+
         // Feed position/duration to system PiP so the progress bar stays in sync.
         // Also ensure the timebase rate matches the current playback state —
         // MPV may start playing without first firing a pause-change event, which
@@ -1448,6 +1512,15 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             return  // The resulting pause callback handles all UI updates.
         }
         self.isPaused = isPaused
+
+        // W2G: sync pause state to peers (mirrors player.svelte reactive binding).
+        // Guard against feedback loop when applying remote state.
+        if !isApplyingRemoteW2GState {
+            W2GLobby.shared.client?.playerStateChanged(
+                W2GPlayerState(paused: isPaused, time: floor(currentTime))
+            )
+        }
+
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 

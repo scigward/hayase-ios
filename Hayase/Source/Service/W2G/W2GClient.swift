@@ -68,6 +68,11 @@ final class W2GClient {
 
     weak var delegate: W2GClientDelegate?
 
+    /// Lightweight callback for player state updates (used by VideoPlayerViewController
+    /// to receive remote state without being the full W2GClientDelegate).
+    /// Mirrors player.svelte: `$w2globby?.on('player', updateState)`.
+    var onPlayerStateReceived: ((W2GPlayerState) -> Void)?
+
     /// Invite link (mirrors web `get inviteLink()`).
     var inviteLink: String {
         "https://hayase.watch/w2g/\(code)"
@@ -384,6 +389,7 @@ final class W2GClient {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.w2gClient(self, didReceivePlayerState: state)
+                    self.onPlayerStateReceived?(state)
                 }
             }
 
