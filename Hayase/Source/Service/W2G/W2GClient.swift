@@ -464,9 +464,11 @@ final class W2GClient {
             }
 
             // Timeout: if this offer doesn't complete within 50s, skip it.
+            // Also cleans up peers that generated an SDP but never got an answer.
             DispatchQueue.main.asyncAfter(deadline: .now() + 50) { [weak self] in
                 guard let self else { return }
-                if self.pendingOffers[offerID] != nil && self.offerCallbacks[offerID] != nil {
+                if self.offerCallbacks[offerID] != nil {
+                    // Offer SDP never generated — count it as done for the completion.
                     self.offerCallbacks.removeValue(forKey: offerID)
                     self.pendingOffers[offerID]?.destroy()
                     self.pendingOffers.removeValue(forKey: offerID)
@@ -475,6 +477,11 @@ final class W2GClient {
                     let done = remaining == 0
                     lock.unlock()
                     if done { completion(offers) }
+                } else if self.pendingOffers[offerID] != nil {
+                    // Offer SDP was generated but peer never connected — clean up.
+                    self.pendingOffers[offerID]?.destroy()
+                    self.pendingOffers.removeValue(forKey: offerID)
+                    self.temporaryPeerIDs.removeValue(forKey: offerID)
                 }
             }
         }
@@ -576,6 +583,12 @@ extension W2GClient: W2GTrackerClientDelegate {
         let peer = W2GPeer(isInitiator: false, offerID: offerID)
         peer.delegate = self
 
+        // CRITICAL: Store the peer to prevent ARC deallocation before the WebRTC
+        // handshake completes. Without this, the peer is deallocated when this
+        // function returns and the ICE/DTLS handshake never finishes.
+        // Mirrors web where P2PT event listeners hold references to the peer.
+        pendingOffers[offerID] = peer
+
         // Store temporarily so we can route the answer back.
         answerCallbacks[offerID] = { [weak self] answerSDP in
             guard let self else { return }
@@ -591,9 +604,19 @@ extension W2GClient: W2GTrackerClientDelegate {
         let rtcSDP = RTCSessionDescription(type: .offer, sdp: sdpString)
         peer.signal(remoteSDP: rtcSDP)
 
-        // The peer will be stored when it fires peerDidConnect.
         // Temporarily assign its ID from the tracker data.
         temporaryPeerIDs[peer.offerID] = peerID
+
+        // Timeout: destroy the peer if it never connects (mirrors OFFER_TIMEOUT).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 50) { [weak self] in
+            guard let self else { return }
+            if self.pendingOffers[offerID] != nil {
+                self.answerCallbacks.removeValue(forKey: offerID)
+                self.pendingOffers[offerID]?.destroy()
+                self.pendingOffers.removeValue(forKey: offerID)
+                self.temporaryPeerIDs.removeValue(forKey: offerID)
+            }
+        }
     }
 
     func tracker(_ tracker: W2GTrackerClient,
@@ -609,7 +632,10 @@ extension W2GClient: W2GTrackerClientDelegate {
         let rtcSDP = RTCSessionDescription(type: .answer, sdp: sdpString)
         peer.signal(remoteSDP: rtcSDP)
 
-        pendingOffers.removeValue(forKey: offerID)
+        // DON'T remove from pendingOffers here — the peer must stay alive until
+        // peerDidConnect fires. ARC would deallocate it and destroy the
+        // RTCPeerConnection before the ICE/DTLS handshake completes.
+        // The peer is moved to peerChannels in peerDidConnect.
     }
 }
 
@@ -635,6 +661,9 @@ extension W2GClient: W2GPeerDelegate {
             peer.id = peerID
             temporaryPeerIDs.removeValue(forKey: peer.offerID)
         }
+        // Peer is now connected — move from pendingOffers to peerChannels.
+        // This keeps the peer alive via peerChannels instead.
+        pendingOffers.removeValue(forKey: peer.offerID)
         handlePeerConnect(peer)
     }
 
@@ -643,6 +672,9 @@ extension W2GClient: W2GPeerDelegate {
     }
 
     func peerDidDisconnect(_ peer: W2GPeer) {
+        // Clean up from pendingOffers if the peer failed before connecting.
+        pendingOffers.removeValue(forKey: peer.offerID)
+        temporaryPeerIDs.removeValue(forKey: peer.offerID)
         handlePeerDisconnect(peer)
     }
 }
