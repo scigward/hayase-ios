@@ -296,17 +296,11 @@ final class W2GClient {
             let slice = String(msgString[msgString.startIndex..<end])
             msgString = String(msgString[end...])
 
-            // NOTE: Do NOT set "o": 1 here. The web W2GClient calls
-            // `p2pt.send(peer, JSON.stringify(event))` which passes a *string*
-            // to P2PT. P2PT only sets `o` when the caller passes a JS object.
-            // If we set `o: 1`, web P2PT will JSON.parse our chunk into an object,
-            // then web W2GClient tries JSON.parse(object) → "[object Object]" → error.
-            // Without `o`, web P2PT treats the chunk as a plain string, and web
-            // W2GClient's JSON.parse(string) works correctly.
             var envelope: [String: Any] = [
                 "id": id,
                 "msg": slice,
-                "c": chunk
+                "c": chunk,
+                "o": 1  // indicating object payload
             ]
             if msgString.isEmpty {
                 envelope["last"] = true
