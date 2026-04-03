@@ -388,9 +388,13 @@ final class W2GViewController: UIViewController {
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
 
-            // Bottom bar (below both chat and user list)
-            bottomBar.topAnchor.constraint(greaterThanOrEqualTo: chatTableView.bottomAnchor, constant: 8),
-            bottomBar.topAnchor.constraint(greaterThanOrEqualTo: userListTableView.bottomAnchor, constant: 8),
+            // Chat and user list fill the space down to the bottom bar.
+            // IMPORTANT: Must use equalTo, not greaterThanOrEqualTo. UITableView has
+            // no intrinsic height, so greaterThanOrEqualTo leaves the height ambiguous
+            // (Auto Layout can satisfy all constraints with height = 0, making the
+            // tables invisible even though messages exist in the data model).
+            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            userListTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
             bottomBar.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
             bottomBar.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             bottomBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -pad),
