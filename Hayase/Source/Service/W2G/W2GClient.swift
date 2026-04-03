@@ -333,16 +333,18 @@ final class W2GClient {
 
         guard envelope["last"] != nil else { return }  // wait for last chunk
 
-        // Assemble full message — verify all chunks are present.
+        // Assemble full message — verify all chunks 0..N are present.
         let chunks = msgChunks[msgID] ?? [:]
         let totalChunks = chunkIndex + 1  // last chunk's index + 1
-        guard chunks.count == totalChunks else {
-            // Missing intermediate chunks; discard incomplete message.
-            msgChunks.removeValue(forKey: msgID)
-            return
+        // Verify sequential: every index from 0 to totalChunks-1 must exist.
+        for i in 0..<totalChunks {
+            guard chunks[i] != nil else {
+                // Missing intermediate chunk; discard incomplete message.
+                msgChunks.removeValue(forKey: msgID)
+                return
+            }
         }
-        let sorted = chunks.sorted { $0.key < $1.key }
-        let fullMsg = sorted.map(\.value).joined()
+        let fullMsg = (0..<totalChunks).map { chunks[$0]! }.joined()
         msgChunks.removeValue(forKey: msgID)
 
         // The payload is a JSON-encoded W2GEvent (o=1 means it was an object).
