@@ -89,6 +89,11 @@ final class W2GViewController: UIViewController {
             self?.updateUI()
         }
 
+        // Dismiss keyboard when tapping anywhere outside a text field.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+
         setupLandingUI()
         setupLobbyUI()
         updateUI()
@@ -406,6 +411,10 @@ final class W2GViewController: UIViewController {
     }
 
     // MARK: - Actions
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
 
     @objc private func createLobbyTapped() {
         // Mirrors web /app/w2g/+page.ts: creates a host lobby and redirects to lobby view.
