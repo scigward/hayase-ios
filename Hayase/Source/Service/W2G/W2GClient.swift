@@ -481,6 +481,11 @@ final class W2GClient {
     /// Temporary storage for offer SDP callbacks (offerID → callback).
     private var offerCallbacks: [String: (RTCSessionDescription) -> Void] = [:]
 
+    /// Temporary storage for answer SDP callbacks.
+    private var answerCallbacks: [String: (RTCSessionDescription) -> Void] = [:]
+    /// Temporary peer ID assignments (offerID → peerID hex).
+    private var temporaryPeerIDs: [String: String] = [:]
+
     // MARK: - Peer lifecycle helpers (mirrors P2PT._removePeer)
 
     private func handlePeerConnect(_ peer: W2GPeer) {
@@ -601,11 +606,6 @@ extension W2GClient: W2GTrackerClientDelegate {
 
         pendingOffers.removeValue(forKey: offerID)
     }
-
-    /// Temporary storage for answer SDP callbacks.
-    private(set) var answerCallbacks: [String: (RTCSessionDescription) -> Void] = [:]
-    /// Temporary peer ID assignments (offerID → peerID hex).
-    private(set) var temporaryPeerIDs: [String: String] = [:]
 }
 
 // MARK: - W2GPeerDelegate
