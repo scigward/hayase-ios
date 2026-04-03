@@ -185,6 +185,8 @@
 				DEAD0004DEAD0004DEAD0004 /* OpenSSL in Frameworks */,
 				MPVKIT03MPVKIT03MPVKIT03 /* MPVKit-GPL in Frameworks */,
 				MKSWFT03MKSWFT03MKSWFT /* MatroskaSwift in Frameworks */,
+				WRTC0003WRTC0003WRTC0003 /* WebRTC in Frameworks */,
+				STRSCM03STRSCM03STRSCM03 /* Starscream in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -278,6 +280,7 @@
 				EXTSRC02EXTSRC02EXTSRC02 /* ExtensionSearchViewController.swift */,
 				TRKICN02TRKICN02TRKICN02 /* TrackerIcons.swift */,
 				ACCCEL02ACCCEL02ACCCEL02 /* HayaseAccountCardCell.swift */,
+				W2GVC00AW2GVC00AW2GVC00 /* W2GViewController.swift */,
 			);
 			path = Controller;
 			sourceTree = "<group>";
@@ -374,6 +377,19 @@
 				A96106C81D731B43006D39D0 /* NamedEntity.swift */,
 			);
 			path = Protocol;
+			sourceTree = "<group>";
+		};
+		W2GGRP01W2GGRP01W2GGRP /* W2G */ = {
+			isa = PBXGroup;
+			children = (
+				W2GEVT0AW2GEVT0AW2GEVT /* W2GEvents.swift */,
+				W2GCHAT0AW2GCHAT0AW2GCH /* W2GChatModels.swift */,
+				W2GPEER0AW2GPEER0AW2GPE /* W2GPeer.swift */,
+				W2GTRKR0AW2GTRKR0AW2GTR /* W2GTrackerClient.swift */,
+				W2GCLI00AW2GCLI00AW2GCL /* W2GClient.swift */,
+				W2GLOB0AW2GLOB0AW2GLOB0 /* W2GLobby.swift */,
+			);
+			path = W2G;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -517,6 +533,13 @@
 				PIPCTRL01PIPCTRL01PIPCT /* PiPController.swift in Sources */,
 				PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */,
 				MKMETA02MKMETA02MKMETA /* MatroskaMetadataService.swift in Sources */,
+				W2GEVT0BW2GEVT0BW2GEVT /* W2GEvents.swift in Sources */,
+				W2GCHAT0BW2GCHAT0BW2GCH /* W2GChatModels.swift in Sources */,
+				W2GPEER0BW2GPEER0BW2GPE /* W2GPeer.swift in Sources */,
+				W2GTRKR0BW2GTRKR0BW2GTR /* W2GTrackerClient.swift in Sources */,
+				W2GCLI00BW2GCLI00BW2GCL /* W2GClient.swift in Sources */,
+				W2GLOB0BW2GLOB0BW2GLOB0 /* W2GLobby.swift in Sources */,
+				W2GVC00BW2GVC00BW2GVC00 /* W2GViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
