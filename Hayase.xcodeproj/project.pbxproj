@@ -65,6 +65,15 @@
 		PLYROPT1PLYROPT1PLYROPT /* PlayerOptionsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */; };
 		MKMETA02MKMETA02MKMETA /* MatroskaMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */; };
 		MKSWFT03MKSWFT03MKSWFT /* MatroskaSwift in Frameworks */ = {isa = PBXBuildFile; productRef = MKSWFT02MKSWFT02MKSWFT /* MatroskaSwift */; };
+		W2GEVT0BW2GEVT0BW2GEVT /* W2GEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GEVT0AW2GEVT0AW2GEVT /* W2GEvents.swift */; };
+		W2GCHAT0BW2GCHAT0BW2GCH /* W2GChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GCHAT0AW2GCHAT0AW2GCH /* W2GChatModels.swift */; };
+		W2GPEER0BW2GPEER0BW2GPE /* W2GPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GPEER0AW2GPEER0AW2GPE /* W2GPeer.swift */; };
+		W2GTRKR0BW2GTRKR0BW2GTR /* W2GTrackerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GTRKR0AW2GTRKR0AW2GTR /* W2GTrackerClient.swift */; };
+		W2GCLI00BW2GCLI00BW2GCL /* W2GClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GCLI00AW2GCLI00AW2GCL /* W2GClient.swift */; };
+		W2GLOB0BW2GLOB0BW2GLOB0 /* W2GLobby.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GLOB0AW2GLOB0AW2GLOB0 /* W2GLobby.swift */; };
+		W2GVC00BW2GVC00BW2GVC00 /* W2GViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2GVC00AW2GVC00AW2GVC00 /* W2GViewController.swift */; };
+		WRTC0003WRTC0003WRTC0003 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = WRTC0002WRTC0002WRTC0002 /* WebRTC */; };
+		STRSCM03STRSCM03STRSCM03 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = STRSCM02STRSCM02STRSCM02 /* Starscream */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -145,6 +154,13 @@
 		PIPCTRL00PIPCTRL00PIPCT /* PiPController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PiPController.swift; sourceTree = "<group>"; };
 		PLYROPT0PLYROPT0PLYROPT /* PlayerOptionsController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PlayerOptionsController.swift; sourceTree = "<group>"; };
 		MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MatroskaMetadataService.swift; sourceTree = "<group>"; };
+		W2GEVT0AW2GEVT0AW2GEVT /* W2GEvents.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GEvents.swift; sourceTree = "<group>"; };
+		W2GCHAT0AW2GCHAT0AW2GCH /* W2GChatModels.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GChatModels.swift; sourceTree = "<group>"; };
+		W2GPEER0AW2GPEER0AW2GPE /* W2GPeer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GPeer.swift; sourceTree = "<group>"; };
+		W2GTRKR0AW2GTRKR0AW2GTR /* W2GTrackerClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GTrackerClient.swift; sourceTree = "<group>"; };
+		W2GCLI00AW2GCLI00AW2GCL /* W2GClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GClient.swift; sourceTree = "<group>"; };
+		W2GLOB0AW2GLOB0AW2GLOB0 /* W2GLobby.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GLobby.swift; sourceTree = "<group>"; };
+		W2GVC00AW2GVC00AW2GVC00 /* W2GViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = W2GViewController.swift; sourceTree = "<group>"; };
 		A96106BD1D731B43006D39D0 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A96106BF1D731B43006D39D0 /* Animes+CoreDataProperties.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "Animes+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		A96106C01D731B43006D39D0 /* Animes.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Animes.swift; sourceTree = "<group>"; };
@@ -282,6 +298,7 @@
 				EXTSVC02EXTSVC02EXTSVC02 /* ExtensionService.swift */,
 				TRKSVC02TRKSVC02TRKSVC02 /* TrackerService.swift */,
 				MKMETA01MKMETA01MKMETA /* MatroskaMetadataService.swift */,
+				W2GGRP01W2GGRP01W2GGRP /* W2G */,
 			);
 			path = Service;
 			sourceTree = "<group>";
@@ -381,6 +398,8 @@
 				DEAD0002DEAD0002DEAD0002 /* OpenSSL */,
 				MPVKIT02MPVKIT02MPVKIT02 /* MPVKit-GPL */,
 				MKSWFT02MKSWFT02MKSWFT /* MatroskaSwift */,
+				WRTC0002WRTC0002WRTC0002 /* WebRTC */,
+				STRSCM02STRSCM02STRSCM02 /* Starscream */,
 			);
 			productName = Hayase;
 			productReference = A96105AC1D71ED71006D39D0 /* Hayase.app */;
@@ -423,6 +442,8 @@
 				DEAD0001DEAD0001DEAD0001 /* XCRemoteSwiftPackageReference "OpenSSL" */,
 				MPVKIT01MPVKIT01MPVKIT01 /* XCRemoteSwiftPackageReference "MPVKit" */,
 				MKSWFT01MKSWFT01MKSWFT /* XCRemoteSwiftPackageReference "matroska-swift" */,
+				WRTC0001WRTC0001WRTC0001 /* XCRemoteSwiftPackageReference "WebRTC" */,
+				STRSCM01STRSCM01STRSCM01 /* XCRemoteSwiftPackageReference "Starscream" */,
 			);
 			targets = (
 				A96105AB1D71ED71006D39D0 /* Hayase */,
@@ -716,6 +737,22 @@
 				kind = branch;
 			};
 		};
+		WRTC0001WRTC0001WRTC0001 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				branch = latest;
+				kind = branch;
+			};
+		};
+		STRSCM01STRSCM01STRSCM01 /* XCRemoteSwiftPackageReference "Starscream" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/daltoniam/Starscream.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.8;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -733,6 +770,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = MKSWFT01MKSWFT01MKSWFT /* XCRemoteSwiftPackageReference "matroska-swift" */;
 			productName = MatroskaSwift;
+		};
+		WRTC0002WRTC0002WRTC0002 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = WRTC0001WRTC0001WRTC0001 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+		STRSCM02STRSCM02STRSCM02 /* Starscream */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = STRSCM01STRSCM01STRSCM01 /* XCRemoteSwiftPackageReference "Starscream" */;
+			productName = Starscream;
 		};
 /* End XCSwiftPackageProductDependency section */
 
