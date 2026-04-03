@@ -118,8 +118,10 @@ final class W2GClient {
 
     /// P2PT JSON message identifier character.
     private static let jsonMessageIdentifier: Character = "^"
-    /// Max data channel message length (16 KB).
+    /// Max data channel message length (16 KB, matches Chromium's WebRTC data channel limit).
     private static let maxMessageLength = 16000
+    /// Timeout for pending offers/peers that never connect (mirrors OFFER_TIMEOUT in web).
+    private static let offerTimeout: TimeInterval = 50
 
     /// Re-announce timer.
     private var announceTimer: Timer?
@@ -463,9 +465,9 @@ final class W2GClient {
                 }
             }
 
-            // Timeout: if this offer doesn't complete within 50s, skip it.
+            // Timeout: if this offer doesn't complete within the offer timeout, skip it.
             // Also cleans up peers that generated an SDP but never got an answer.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 50) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.offerTimeout) { [weak self] in
                 guard let self else { return }
                 if self.offerCallbacks[offerID] != nil {
                     // Offer SDP never generated — count it as done for the completion.
@@ -608,7 +610,7 @@ extension W2GClient: W2GTrackerClientDelegate {
         temporaryPeerIDs[peer.offerID] = peerID
 
         // Timeout: destroy the peer if it never connects (mirrors OFFER_TIMEOUT).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 50) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.offerTimeout) { [weak self] in
             guard let self else { return }
             if self.pendingOffers[offerID] != nil {
                 self.answerCallbacks.removeValue(forKey: offerID)
