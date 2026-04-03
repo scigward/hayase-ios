@@ -79,14 +79,18 @@ struct AnyCodable: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
+        // IMPORTANT: Try Int/Double BEFORE Bool. JSONDecoder backed by NSNumber
+        // can decode JSON integers 0/1 as Bool (NSNumber bridging), which corrupts
+        // downstream types (e.g. W2GMediaState.episode: 1 → true → decode fails).
+        // Int.decode on JSON true/false correctly fails, so this order is safe.
         if container.decodeNil() {
             value = NSNull()
-        } else if let b = try? container.decode(Bool.self) {
-            value = b
         } else if let i = try? container.decode(Int.self) {
             value = i
         } else if let d = try? container.decode(Double.self) {
             value = d
+        } else if let b = try? container.decode(Bool.self) {
+            value = b
         } else if let s = try? container.decode(String.self) {
             value = s
         } else if let arr = try? container.decode([AnyCodable].self) {
@@ -99,25 +103,39 @@ struct AnyCodable: Codable {
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
+        // IMPORTANT: Do NOT create singleValueContainer() eagerly at the top.
+        // The Encodable case (structs like W2GChatUser, W2GMediaState, W2GPlayerState)
+        // needs to call e.encode(to: encoder) which creates a KEYED container.
+        // Creating a singleValueContainer first conflicts with that — causing crashes
+        // (preconditionFailure) or silent encoding failures that drop init/media/player
+        // events entirely. Create the container lazily only in branches that need it.
         switch value {
         case is NSNull:
+            var container = encoder.singleValueContainer()
             try container.encodeNil()
         case let b as Bool:
+            var container = encoder.singleValueContainer()
             try container.encode(b)
         case let i as Int:
+            var container = encoder.singleValueContainer()
             try container.encode(i)
         case let d as Double:
+            var container = encoder.singleValueContainer()
             try container.encode(d)
         case let s as String:
+            var container = encoder.singleValueContainer()
             try container.encode(s)
         case let arr as [Any]:
+            var container = encoder.singleValueContainer()
             try container.encode(arr.map { AnyCodable($0) })
         case let dict as [String: Any]:
+            var container = encoder.singleValueContainer()
             try container.encode(dict.mapValues { AnyCodable($0) })
         case let e as Encodable:
+            // Let the concrete type create whatever container it needs (keyed, unkeyed, etc.)
             try e.encode(to: encoder)
         default:
+            var container = encoder.singleValueContainer()
             try container.encodeNil()
         }
     }
