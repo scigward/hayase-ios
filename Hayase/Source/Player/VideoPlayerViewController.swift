@@ -356,11 +356,16 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Apply a remote W2G player state (seek + pause/play).
     /// Mirrors player.svelte `function updateState(state)`.
+    ///
+    /// The web simply sets `currentTime = state.time; paused = state.paused`
+    /// because Svelte bindings propagate synchronously. On iOS, MPV seek is
+    /// async, so we keep the guard flag set and clear it after a short delay
+    /// to absorb the resulting position/pause callbacks that would otherwise
+    /// echo back to peers.
     private func applyRemoteW2GState(_ state: W2GPlayerState) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isApplyingRemoteW2GState = true
-            defer { self.isApplyingRemoteW2GState = false }
 
             if abs(self.currentTime - state.time) > 2 {
                 self.surface.mpv.seek(to: state.time)
@@ -369,6 +374,11 @@ final class VideoPlayerViewController: UIViewController {
                 self.surface.mpv.pausePlayback()
             } else if !state.paused && self.isPaused {
                 self.surface.mpv.resumePlayback()
+            }
+
+            // Clear the guard after a short delay to absorb async callbacks.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.isApplyingRemoteW2GState = false
             }
         }
     }

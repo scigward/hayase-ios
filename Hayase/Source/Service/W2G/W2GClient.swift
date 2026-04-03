@@ -181,6 +181,10 @@ final class W2GClient {
         }
         peerChannels.removeAll()
         pendingOffers.removeAll()
+        msgChunks.removeAll()
+        offerCallbacks.removeAll()
+        answerCallbacks.removeAll()
+        temporaryPeerIDs.removeAll()
 
         // Destroy all trackers.
         for tracker in trackers {
@@ -253,13 +257,11 @@ final class W2GClient {
     // MARK: - Send to peers (mirrors web `_sendToPeers` / `_sendEvent`)
 
     private func sendToPeers(_ event: W2GEvent) {
-        for (peerID, _) in peers {
+        for (peerID, channels) in peerChannels {
             if peerID == selfUser.id { continue }
-            if let channels = peerChannels[peerID] {
-                for (_, peer) in channels where peer.isConnected {
-                    sendP2PTMessage(to: peer, event: event)
-                    break // only need one connected channel per peer
-                }
+            for (_, peer) in channels where peer.isConnected {
+                sendP2PTMessage(to: peer, event: event)
+                break // only need one connected channel per peer
             }
         }
     }
@@ -331,8 +333,14 @@ final class W2GClient {
 
         guard envelope["last"] != nil else { return }  // wait for last chunk
 
-        // Assemble full message.
+        // Assemble full message — verify all chunks are present.
         let chunks = msgChunks[msgID] ?? [:]
+        let totalChunks = chunkIndex + 1  // last chunk's index + 1
+        guard chunks.count == totalChunks else {
+            // Missing intermediate chunks; discard incomplete message.
+            msgChunks.removeValue(forKey: msgID)
+            return
+        }
         let sorted = chunks.sorted { $0.key < $1.key }
         let fullMsg = sorted.map(\.value).joined()
         msgChunks.removeValue(forKey: msgID)
@@ -452,7 +460,7 @@ final class W2GClient {
             }
 
             // Timeout: if this offer doesn't complete within 50s, skip it.
-            DispatchQueue.global().asyncAfter(deadline: .now() + 50) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 50) { [weak self] in
                 guard let self else { return }
                 if self.pendingOffers[offerID] != nil && self.offerCallbacks[offerID] != nil {
                     self.offerCallbacks.removeValue(forKey: offerID)
@@ -506,6 +514,9 @@ final class W2GClient {
                 self.delegate?.w2gClientPeersDidChange(self)
             }
         }
+
+        // Clean up any pending offers for this peer.
+        peer.destroy()
     }
 
     // MARK: - Utilities

@@ -197,9 +197,9 @@ final class W2GViewController: UIViewController {
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
 
-            // Bottom bar
-            bottomBar.topAnchor.constraint(equalTo: chatTableView.bottomAnchor, constant: 8),
-            bottomBar.topAnchor.constraint(equalTo: userListTableView.bottomAnchor, constant: 8),
+            // Bottom bar (below both chat and user list)
+            bottomBar.topAnchor.constraint(greaterThanOrEqualTo: chatTableView.bottomAnchor, constant: 8),
+            bottomBar.topAnchor.constraint(greaterThanOrEqualTo: userListTableView.bottomAnchor, constant: 8),
             bottomBar.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
             bottomBar.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             bottomBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -pad),

@@ -162,11 +162,6 @@ extension W2GPeer: RTCPeerConnectionDelegate {
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         switch newState {
-        case .connected:
-            if !hasConnected {
-                hasConnected = true
-                delegate?.peerDidConnect(self)
-            }
         case .disconnected, .failed, .closed:
             delegate?.peerDidDisconnect(self)
         default:
