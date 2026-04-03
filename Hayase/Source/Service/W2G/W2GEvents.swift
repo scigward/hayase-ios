@@ -111,6 +111,10 @@ struct AnyCodable: Codable {
             try container.encode(d)
         case let s as String:
             try container.encode(s)
+        case let arr as [Any]:
+            try container.encode(arr.map { AnyCodable($0) })
+        case let dict as [String: Any]:
+            try container.encode(dict.mapValues { AnyCodable($0) })
         case let e as Encodable:
             try e.encode(to: encoder)
         default:

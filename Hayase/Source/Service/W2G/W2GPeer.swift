@@ -60,13 +60,21 @@ final class W2GPeer: NSObject {
 
     // MARK: - Init
 
+    /// Default STUN servers for NAT traversal (mirrors simple-peer defaults).
+    /// Without these, peers behind NAT cannot discover each other's public IP.
+    private static let defaultIceServers: [String] = [
+        "stun:stun.l.google.com:19302",
+        "stun:global.stun.twilio.com:3478"
+    ]
+
     init(isInitiator: Bool, offerID: String, iceServers: [String] = []) {
         self.id = ""
         self.isInitiator = isInitiator
         self.offerID = offerID
 
         let config = RTCConfiguration()
-        config.iceServers = iceServers.isEmpty ? [] : [RTCIceServer(urlStrings: iceServers)]
+        let servers = iceServers.isEmpty ? Self.defaultIceServers : iceServers
+        config.iceServers = [RTCIceServer(urlStrings: servers)]
         config.sdpSemantics = .unifiedPlan
         config.continualGatheringPolicy = .gatherOnce  // trickle: false
 

@@ -457,7 +457,9 @@ final class W2GClient {
                 lock.unlock()
 
                 if done {
-                    completion(offers)
+                    DispatchQueue.main.async {
+                        completion(offers)
+                    }
                 }
             }
 
@@ -504,7 +506,10 @@ final class W2GClient {
             if isHost {
                 sendInitialSessionState(to: peer)
             }
-            delegate?.w2gClientPeersDidChange(self)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.w2gClientPeersDidChange(self)
+            }
         }
     }
 

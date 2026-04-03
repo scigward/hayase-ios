@@ -52,7 +52,13 @@ struct W2GChatUser: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
+        // Web sends id as a number for AniList viewers. Encode as Int when possible
+        // for cross-platform compatibility.
+        if let intID = Int(id) {
+            try container.encode(intID, forKey: .id)
+        } else {
+            try container.encode(id, forKey: .id)
+        }
         try container.encode(name, forKey: .name)
         // Encode avatar as { large: "url" } to match web format.
         if let url = avatarURL {
