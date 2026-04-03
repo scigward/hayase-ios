@@ -29,7 +29,9 @@ protocol W2GPeerDelegate: AnyObject {
 /// Wraps a single RTCPeerConnection + RTCDataChannel.
 /// Models the same lifecycle as one `simple-peer` instance used by P2PT.
 final class W2GPeer: NSObject {
-    let id: String  // assigned later from tracker (peerID hex)
+    /// Peer ID (hex) assigned once the tracker identifies the remote peer.
+    /// Empty until the tracker provides the ID via offer/answer exchange.
+    var id: String
     weak var delegate: W2GPeerDelegate?
 
     /// Whether this side creates the offer (initiator = true) or waits for one.
