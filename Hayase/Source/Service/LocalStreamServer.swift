@@ -48,8 +48,28 @@ final class LocalStreamServer {
     private let queue = DispatchQueue(label: "LocalStreamServer", qos: .userInitiated)
     /// Serial queue to protect torrentHandle.updateSnapshot() calls.
     private let snapshotQueue = DispatchQueue(label: "LocalStreamServer.snapshot")
+    /// Lock that protects the `connections` array.  `stop()` can be called from
+    /// any thread (typically main) while `handleConnection`/`removeConnection`
+    /// run on `queue`, so a lock is required to prevent concurrent array mutations.
+    private let connectionsLock = NSLock()
     private var connections: [NWConnection] = []
-    private var isStopped = false
+    /// `isStopped` is written in `stop()` (any thread) and read from
+    /// DispatchQueue.global inside streamBody/waitForLocalPieces.
+    /// `stoppedLock` ensures proper synchronisation across threads.
+    private let stoppedLock = NSLock()
+    private var _isStopped = false
+    private var isStopped: Bool {
+        get {
+            stoppedLock.lock()
+            defer { stoppedLock.unlock() }
+            return _isStopped
+        }
+        set {
+            stoppedLock.lock()
+            defer { stoppedLock.unlock() }
+            _isStopped = newValue
+        }
+    }
 
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
@@ -132,19 +152,22 @@ final class LocalStreamServer {
         isStopped = true
         listener?.cancel()
         listener = nil
-        for conn in connections {
-            conn.cancel()
-        }
+        // Snapshot and clear the connections array under the lock so we don't
+        // race with handleConnection / removeConnection which also hold the lock.
+        connectionsLock.lock()
+        let snapshot = connections
         connections.removeAll()
+        connectionsLock.unlock()
+        for conn in snapshot { conn.cancel() }
         if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: stopped") }
     }
 
     // MARK: - Connection handling
 
     private func handleConnection(_ connection: NWConnection) {
-        queue.async { [weak self] in
-            self?.connections.append(connection)
-        }
+        connectionsLock.lock()
+        connections.append(connection)
+        connectionsLock.unlock()
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed, .cancelled:
@@ -158,9 +181,9 @@ final class LocalStreamServer {
     }
 
     private func removeConnection(_ connection: NWConnection) {
-        queue.async { [weak self] in
-            self?.connections.removeAll(where: { $0 === connection })
-        }
+        connectionsLock.lock()
+        connections.removeAll(where: { $0 === connection })
+        connectionsLock.unlock()
     }
 
     private func receiveRequest(_ connection: NWConnection) {
