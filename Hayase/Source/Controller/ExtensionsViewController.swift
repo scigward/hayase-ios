@@ -378,8 +378,9 @@ extension ExtensionsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if selectedTab == 0 {
-            let cell = tableView.dequeueReusableCell(withIdentifier: ExtensionCell.reuseID,
-                                                       for: indexPath) as! ExtensionCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ExtensionCell.reuseID,
+                                                       for: indexPath) as? ExtensionCell else { return UITableViewCell() }
+            guard indexPath.row < sortedConfigs.count else { return cell }
             let (id, config) = sortedConfigs[indexPath.row]
             let enabled = ExtensionService.shared.options[id]?.enabled ?? true
             let hasWorker = ExtensionService.shared.workers[id] != nil
@@ -391,8 +392,9 @@ extension ExtensionsViewController: UITableViewDataSource, UITableViewDelegate {
             cell.onOptions = { [weak self] in self?.showOptions(for: config) }
             return cell
         } else {
-            let cell = tableView.dequeueReusableCell(withIdentifier: RepoCell.reuseID,
-                                                       for: indexPath) as! RepoCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: RepoCell.reuseID,
+                                                       for: indexPath) as? RepoCell else { return UITableViewCell() }
+            guard indexPath.row < repositories.count else { return cell }
             let repo = repositories[indexPath.row]
             cell.configure(url: repo.url, count: repo.configs.count)
             return cell
@@ -402,6 +404,7 @@ extension ExtensionsViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
         -> UISwipeActionsConfiguration? {
         guard selectedTab == 0 else { return nil }
+        guard indexPath.row < sortedConfigs.count else { return nil }
         let (id, _) = sortedConfigs[indexPath.row]
         let del = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
             done(true); self?.deleteExtension(id: id)

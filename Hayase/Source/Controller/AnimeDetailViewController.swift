@@ -340,6 +340,262 @@ private final class EpisodeCell: UITableViewCell {
     }
 }
 
+// MARK: - PaginationBarView
+// Matches Hayase's Pagination.svelte + EpisodesList.svelte pagination bar exactly:
+// • "Showing X to Y of Z episodes" label (desktop-only on web, always shown here)
+// • Chevron left/right buttons (ghost variant)
+// • Numbered page buttons with ellipsis (outline for active, ghost for others)
+// • siblingCount = 1, edgeSize = 4
+
+private final class PaginationBarView: UIView {
+
+    var onPageChange: ((Int) -> Void)?
+
+    private(set) var currentPage: Int = 1
+    private(set) var totalPages: Int = 1
+    private var totalCount: Int = 0
+    private var perPage: Int = 16
+
+    private let infoLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13)
+        l.textColor = UIColor(white: 0.63, alpha: 1) // text-muted-foreground
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let prevButton: UIButton = {
+        let b = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        b.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        b.tintColor = .white
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return b
+    }()
+
+    private let nextButton: UIButton = {
+        let b = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        b.setImage(UIImage(systemName: "chevron.right", withConfiguration: config), for: .normal)
+        b.tintColor = .white
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return b
+    }()
+
+    private let pageStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 2
+        sv.alignment = .center
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    private let controlsStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 2
+        sv.alignment = .center
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+
+        prevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
+        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+
+        controlsStack.addArrangedSubview(prevButton)
+        controlsStack.addArrangedSubview(pageStack)
+        controlsStack.addArrangedSubview(nextButton)
+
+        addSubview(infoLabel)
+        addSubview(controlsStack)
+
+        NSLayoutConstraint.activate([
+            infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            controlsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            controlsStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
+            controlsStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(currentPage: Int, totalCount: Int, perPage: Int) {
+        self.currentPage = currentPage
+        self.totalCount = totalCount
+        self.perPage = perPage
+        self.totalPages = max(1, Int(ceil(Double(totalCount) / Double(perPage))))
+        rebuild()
+    }
+
+    // MARK: - Pagination algorithm (matches Pagination.svelte)
+
+    private struct PageItem {
+        let page: Int
+        let isEllipsis: Bool
+    }
+
+    private func computePages() -> [PageItem] {
+        let siblingCount = 1
+        let edgeSize = 4 * siblingCount
+        let tp = totalPages
+
+        let startPage = max(1, tp - currentPage < edgeSize ? tp - edgeSize : currentPage - siblingCount)
+        let endPage = min(tp, currentPage < edgeSize ? 1 + edgeSize : currentPage + siblingCount)
+
+        var items: [PageItem] = []
+
+        if startPage > 1 {
+            items.append(PageItem(page: 1, isEllipsis: false))
+            if startPage > 2 {
+                items.append(PageItem(page: startPage - 1, isEllipsis: true))
+            }
+        }
+
+        for i in startPage...endPage {
+            items.append(PageItem(page: i, isEllipsis: false))
+        }
+
+        if endPage < tp {
+            if endPage < tp - 1 {
+                items.append(PageItem(page: endPage + 1, isEllipsis: true))
+            }
+            items.append(PageItem(page: tp, isEllipsis: false))
+        }
+
+        return items
+    }
+
+    private func rebuild() {
+        // Update info label: "Showing X to Y of Z episodes"
+        let rangeStart = (currentPage - 1) * perPage
+        let rangeEnd = min(currentPage * perPage, totalCount)
+        let boldAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 13),
+            .foregroundColor: UIColor(white: 0.63, alpha: 1)
+        ]
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 13),
+            .foregroundColor: UIColor(white: 0.63, alpha: 1)
+        ]
+        let str = NSMutableAttributedString()
+        str.append(NSAttributedString(string: "Showing ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(rangeStart + 1)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " to ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(rangeEnd)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " of ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(totalCount)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " episodes", attributes: normalAttrs))
+        infoLabel.attributedText = str
+
+        // Update buttons
+        prevButton.isEnabled = currentPage > 1
+        prevButton.alpha = currentPage > 1 ? 1.0 : 0.35
+        nextButton.isEnabled = currentPage < totalPages
+        nextButton.alpha = currentPage < totalPages ? 1.0 : 0.35
+
+        // Rebuild page number buttons
+        pageStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let pages = computePages()
+        for item in pages {
+            if item.isEllipsis {
+                let label = UILabel()
+                label.text = "..."
+                label.font = .systemFont(ofSize: 13)
+                label.textColor = UIColor(white: 0.63, alpha: 1)
+                label.textAlignment = .center
+                label.widthAnchor.constraint(equalToConstant: 36).isActive = true
+                label.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                pageStack.addArrangedSubview(label)
+            } else {
+                let btn = UIButton(type: .system)
+                btn.setTitle("\(item.page)", for: .normal)
+                btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+                btn.tag = item.page
+                btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
+                btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                btn.layer.cornerRadius = 6
+                btn.clipsToBounds = true
+                btn.addTarget(self, action: #selector(pageTapped(_:)), for: .touchUpInside)
+
+                if item.page == currentPage {
+                    // variant='outline' — border with transparent bg
+                    btn.layer.borderWidth = 1
+                    btn.layer.borderColor = UIColor(white: 0.27, alpha: 1).cgColor // border color
+                    btn.setTitleColor(.white, for: .normal)
+                    btn.backgroundColor = .clear
+                } else {
+                    // variant='ghost'
+                    btn.layer.borderWidth = 0
+                    btn.setTitleColor(UIColor(white: 0.63, alpha: 1), for: .normal)
+                    btn.backgroundColor = .clear
+                }
+
+                pageStack.addArrangedSubview(btn)
+            }
+        }
+
+        // On narrow screens (iPhone), hide page numbers, show info in center
+        // Web hides page numbers on mobile and shows info text between chevrons
+        let isNarrow = (superview?.frame.width ?? UIScreen.main.bounds.width) < 600
+        pageStack.isHidden = isNarrow
+        infoLabel.isHidden = isNarrow
+
+        // On narrow: insert info label between chevrons if not already
+        if isNarrow {
+            // Add a compact info label in the controls stack
+            if controlsStack.arrangedSubviews.count == 3 {
+                let compactInfo = UILabel()
+                compactInfo.font = .systemFont(ofSize: 13)
+                compactInfo.textColor = UIColor(white: 0.63, alpha: 1)
+                compactInfo.textAlignment = .center
+                compactInfo.attributedText = str
+                compactInfo.tag = 999
+                compactInfo.translatesAutoresizingMaskIntoConstraints = false
+                controlsStack.insertArrangedSubview(compactInfo, at: 2) // between pageStack and nextButton
+            } else if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) as? UILabel {
+                compact.attributedText = str
+            }
+        } else {
+            // Remove compact info if switching to wide
+            if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) {
+                controlsStack.removeArrangedSubview(compact)
+                compact.removeFromSuperview()
+            }
+        }
+    }
+
+    @objc private func prevTapped() {
+        guard currentPage > 1 else { return }
+        onPageChange?(currentPage - 1)
+    }
+
+    @objc private func nextTapped() {
+        guard currentPage < totalPages else { return }
+        onPageChange?(currentPage + 1)
+    }
+
+    @objc private func pageTapped(_ sender: UIButton) {
+        let page = sender.tag
+        guard page >= 1, page <= totalPages, page != currentPage else { return }
+        onPageChange?(page)
+    }
+}
+
 // MARK: - HorizontalCardsCell
 // A UITableViewCell containing a horizontal UICollectionView.
 // tag 100 → Relations, tag 200 → Characters, tag 300 → Staff.
@@ -1572,6 +1828,26 @@ class AnimeDetailViewController: UIViewController {
     private var statusDistribution: [AnimeStatusCount] = []
     private var episodeFetchTask: URLSessionDataTask?
 
+    // Episode pagination — matches Hayase's EpisodesList.svelte (perPage = 16)
+    private let episodesPerPage = 16
+    private var currentEpisodePage: Int = 1
+    private var paginatedEpisodes: [AniZipEpisode] {
+        let start = (currentEpisodePage - 1) * episodesPerPage
+        let end = min(start + episodesPerPage, episodes.count)
+        guard start < episodes.count else { return [] }
+        return Array(episodes[start..<end])
+    }
+    private var totalEpisodePages: Int {
+        max(1, Int(ceil(Double(episodes.count) / Double(episodesPerPage))))
+    }
+    private lazy var paginationBar: PaginationBarView = {
+        let bar = PaginationBarView()
+        bar.onPageChange = { [weak self] page in
+            self?.setEpisodePage(page)
+        }
+        return bar
+    }()
+
     // Threads (AniList forum) and Themes (animethemes.moe)
     private var threads: [AniListThread] = []
     private var themes: [AnimeTheme] = []
@@ -1616,7 +1892,7 @@ class AnimeDetailViewController: UIViewController {
     // Section indices — section 0 holds the header (banner + cover + text + tab bar);
     // sections 1–4 match Hayase +page.svelte tabs: Episodes | Relations | Threads | Themes.
     private enum Section: Int, CaseIterable {
-        case header = 0, episodes, relations, threads, themes
+        case header = 0, episodes, episodePagination, relations, threads, themes
     }
 
     // MARK: - Lifecycle
@@ -1670,6 +1946,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PaginationCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
@@ -1891,6 +2168,12 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async {
                 guard self.anilistProgress != newProgress else { return }
                 self.anilistProgress = newProgress
+                // Auto-navigate to the page containing the user's current episode (matches web)
+                // Web: Math.floor(progress / perPage) + 1
+                if newProgress > 0 {
+                    let desiredPage = ((newProgress - 1) / self.episodesPerPage) + 1
+                    self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
+                }
                 self.tableView.reloadData()
             }
         }
@@ -2126,10 +2409,12 @@ class AnimeDetailViewController: UIViewController {
         guard count > 0 else {
             // count == 0 → empty episode list (same as Hayase loop not executing)
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = []
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = []
+                self.currentEpisodePage = 1
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
             return
@@ -2201,10 +2486,15 @@ class AnimeDetailViewController: UIViewController {
                               rating: ep.rating, isFiller: fillerSet.contains(ep.number))
             }
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = finalEpisodes
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = finalEpisodes
+                // Clamp page to new total to avoid stale page index crash
+                if self.currentEpisodePage > self.totalEpisodePages {
+                    self.currentEpisodePage = 1
+                }
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
         }
@@ -2274,8 +2564,10 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Tab bar
 
     private func tabChanged(to index: Int) {
-        // Tab bar indices (0–3) map to content sections (1–4) since section 0 is the header.
-        guard let sec = Section(rawValue: index + 1) else { return }
+        // Tab bar indices: 0=Episodes 1=Relations 2=Threads 3=Themes
+        // Section enum:    header=0, episodes=1, episodePagination=2, relations=3, threads=4, themes=5
+        let sectionMap: [Int: Section] = [0: .episodes, 1: .relations, 2: .threads, 3: .themes]
+        guard let sec = sectionMap[index] else { return }
         activeSection = sec
         // Only reload content sections — header (section 0) never changes.
         let contentRange = Section.episodes.rawValue..<Section.allCases.count
@@ -2283,6 +2575,14 @@ class AnimeDetailViewController: UIViewController {
         // Lazy-fetch threads/themes on first tap
         if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
         if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
+    }
+
+    private func setEpisodePage(_ page: Int) {
+        let clamped = min(max(1, page), totalEpisodePages)
+        guard clamped != currentEpisodePage else { return }
+        currentEpisodePage = clamped
+        let sectionsToReload = IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue])
+        tableView.reloadSections(sectionsToReload, with: .automatic)
     }
 
     // MARK: - Threads (AniList forum)
@@ -2381,7 +2681,10 @@ extension AnimeDetailViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .header:    return 1
-        case .episodes:  return activeSection == .episodes  ? episodes.count : 0
+        case .episodes:  return activeSection == .episodes  ? paginatedEpisodes.count : 0
+        case .episodePagination:
+            // Show pagination bar when episodes tab is active and there are more than 1 page
+            return (activeSection == .episodes && totalEpisodePages > 1) ? 1 : 0
         case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
         case .threads:
             if activeSection != .threads { return 0 }
@@ -2434,7 +2737,26 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 return UITableViewCell()
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
-            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID, anilistProgress: anilistProgress)
+            let ep = paginatedEpisodes[indexPath.row]
+            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress)
+            return cell
+
+        case .episodePagination:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "PaginationCell", for: indexPath)
+            cell.backgroundColor = .clear
+            cell.contentView.backgroundColor = .clear
+            cell.selectionStyle = .none
+            if paginationBar.superview !== cell.contentView {
+                paginationBar.translatesAutoresizingMaskIntoConstraints = false
+                cell.contentView.addSubview(paginationBar)
+                NSLayoutConstraint.activate([
+                    paginationBar.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+                    paginationBar.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+                    paginationBar.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+                    paginationBar.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+                ])
+            }
+            paginationBar.configure(currentPage: currentEpisodePage, totalCount: episodes.count, perPage: episodesPerPage)
             return cell
 
         case .relations:
@@ -2514,7 +2836,8 @@ extension AnimeDetailViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         switch Section(rawValue: indexPath.section) {
         case .episodes:
-            openExtensionSearch(episode: indexPath.row + 1)
+            let ep = paginatedEpisodes[indexPath.row]
+            openExtensionSearch(episode: ep.number)
         case .threads:
             guard !threadsLoading, !threads.isEmpty else { return }
             let thread = threads[indexPath.row]

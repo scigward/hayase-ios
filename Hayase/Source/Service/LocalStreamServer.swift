@@ -477,16 +477,25 @@ final class LocalStreamServer {
         let readAheadCount = streamedMode ? 5 : 50
 
         func applyPriorityBoost() {
-            // Set priority + tight deadlines on the immediately-needed pieces.
-            // These are the "critical" pieces — the equivalent of WebTorrent's
+            // Set priority + deadlines on the immediately-needed pieces.
+            // These are the "critical" pieces — equivalent to WebTorrent's
             // critical() marking. Only these get deadlines, so libtorrent's
             // cancel_non_critical() focuses ALL bandwidth on them.
-            // Priority must be > 0 or libtorrent ignores the deadline entirely.
+            // Priority must be > 0 or libtorrent ignores the deadline.
+            //
+            // Deadline values: 500 ms base + 200 ms/piece.
+            // libtorrent adds a 500 ms grace period before expiry, giving each
+            // piece a total window of 1000–1200 ms to arrive. At 5 MB/s a
+            // single 512 KB piece takes ~100 ms — well within the window.
+            // Previously 5 ms + 20 ms/piece expired in 505–545 ms; for a cold
+            // start with multiple pieces this was too tight and caused constant
+            // cancel_non_critical() churn (expired deadlines → sequential
+            // resumes → next reboost re-triggers churn every second).
             for localIdx in safeFirst...safeLast {
                 let globalIdx = beginPiece + localIdx
-                torrentHandle.setPiecePriority(globalIdx, priority: 7) // top priority
-                let offset = min(localIdx - safeFirst, 1000) // Clamp to avoid Int32 overflow
-                let deadline = Int32(5 + offset * 20) // 5ms base + 20ms/piece
+                torrentHandle.setPiecePriority(globalIdx, priority: 7)
+                let offset = min(localIdx - safeFirst, 1000) // clamp: avoid Int32 overflow
+                let deadline = Int32(500 + offset * 200) // 500 ms base + 200 ms/piece
                 torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
             }
 

@@ -922,8 +922,9 @@ extension ExtensionSearchViewController: UITableViewDataSource, UITableViewDeleg
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredResults.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: TorrentResultCell.reuseID,
-                                                   for: indexPath) as! TorrentResultCell
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: TorrentResultCell.reuseID,
+                                                   for: indexPath) as? TorrentResultCell else { return UITableViewCell() }
+        guard indexPath.row < filteredResults.count else { return cell }
         let result = filteredResults[indexPath.row]
         let configs = ExtensionService.shared.configs
         cell.configure(with: result, configs: configs)
@@ -932,6 +933,7 @@ extension ExtensionSearchViewController: UITableViewDataSource, UITableViewDeleg
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.row < filteredResults.count else { return }
         confirmDownload(filteredResults[indexPath.row])
     }
 }

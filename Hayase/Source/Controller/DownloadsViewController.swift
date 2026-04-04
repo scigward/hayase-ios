@@ -1253,8 +1253,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as! FileEntryTableCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
             guard indexPath.row < filteredFileEntries.count else { return cell }
             let entry = filteredFileEntries[indexPath.row]
             let isStreaming = selectedHandle?.snapshot.isSequential == true
@@ -1271,8 +1271,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: PeerInfoCell.reuseID, for: indexPath) as! PeerInfoCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
             guard indexPath.row < peerInfos.count else { return cell }
             cell.configure(peer: peerInfos[indexPath.row])
             return cell
@@ -1286,8 +1286,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as! LibraryColumnCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
             cell.configure(handle: entry.handle, entity: entry.entity)

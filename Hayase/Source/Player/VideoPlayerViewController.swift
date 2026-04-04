@@ -329,6 +329,76 @@ final class VideoPlayerViewController: UIViewController {
     /// viewWillDisappear from tearing down the streaming pipeline.
     var isMinimizing = false
 
+    // MARK: - W2G integration (mirrors player.svelte W2G hooks)
+
+    /// Observer for W2GLobby changes.
+    private var w2gObserver: NSObjectProtocol?
+    /// Suppresses outgoing W2G state updates while applying a remote state change.
+    private var isApplyingRemoteW2GState = false
+
+    /// Bind/re-bind the current W2G client's delegate for player sync.
+    /// When a lobby is created while the player is already running, push
+    /// the current media + player state to the new client so that peers
+    /// who join later receive it via `sendInitialSessionState`.
+    /// Mirrors web's `server.play()` calling `w2globby.value?.mediaChange(...)`.
+    private func bindW2GClient() {
+        guard let client = W2GLobby.shared.client else { return }
+        // Use a closure-based approach: store a weak ref and handle events.
+        w2gPlayerDelegate = client
+
+        // If the lobby was just created while we're already playing, push
+        // the current media + index + player state to the client so new peers
+        // receive the correct initial state. This mirrors web's server.play()
+        // calling w2globby.value?.mediaChange() — but since the lobby was
+        // created after we started playing, that call was a no-op at the time.
+        if client.media == nil,
+           let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+            client.mediaChange(W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber))
+            client.mediaIndexChanged(Int(fileIndex))
+            client.playerStateChanged(W2GPlayerState(paused: isPaused, time: floor(currentTime)))
+        }
+    }
+
+    /// Reference to the active W2G client for incoming player state.
+    private weak var w2gPlayerDelegate: W2GClient? {
+        didSet {
+            // The W2GViewController is the primary delegate for peers/messages.
+            // For player state, we observe via a lightweight trampoline.
+            w2gPlayerDelegate?.onPlayerStateReceived = { [weak self] state in
+                self?.applyRemoteW2GState(state)
+            }
+        }
+    }
+
+    /// Apply a remote W2G player state (seek + pause/play).
+    /// Mirrors player.svelte `function updateState(state)`.
+    ///
+    /// The web simply sets `currentTime = state.time; paused = state.paused`
+    /// because Svelte bindings propagate synchronously. On iOS, MPV seek is
+    /// async, so we keep the guard flag set and clear it after a short delay
+    /// to absorb the resulting position/pause callbacks that would otherwise
+    /// echo back to peers.
+    private func applyRemoteW2GState(_ state: W2GPlayerState) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isApplyingRemoteW2GState = true
+
+            if abs(self.currentTime - state.time) > 2 {
+                self.surface.mpv.seek(to: state.time)
+            }
+            if state.paused && !self.isPaused {
+                self.surface.mpv.pausePlayback()
+            } else if !state.paused && self.isPaused {
+                self.surface.mpv.play()
+            }
+
+            // Clear the guard after a short delay to absorb async callbacks.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.isApplyingRemoteW2GState = false
+            }
+        }
+    }
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
@@ -351,6 +421,15 @@ final class VideoPlayerViewController: UIViewController {
 
         loadCurrentVideo()
         scheduleHide()
+
+        // W2G: listen for remote player state changes.
+        // Mirrors player.svelte: `$: $w2globby?.on('player', updateState)`.
+        w2gObserver = NotificationCenter.default.addObserver(
+            forName: W2GLobby.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.bindW2GClient()
+        }
+        bindW2GClient()
     }
 
     override func viewDidLayoutSubviews() {
@@ -402,6 +481,9 @@ final class VideoPlayerViewController: UIViewController {
         streamer = nil
         streamServer = nil
         torrentHandle = nil
+        // W2G cleanup
+        if let obs = w2gObserver { NotificationCenter.default.removeObserver(obs) }
+        w2gPlayerDelegate = nil
     }
 
     override var prefersStatusBarHidden: Bool              { !controlsVisible }
@@ -798,6 +880,28 @@ final class VideoPlayerViewController: UIViewController {
 
         // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
+
+        // W2G: notify peers about the media we're playing (mirrors web's
+        // server.play() calling w2globby.value?.mediaChange({ torrent, mediaId, episode })).
+        if let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+            W2GLobby.shared.client?.mediaChange(
+                W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
+            )
+            W2GLobby.shared.client?.mediaIndexChanged(Int(fileIndex))
+        }
+    }
+
+    /// Switch to a different file index within the same torrent, triggered by
+    /// a remote W2G index event.
+    /// Mirrors web mediahandler.svelte: `$: $w2globby?.on('index', index => { current = fileToMedaInfo(mediaInfo.resolvedFiles[index]) })`
+    func applyRemoteW2GIndex(_ newIndex: Int) {
+        let idx = UInt(newIndex)
+        guard idx != fileIndex else { return }
+        guard newIndex >= 0, newIndex < allVideos.count else { return }
+        let video = allVideos[newIndex]
+        // Estimate episode number from index offset (batch torrents map 1:1).
+        // Same assumption as findVideoInBatch/switchToVideo — episode = base + delta.
+        switchToVideo((video: video, index: newIndex), episode: episodeNumber + (newIndex - currentVideoIndex))
     }
 
     /// Builds the URL and preset, loads the video into MPV, and starts stats.
@@ -817,17 +921,18 @@ final class VideoPlayerViewController: UIViewController {
             // MPV reads synchronously and can't buffer ahead, causing stalls.
             // These are set per-load so they don't affect local file playback.
             //
-            // Disable MKV duration probing for streaming via preset command.
-            // probe-video-duration=yes (set at MPV init) causes MPV to seek to
-            // the end of the file to read MKV Cues before starting playback.
-            // For streaming, this blocks until ALL tail pieces are downloaded,
-            // which with large piece sizes and low seeds means waiting for
-            // 20–60%+ of the file. Disabling the probe lets MPV start playback
-            // immediately from the MKV header in the first piece(s). Duration
-            // is still available from the MKV Info element in the header.
-            // Seeking works via force-seekable=yes; MPV fetches Cues on-demand
-            // when the user seeks (LocalStreamServer blocks until the required
-            // tail pieces are downloaded).
+            // MKV duration probing: MPV's default is "no" (set in MPVWrapper
+            // — we no longer set it to "yes" globally). We explicitly confirm
+            // "no" here as a belt-and-suspenders guard. Without probing, MPV
+            // reads duration from the MKV Info element in the first 1–2 pieces
+            // instead of making a separate Range request to the tail. When
+            // probe=yes (the old global default) MPV's tail request blocked
+            // LocalStreamServer until tail pieces arrived; combined with tight
+            // head-piece deadlines this split bandwidth across 12+ simultaneous
+            // deadline pieces, causing 700 MB to be downloaded before playback
+            // started (vs WebTorrent desktop's ~100 MB). Seeking still works
+            // via force-seekable=yes; LocalStreamServer.waitForLocalPieces
+            // blocks reactively on the exact tail pieces needed per seek.
             //
             // NOTE: This uses a preset "set" command (not loadfile file-local
             // options) because mpv 0.36+ changed the loadfile signature to
@@ -943,6 +1048,20 @@ final class VideoPlayerViewController: UIViewController {
             if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
             // Fall back to direct file path (original behavior)
         }
+    }
+
+    // MARK: - Matroska language parsing
+
+    /// Returns a `file://` URL for the current MKV on disk (if available)
+    /// so `matroska-swift` can parse subtitle track languages directly from
+    /// the container header. Returns `nil` for non-file or unknown paths.
+    private func mkvFileURLForLanguageParsing() -> URL? {
+        guard let path = videoEntity?.videoPath, !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+        guard ext == "mkv" || ext == "webm" else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return url
     }
 
     // MARK: - Download stats
@@ -1257,7 +1376,8 @@ final class VideoPlayerViewController: UIViewController {
         // (didBecomeTracksReady only fires on track-list/count changes,
         //  not when the user switches between existing tracks).
         var freshTracks: [MPVTrack] = []
-        for s in surface.mpv.getSubtitleTracks() {
+        let mkvURL = mkvFileURLForLanguageParsing()
+        for s in surface.mpv.getSubtitleTracks(mkvFileURL: mkvURL) {
             if let id = s["id"] as? Int {
                 freshTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
             }
@@ -1364,6 +1484,14 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.duration    = duration
         updateTimeUI()
 
+        // W2G: sync playback position to peers (mirrors player.svelte reactive binding).
+        // Guard against feedback loop when applying remote state.
+        if !isApplyingRemoteW2GState {
+            W2GLobby.shared.client?.playerStateChanged(
+                W2GPlayerState(paused: isPaused, time: floor(position))
+            )
+        }
+
         // Feed position/duration to system PiP so the progress bar stays in sync.
         // Also ensure the timebase rate matches the current playback state —
         // MPV may start playing without first firing a pause-change event, which
@@ -1433,6 +1561,15 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             return  // The resulting pause callback handles all UI updates.
         }
         self.isPaused = isPaused
+
+        // W2G: sync pause state to peers (mirrors player.svelte reactive binding).
+        // Guard against feedback loop when applying remote state.
+        if !isApplyingRemoteW2GState {
+            W2GLobby.shared.client?.playerStateChanged(
+                W2GPlayerState(paused: isPaused, time: floor(currentTime))
+            )
+        }
+
         playPauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 
@@ -1468,8 +1605,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool) {
         // Map the [[String: Any]] Dictionaries from Streamyfin into native Swift Structs
         var newTracks: [MPVTrack] = []
-        
-        for s in renderer.getSubtitleTracks() {
+        let mkvURL = mkvFileURLForLanguageParsing()
+
+        for s in renderer.getSubtitleTracks(mkvFileURL: mkvURL) {
             if let id = s["id"] as? Int {
                 newTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
             }

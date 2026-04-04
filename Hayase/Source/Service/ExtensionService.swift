@@ -164,15 +164,11 @@ final class ExtensionService {
     // MARK: - ConfigManager.setEnabled / setOption
 
     func setEnabled(_ enabled: Bool, for id: String) {
-        if options[id] != nil {
-            options[id]!.enabled = enabled
-        }
+        options[id]?.enabled = enabled
     }
 
     func setOption(_ value: AnyCodableValue, key: String, for id: String) {
-        if options[id] != nil {
-            options[id]!.options[key] = value
-        }
+        options[id]?.options[key] = value
     }
 
     // MARK: - ConfigManager.update (mirrors storage.ts update())

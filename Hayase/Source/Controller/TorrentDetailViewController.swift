@@ -984,8 +984,8 @@ extension TorrentDetailViewController: UITableViewDataSource, UITableViewDelegat
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as! LibraryEntryCell
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: LibraryEntryCell.reuseID, for: indexPath) as? LibraryEntryCell else { return UITableViewCell() }
         guard indexPath.row < libraryEntries.count else { return cell }
         let entry = libraryEntries[indexPath.row]
         cell.configure(handle: entry.handle, entity: entry.entity)

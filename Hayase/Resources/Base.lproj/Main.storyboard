@@ -17,6 +17,7 @@
                         <segue destination="nav-vc-001"    kind="relationship" relationship="viewControllers" id="tab-rel-home"/>
                         <segue destination="srch-nav-001"  kind="relationship" relationship="viewControllers" id="tab-rel-search"/>
                         <segue destination="sched-nav-001" kind="relationship" relationship="viewControllers" id="tab-rel-schedule"/>
+                        <segue destination="w2g-nav-001"   kind="relationship" relationship="viewControllers" id="tab-rel-w2g"/>
                         <segue destination="dl-nav-001"    kind="relationship" relationship="viewControllers" id="tab-rel-downloads"/>
                         <segue destination="sett-nav-001"  kind="relationship" relationship="viewControllers" id="tab-rel-settings"/>
                     </connections>
@@ -159,6 +160,35 @@
                 <placeholder placeholderIdentifier="IBFirstResponder" id="sched-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>
             <point key="canvasLocation" x="2100" y="-1200"/>
+        </scene>
+        <!--W2G Navigation Controller-->
+        <scene sceneID="w2g-nav-sc-001">
+            <objects>
+                <navigationController id="w2g-nav-001" sceneMemberID="viewController">
+                    <navigationBar key="navigationBar" contentMode="scaleToFill" id="w2g-nav-bar-001">
+                        <rect key="frame" x="0.0" y="0.0" width="390" height="52"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </navigationBar>
+                    <connections>
+                        <segue destination="w2g-vc-001" kind="relationship" relationship="rootViewController" id="w2g-nav-seg-001"/>
+                    </connections>
+                </navigationController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="w2g-nav-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="1400" y="-1800"/>
+        </scene>
+        <!--W2G-->
+        <scene sceneID="w2g-sc-001">
+            <objects>
+                <viewController id="w2g-vc-001" customClass="W2GViewController" customModule="Hayase" customModuleProvider="target" sceneMemberID="viewController">
+                    <view key="view" id="w2g-vw-001">
+                        <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="w2g-fr-001" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="2100" y="-1800"/>
         </scene>
         <!--Downloads Navigation Controller-->
         <scene sceneID="dl-nav-sc-001">
