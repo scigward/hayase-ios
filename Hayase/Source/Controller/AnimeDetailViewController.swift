@@ -2410,7 +2410,7 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.episodes = []
-                self.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .fade)
                 if let bannerURL = anizipBannerURL {
                     self.headerView.updateBanner(from: bannerURL)
                 }
@@ -2486,7 +2486,7 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.episodes = finalEpisodes
-                self.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .fade)
                 if let bannerURL = anizipBannerURL {
                     self.headerView.updateBanner(from: bannerURL)
                 }
