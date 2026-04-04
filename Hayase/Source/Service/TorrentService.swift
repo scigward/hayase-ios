@@ -87,49 +87,29 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.maxDownloadingTorrents = 4
         settings.maxUploadingTorrents   = 4
 
-        // Port settings — read from user prefs (Hayase: torrentPort, dhtPort).
-        // 0 means auto-select (libtorrent picks an available port).
-        let torrentPort = Int(ud.string(forKey: "pref_torrentPort") ?? "0") ?? 0
-        let effectivePort = torrentPort > 0 ? torrentPort : 6881
+        // Port settings — auto-select (libtorrent picks an available port).
+        let effectivePort = 6881
         settings.port             = effectivePort
         settings.portBindRetries  = 10
         settings.listenInterfaces = "0.0.0.0:\(effectivePort)"
         settings.outgoingInterfaces = ""
 
-        // Protocol features — honour Hayase "Disable DHT" / "Disable PeX" toggles.
-        // Note: Hayase's torrentDHT/torrentPeX default to false (= not disabled = enabled).
-        let disableDHT = ud.bool(forKey: "pref_disableDHT")
-        let disablePeX = ud.bool(forKey: "pref_disablePeX")
-        settings.isDhtEnabled  = !disableDHT
+        // Protocol features — all enabled by default for maximum peer discovery.
+        settings.isDhtEnabled  = true
         settings.isLsdEnabled  = true
         settings.isUtpEnabled  = true
         settings.isUpnpEnabled = true
         settings.isNatEnabled  = true
 
-        // Transfer speed limit (Mb/s → bytes/s).
-        // Hayase default: 40 Mb/s.  0 = unlimited.
-        let speedMbps = Int(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
-        let speedBytesPerSec = UInt(speedMbps) * 125_000   // Mb/s → bytes/s
-        settings.maxDownloadSpeed = speedBytesPerSec
-        settings.maxUploadSpeed   = speedBytesPerSec
+        // No speed limit — libtorrent manages bandwidth internally.
+        settings.maxDownloadSpeed = 0
+        settings.maxUploadSpeed   = 0
 
-        // Max connections per torrent (Hayase: maxConns, default 55).
-        let maxConns = Int(ud.string(forKey: "pref_maxConns") ?? "55") ?? 55
-        settings.connectionLimit = maxConns
+        // Connection limit — sensible default.
+        settings.connectionLimit = 55
 
         // Streamed download mode (Hayase: torrentStreamedDownload).
         settings.isStreamingMode = ud.bool(forKey: "pref_streamedDownload")
-
-        // Persist files preference — read here so it participates in settings
-        // change notifications.  The actual cleanup logic lives in
-        // cleanupOtherTorrentsIfNeeded() which reads this key directly.
-        let persistFiles = ud.bool(forKey: "pref_persistFiles")
-
-        // PeX / Persist: these prefs are read and included so that changing them
-        // triggers applyUserSettings().  Once LibTorrent-Swift exposes setters for
-        // PeX control, wire `disablePeX` into the session settings here.
-        _ = disablePeX
-        _ = persistFiles
 
         // Disable HTTPS tracker cert validation — we don't bundle cacert.pem.
         settings.validateHttpsTrackers = false
@@ -215,14 +195,11 @@ public class TorrentService: NSObject, SessionDelegate {
         }
     }
 
-    /// If "Persist Files" is OFF, removes all torrents except the one with
-    /// the given handle hash. Called after the torrent is successfully added
-    /// or reused, guaranteeing the hash matches the `handles` dict key.
+    /// Removes all torrents except the one with the given handle hash.
+    /// Called after the torrent is successfully added or reused,
+    /// guaranteeing the hash matches the `handles` dict key.
     private func cleanupOtherTorrentsIfNeeded(keepingHash hash: String) {
-        let persistFiles = UserDefaults.standard.bool(forKey: "pref_persistFiles")
-        if !persistFiles {
-            removeOtherTorrents(exceptHash: hash)
-        }
+        removeOtherTorrents(exceptHash: hash)
     }
 
     // MARK: - Public API
