@@ -509,18 +509,26 @@ class SettingsViewController: UIViewController {
             }
         }
 
-        // Crossfade table content — use UIView.transition so UIKit snapshots
-        // the old state before reloadData changes section/row counts.
-        // CATransition + reloadData crashes when the section count changes
-        // ("invalid number of rows in section N") because UIKit's internal
-        // animation bookkeeping conflicts with the layer-level transition.
-        UIView.transition(with: tableView, duration: 0.25, options: .transitionCrossDissolve) {
-            self.tableView.reloadData()
-        } completion: { _ in
-            // Scroll to top after the transition completes
-            if !self.visibleSections.isEmpty {
-                self.tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        // Crossfade using a snapshot overlay so reloadData() runs outside
+        // any animation context. Both CATransition and UIView.transition can
+        // trigger UIKit's internal table-view row-count bookkeeping, which
+        // crashes with "invalid number of rows in section N" when the tab
+        // switch changes the visible section/row counts.
+        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
+        if let snapshot = snapshot {
+            snapshot.frame = tableView.frame
+            tableView.superview?.addSubview(snapshot)
+            UIView.animate(withDuration: 0.25, animations: {
+                snapshot.alpha = 0
+            }) { _ in
+                snapshot.removeFromSuperview()
             }
+        }
+
+        tableView.reloadData()
+
+        if !visibleSections.isEmpty {
+            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
         }
     }
 
