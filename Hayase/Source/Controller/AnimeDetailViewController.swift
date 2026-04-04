@@ -2169,8 +2169,9 @@ class AnimeDetailViewController: UIViewController {
                 guard self.anilistProgress != newProgress else { return }
                 self.anilistProgress = newProgress
                 // Auto-navigate to the page containing the user's current episode (matches web)
+                // Web: Math.floor(progress / perPage) + 1
                 if newProgress > 0 {
-                    self.currentEpisodePage = (newProgress / self.episodesPerPage) + 1
+                    self.currentEpisodePage = ((newProgress - 1) / self.episodesPerPage) + 1
                 }
                 self.tableView.reloadData()
             }
