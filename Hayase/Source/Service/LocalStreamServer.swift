@@ -382,13 +382,13 @@ final class LocalStreamServer {
 
             // Double-read verification for freshly-downloaded data.
             // If libtorrent's disk thread is still writing when we read,
-            // a second read after a brief delay may return different (more
-            // complete) data. Skip for pieces already on disk (stable).
-            // The delays are sized for worst-case I/O latency: 30 ms for
-            // the first settle and 50 ms after an explicit flush — shorter
-            // values caused intermittent frame corruption on slower devices.
+            // a second read may return different (more complete) data.
+            // Skip for pieces already on disk (stable).
+            // Removed unconditional 30ms pre-sleep: WebTorrent's store.get()
+            // callback fires with ready data and never sleeps. We do the second
+            // read immediately; only if the data actually changed do we flush
+            // and wait — this eliminates the 30ms penalty on the common path.
             if !alreadyOnDisk && !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
-                Thread.sleep(forTimeInterval: 0.03)
                 fileHandle.seek(toFileOffset: currentOffset)
                 let verifyData = fileHandle.readData(ofLength: readLength)
                 if verifyData != data {
@@ -506,19 +506,18 @@ final class LocalStreamServer {
             // cancel_non_critical() focuses ALL bandwidth on them.
             // Priority must be > 0 or libtorrent ignores the deadline.
             //
-            // Deadline values: 500 ms base + 200 ms/piece.
-            // libtorrent adds a 500 ms grace period before expiry, giving each
-            // piece a total window of 1000–1200 ms to arrive. At 5 MB/s a
-            // single 512 KB piece takes ~100 ms — well within the window.
-            // Previously 5 ms + 20 ms/piece expired in 505–545 ms; for a cold
-            // start with multiple pieces this was too tight and caused constant
-            // cancel_non_critical() churn (expired deadlines → sequential
-            // resumes → next reboost re-triggers churn every second).
+            // Deadline values: 10 ms base + 50 ms/piece — identical to
+            // TorrentStreamer.criticalDeadlineBase/Step. Using the same values
+            // ensures applyPriorityBoost never overrides TorrentStreamer's
+            // tighter seek deadlines (seekDeadlineBase = 5 ms + 30 ms/piece)
+            // with a much looser value. Previously 500 ms + 200 ms/piece
+            // was used but this was far too loose, overriding seek deadlines
+            // and delaying resume by ~500 ms after each 1-second reboost tick.
             for localIdx in safeFirst...safeLast {
                 let globalIdx = beginPiece + localIdx
                 torrentHandle.setPiecePriority(globalIdx, priority: 7)
                 let offset = min(localIdx - safeFirst, 1000) // clamp: avoid Int32 overflow
-                let deadline = Int32(500 + offset * 200) // 500 ms base + 200 ms/piece
+                let deadline = Int32(10 + offset * 50)   // 10 ms base + 50 ms/piece
                 torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
             }
 
@@ -609,16 +608,22 @@ final class LocalStreamServer {
             }
 
             if allReady {
-                // Flush libtorrent's disk write cache so piece data is on the
-                // filesystem before we read it with FileHandle. Without this,
-                // hash-verified pieces may still be in memory, causing zero reads.
                 guard !isStopped else { break }
-                torrentHandle.flushCache()
-                // Give libtorrent's disk I/O thread time to complete the flush.
-                // flushCache() posts a job asynchronously — data may not be in
-                // the OS page cache yet when it returns. 50ms handles typical
-                // I/O latency; the double-read in streamBody catches edge cases.
-                Thread.sleep(forTimeInterval: 0.05)
+                if !isFirstCheck {
+                    // Pieces may not yet be flushed to disk — flush libtorrent's
+                    // write cache so the data is visible to FileHandle before we
+                    // read it. Skip when isFirstCheck (pieces were already on disk
+                    // before we entered the wait loop): no flush is needed and the
+                    // 50ms sleep wastes time for every chunk served from a file
+                    // that is already buffered (WebTorrent: zero delay for cached
+                    // reads via store.get callback).
+                    torrentHandle.flushCache()
+                    // Give libtorrent's disk I/O thread time to complete the flush.
+                    // flushCache() posts a job asynchronously — data may not be in
+                    // the OS page cache yet when it returns. 50ms handles typical
+                    // I/O latency; the double-read in streamBody catches edge cases.
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
                 return isFirstCheck
             }
 
