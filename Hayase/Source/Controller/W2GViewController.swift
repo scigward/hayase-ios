@@ -361,11 +361,24 @@ final class W2GViewController: UIViewController {
     }
 
     // MARK: - Layout Constraints
+    //
+    // Responsive layout mirroring web's `flex md:flex-row flex-col-reverse`:
+    //   - Narrow screens (iPhone): chat on top, user list hidden (toggle-able)
+    //     or stacked below when there's enough vertical space.
+    //   - Wide screens (iPad / landscape): chat left, user list right (md:w-72).
+
+    /// Constraints activated only in wide (side-by-side) layout.
+    private var wideLayoutConstraints: [NSLayoutConstraint] = []
+    /// Constraints activated only in narrow (stacked) layout.
+    private var narrowLayoutConstraints: [NSLayoutConstraint] = []
+    /// Tracks current layout class to avoid redundant re-layouts.
+    private var isWideLayout: Bool?
 
     private func setupLobbyConstraints() {
         let pad: CGFloat = 16
         let safe = view.safeAreaLayoutGuide
 
+        // Always-active constraints
         NSLayoutConstraint.activate([
             // Title row
             titleLabel.topAnchor.constraint(equalTo: safe.topAnchor, constant: pad),
@@ -385,31 +398,71 @@ final class W2GViewController: UIViewController {
             separatorView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             separatorView.heightAnchor.constraint(equalToConstant: 0.5),
 
-            // User list (right side, adapted from web md:w-72 = 288pt for tablet-sized screens)
-            userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
-            userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-            userListTableView.widthAnchor.constraint(equalToConstant: 200),
-
-            // Chat (fills remaining space, px-4 = 16pt horizontal padding matching web)
-            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
-            chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16),
-            chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
-
-            // Chat and user list fill the space down to the bottom bar.
-            // IMPORTANT: Must use equalTo, not greaterThanOrEqualTo. UITableView has
-            // no intrinsic height, so greaterThanOrEqualTo leaves the height ambiguous
-            // (Auto Layout can satisfy all constraints with height = 0, making the
-            // tables invisible even though messages exist in the data model).
-            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
-            userListTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            // Bottom bar (always pinned to bottom)
             bottomBar.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
             bottomBar.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             bottomBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -pad),
             bottomBar.heightAnchor.constraint(equalToConstant: 44),
 
-            // Message field fills remaining space
+            // Message field fills remaining space in bottom bar
             messageField.heightAnchor.constraint(equalToConstant: 36),
         ])
+
+        // Wide layout: chat left, user list right (md:flex-row, md:w-72 = 288pt)
+        wideLayoutConstraints = [
+            userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            userListTableView.widthAnchor.constraint(equalToConstant: 288), // md:w-72
+            userListTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+
+            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
+            chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
+            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+        ]
+
+        // Narrow layout: chat fills width, user list hidden
+        // (mirrors web's `flex-col-reverse` mobile where user list collapses)
+        narrowLayoutConstraints = [
+            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
+            chatTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -16),
+            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+        ]
+
+        updateLayoutForCurrentWidth()
+    }
+
+    /// Activates the appropriate layout based on screen width.
+    /// Web breakpoint: `md:` = 768px. On iOS, treat width >= 600pt as "wide".
+    private func updateLayoutForCurrentWidth() {
+        let wide = view.bounds.width >= 600
+        guard wide != isWideLayout else { return }
+        isWideLayout = wide
+
+        if wide {
+            NSLayoutConstraint.deactivate(narrowLayoutConstraints)
+            NSLayoutConstraint.activate(wideLayoutConstraints)
+            userListTableView.isHidden = false
+        } else {
+            NSLayoutConstraint.deactivate(wideLayoutConstraints)
+            NSLayoutConstraint.activate(narrowLayoutConstraints)
+            userListTableView.isHidden = true
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if isShowingLobby {
+            updateLayoutForCurrentWidth()
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.updateLayoutForCurrentWidth()
+        })
     }
 
     // MARK: - Actions
@@ -567,7 +620,13 @@ extension W2GViewController: W2GClientDelegate {
 
     func w2gClientMessagesDidChange(_ client: W2GClient) {
         DispatchQueue.main.async { [weak self] in
-            self?.chatTableView.reloadData()
+            guard let self else { return }
+            self.chatTableView.reloadData()
+            // Auto-scroll to newest message (row 0 in flipped table).
+            // Mirrors web's `overflow-anchor: auto` + `content-end`.
+            if (client.messages.count) > 0 {
+                self.chatTableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+            }
         }
     }
 }
@@ -897,14 +956,16 @@ private final class W2GChatCell: UITableViewCell {
             avatarImageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
             headerRow.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
             bubbleBackground.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -60),
+            // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
+            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -100),
         ]
 
         outgoingConstraints = [
             avatarImageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
             headerRow.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
             bubbleBackground.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
-            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 60),
+            // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
+            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 100),
         ]
     }
 
@@ -1017,8 +1078,8 @@ private final class W2GUserCell: UITableViewCell {
         contentView.addSubview(linkButton)
 
         NSLayoutConstraint.activate([
-            // Avatar: left with padding, pb-2 = 8pt bottom
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4), // p-1
+            // Avatar: left with padding, pb-2 = 8pt bottom, px-5 = 20pt from web
+            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), // px-5
             avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
             avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
@@ -1029,9 +1090,9 @@ private final class W2GUserCell: UITableViewCell {
             nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-            // Link button: ml-auto (trailing)
+            // Link button: ml-auto (trailing), match px-5 padding
             linkButton.leadingAnchor.constraint(greaterThanOrEqualTo: nameLabel.trailingAnchor, constant: 8),
-            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20), // px-5
             linkButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             linkButton.widthAnchor.constraint(equalToConstant: 28),
             linkButton.heightAnchor.constraint(equalToConstant: 28),
