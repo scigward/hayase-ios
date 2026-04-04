@@ -175,12 +175,12 @@ final class W2GViewController: UIViewController {
 
         // Title
         landingTitleLabel.text = "Watch Together"
-        landingTitleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        landingTitleLabel.font = .nunito(ofSize: 24, weight: .bold)
         landingTitleLabel.textColor = .white
 
         // Subtitle
         landingSubtitleLabel.text = "Watch videos together with friends in real-time. Create a lobby or join an existing one."
-        landingSubtitleLabel.font = .systemFont(ofSize: 14)
+        landingSubtitleLabel.font = .nunito(ofSize: 14)
         landingSubtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
         landingSubtitleLabel.numberOfLines = 0
 
@@ -190,7 +190,7 @@ final class W2GViewController: UIViewController {
 
         // Create lobby button
         createButton.setTitle("Create Lobby", for: .normal)
-        createButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        createButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
         createButton.setTitleColor(.white, for: .normal)
         createButton.backgroundColor = UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)
         createButton.layer.cornerRadius = 10
@@ -199,13 +199,13 @@ final class W2GViewController: UIViewController {
 
         // "or join" label
         joinSeparatorLabel.text = "or join an existing lobby"
-        joinSeparatorLabel.font = .systemFont(ofSize: 14)
+        joinSeparatorLabel.font = .nunito(ofSize: 14)
         joinSeparatorLabel.textColor = UIColor(white: 0.5, alpha: 1)
         joinSeparatorLabel.textAlignment = .center
 
         // Join code field
         joinCodeField.placeholder = "Enter lobby code"
-        joinCodeField.font = .systemFont(ofSize: 16)
+        joinCodeField.font = .nunito(ofSize: 16)
         joinCodeField.textColor = .white
         joinCodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
         joinCodeField.layer.cornerRadius = 10
@@ -219,7 +219,7 @@ final class W2GViewController: UIViewController {
 
         // Join button
         joinButton.setTitle("Join Lobby", for: .normal)
-        joinButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        joinButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
         joinButton.setTitleColor(.white, for: .normal)
         joinButton.backgroundColor = UIColor(white: 0.15, alpha: 1)
         joinButton.layer.cornerRadius = 10
@@ -268,15 +268,15 @@ final class W2GViewController: UIViewController {
     private func setupHeader() {
         // Title: "Watch Together" + code label
         titleLabel.text = "Watch Together"
-        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 24, weight: .bold)
         titleLabel.textColor = .white
 
         codeLabel.text = client?.code ?? ""
-        codeLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        codeLabel.font = .nunito(ofSize: 18, weight: .semibold)
         codeLabel.textColor = UIColor(white: 0.5, alpha: 1)
 
         subtitleLabel.text = "Watch videos together with friends in real-time. You can invite others to your lobby and chat while watching."
-        subtitleLabel.font = .systemFont(ofSize: 14)
+        subtitleLabel.font = .nunito(ofSize: 14)
         subtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
         subtitleLabel.numberOfLines = 0
 
@@ -322,7 +322,7 @@ final class W2GViewController: UIViewController {
 
         // Message input
         messageField.placeholder = "Message"
-        messageField.font = .systemFont(ofSize: 14)
+        messageField.font = .nunito(ofSize: 14)
         messageField.textColor = .white
         messageField.backgroundColor = UIColor(white: 0.1, alpha: 1)
         messageField.layer.cornerRadius = 8
@@ -948,12 +948,12 @@ private final class W2GChatCell: UITableViewCell {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(headerRow)
 
-        nameLabel.font = .systemFont(ofSize: 14, weight: .bold) // text-sm
+        nameLabel.font = .nunito(ofSize: 14, weight: .bold) // text-sm
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(nameLabel)
 
-        timeLabel.font = .systemFont(ofSize: 10) // text-[10px]
+        timeLabel.font = .nunito(ofSize: 10) // text-[10px]
         timeLabel.textColor = UIColor(white: 0.5, alpha: 1)
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(timeLabel)
@@ -962,7 +962,7 @@ private final class W2GChatCell: UITableViewCell {
         bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(bubbleBackground)
 
-        bubbleLabel.font = .systemFont(ofSize: 12) // text-xs
+        bubbleLabel.font = .nunito(ofSize: 12) // text-xs
         bubbleLabel.textColor = .white
         bubbleLabel.numberOfLines = 0
         bubbleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1103,7 +1103,7 @@ private final class W2GUserCell: UITableViewCell {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
 
         // Name: text-md (16px), pl-2 (8pt)
-        nameLabel.font = .systemFont(ofSize: 16)
+        nameLabel.font = .nunito(ofSize: 16)
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 

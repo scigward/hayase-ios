@@ -99,7 +99,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg text-center (mobile)
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 28, weight: .black)
+        l.font = .nunito(ofSize: 28, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         l.textAlignment = .center  // Hayase mobile: text-center items-center
@@ -137,7 +137,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Description: text-white/70 text-xs line-clamp-2 text-center text-shadow-lg (centered on mobile)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
         l.numberOfLines = 2
         l.textAlignment = .center  // Hayase mobile: text-center
@@ -156,7 +156,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
         b.clipsToBounds = true
         return b
@@ -472,7 +472,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         for text in texts.prefix(4) {
             let l = UILabel()
             l.text = "  \(text)  "
-            l.font = .systemFont(ofSize: 11, weight: .bold)
+            l.font = .nunito(ofSize: 11, weight: .bold)
             // bg-primary/10 in dark = white/10%
             l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
             l.textColor = .white
@@ -806,7 +806,7 @@ private final class SectionHeaderView: UICollectionReusableView {
     private let titleLabel: UILabel = {
         let l = UILabel()
         // Hayase: font-semibold text-lg leading-none
-        l.font = .systemFont(ofSize: 18, weight: .semibold)
+        l.font = .nunito(ofSize: 18, weight: .semibold)
         l.textColor = UIColor(white: 0.65, alpha: 1) // text-muted-foreground dark
         return l
     }()
@@ -814,7 +814,7 @@ private final class SectionHeaderView: UICollectionReusableView {
     private lazy var viewMoreButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("View More", for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 12) // text-xs
+        b.titleLabel?.font = .nunito(ofSize: 12) // text-xs
         b.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
         b.addTarget(self, action: #selector(viewMoreTapped), for: .touchUpInside)
         return b
@@ -1082,7 +1082,7 @@ class BrowseAnimeViewController: UIViewController {
         emptyLabel = UILabel()
         emptyLabel.text = "No anime found"
         emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.font = .nunito(ofSize: 17)
         emptyLabel.textAlignment = .center
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.isHidden = true

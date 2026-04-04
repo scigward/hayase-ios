@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		NUNTO001NUNTO001NUNTO001 /* Nunito-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = NUNTO000NUNTO000NUNTO000 /* Nunito-Variable.ttf */; };
+		NUNTO003NUNTO003NUNTO003 /* UIFont+Nunito.swift in Sources */ = {isa = PBXBuildFile; fileRef = NUNTO002NUNTO002NUNTO002 /* UIFont+Nunito.swift */; };
 		FF0001021D71ED72006D39D0 /* LibTorrent.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; };
 		FF0001031D71ED72006D39D0 /* LibTorrent.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FF0001061D71ED72006D39D0 /* LibTorrent.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A96105B31D71ED71006D39D0 /* Main.storyboard */; };
@@ -114,6 +116,8 @@
 		A96105B91D71ED71006D39D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
 		A96105BC1D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A96105BE1D71ED71006D39D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Resources/Info.plist; sourceTree = "<group>"; };
+		NUNTO000NUNTO000NUNTO000 /* Nunito-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "Nunito-Variable.ttf"; path = "Resources/Fonts/Nunito-Variable.ttf"; sourceTree = "<group>"; };
+		NUNTO002NUNTO002NUNTO002 /* UIFont+Nunito.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "UIFont+Nunito.swift"; sourceTree = "<group>"; };
 		A96105E01D72F226006D39D0 /* Hayase-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Hayase-Bridging-Header.h"; sourceTree = "<group>"; };
 		A961069D1D72FBE0006D39D0 /* Model.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Model.xcdatamodel; sourceTree = "<group>"; };
 		A96106A21D72FC2F006D39D0 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -246,6 +250,7 @@
 				A96105BB1D71ED71006D39D0 /* LaunchScreen.storyboard */,
 				A96105BE1D71ED71006D39D0 /* Info.plist */,
 				A961069C1D72FBE0006D39D0 /* Model.xcdatamodeld */,
+				NUNTO000NUNTO000NUNTO000 /* Nunito-Variable.ttf */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -257,6 +262,7 @@
 				A96106A91D72FC2F006D39D0 /* Service */,
 				A96106AD1D72FC2F006D39D0 /* View */,
 				PLAYER01PLAYER01PLAYER01 /* Player */,
+				NUNTO002NUNTO002NUNTO002 /* UIFont+Nunito.swift */,
 			);
 			path = Source;
 			sourceTree = "<group>";
@@ -472,6 +478,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				NUNTO001NUNTO001NUNTO001 /* Nunito-Variable.ttf in Resources */,
 				A96105BD1D71ED71006D39D0 /* LaunchScreen.storyboard in Resources */,
 				A96105BA1D71ED71006D39D0 /* Assets.xcassets in Resources */,
 				A96105B51D71ED71006D39D0 /* Main.storyboard in Resources */,
@@ -540,6 +547,7 @@
 				W2GCLI00BW2GCLI00BW2GCL /* W2GClient.swift in Sources */,
 				W2GLOB0BW2GLOB0BW2GLOB0 /* W2GLobby.swift in Sources */,
 				W2GVC00BW2GVC00BW2GVC00 /* W2GViewController.swift in Sources */,
+				NUNTO003NUNTO003NUNTO003 /* UIFont+Nunito.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -108,7 +108,7 @@ final class ExternalDisplayManager {
         let label = UILabel()
         label.text = "Playing on AirPlay"
         label.textColor = UIColor(white: 0.7, alpha: 1)
-        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.font = .nunito(ofSize: 16, weight: .medium)
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         placeholder.addSubview(label)

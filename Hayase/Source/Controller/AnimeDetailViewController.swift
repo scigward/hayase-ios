@@ -57,7 +57,7 @@ private final class EpisodeCell: UITableViewCell {
     // Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
     private let runtimeBadge: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
         l.layer.cornerRadius = 3
@@ -70,7 +70,7 @@ private final class EpisodeCell: UITableViewCell {
     // Mirrors Hayase EpisodesList: <Star class='text-yellow-400' />  {rating}
     private let ratingBadge: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
         l.layer.cornerRadius = 3
@@ -84,7 +84,7 @@ private final class EpisodeCell: UITableViewCell {
     private let fillerBadge: UILabel = {
         let l = UILabel()
         l.text = "  Filler  "
-        l.font = .systemFont(ofSize: 9.6, weight: .bold)
+        l.font = .nunito(ofSize: 9.6, weight: .bold)
         l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
         l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
         l.layer.cornerRadius = 4
@@ -97,7 +97,7 @@ private final class EpisodeCell: UITableViewCell {
     // Title: font-bold text-[12.8px] line-clamp-1
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12.8, weight: .bold)
+        l.font = .nunito(ofSize: 12.8, weight: .bold)
         l.textColor = .white
         l.numberOfLines = 1
         return l
@@ -121,7 +121,7 @@ private final class EpisodeCell: UITableViewCell {
     // Summary: text-[9.6px] text-muted-foreground
     private let overviewLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
         l.numberOfLines = 3
         return l
@@ -130,7 +130,7 @@ private final class EpisodeCell: UITableViewCell {
     // Airdate: text-[9.6px]
     private let metaLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         return l
     }()
@@ -264,14 +264,14 @@ private final class EpisodeCell: UITableViewCell {
         // Rating badge: ★ icon (yellow) + rating value — Hayase EpisodesList.svelte
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
-            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 9.6)])
+            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.nunito(ofSize: 9.6)])
             padded.append(NSAttributedString(string: "★ ", attributes: [
                 .foregroundColor: UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), // yellow-400
-                .font: UIFont.systemFont(ofSize: 9.6)
+                .font: UIFont.nunito(ofSize: 9.6)
             ]))
             padded.append(NSAttributedString(string: "\(ratingStr) ", attributes: [
                 .foregroundColor: UIColor(white: 0.98, alpha: 1),
-                .font: UIFont.systemFont(ofSize: 9.6)
+                .font: UIFont.nunito(ofSize: 9.6)
             ]))
             ratingBadge.attributedText = padded
             ratingBadge.isHidden = false
@@ -358,7 +358,7 @@ private final class PaginationBarView: UIView {
 
     private let infoLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
+        l.font = .nunito(ofSize: 13)
         l.textColor = UIColor(white: 0.63, alpha: 1) // text-muted-foreground
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -484,11 +484,11 @@ private final class PaginationBarView: UIView {
         let rangeStart = (currentPage - 1) * perPage
         let rangeEnd = min(currentPage * perPage, totalCount)
         let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: 13),
+            .font: UIFont.nunito(ofSize: 13, weight: .bold),
             .foregroundColor: UIColor(white: 0.63, alpha: 1)
         ]
         let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 13),
+            .font: UIFont.nunito(ofSize: 13),
             .foregroundColor: UIColor(white: 0.63, alpha: 1)
         ]
         let str = NSMutableAttributedString()
@@ -515,7 +515,7 @@ private final class PaginationBarView: UIView {
             if item.isEllipsis {
                 let label = UILabel()
                 label.text = "..."
-                label.font = .systemFont(ofSize: 13)
+                label.font = .nunito(ofSize: 13)
                 label.textColor = UIColor(white: 0.63, alpha: 1)
                 label.textAlignment = .center
                 label.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -524,7 +524,7 @@ private final class PaginationBarView: UIView {
             } else {
                 let btn = UIButton(type: .system)
                 btn.setTitle("\(item.page)", for: .normal)
-                btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+                btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
                 btn.tag = item.page
                 btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
                 btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
@@ -560,7 +560,7 @@ private final class PaginationBarView: UIView {
             // Add a compact info label in the controls stack
             if controlsStack.arrangedSubviews.count == 3 {
                 let compactInfo = UILabel()
-                compactInfo.font = .systemFont(ofSize: 13)
+                compactInfo.font = .nunito(ofSize: 13)
                 compactInfo.textColor = UIColor(white: 0.63, alpha: 1)
                 compactInfo.textAlignment = .center
                 compactInfo.attributedText = str
@@ -648,7 +648,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -656,7 +656,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let typeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.font = .nunito(ofSize: 8, weight: .medium)
         l.textColor = .white
         l.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.85)
         l.layer.cornerRadius = 3
@@ -742,7 +742,7 @@ private final class CharacterCardCell: UICollectionViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -750,7 +750,7 @@ private final class CharacterCardCell: UICollectionViewCell {
 
     private let roleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.font = .nunito(ofSize: 8, weight: .medium)
         l.textColor = .secondaryLabel
         l.numberOfLines = 1
         return l
@@ -830,7 +830,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -838,7 +838,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let roleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8)
+        l.font = .nunito(ofSize: 8)
         l.textColor = .secondaryLabel
         l.numberOfLines = 1
         return l
@@ -932,7 +932,7 @@ private final class ScoreBarChartView: UIView {
             bar.translatesAutoresizingMaskIntoConstraints = false
             let lbl = UILabel()
             lbl.text = "\(point.score)"
-            lbl.font = .systemFont(ofSize: 7)
+            lbl.font = .nunito(ofSize: 7)
             lbl.textColor = .tertiaryLabel
             lbl.textAlignment = .center
             lbl.translatesAutoresizingMaskIntoConstraints = false
@@ -969,7 +969,7 @@ private final class StatsCell: UITableViewCell {
     private func makeTitle(_ text: String) -> UILabel {
         let l = UILabel()
         l.text = text
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.font = .nunito(ofSize: 14, weight: .semibold)
         l.textColor = .label
         return l
     }
@@ -1006,7 +1006,7 @@ private final class StatsCell: UITableViewCell {
             let name = status.status.replacingOccurrences(of: "_", with: " ").capitalized
             let nameLabel = UILabel()
             nameLabel.text = name
-            nameLabel.font = .systemFont(ofSize: 11)
+            nameLabel.font = .nunito(ofSize: 11)
             nameLabel.textColor = .label
             nameLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
             let progress = UIProgressView(progressViewStyle: .default)
@@ -1015,7 +1015,7 @@ private final class StatsCell: UITableViewCell {
             progress.trackTintColor = .systemGray5
             let countLabel = UILabel()
             countLabel.text = "\(status.amount)"
-            countLabel.font = .systemFont(ofSize: 11)
+            countLabel.font = .nunito(ofSize: 11)
             countLabel.textColor = .secondaryLabel
             countLabel.textAlignment = .right
             countLabel.widthAnchor.constraint(equalToConstant: 52).isActive = true
@@ -1120,7 +1120,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h2: font-light text-muted-foreground text-base (mobile) line-clamp-1 — ABOVE h1
     private let romajiLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .light)  // text-base = 16px on mobile
+        l.font = .nunito(ofSize: 16, weight: .light)  // text-base = 16px on mobile
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -1132,7 +1132,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h1: font-black text-3xl text-white line-clamp-2
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 30, weight: .black)
+        l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -1159,7 +1159,7 @@ private final class AnimeInfoHeaderView: UIView {
     // Description: font-light text-sm text-muted-foreground line-clamp-4
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .light)
+        l.font = .nunito(ofSize: 14, weight: .light)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 4
         return l
@@ -1176,7 +1176,7 @@ private final class AnimeInfoHeaderView: UIView {
         b.setTitle("▶  Watch Now", for: .normal)
         b.tintColor = .black
         b.backgroundColor = .white
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         b.layer.cornerRadius = 8
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
@@ -1656,7 +1656,7 @@ private final class AnimeInfoHeaderView: UIView {
                             contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
         let l = UILabel()
         l.text = "  \(text)  "
-        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: 12, weight: .bold)
         l.textColor = contrast
         l.backgroundColor = accent
         l.layer.cornerRadius = 4   // rounded
@@ -1670,7 +1670,7 @@ private final class AnimeInfoHeaderView: UIView {
     private func makeGenreChip(text: String) -> UIView {
         let btn = UIButton(type: .system)
         btn.setTitle(text, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
         btn.setTitleColor(.white, for: .normal)
         btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
@@ -1761,7 +1761,7 @@ private final class HTabBar: UIView {
         for (i, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
             btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
             btn.layer.cornerRadius = 6   // rounded-md
             btn.clipsToBounds = true
@@ -2986,7 +2986,7 @@ extension AnimeDetailViewController {
         let label = UILabel()
         label.text = loading ? "Loading…" : text
         label.textColor = UIColor(white: loading ? 0.7 : 0.5, alpha: 1)
-        label.font = .systemFont(ofSize: 14)
+        label.font = .nunito(ofSize: 14)
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(label)
@@ -3019,7 +3019,7 @@ extension AnimeDetailViewController {
         // Title
         let titleLabel = UILabel()
         titleLabel.text = thread.title
-        titleLabel.font = .systemFont(ofSize: 12.8, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 12.8, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -3027,7 +3027,7 @@ extension AnimeDetailViewController {
         // Stats row: ♥ likes  👁 views  💬 replies
         let statsLabel = UILabel()
         statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
-        statsLabel.font = .systemFont(ofSize: 9.6)
+        statsLabel.font = .nunito(ofSize: 9.6)
         statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -3036,7 +3036,7 @@ extension AnimeDetailViewController {
         var footerParts = [thread.sinceString]
         if let name = thread.userName { footerParts.append("by \(name)") }
         footerLabel.text = footerParts.joined(separator: " · ")
-        footerLabel.font = .systemFont(ofSize: 9.6)
+        footerLabel.font = .nunito(ofSize: 9.6)
         footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -3050,7 +3050,7 @@ extension AnimeDetailViewController {
         for cat in thread.categories.prefix(3) {
             let badge = ThreadBadgeLabel()
             badge.text = cat
-            badge.font = .systemFont(ofSize: 9.6, weight: .bold)
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
             badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             badge.backgroundColor = accentColor
             badge.layer.cornerRadius = 4
@@ -3123,7 +3123,7 @@ extension AnimeDetailViewController {
 
         let typeLabel = UILabel()
         typeLabel.text = theme.type
-        typeLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        typeLabel.font = .nunito(ofSize: 11, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
@@ -3131,14 +3131,14 @@ extension AnimeDetailViewController {
         let songLabel = UILabel()
         let songTitle = NSMutableAttributedString(
             string: theme.songTitle,
-            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
+            attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
         if !theme.artists.isEmpty {
             songTitle.append(NSAttributedString(
                 string: " by ",
-                attributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+                attributes: [.font: UIFont.nunito(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
             songTitle.append(NSAttributedString(
                 string: theme.artists,
-                attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
+                attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
         }
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
@@ -3166,21 +3166,21 @@ extension AnimeDetailViewController {
 
             let verLabel = UILabel()
             verLabel.text = "v\(entry.version)"
-            verLabel.font = .systemFont(ofSize: 11)
+            verLabel.font = .nunito(ofSize: 11)
             verLabel.textColor = UIColor(white: 0.5, alpha: 1)
             verLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
             epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
-            epLabel.font = .systemFont(ofSize: 11)
+            epLabel.font = .nunito(ofSize: 11)
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
             playBtn.setTitle("▶", for: .normal)
-            playBtn.titleLabel?.font = .systemFont(ofSize: 11, weight: .bold)
+            playBtn.titleLabel?.font = .nunito(ofSize: 11, weight: .bold)
             playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 12

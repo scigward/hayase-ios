@@ -561,7 +561,7 @@ final class VideoPlayerViewController: UIViewController {
     /// is inactive — matching Hayase's `class:opacity-0={immersed}`.
     private func setupStatsHUD() {
         statsHUD.translatesAutoresizingMaskIntoConstraints = false
-        statsHUD.font = .systemFont(ofSize: 14, weight: .bold)
+        statsHUD.font = .nunito(ofSize: 14, weight: .bold)
         statsHUD.textColor = .white
         statsHUD.textAlignment = .center
         statsHUD.isHidden = true
@@ -592,7 +592,7 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase episodesmodal.svelte: session.title (text-lg font-normal)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textColor = .white
-        titleLabel.font = .systemFont(ofSize: 18, weight: .regular)
+        titleLabel.font = .nunito(ofSize: 18, weight: .regular)
         titleLabel.textAlignment = .left
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.text = animeTitleText()
@@ -606,7 +606,7 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase episodesmodal.svelte: session.description (text-sm font-light rgba(217,217,217,0.6))
         episodeLabel.translatesAutoresizingMaskIntoConstraints = false
         episodeLabel.textColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.6)
-        episodeLabel.font = .systemFont(ofSize: 14, weight: .light)
+        episodeLabel.font = .nunito(ofSize: 14, weight: .light)
         episodeLabel.textAlignment = .left
         episodeLabel.lineBreakMode = .byTruncatingTail
         episodeLabel.text = episodeDescriptionText()
@@ -618,7 +618,7 @@ final class VideoPlayerViewController: UIViewController {
 
         chapterLabel.translatesAutoresizingMaskIntoConstraints = false
         chapterLabel.textColor = UIColor(white: 0.85, alpha: 0.6) // rgba(217,217,217,0.6)
-        chapterLabel.font = .systemFont(ofSize: 12, weight: .light)
+        chapterLabel.font = .nunito(ofSize: 12, weight: .light)
         chapterLabel.textAlignment = .right
         chapterLabel.lineBreakMode = .byTruncatingTail
         chapterLabel.text = ""
@@ -626,7 +626,7 @@ final class VideoPlayerViewController: UIViewController {
 
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.textColor = .white
-        timeLabel.font = .systemFont(ofSize: 13, weight: .light)
+        timeLabel.font = .nunito(ofSize: 13, weight: .light)
         timeLabel.textAlignment = .right
         timeLabel.text = "0:00 / 0:00"
         timeLabel.isUserInteractionEnabled = true
@@ -683,7 +683,7 @@ final class VideoPlayerViewController: UIViewController {
         // Right side: speed label, options, AirPlay
         speedLabel.translatesAutoresizingMaskIntoConstraints = false
         speedLabel.textColor = .white
-        speedLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        speedLabel.font = .nunito(ofSize: 14, weight: .bold)
         speedLabel.textAlignment = .center
         speedLabel.text = "" // Hidden when 1x
         speedLabel.isUserInteractionEnabled = true
@@ -821,7 +821,7 @@ final class VideoPlayerViewController: UIViewController {
             : "« \(Int(abs(seconds)))s"
         let indicator = UILabel()
         indicator.text = text
-        indicator.font = .systemFont(ofSize: 22, weight: .bold)
+        indicator.font = .nunito(ofSize: 22, weight: .bold)
         indicator.textColor = .white
         indicator.textAlignment = .center
         indicator.alpha = 0

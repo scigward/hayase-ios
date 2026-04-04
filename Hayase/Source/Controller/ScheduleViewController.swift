@@ -40,7 +40,7 @@ private final class CalendarDayCell: UICollectionViewCell {
     }()
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: 12, weight: .bold)
         l.textAlignment = .center
         l.textColor = .white
         return l
@@ -101,7 +101,7 @@ private final class CalendarDayCell: UICollectionViewCell {
         let shown = episodes.prefix(3)
         for ep in shown {
             let l = UILabel()
-            l.font = .systemFont(ofSize: 9)
+            l.font = .nunito(ofSize: 9)
             l.textColor = UIColor(white: 0.65, alpha: 1)
             l.text = ep.titlePreferred ?? "Episode \(ep.episode)"
             l.numberOfLines = 1
@@ -110,7 +110,7 @@ private final class CalendarDayCell: UICollectionViewCell {
         }
         if episodes.count > 3 {
             let l = UILabel()
-            l.font = .systemFont(ofSize: 9)
+            l.font = .nunito(ofSize: 9)
             l.textColor = UIColor(white: 0.45, alpha: 1)
             l.text = "+ \(episodes.count - 3) more"
             epStack.addArrangedSubview(l)
@@ -165,14 +165,14 @@ final class ScheduleViewController: UIViewController {
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.text = "Airing Calendar"
-        l.font = .systemFont(ofSize: 22, weight: .bold)
+        l.font = .nunito(ofSize: 22, weight: .bold)
         l.textColor = .white
         return l
     }()
     private let subtitleLabel: UILabel = {
         let l = UILabel()
         l.text = "View upcoming episodes and their air times for the current season."
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1) // muted-foreground
         l.numberOfLines = 0
         return l
@@ -190,7 +190,7 @@ final class ScheduleViewController: UIViewController {
     }()
     private let monthLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 18, weight: .bold)
+        l.font = .nunito(ofSize: 18, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
         return l
@@ -311,7 +311,7 @@ final class ScheduleViewController: UIViewController {
         for name in dayHeaders {
             let l = UILabel()
             l.text = name
-            l.font = .systemFont(ofSize: 11, weight: .medium)
+            l.font = .nunito(ofSize: 11, weight: .medium)
             l.textColor = UIColor(white: 0.65, alpha: 1)
             l.textAlignment = .center
             l.heightAnchor.constraint(equalToConstant: 28).isActive = true

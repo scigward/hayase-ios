@@ -13,7 +13,7 @@ final class TorrentTableViewCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .medium)
+        l.font = .nunito(ofSize: 14, weight: .medium)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -24,14 +24,14 @@ final class TorrentTableViewCell: UITableViewCell {
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = .secondaryLabel
         return l
     }()
 
     private static func makeBadge(color: UIColor) -> UILabel {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .semibold)
+        l.font = .nunito(ofSize: 11, weight: .semibold)
         l.textColor = .white
         l.textAlignment = .center
         l.backgroundColor = color
@@ -168,7 +168,7 @@ class TorrentListViewController: UIViewController {
         emptyLabel = UILabel()
         emptyLabel.text = "No torrents found"
         emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.font = .nunito(ofSize: 17)
         emptyLabel.textAlignment = .center
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.isHidden = true
