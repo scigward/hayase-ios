@@ -579,7 +579,7 @@ class SettingsViewController: UIViewController {
         for option in options {
             let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
                 UserDefaults.standard.set(option.key, forKey: key)
-                self?.tableView.reloadRows(at: [indexPath], with: .fade)
+                self?.tableView.reloadRows(at: [indexPath], with: .none)
             }
             if option.key == currentKey {
                 action.setValue(true, forKey: "checked")
@@ -624,7 +624,7 @@ class SettingsViewController: UIViewController {
             } else {
                 UserDefaults.standard.set(text, forKey: key)
             }
-            self?.tableView.reloadRows(at: [indexPath], with: .fade)
+            self?.tableView.reloadRows(at: [indexPath], with: .none)
             self?.applyTorrentSettingsIfNeeded(forKey: key)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -795,11 +795,10 @@ extension SettingsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        // Subtle fade-in for each cell as it appears
-        cell.alpha = 0
-        UIView.animate(withDuration: 0.25, delay: 0.02 * Double(indexPath.row), options: .curveEaseOut) {
-            cell.alpha = 1
-        }
+        // No-op — UIView.animate here creates implicit CATransactions that
+        // cause reloadData() during tab switches to be treated as an
+        // incremental update, crashing with "invalid number of rows in
+        // section N" when the section/row structure changes between tabs.
     }
 }
 
