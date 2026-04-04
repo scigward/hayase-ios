@@ -864,6 +864,26 @@ final class VideoPlayerViewController: UIViewController {
 
         // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
+
+        // W2G: notify peers about the media we're playing (mirrors web's
+        // server.play() calling w2globby.value?.mediaChange({ torrent, mediaId, episode })).
+        if let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+            W2GLobby.shared.client?.mediaChange(
+                W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
+            )
+            W2GLobby.shared.client?.mediaIndexChanged(Int(fileIndex))
+        }
+    }
+
+    /// Switch to a different file index within the same torrent, triggered by
+    /// a remote W2G index event.
+    /// Mirrors web mediahandler.svelte: `$: $w2globby?.on('index', index => { current = fileToMedaInfo(mediaInfo.resolvedFiles[index]) })`
+    func applyRemoteW2GIndex(_ newIndex: Int) {
+        let idx = UInt(newIndex)
+        guard idx != fileIndex else { return }
+        guard newIndex >= 0, newIndex < allVideos.count else { return }
+        let video = allVideos[newIndex]
+        switchToVideo((video: video, index: newIndex), episode: episodeNumber + (newIndex - currentVideoIndex))
     }
 
     /// Builds the URL and preset, loads the video into MPV, and starts stats.

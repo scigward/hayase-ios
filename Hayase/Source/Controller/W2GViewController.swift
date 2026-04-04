@@ -15,6 +15,8 @@
 //   └─────────────────────────────────────────────┘
 
 import UIKit
+import CoreData
+import LibTorrent
 
 // MARK: - W2GViewController
 
@@ -528,15 +530,22 @@ extension W2GViewController: UITextFieldDelegate {
 
 extension W2GViewController: W2GClientDelegate {
     func w2gClient(_ client: W2GClient, didReceiveIndexChange index: Int) {
-        // Forward to the player if active.
+        // Forward file-index change to the active player.
+        // Mirrors web mediahandler.svelte: `$w2globby?.on('index', index => { current = fileToMedaInfo(mediaInfo.resolvedFiles[index]) })`
+        guard let player = findActiveW2GPlayer() else { return }
+        player.applyRemoteW2GIndex(index)
     }
 
     func w2gClient(_ client: W2GClient, didReceivePlayerState state: W2GPlayerState) {
-        // Forward to the player if active.
+        // Forwarded via onPlayerStateReceived callback (set by VideoPlayerViewController.bindW2GClient).
     }
 
     func w2gClient(_ client: W2GClient, didReceiveMediaChange media: W2GMediaState) {
-        // Could trigger torrent play here.
+        // Mirrors web: `server.play(torrent, media, episode)`
+        // 1. Fetch AniList media info (web: `const media = (await client.single(mediaId)).data?.Media`)
+        // 2. Add the torrent by hash
+        // 3. Present the player
+        playW2GMedia(media)
     }
 
     func w2gClientPeersDidChange(_ client: W2GClient) {
@@ -549,6 +558,221 @@ extension W2GViewController: W2GClientDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.chatTableView.reloadData()
         }
+    }
+}
+
+// MARK: - W2G Media Playback (mirrors web server.play)
+
+extension W2GViewController {
+
+    /// Find the active VideoPlayerViewController — either presented fullscreen
+    /// or running in the mini-player. Returns nil if no player is active.
+    private func findActiveW2GPlayer() -> VideoPlayerViewController? {
+        // Mini-player.
+        if let mini = MiniPlayerManager.shared.activePlayer { return mini }
+        // Fullscreen (presented modally from this VC or a parent).
+        var vc: UIViewController? = self
+        while let presented = vc?.presentedViewController {
+            if let player = presented as? VideoPlayerViewController { return player }
+            vc = presented
+        }
+        return nil
+    }
+
+    /// Add the host's torrent by hash and present the player.
+    /// Mirrors web's W2GClient `_onMsg` media handler:
+    ///   const media = (await client.single(mediaId)).data?.Media
+    ///   server.play(torrent, media, episode)
+    private func playW2GMedia(_ mediaState: W2GMediaState) {
+        let hash = mediaState.torrent
+        let anilistID = mediaState.mediaId
+        let episode = mediaState.episode
+        guard !hash.isEmpty else { return }
+
+        // Close any existing mini-player before starting a new session.
+        MiniPlayerManager.shared.close()
+
+        // Show a HUD while preparing.
+        let hud = UIAlertController(title: "W2G", message: "Adding torrent from host…", preferredStyle: .alert)
+        present(hud, animated: true)
+
+        // Mirrors web: `const media = (await client.single(mediaId)).data?.Media`
+        // Fetch AniList info first (if we have an ID), then add the torrent.
+        if anilistID > 0 {
+            AnimeService.sharedAnimeService.fetchAnimeByIds([anilistID]) { [weak self] items in
+                guard let self else { return }
+                self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: items.first, hud: hud)
+            }
+        } else {
+            continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: nil, hud: hud)
+        }
+    }
+
+    /// Second half of `playW2GMedia`: add the torrent by hash and present the player.
+    /// Mirrors web's `server.play(torrent, media, episode)`.
+    private func continueW2GPlay(hash: String, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
+        // Add the torrent by hash (magnet URI).
+        // Mirrors web: `native.playTorrent(torrent, media.id, episode)`.
+        guard let handle = TorrentService.sharedTorrentService.readdTorrent(hash: hash, magnetLink: nil) else {
+            hud.dismiss(animated: true) { [weak self] in
+                let alert = UIAlertController(title: "Error", message: "Could not add the host's torrent.", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                self?.present(alert, animated: true)
+            }
+            return
+        }
+
+        // Find or create a Torrents CoreData entity for the hash.
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let entity: Torrents = {
+            let req = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+            req.predicate = NSPredicate(format: "torrentHashString == %@", hash)
+            req.fetchLimit = 1
+            if let existing = (try? context.fetch(req))?.first { return existing }
+            let t = Torrents(context: context)
+            t.torrentHashString = hash
+            return t
+        }()
+
+        // Link to AniList anime entity (create if needed from fetched item).
+        // Mirrors web: `server.play(torrent, media, episode)` where `media` is the AniList Media object.
+        if anilistID > 0 {
+            let animeReq = Animes.fetchRequest()
+            animeReq.predicate = NSPredicate(format: "animeAnilistId == %d", anilistID)
+            if let existing = (try? context.fetch(animeReq))?.first as? Animes {
+                entity.animes = existing
+            } else if let item = animeItem {
+                // Create Animes entity from AniList data (mirrors ExtensionSearchVC.startDownload).
+                let anime = Animes(context: context)
+                anime.animeAnilistId      = NSNumber(value: item.id)
+                anime.animeTitleEnglish   = item.titleEnglish
+                anime.animeTitleJapanese  = item.titleRomaji
+                anime.animeTotalEps       = item.episodes.map { NSNumber(value: $0) }
+                anime.animeScore          = item.score.map { NSNumber(value: $0) }
+                anime.animeStatus         = item.status
+                anime.animeDescription    = item.description
+                anime.animeImgL           = item.coverURL
+                anime.animeImgM           = item.coverURL
+                entity.animes = anime
+            }
+        }
+        try? context.save()
+
+        // Set initial AniList state (mirrors web: `client.setInitialState(media, episode)`).
+        AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
+
+        // Wait for metadata then present the player.
+        w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, hud: hud)
+    }
+
+    /// Polls the torrent handle until metadata is available, then presents the player.
+    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, hud: UIAlertController, attempt: Int = 0) {
+        handle.updateSnapshot()
+        let snap = handle.snapshot
+
+        // Update HUD status.
+        let peers = snap.numberOfPeers
+        switch snap.state {
+        case .downloadingMetadata:
+            hud.message = peers > 0
+                ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s"))"
+                : "Connecting to DHT and trackers…"
+        case .downloading, .finished, .seeding:
+            if !snap.files.isEmpty {
+                // Metadata ready — present the player.
+                hud.dismiss(animated: true) { [weak self] in
+                    self?.presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID, episode: episode)
+                }
+                return
+            }
+            hud.message = "Preparing file list…"
+        default:
+            hud.message = "Connecting to peers…"
+        }
+
+        guard attempt < 60 else {
+            hud.dismiss(animated: true) { [weak self] in
+                let alert = UIAlertController(title: "Timeout", message: "Could not fetch torrent metadata from peers.", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                self?.present(alert, animated: true)
+            }
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, hud: hud, attempt: attempt + 1)
+        }
+    }
+
+    /// Present the video player for a W2G torrent with metadata ready.
+    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int) {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+
+        // Create a VideoService to manage streaming for this torrent.
+        let vs = VideoService(torrentEntity: entity)
+        vs.torrentHandle = handle
+
+        // Resolve the target file index for the episode.
+        let resolver = TorrentBatchResolver()
+        var targetIndex: UInt = 0
+        if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode) {
+            targetIndex = UInt(match.entry.index)
+        }
+
+        // Use the W2G client's file index if set (the host may have sent an
+        // index event before or along with the media event).
+        if let clientIndex = W2GLobby.shared.client?.index, clientIndex > 0 {
+            targetIndex = UInt(clientIndex)
+        }
+
+        vs.selectFileForStreaming(targetIndex)
+
+        // Ensure Video CoreData entities exist for the torrent's files.
+        // VideoService.UpdateLocalVideo populates these asynchronously, but for
+        // W2G we need them now. Create minimal entries if they don't exist yet.
+        let videoReq = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        videoReq.predicate = NSPredicate(format: "torrents == %@", entity)
+        videoReq.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true)]
+        var videos = (try? context.fetch(videoReq)) ?? []
+        if videos.isEmpty {
+            // Populate from torrent file list.
+            let snap = handle.snapshot
+            for (i, file) in snap.files.enumerated() {
+                let v = Videos(context: context)
+                v.videoIndex = NSNumber(value: i)
+                // Build absolute path from downloadPath + relative file path.
+                if let base = snap.downloadPath {
+                    v.videoPath = base.appendingPathComponent(file.path).path
+                } else {
+                    v.videoPath = file.path
+                }
+                v.torrents = entity
+                videos.append(v)
+            }
+            try? context.save()
+        }
+
+        // Pick the target video entity.
+        let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
+        guard let video = targetVideo else { return }
+
+        _ = vs.UpdateFilePathForFileIndex(targetIndex)
+
+        // Present the player.
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        player.videoEntity       = video
+        player.torrentHandle     = handle
+        player.videoService      = vs
+        player.fileIndex         = targetIndex
+        player.anilistID         = anilistID
+        player.episodeNumber     = episode
+        player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? 0
+        player.allVideos         = videos
+        player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+        player.modalPresentationStyle = .fullScreen
+        player.modalTransitionStyle   = .crossDissolve
+        present(player, animated: true)
     }
 }
 
