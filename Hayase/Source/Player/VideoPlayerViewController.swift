@@ -337,10 +337,26 @@ final class VideoPlayerViewController: UIViewController {
     private var isApplyingRemoteW2GState = false
 
     /// Bind/re-bind the current W2G client's delegate for player sync.
+    /// When a lobby is created while the player is already running, push
+    /// the current media + player state to the new client so that peers
+    /// who join later receive it via `sendInitialSessionState`.
+    /// Mirrors web's `server.play()` calling `w2globby.value?.mediaChange(...)`.
     private func bindW2GClient() {
         guard let client = W2GLobby.shared.client else { return }
         // Use a closure-based approach: store a weak ref and handle events.
         w2gPlayerDelegate = client
+
+        // If the lobby was just created while we're already playing, push
+        // the current media + index + player state to the client so new peers
+        // receive the correct initial state. This mirrors web's server.play()
+        // calling w2globby.value?.mediaChange() — but since the lobby was
+        // created after we started playing, that call was a no-op at the time.
+        if client.media == nil,
+           let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+            client.mediaChange(W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber))
+            client.mediaIndexChanged(Int(fileIndex))
+            client.playerStateChanged(W2GPlayerState(paused: isPaused, time: floor(currentTime)))
+        }
     }
 
     /// Reference to the active W2G client for incoming player state.

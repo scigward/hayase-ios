@@ -472,8 +472,15 @@ final class W2GViewController: UIViewController {
     }
 
     @objc private func createLobbyTapped() {
-        // Mirrors web /app/w2g/+page.ts: creates a host lobby and redirects to lobby view.
-        W2GLobby.shared.createHostLobby()
+        // Mirrors web /app/w2g/+page.ts:
+        //   const lastVal = get(server.last)
+        //   w2globby.value ??= new W2GClient(code, true,
+        //     lastVal?.media.id ? { mediaId: lastVal.media.id, episode: lastVal.episode, torrent: lastVal.id } : undefined)
+        //
+        // Grab the currently-playing torrent state (like web's `server.last`)
+        // so peers who join later receive the host's media via `sendInitialSessionState`.
+        let media = currentPlayerMediaState()
+        W2GLobby.shared.createHostLobby(media: media)
         // updateUI() is called automatically via the W2GLobby.didChange notification.
     }
 
@@ -642,6 +649,40 @@ extension W2GViewController {
         if let mini = MiniPlayerManager.shared.activePlayer { return mini }
         // Fullscreen (presented modally from this VC or a parent).
         var vc: UIViewController? = self
+        while let presented = vc?.presentedViewController {
+            if let player = presented as? VideoPlayerViewController { return player }
+            vc = presented
+        }
+        return nil
+    }
+
+    /// Returns the media state of the currently-playing torrent, if any.
+    /// Mirrors web's `server.last` persisted store which holds
+    /// `{ media, id (torrent hash), episode }` of the last-played torrent.
+    ///
+    /// Web code in +page.ts:
+    ///   const lastVal = get(server.last)
+    ///   ... lastVal?.media.id ? { mediaId: lastVal.media.id, episode: lastVal.episode, torrent: lastVal.id } : undefined
+    func currentPlayerMediaState() -> W2GMediaState? {
+        // Check mini-player first, then any fullscreen player in the app.
+        let player = MiniPlayerManager.shared.activePlayer ?? findPresentedPlayer()
+        guard let player,
+              let hash = player.torrentHandle?.infoHashes.best.hex,
+              !hash.isEmpty,
+              player.anilistID > 0 else {
+            return nil
+        }
+        return W2GMediaState(torrent: hash, mediaId: player.anilistID, episode: player.episodeNumber)
+    }
+
+    /// Walk the entire presented-VC chain from the root to find a VideoPlayerViewController.
+    /// This is broader than `findActiveW2GPlayer()` which only checks from `self`.
+    private func findPresentedPlayer() -> VideoPlayerViewController? {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            return nil
+        }
+        var vc: UIViewController? = rootVC
         while let presented = vc?.presentedViewController {
             if let player = presented as? VideoPlayerViewController { return player }
             vc = presented
