@@ -883,6 +883,8 @@ final class VideoPlayerViewController: UIViewController {
         guard idx != fileIndex else { return }
         guard newIndex >= 0, newIndex < allVideos.count else { return }
         let video = allVideos[newIndex]
+        // Estimate episode number from index offset (batch torrents map 1:1).
+        // Same assumption as findVideoInBatch/switchToVideo — episode = base + delta.
         switchToVideo((video: video, index: newIndex), episode: episodeNumber + (newIndex - currentVideoIndex))
     }
 

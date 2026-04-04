@@ -690,6 +690,7 @@ extension W2GViewController {
             hud.message = "Connecting to peers…"
         }
 
+        // 60 attempts × 1s polling = 60s timeout for metadata fetch.
         guard attempt < 60 else {
             hud.dismiss(animated: true) { [weak self] in
                 let alert = UIAlertController(title: "Timeout", message: "Could not fetch torrent metadata from peers.", preferredStyle: .alert)
