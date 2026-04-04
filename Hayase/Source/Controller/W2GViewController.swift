@@ -374,25 +374,25 @@ final class W2GViewController: UIViewController {
             codeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             codeLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 16),
 
-            // Subtitle
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            // Subtitle: web uses space-y-0.5 = 2pt gap
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             subtitleLabel.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
             subtitleLabel.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
 
-            // Separator
-            separatorView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 16),
+            // Separator: web uses <Separator class='!my-6' /> = 24pt vertical margin
+            separatorView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
             separatorView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
             separatorView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             separatorView.heightAnchor.constraint(equalToConstant: 0.5),
 
-            // User list (right side, 72pt wide matching web md:w-72)
+            // User list (right side, adapted from web md:w-72 = 288pt for tablet-sized screens)
             userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
             userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             userListTableView.widthAnchor.constraint(equalToConstant: 200),
 
-            // Chat (fills remaining space)
+            // Chat (fills remaining space, px-4 = 16pt horizontal padding matching web)
             chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
-            chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16),
             chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
 
             // Chat and user list fill the space down to the bottom bar.
@@ -494,7 +494,18 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
             let cell = tableView.dequeueReusableCell(withIdentifier: W2GChatCell.reuseID, for: indexPath) as! W2GChatCell
             let msgs = reversedMessages
             if indexPath.row < msgs.count {
-                cell.configure(with: msgs[indexPath.row])
+                let msg = msgs[indexPath.row]
+                // Message grouping (mirrors web Messages.svelte groupMessages):
+                // In the flipped table, row 0 = newest. The visual "above" is row+1.
+                // Show header (name+time) when this is the first message in a group
+                // (the message visually above is from a different user or doesn't exist).
+                // Show avatar when this is the last message in a group (the message
+                // visually below is from a different user or doesn't exist).
+                let prevSameUser = indexPath.row + 1 < msgs.count && msgs[indexPath.row + 1].user.id == msg.user.id
+                let nextSameUser = indexPath.row - 1 >= 0 && msgs[indexPath.row - 1].user.id == msg.user.id
+                let showHeader = !prevSameUser  // first in group (top in visual order)
+                let showAvatar = !nextSameUser  // last in group (bottom in visual order)
+                cell.configure(with: msg, showHeader: showHeader, showAvatar: showAvatar)
             }
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
@@ -778,86 +789,170 @@ extension W2GViewController {
 }
 
 // MARK: - W2GChatCell (mirrors Messages.svelte)
+//
+// Web layout per message group:
+//   <div class='flex flex-row mt-3' [flex-row-reverse if outgoing]>
+//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />     ← avatar at bottom of group
+//     <div class='flex flex-col px-2 items-start [items-end]'>
+//       <div class='pb-1 flex flex-row items-center px-1'>
+//         <div class='font-bold text-sm'>{name}</div>         ← 14px bold
+//         <div class='text-muted-foreground pl-2 text-[10px]'>{time}</div>
+//       </div>
+//       {#each _messages as message}
+//         <div class='bg-muted py-2 px-3 rounded-t-xl rounded-r-xl mb-1 text-xs'>  ← 12px
+//           {message}
+//         </div>
+//       {/each}
+//     </div>
+//   </div>
+//
+// Key details:
+// - Avatar: 40pt with 4pt padding = 32pt visible, anchored to bottom (mt-auto)
+// - Incoming: avatar left, items-start, rounded-t-xl rounded-r-xl (no bottom-left round)
+// - Outgoing: avatar right (flex-row-reverse), items-end, bg-theme, rounded-t-xl rounded-l-xl
 
 private final class W2GChatCell: UITableViewCell {
     static let reuseID = "W2GChatCell"
 
+    // Subviews
     private let avatarImageView = UIImageView()
+    private let headerRow = UIView()       // contains name + time
     private let nameLabel = UILabel()
     private let timeLabel = UILabel()
-    private let bubbleLabel = UILabel()
     private let bubbleBackground = UIView()
+    private let bubbleLabel = UILabel()
+
+    // Pre-built constraint sets toggled via isActive
+    private var incomingConstraints: [NSLayoutConstraint] = []
+    private var outgoingConstraints: [NSLayoutConstraint] = []
+    private var headerVisibleConstraint: NSLayoutConstraint!   // bubble top → header bottom
+    private var headerHiddenConstraint: NSLayoutConstraint!    // bubble top → cell top (no header)
+    private var headerTopConstraint: NSLayoutConstraint!       // header top → cell top
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
 
-        avatarImageView.layer.cornerRadius = 18
+        let cv = contentView
+        let avatarSize: CGFloat = 32  // w-10 h-10 p-1 → visible 32pt
+
+        // Avatar: rounded-full mt-auto
+        avatarImageView.layer.cornerRadius = avatarSize / 2
         avatarImageView.clipsToBounds = true
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(avatarImageView)
 
-        nameLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        // Header row (name + time)
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(headerRow)
+
+        nameLabel.font = .systemFont(ofSize: 14, weight: .bold) // text-sm
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(nameLabel)
 
-        timeLabel.font = .systemFont(ofSize: 10)
+        timeLabel.font = .systemFont(ofSize: 10) // text-[10px]
         timeLabel.textColor = UIColor(white: 0.5, alpha: 1)
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(timeLabel)
 
-        bubbleBackground.layer.cornerRadius = 12
+        // Bubble
         bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(bubbleBackground)
 
-        bubbleLabel.font = .systemFont(ofSize: 13)
+        bubbleLabel.font = .systemFont(ofSize: 12) // text-xs
         bubbleLabel.textColor = .white
         bubbleLabel.numberOfLines = 0
         bubbleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(avatarImageView)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(timeLabel)
-        contentView.addSubview(bubbleBackground)
         bubbleBackground.addSubview(bubbleLabel)
 
+        // --- Always-active constraints ---
         NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            avatarImageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 36),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 36),
+            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
 
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-
+            nameLabel.topAnchor.constraint(equalTo: headerRow.topAnchor),
+            nameLabel.bottomAnchor.constraint(equalTo: headerRow.bottomAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
             timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
             timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
-
-            bubbleBackground.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
-            bubbleBackground.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60),
-            bubbleBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
             bubbleLabel.topAnchor.constraint(equalTo: bubbleBackground.topAnchor, constant: 8),
             bubbleLabel.leadingAnchor.constraint(equalTo: bubbleBackground.leadingAnchor, constant: 12),
             bubbleLabel.trailingAnchor.constraint(equalTo: bubbleBackground.trailingAnchor, constant: -12),
             bubbleLabel.bottomAnchor.constraint(equalTo: bubbleBackground.bottomAnchor, constant: -8),
+
+            bubbleBackground.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
         ])
+
+        // --- Toggleable constraints ---
+        headerTopConstraint = headerRow.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12) // mt-3
+        headerVisibleConstraint = bubbleBackground.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 4)
+        headerHiddenConstraint = bubbleBackground.topAnchor.constraint(equalTo: cv.topAnchor, constant: 2)
+
+        incomingConstraints = [
+            avatarImageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
+            headerRow.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            bubbleBackground.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -60),
+        ]
+
+        outgoingConstraints = [
+            avatarImageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
+            headerRow.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
+            bubbleBackground.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
+            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 60),
+        ]
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(with message: W2GChatMessage) {
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        NSLayoutConstraint.deactivate(incomingConstraints)
+        NSLayoutConstraint.deactivate(outgoingConstraints)
+        headerVisibleConstraint.isActive = false
+        headerHiddenConstraint.isActive = false
+        headerTopConstraint.isActive = false
+        avatarImageView.image = nil
+        avatarImageView.alpha = 1
+    }
+
+    func configure(with message: W2GChatMessage, showHeader: Bool, showAvatar: Bool) {
         nameLabel.text = message.user.name
         timeLabel.text = DateFormatter.localizedString(from: message.date, dateStyle: .none, timeStyle: .short)
         bubbleLabel.text = message.message
 
         let isOutgoing = message.type == .outgoing
-        // Web uses bg-muted for incoming, bg-theme for outgoing
-        bubbleBackground.backgroundColor = isOutgoing
-            ? UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)  // theme color
-            : UIColor(white: 0.15, alpha: 1.0)  // muted
 
-        loadAvatar(url: message.user.avatarURL)
+        // Direction
+        NSLayoutConstraint.activate(isOutgoing ? outgoingConstraints : incomingConstraints)
+
+        // Header (name + time) — first message in group
+        headerRow.isHidden = !showHeader
+        headerTopConstraint.isActive = showHeader
+        headerVisibleConstraint.isActive = showHeader
+        headerHiddenConstraint.isActive = !showHeader
+
+        // Avatar — visible only for last message in group (mt-auto positioning)
+        avatarImageView.alpha = showAvatar ? 1 : 0
+        if showAvatar { loadAvatar(url: message.user.avatarURL) }
+
+        // Bubble color: bg-muted (incoming) vs bg-theme (outgoing)
+        bubbleBackground.backgroundColor = isOutgoing
+            ? UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)
+            : UIColor(white: 0.15, alpha: 1.0)
+
+        // Corner rounding — web: rounded-t-xl + one bottom corner
+        // Incoming: all except bottom-left (rounded-r-xl)
+        // Outgoing: all except bottom-right (rounded-l-xl)
+        bubbleBackground.layer.cornerRadius = 12
+        bubbleBackground.layer.maskedCorners = isOutgoing
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
     }
 
     private func loadAvatar(url: String?) {
@@ -867,7 +962,6 @@ private final class W2GChatCell: UITableViewCell {
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
             return
         }
-        // Simple async image load (no external lib needed for this use case).
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let img = UIImage(data: data) else { return }
             DispatchQueue.main.async { self?.avatarImageView.image = img }
@@ -876,48 +970,85 @@ private final class W2GChatCell: UITableViewCell {
 }
 
 // MARK: - W2GUserCell (mirrors UserList.svelte)
+//
+// Web layout per user:
+//   <div class='flex items-center pb-2'>
+//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />   ← 32pt visible avatar
+//     <div class='text-md pl-2'>{name}</div>                ← 16px, 8pt left margin
+//     <ExternalLink size='18' class='ml-auto text-blue-600' /> ← AniList link
+//   </div>
 
 private final class W2GUserCell: UITableViewCell {
     static let reuseID = "W2GUserCell"
 
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
+    private let linkButton = UIButton(type: .system)
+
+    private var userID: String = ""
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
 
-        avatarImageView.layer.cornerRadius = 18
+        let avatarSize: CGFloat = 32  // w-10 h-10 p-1 → 32pt visible
+
+        // Avatar: rounded-full
+        avatarImageView.layer.cornerRadius = avatarSize / 2
         avatarImageView.clipsToBounds = true
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
 
-        nameLabel.font = .systemFont(ofSize: 15)
+        // Name: text-md (16px), pl-2 (8pt)
+        nameLabel.font = .systemFont(ofSize: 16)
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        // External link button: ml-auto text-blue-600, ExternalLink size=18
+        let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        linkButton.setImage(UIImage(systemName: "arrow.up.right.square", withConfiguration: linkConfig), for: .normal)
+        linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
+        linkButton.translatesAutoresizingMaskIntoConstraints = false
+        linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
+
         contentView.addSubview(avatarImageView)
         contentView.addSubview(nameLabel)
+        contentView.addSubview(linkButton)
 
         NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            // Avatar: left with padding, pb-2 = 8pt bottom
+            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4), // p-1
             avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 36),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 36),
+            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
             avatarImageView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 4),
-            avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -4),
+            avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8), // pb-2
 
+            // Name: pl-2 = 8pt
             nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
+
+            // Link button: ml-auto (trailing)
+            linkButton.leadingAnchor.constraint(greaterThanOrEqualTo: nameLabel.trailingAnchor, constant: 8),
+            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            linkButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            linkButton.widthAnchor.constraint(equalToConstant: 28),
+            linkButton.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    @objc private func openProfile() {
+        guard !userID.isEmpty,
+              let url = URL(string: "https://anilist.co/user/" + userID) else { return }
+        UIApplication.shared.open(url)
+    }
+
     func configure(with user: W2GChatUser) {
         nameLabel.text = user.name
+        userID = user.id
         avatarImageView.image = nil
         guard let url = URL(string: user.resolvedAvatarURL) else {
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
