@@ -224,9 +224,33 @@ class SettingsViewController: UIViewController {
         ], tab: .client),
 
         Section(header: "Client Settings", rows: [
+            Row(title: "Torrent Download Location",
+                description: "Path to the folder used to store torrents. By default this is the app's cache folder, which might lose data when the OS tries to reclaim storage.",
+                kind: .value("Default")),
+            Row(title: "Persist Files",
+                description: "Keeps torrent files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
+                kind: .toggle(userDefaultsKey: "pref_persistFiles", defaultValue: false)),
             Row(title: "Streamed Download",
                 description: "Only downloads the data that's directly needed for playback, down to the minute, instead of downloading an entire batch of episodes. Will not buffer ahead more than a few seconds, and will stop downloading once the few second buffer is filled. Saves bandwidth and reduces strain on the peer swarm.",
                 kind: .toggle(userDefaultsKey: "pref_streamedDownload", defaultValue: true)),
+            Row(title: "Transfer Speed Limit",
+                description: "Download/Upload speed limit for torrents, higher values increase CPU usage, and values higher than your storage write speeds will quickly fill up RAM.",
+                kind: .editableNumber(userDefaultsKey: "pref_torrentSpeed", defaultValue: "40", suffix: "Mb/s", min: 1, max: 999)),
+            Row(title: "Max Number of Connections",
+                description: "Number of peers per torrent. Higher values will increase download speeds but might quickly fill up available ports if your ISP limits the maximum allowed number of open connections.",
+                kind: .editableNumber(userDefaultsKey: "pref_maxConns", defaultValue: "50", suffix: "", min: 1, max: 512)),
+            Row(title: "Forwarded Torrent Port",
+                description: "Forwarded port used for incoming torrent connections. 0 automatically finds an open unused port. Change this to a specific port if you forwarded manually, or if you use a VPN.",
+                kind: .editableNumber(userDefaultsKey: "pref_torrentPort", defaultValue: "0", suffix: "", min: 0, max: 65536)),
+            Row(title: "DHT Port",
+                description: "Port used for DHT connections. 0 is automatic.",
+                kind: .editableNumber(userDefaultsKey: "pref_dhtPort", defaultValue: "0", suffix: "", min: 0, max: 65536)),
+            Row(title: "Disable DHT",
+                description: "Disables Distributed Hash Tables for use in private trackers to improve privacy. Might greatly reduce the amount of discovered peers.",
+                kind: .toggle(userDefaultsKey: "pref_disableDHT", defaultValue: false)),
+            Row(title: "Disable PeX",
+                description: "Disables Peer Exchange for use in private trackers to improve privacy. Might greatly reduce the amount of discovered peers.",
+                kind: .toggle(userDefaultsKey: "pref_disablePeX", defaultValue: false)),
         ], tab: .client),
 
         // ── Interface tab (Hayase /app/settings/interface/) ──
@@ -476,8 +500,6 @@ class SettingsViewController: UIViewController {
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
 
-        // Determine animation direction based on tab index
-        let goingRight = tab.rawValue > selectedTab.rawValue
         selectedTab = tab
 
         // Animate tab button appearance
@@ -487,18 +509,18 @@ class SettingsViewController: UIViewController {
             }
         }
 
-        // Crossfade table content with a subtle slide
-        let transition = CATransition()
-        transition.type = .push
-        transition.subtype = goingRight ? .fromRight : .fromLeft
-        transition.duration = 0.25
-        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        tableView.layer.add(transition, forKey: "tabSwitch")
-        tableView.reloadData()
-
-        // Scroll to top when switching tabs
-        if !visibleSections.isEmpty {
-            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        // Crossfade table content — use UIView.transition so UIKit snapshots
+        // the old state before reloadData changes section/row counts.
+        // CATransition + reloadData crashes when the section count changes
+        // ("invalid number of rows in section N") because UIKit's internal
+        // animation bookkeeping conflicts with the layer-level transition.
+        UIView.transition(with: tableView, duration: 0.25, options: .transitionCrossDissolve) {
+            self.tableView.reloadData()
+        } completion: { _ in
+            // Scroll to top after the transition completes
+            if !self.visibleSections.isEmpty {
+                self.tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+            }
         }
     }
 
@@ -513,7 +535,10 @@ class SettingsViewController: UIViewController {
     /// Keys whose changes must be forwarded to the LibTorrent session.
     /// Mirrors Hayase's `torrentSettings` derived store that triggers `native.updateSettings`.
     private static let torrentSettingKeys: Set<String> = [
-        "pref_streamedDownload",
+        "pref_disableDHT", "pref_disablePeX",
+        "pref_torrentPort", "pref_dhtPort",
+        "pref_torrentSpeed", "pref_maxConns",
+        "pref_streamedDownload", "pref_persistFiles",
     ]
 
     /// If `key` is a torrent-session setting, re-apply settings to the live session.

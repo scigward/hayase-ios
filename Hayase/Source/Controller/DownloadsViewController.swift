@@ -128,6 +128,7 @@ class DownloadsViewController: UIViewController {
     private let pexDot       = TorrentDetailViewController.makeDotLabel()
     private let natDot       = TorrentDetailViewController.makeDotLabel()
     private let forwardDot   = TorrentDetailViewController.makeDotLabel()
+    private let persistDot   = TorrentDetailViewController.makeDotLabel()
     private let streamingDot = TorrentDetailViewController.makeDotLabel()
 
     // MARK: - Files tab
@@ -709,6 +710,7 @@ class DownloadsViewController: UIViewController {
         setDot(pexDot, enabled: snap.isPexEnabled)
         setDot(natDot, enabled: true)
         setDot(forwardDot, enabled: snap.hasIncomingConnections)
+        setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
 
         let isStreaming = snap.state == .downloading && snap.isSequential
         setDot(streamingDot, enabled: isStreaming)
@@ -889,6 +891,7 @@ class DownloadsViewController: UIViewController {
             ("Forwarding", "Accepting inbound connections", forwardDot),
         ]))
         columns.addArrangedSubview(makeProtocolColumn("Storage", [
+            ("Persisting", "Storing all torrents", persistDot),
             ("Streaming", "Downloading only required pieces", streamingDot),
         ]))
 
