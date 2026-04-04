@@ -344,13 +344,21 @@ final class LocalStreamServer {
 
             // Which local pieces cover this byte range?
             // Uses exact pieceLength for mapping: localPiece = offset / pieceLength.
-            // This is exact for single-file torrents (fileOffset=0). For multi-file
-            // torrents where the file starts mid-piece, the actual piece may be 1
-            // higher than our estimate, so we add +1 to lastLocalPiece. This margin
-            // is harmless for single-file torrents (just waits for one extra piece)
-            // and is clamped in waitForLocalPieces so out-of-bounds indices are safe.
+            //
+            // For single-file torrents (beginPiece == 0, fileOffset == 0), the
+            // mapping is exact: file-local byte N is always in piece N/pieceLength.
+            // WebTorrent's FileIterator computes _startPiece as
+            //   (start + file.offset) / pieceLength | 0
+            // which equals start/pieceLength when file.offset==0 — identical to
+            // localPieceIndex. Adding +1 here is WRONG for single-file torrents:
+            // it forces every chunk to wait for the piece AFTER the one being
+            // served (WebTorrent never waits for more than the current piece).
+            //
+            // For multi-file torrents (beginPiece > 0, fileOffset != 0), the file
+            // may start mid-piece so localPieceIndex (which ignores fileOffset) can
+            // underestimate by 1. The +1 margin is required only in that case.
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
-            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
+            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + (beginPiece > 0 ? 1 : 0)
 
             // Wait for ALL required pieces to be downloaded and hash-verified.
             // Returns true if pieces were already on disk (no waiting needed).
