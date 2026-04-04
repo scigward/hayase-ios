@@ -637,7 +637,8 @@ private final class W2GChatCell: UITableViewCell {
 
     private func loadAvatar(url: String?) {
         avatarImageView.image = nil
-        guard let urlStr = url, let url = URL(string: urlStr) else {
+        let urlStr = url ?? W2GChatUser.defaultAvatarURL
+        guard let url = URL(string: urlStr) else {
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
             return
         }
@@ -693,7 +694,7 @@ private final class W2GUserCell: UITableViewCell {
     func configure(with user: W2GChatUser) {
         nameLabel.text = user.name
         avatarImageView.image = nil
-        guard let urlStr = user.avatarURL, let url = URL(string: urlStr) else {
+        guard let url = URL(string: user.resolvedAvatarURL) else {
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
             return
         }

@@ -16,6 +16,14 @@ struct W2GChatUser: Codable, Equatable {
     let name: String
     let avatarURL: String?
 
+    /// AniList default avatar, used as fallback for guests (mirrors web's `?? 'https://s4.anilist.co/...'`).
+    static let defaultAvatarURL = "https://s4.anilist.co/file/anilistcdn/user/avatar/large/default.png"
+
+    /// Resolved avatar URL – returns `avatarURL` if present, otherwise the AniList default.
+    var resolvedAvatarURL: String {
+        avatarURL ?? Self.defaultAvatarURL
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, name, avatar
     }
