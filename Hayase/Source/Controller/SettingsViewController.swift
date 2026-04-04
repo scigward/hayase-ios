@@ -118,6 +118,12 @@ class SettingsViewController: UIViewController {
     /// Width constraint on the table header container — updated in viewDidLayoutSubviews
     /// so the header always matches the actual table view width (fixes iPad split-view sizing).
     private var headerWidthConstraint: NSLayoutConstraint?
+    /// Reentrancy guard: prevents `viewDidLayoutSubviews` from re-setting
+    /// `tableView.tableHeaderView` while a `reloadData()` is in progress.
+    /// Setting the header triggers a layout pass, which re-enters
+    /// `viewDidLayoutSubviews`, and can confuse UIKit's internal state
+    /// tracking — causing "invalid number of rows in section" crashes.
+    private var isUpdatingHeader = false
 
     /// Cached snapshot of sections for the currently selected tab.
     /// Stored (not computed) so that UIKit's data-source calls always see
@@ -368,6 +374,7 @@ class SettingsViewController: UIViewController {
         // Recalculate table header height after layout, and keep its width pinned to the
         // actual table view width (important on iPad where the table may be narrower than the
         // screen, e.g. in split-view multitasking).
+        guard !isUpdatingHeader else { return }
         guard let header = tableView.tableHeaderView else { return }
         let tableWidth = tableView.bounds.width
         guard tableWidth > 0 else { return }
@@ -377,8 +384,10 @@ class SettingsViewController: UIViewController {
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
         if header.frame.size.height != size.height {
+            isUpdatingHeader = true
             header.frame.size.height = size.height
             tableView.tableHeaderView = header
+            isUpdatingHeader = false
         }
     }
 
@@ -509,28 +518,35 @@ class SettingsViewController: UIViewController {
         // 1. Snapshot the OLD table content *before* mutating anything.
         let snapshot = tableView.snapshotView(afterScreenUpdates: false)
 
-        // 2. Update model state.
+        // 2. Update model state + tab-button appearance + reload.
+        //    ALL of this must happen with ZERO animation/transaction context.
+        //    Even UIButton.backgroundColor changes create an implicit
+        //    CATransaction; if reloadData() fires within that transaction,
+        //    UIKit treats it as an incremental (animated) update and applies
+        //    row-count consistency checks — crashing with "invalid number of
+        //    rows in section N" whenever the section/row structure changes.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
         selectedTab = tab
 
-        // 3. Update tab-button appearance immediately (no UIView.animate –
-        //    an active animation context would cause reloadData() to be
-        //    treated as a batched/incremental update, crashing with
-        //    "invalid number of rows in section N").
         for btn in tabButtons {
             updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
         }
 
-        // 4. Refresh the cached section array and reload.  No animation
-        //    context is active, so UIKit performs a full (non-incremental)
-        //    reload — no row-count consistency checks.
+        // Refresh the cached section array and reload.
         refreshVisibleSections()
-        tableView.reloadData()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+        }
 
         if !visibleSections.isEmpty {
             tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
         }
 
-        // 5. Overlay the old-content snapshot and crossfade it out to
+        CATransaction.commit()
+
+        // 3. Overlay the old-content snapshot and crossfade it out to
         //    reveal the freshly-reloaded table underneath.  The animation
         //    only touches the snapshot (a plain UIView), not the table, so
         //    it cannot interfere with UIKit's internal bookkeeping.
