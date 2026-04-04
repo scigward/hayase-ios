@@ -2171,7 +2171,8 @@ class AnimeDetailViewController: UIViewController {
                 // Auto-navigate to the page containing the user's current episode (matches web)
                 // Web: Math.floor(progress / perPage) + 1
                 if newProgress > 0 {
-                    self.currentEpisodePage = ((newProgress - 1) / self.episodesPerPage) + 1
+                    let desiredPage = ((newProgress - 1) / self.episodesPerPage) + 1
+                    self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
                 }
                 self.tableView.reloadData()
             }
@@ -2410,7 +2411,8 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.episodes = []
-                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .fade)
+                self.currentEpisodePage = 1
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
                     self.headerView.updateBanner(from: bannerURL)
                 }
@@ -2486,7 +2488,11 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.episodes = finalEpisodes
-                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .fade)
+                // Clamp page to new total to avoid stale page index crash
+                if self.currentEpisodePage > self.totalEpisodePages {
+                    self.currentEpisodePage = 1
+                }
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
                     self.headerView.updateBanner(from: bannerURL)
                 }
