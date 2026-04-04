@@ -921,17 +921,18 @@ final class VideoPlayerViewController: UIViewController {
             // MPV reads synchronously and can't buffer ahead, causing stalls.
             // These are set per-load so they don't affect local file playback.
             //
-            // Disable MKV duration probing for streaming via preset command.
-            // probe-video-duration=yes (set at MPV init) causes MPV to seek to
-            // the end of the file to read MKV Cues before starting playback.
-            // For streaming, this blocks until ALL tail pieces are downloaded,
-            // which with large piece sizes and low seeds means waiting for
-            // 20–60%+ of the file. Disabling the probe lets MPV start playback
-            // immediately from the MKV header in the first piece(s). Duration
-            // is still available from the MKV Info element in the header.
-            // Seeking works via force-seekable=yes; MPV fetches Cues on-demand
-            // when the user seeks (LocalStreamServer blocks until the required
-            // tail pieces are downloaded).
+            // MKV duration probing: MPV's default is "no" (set in MPVWrapper
+            // — we no longer set it to "yes" globally). We explicitly confirm
+            // "no" here as a belt-and-suspenders guard. Without probing, MPV
+            // reads duration from the MKV Info element in the first 1–2 pieces
+            // instead of making a separate Range request to the tail. When
+            // probe=yes (the old global default) MPV's tail request blocked
+            // LocalStreamServer until tail pieces arrived; combined with tight
+            // head-piece deadlines this split bandwidth across 12+ simultaneous
+            // deadline pieces, causing 700 MB to be downloaded before playback
+            // started (vs WebTorrent desktop's ~100 MB). Seeking still works
+            // via force-seekable=yes; LocalStreamServer.waitForLocalPieces
+            // blocks reactively on the exact tail pieces needed per seek.
             //
             // NOTE: This uses a preset "set" command (not loadfile file-local
             // options) because mpv 0.36+ changed the loadfile signature to

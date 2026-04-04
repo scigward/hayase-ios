@@ -195,12 +195,21 @@ final class MPVWrapper {
         // Setting demuxer sub-options via runtime "set" commands may fail
         // silently because mpv_command_async ignores errors (reply_id=0).
         //
-        // probe-video-duration=yes: Makes MPV seek to the end of the file
-        // to read the Cues element (seek index + accurate duration). Without
-        // this, MPV defaults to "no" and the video duration is unknown until
-        // the file is nearly fully downloaded. The LocalStreamServer will
-        // block the tail-end Range request until those pieces are available.
-        checkError(mpv_set_option_string(handle, "demuxer-mkv-probe-video-duration", "yes"))
+        // probe-video-duration: MPV's default is "no". We leave it at "no"
+        // here so that HTTP streaming (LocalStreamServer) NEVER causes MPV
+        // to seek to the tail of the file. When probe=yes, MPV makes a
+        // separate Range request to the end of the file to read the MKV
+        // Cues element; the LocalStreamServer blocks that request until the
+        // tail pieces are downloaded. Combined with tight-deadline head
+        // pieces this splits bandwidth across 12+ simultaneous deadline
+        // pieces, causing constant cancel_non_critical() churn and
+        // requiring ~50-100% of the file to be downloaded before playback
+        // starts (observed: 700 MB vs WebTorrent desktop's 70-100 MB).
+        //
+        // Duration is still available from the MKV Info element in the
+        // first 1-2 pieces (no seek needed). For local files the preset
+        // in loadVideoURL() explicitly sets probe=yes, which is safe
+        // because the file is already fully on disk.
 
         // subtitle-preroll=yes: Makes MPV read subtitle data from before
         // the seek target, so subtitles are visible immediately after seeking
