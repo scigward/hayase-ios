@@ -506,18 +506,34 @@ class SettingsViewController: UIViewController {
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
 
+        // 1. Snapshot the OLD table content *before* mutating anything.
+        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
+
+        // 2. Update model state.
         selectedTab = tab
 
-        // Animate tab button appearance
-        UIView.animate(withDuration: 0.2) {
-            for btn in self.tabButtons {
-                self.updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
-            }
+        // 3. Update tab-button appearance immediately (no UIView.animate –
+        //    an active animation context would cause reloadData() to be
+        //    treated as a batched/incremental update, crashing with
+        //    "invalid number of rows in section N").
+        for btn in tabButtons {
+            updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
         }
 
-        // Capture a snapshot of the OLD table content before we reload,
-        // then crossfade it away to reveal the new content underneath.
-        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
+        // 4. Refresh the cached section array and reload.  No animation
+        //    context is active, so UIKit performs a full (non-incremental)
+        //    reload — no row-count consistency checks.
+        refreshVisibleSections()
+        tableView.reloadData()
+
+        if !visibleSections.isEmpty {
+            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        }
+
+        // 5. Overlay the old-content snapshot and crossfade it out to
+        //    reveal the freshly-reloaded table underneath.  The animation
+        //    only touches the snapshot (a plain UIView), not the table, so
+        //    it cannot interfere with UIKit's internal bookkeeping.
         if let snapshot = snapshot {
             snapshot.frame = tableView.frame
             tableView.superview?.addSubview(snapshot)
@@ -526,19 +542,6 @@ class SettingsViewController: UIViewController {
             }) { _ in
                 snapshot.removeFromSuperview()
             }
-        }
-
-        // Refresh the cached section data and reload outside any animation
-        // context.  Using performWithoutAnimation prevents the willDisplay
-        // per-cell fade animations from creating implicit CATransactions
-        // that could trigger UIKit's internal row-count consistency checks.
-        refreshVisibleSections()
-        UIView.performWithoutAnimation {
-            tableView.reloadData()
-        }
-
-        if !visibleSections.isEmpty {
-            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
         }
     }
 
