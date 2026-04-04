@@ -408,8 +408,8 @@ extension VideoListViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: VideoTableViewCell.reuseID, for: indexPath) as! VideoTableViewCell
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: VideoTableViewCell.reuseID, for: indexPath) as? VideoTableViewCell else { return UITableViewCell() }
         guard let video = videoResultsController?.object(at: indexPath),
               let vs = videoService,
               let indexNum = video.videoIndex else { return cell }

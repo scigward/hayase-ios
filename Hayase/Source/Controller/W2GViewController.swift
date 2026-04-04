@@ -551,7 +551,7 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if tableView === chatTableView {
-            let cell = tableView.dequeueReusableCell(withIdentifier: W2GChatCell.reuseID, for: indexPath) as! W2GChatCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GChatCell.reuseID, for: indexPath) as? W2GChatCell else { return UITableViewCell() }
             let msgs = reversedMessages
             if indexPath.row < msgs.count {
                 let msg = msgs[indexPath.row]
@@ -570,7 +570,7 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
         } else {
-            let cell = tableView.dequeueReusableCell(withIdentifier: W2GUserCell.reuseID, for: indexPath) as! W2GUserCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GUserCell.reuseID, for: indexPath) as? W2GUserCell else { return UITableViewCell() }
             let users = sortedUsers
             if indexPath.row < users.count {
                 cell.configure(with: users[indexPath.row])

@@ -464,7 +464,10 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
     func collectionView(_ cv: UICollectionView, cellForItemAt indexPath: IndexPath)
     -> UICollectionViewCell {
         let cell = cv.dequeueReusableCell(
-            withReuseIdentifier: CalendarDayCell.reuseID, for: indexPath) as! CalendarDayCell
+            withReuseIdentifier: CalendarDayCell.reuseID, for: indexPath) as? CalendarDayCell ?? {
+            let fallback = CalendarDayCell()
+            return fallback
+        }()
         let day = calendarDays[indexPath.item]
         let isToday = Calendar.current.isDateInToday(day.date)
         let eps = episodes(for: day.date)

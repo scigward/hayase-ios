@@ -656,7 +656,7 @@ class SettingsViewController: UIViewController {
                                           message: "This will reset ALL settings and data to their default values. This cannot be undone.",
                                           preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in
-                let domain = Bundle.main.bundleIdentifier!
+                guard let domain = Bundle.main.bundleIdentifier else { return }
                 UserDefaults.standard.removePersistentDomain(forName: domain)
                 UserDefaults.standard.synchronize()
             })
@@ -680,10 +680,12 @@ extension SettingsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int { visibleSections.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        visibleSections[section].rows.count
+        guard section >= 0, section < visibleSections.count else { return 0 }
+        return visibleSections[section].rows.count
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard section >= 0, section < visibleSections.count else { return nil }
         // Hayase: <div class='font-weight-bold text-xl font-bold'>Section Name</div>
         let container = UIView()
         container.backgroundColor = .clear
@@ -707,11 +709,15 @@ extension SettingsViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else {
+            return UITableViewCell()
+        }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .toggle(let key, let def):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as! HayaseSettingToggleCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as? HayaseSettingToggleCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description,
                            key: key, defaultValue: def)
             cell.onToggled = { [weak self] toggledKey in
@@ -720,14 +726,14 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .value(let val):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: val, isLink: false)
             cell.backgroundColor = bgColor
             return cell
         case .selectable(let key, let options, let defaultKey):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let storedKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
             let displayValue = options.first(where: { $0.key == storedKey })?.label ?? storedKey
             cell.configure(title: row.title, description: row.description, value: displayValue, isLink: false)
@@ -735,8 +741,8 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .editableNumber(let key, let defaultValue, let suffix, _, _):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
             let display = suffix.isEmpty ? stored : "\(stored) \(suffix)"
             cell.configure(title: row.title, description: row.description, value: display, isLink: false)
@@ -744,27 +750,27 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .link:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
             cell.backgroundColor = bgColor
             return cell
         case .navigate:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.accessoryType = .disclosureIndicator
             cell.backgroundColor = bgColor
             return cell
         case .action:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.backgroundColor = bgColor
             return cell
         case .account(let tracker):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as! HayaseAccountCardCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as? HayaseAccountCardCell else { return UITableViewCell() }
             cell.configure(tracker: tracker, parentVC: self)
             cell.backgroundColor = bgColor
             return cell
@@ -778,6 +784,8 @@ extension SettingsViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else { return }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .link(let urlStr):
@@ -805,6 +813,8 @@ extension SettingsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else { return 80 }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         if case .account = row.kind { return 140 }
         return 80
