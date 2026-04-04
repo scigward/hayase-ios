@@ -48,8 +48,28 @@ final class LocalStreamServer {
     private let queue = DispatchQueue(label: "LocalStreamServer", qos: .userInitiated)
     /// Serial queue to protect torrentHandle.updateSnapshot() calls.
     private let snapshotQueue = DispatchQueue(label: "LocalStreamServer.snapshot")
+    /// Lock that protects the `connections` array.  `stop()` can be called from
+    /// any thread (typically main) while `handleConnection`/`removeConnection`
+    /// run on `queue`, so a lock is required to prevent concurrent array mutations.
+    private let connectionsLock = NSLock()
     private var connections: [NWConnection] = []
-    private var isStopped = false
+    /// `isStopped` is written in `stop()` (any thread) and read from
+    /// DispatchQueue.global inside streamBody/waitForLocalPieces.
+    /// `stoppedLock` ensures proper synchronisation across threads.
+    private let stoppedLock = NSLock()
+    private var _isStopped = false
+    private var isStopped: Bool {
+        get {
+            stoppedLock.lock()
+            defer { stoppedLock.unlock() }
+            return _isStopped
+        }
+        set {
+            stoppedLock.lock()
+            defer { stoppedLock.unlock() }
+            _isStopped = newValue
+        }
+    }
 
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
@@ -132,19 +152,22 @@ final class LocalStreamServer {
         isStopped = true
         listener?.cancel()
         listener = nil
-        for conn in connections {
-            conn.cancel()
-        }
+        // Snapshot and clear the connections array under the lock so we don't
+        // race with handleConnection / removeConnection which also hold the lock.
+        connectionsLock.lock()
+        let snapshot = connections
         connections.removeAll()
+        connectionsLock.unlock()
+        for conn in snapshot { conn.cancel() }
         if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: stopped") }
     }
 
     // MARK: - Connection handling
 
     private func handleConnection(_ connection: NWConnection) {
-        queue.async { [weak self] in
-            self?.connections.append(connection)
-        }
+        connectionsLock.lock()
+        connections.append(connection)
+        connectionsLock.unlock()
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed, .cancelled:
@@ -158,9 +181,9 @@ final class LocalStreamServer {
     }
 
     private func removeConnection(_ connection: NWConnection) {
-        queue.async { [weak self] in
-            self?.connections.removeAll(where: { $0 === connection })
-        }
+        connectionsLock.lock()
+        connections.removeAll(where: { $0 === connection })
+        connectionsLock.unlock()
     }
 
     private func receiveRequest(_ connection: NWConnection) {
@@ -321,13 +344,21 @@ final class LocalStreamServer {
 
             // Which local pieces cover this byte range?
             // Uses exact pieceLength for mapping: localPiece = offset / pieceLength.
-            // This is exact for single-file torrents (fileOffset=0). For multi-file
-            // torrents where the file starts mid-piece, the actual piece may be 1
-            // higher than our estimate, so we add +1 to lastLocalPiece. This margin
-            // is harmless for single-file torrents (just waits for one extra piece)
-            // and is clamped in waitForLocalPieces so out-of-bounds indices are safe.
+            //
+            // For single-file torrents (beginPiece == 0, fileOffset == 0), the
+            // mapping is exact: file-local byte N is always in piece N/pieceLength.
+            // WebTorrent's FileIterator computes _startPiece as
+            //   (start + file.offset) / pieceLength | 0
+            // which equals start/pieceLength when file.offset==0 — identical to
+            // localPieceIndex. Adding +1 here is WRONG for single-file torrents:
+            // it forces every chunk to wait for the piece AFTER the one being
+            // served (WebTorrent never waits for more than the current piece).
+            //
+            // For multi-file torrents (beginPiece > 0, fileOffset != 0), the file
+            // may start mid-piece so localPieceIndex (which ignores fileOffset) can
+            // underestimate by 1. The +1 margin is required only in that case.
             let firstLocalPiece = localPieceIndex(forByteOffset: currentOffset)
-            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + 1
+            let lastLocalPiece = localPieceIndex(forByteOffset: readEnd) + (beginPiece > 0 ? 1 : 0)
 
             // Wait for ALL required pieces to be downloaded and hash-verified.
             // Returns true if pieces were already on disk (no waiting needed).
@@ -359,13 +390,13 @@ final class LocalStreamServer {
 
             // Double-read verification for freshly-downloaded data.
             // If libtorrent's disk thread is still writing when we read,
-            // a second read after a brief delay may return different (more
-            // complete) data. Skip for pieces already on disk (stable).
-            // The delays are sized for worst-case I/O latency: 30 ms for
-            // the first settle and 50 ms after an explicit flush — shorter
-            // values caused intermittent frame corruption on slower devices.
+            // a second read may return different (more complete) data.
+            // Skip for pieces already on disk (stable).
+            // Removed unconditional 30ms pre-sleep: WebTorrent's store.get()
+            // callback fires with ready data and never sleeps. We do the second
+            // read immediately; only if the data actually changed do we flush
+            // and wait — this eliminates the 30ms penalty on the common path.
             if !alreadyOnDisk && !data.isEmpty && !data.allSatisfy({ $0 == 0 }) {
-                Thread.sleep(forTimeInterval: 0.03)
                 fileHandle.seek(toFileOffset: currentOffset)
                 let verifyData = fileHandle.readData(ofLength: readLength)
                 if verifyData != data {
@@ -483,19 +514,18 @@ final class LocalStreamServer {
             // cancel_non_critical() focuses ALL bandwidth on them.
             // Priority must be > 0 or libtorrent ignores the deadline.
             //
-            // Deadline values: 500 ms base + 200 ms/piece.
-            // libtorrent adds a 500 ms grace period before expiry, giving each
-            // piece a total window of 1000–1200 ms to arrive. At 5 MB/s a
-            // single 512 KB piece takes ~100 ms — well within the window.
-            // Previously 5 ms + 20 ms/piece expired in 505–545 ms; for a cold
-            // start with multiple pieces this was too tight and caused constant
-            // cancel_non_critical() churn (expired deadlines → sequential
-            // resumes → next reboost re-triggers churn every second).
+            // Deadline values: 10 ms base + 50 ms/piece — identical to
+            // TorrentStreamer.criticalDeadlineBase/Step. Using the same values
+            // ensures applyPriorityBoost never overrides TorrentStreamer's
+            // tighter seek deadlines (seekDeadlineBase = 5 ms + 30 ms/piece)
+            // with a much looser value. Previously 500 ms + 200 ms/piece
+            // was used but this was far too loose, overriding seek deadlines
+            // and delaying resume by ~500 ms after each 1-second reboost tick.
             for localIdx in safeFirst...safeLast {
                 let globalIdx = beginPiece + localIdx
                 torrentHandle.setPiecePriority(globalIdx, priority: 7)
                 let offset = min(localIdx - safeFirst, 1000) // clamp: avoid Int32 overflow
-                let deadline = Int32(500 + offset * 200) // 500 ms base + 200 ms/piece
+                let deadline = Int32(10 + offset * 50)   // 10 ms base + 50 ms/piece
                 torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
             }
 
@@ -586,16 +616,22 @@ final class LocalStreamServer {
             }
 
             if allReady {
-                // Flush libtorrent's disk write cache so piece data is on the
-                // filesystem before we read it with FileHandle. Without this,
-                // hash-verified pieces may still be in memory, causing zero reads.
                 guard !isStopped else { break }
-                torrentHandle.flushCache()
-                // Give libtorrent's disk I/O thread time to complete the flush.
-                // flushCache() posts a job asynchronously — data may not be in
-                // the OS page cache yet when it returns. 50ms handles typical
-                // I/O latency; the double-read in streamBody catches edge cases.
-                Thread.sleep(forTimeInterval: 0.05)
+                if !isFirstCheck {
+                    // Pieces may not yet be flushed to disk — flush libtorrent's
+                    // write cache so the data is visible to FileHandle before we
+                    // read it. Skip when isFirstCheck (pieces were already on disk
+                    // before we entered the wait loop): no flush is needed and the
+                    // 50ms sleep wastes time for every chunk served from a file
+                    // that is already buffered (WebTorrent: zero delay for cached
+                    // reads via store.get callback).
+                    torrentHandle.flushCache()
+                    // Give libtorrent's disk I/O thread time to complete the flush.
+                    // flushCache() posts a job asynchronously — data may not be in
+                    // the OS page cache yet when it returns. 50ms handles typical
+                    // I/O latency; the double-read in streamBody catches edge cases.
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
                 return isFirstCheck
             }
 

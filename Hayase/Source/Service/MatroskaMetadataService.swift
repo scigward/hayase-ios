@@ -25,7 +25,7 @@ final class MatroskaMetadataService {
     // MARK: - Public API
 
     /// Parses the MKV header at `fileURL` and returns a mapping of
-    /// subtitle track number → language code (e.g. `[3: "eng", 4: "jpn"]`).
+    /// subtitle track number → language code (e.g. `[1: "eng", 2: "jpn"]`).
     ///
     /// The language codes come directly from the Matroska Language element
     /// in each subtitle TrackEntry, which is the most authoritative source.
@@ -47,9 +47,9 @@ final class MatroskaMetadataService {
         }
 
         var langMap: [Int: String] = [:]
-        for track in result.tracks {
+        for (index, track) in result.tracks.enumerated() {
             if let lang = track.language, !lang.isEmpty, lang != "und" {
-                langMap[track.number] = lang
+                langMap[index + 1] = lang
             }
         }
 
