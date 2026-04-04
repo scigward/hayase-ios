@@ -119,9 +119,15 @@ class SettingsViewController: UIViewController {
     /// so the header always matches the actual table view width (fixes iPad split-view sizing).
     private var headerWidthConstraint: NSLayoutConstraint?
 
-    /// Sections filtered to the currently selected tab.
-    private var visibleSections: [Section] {
-        allSections.filter { $0.tab == selectedTab }
+    /// Cached snapshot of sections for the currently selected tab.
+    /// Stored (not computed) so that UIKit's data-source calls always see
+    /// a stable row/section count between reloadData() calls.
+    private lazy var visibleSections: [Section] = allSections.filter { $0.tab == selectedTab }
+
+    /// Re-caches `visibleSections` from `selectedTab`.
+    /// Call this right before every `reloadData()` / `reloadRows(…)`.
+    private func refreshVisibleSections() {
+        visibleSections = allSections.filter { $0.tab == selectedTab }
     }
 
     // MARK: - Option lists (matching Hayase src/lib/modules/settings/util.ts)
@@ -509,11 +515,8 @@ class SettingsViewController: UIViewController {
             }
         }
 
-        // Crossfade using a snapshot overlay so reloadData() runs outside
-        // any animation context. Both CATransition and UIView.transition can
-        // trigger UIKit's internal table-view row-count bookkeeping, which
-        // crashes with "invalid number of rows in section N" when the tab
-        // switch changes the visible section/row counts.
+        // Capture a snapshot of the OLD table content before we reload,
+        // then crossfade it away to reveal the new content underneath.
         let snapshot = tableView.snapshotView(afterScreenUpdates: false)
         if let snapshot = snapshot {
             snapshot.frame = tableView.frame
@@ -525,7 +528,14 @@ class SettingsViewController: UIViewController {
             }
         }
 
-        tableView.reloadData()
+        // Refresh the cached section data and reload outside any animation
+        // context.  Using performWithoutAnimation prevents the willDisplay
+        // per-cell fade animations from creating implicit CATransactions
+        // that could trigger UIKit's internal row-count consistency checks.
+        refreshVisibleSections()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+        }
 
         if !visibleSections.isEmpty {
             tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
