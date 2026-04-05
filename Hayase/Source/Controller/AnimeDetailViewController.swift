@@ -220,11 +220,13 @@ private final class EpisodeCell: UITableViewCell {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(textStack)
 
-        // Thumbnail width: w-1/2 (50%) + shrink-0 — must NOT collapse when image is absent.
-        // Use .required priority so the 50% width holds even when UIImageView has no content.
-        // max-w-52 (208pt) prevents over-wide thumbs on iPad; no conflict on iPhone (<416pt cards).
+        // Thumbnail width: w-1/2 (50%) + shrink-0.
+        // Priority 999 (below required) lets the max-w-52 cap win on iPad without a
+        // constraint conflict (required == 50% vs required <= 208 when card > 416pt).
+        // On iPhone the 50% value (≈183pt) satisfies both constraints; no collapse risk
+        // because top/bottom/leading constraints are explicit and drive the layout.
         let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
-        thumbWidthPreferred.priority = .required
+        thumbWidthPreferred.priority = UILayoutPriority(999)
         let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
 
         NSLayoutConstraint.activate([
@@ -1033,6 +1035,75 @@ private final class StatsCell: UITableViewCell {
 //   --muted-foreground: hsl(240 5% 64.9%) = #a1a1aa
 //   --secondary:        hsl(240 3.7% 15.9%) = #27272a
 
+// MARK: - ChipWrapView
+// Used on iPad (regular horizontal size class) to replicate the web's
+// `md:flex-wrap md:justify-start` genre layout — chips wrap to new rows
+// when they exceed the container width.  On iPhone the existing horizontal
+// scroll view is used instead.
+private final class ChipWrapView: UIView {
+    let interItemSpacing: CGFloat = 8
+    let lineSpacing: CGFloat = 8
+    let chipHeight: CGFloat = 28
+
+    private var chipWidths: [CGFloat] = []
+
+    func setChips(_ newChips: [UIView]) {
+        subviews.forEach { $0.removeFromSuperview() }
+        chipWidths = newChips.map { widthForChip($0) }
+        newChips.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+            addSubview($0)
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    private func widthForChip(_ chip: UIView) -> CGFloat {
+        if let btn = chip as? UIButton {
+            let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
+            let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
+            let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            return textW + 24  // px-3 = 12pt each side
+        }
+        return chip.intrinsicContentSize.width
+    }
+
+    private func computeHeight(for width: CGFloat) -> CGFloat {
+        guard !chipWidths.isEmpty, width > 0 else { return chipWidths.isEmpty ? 0 : chipHeight }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for w in chipWidths {
+            if x > 0 && x + w > width { x = 0; y += chipHeight + lineSpacing }
+            x += w + interItemSpacing
+        }
+        return y + chipHeight
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let h = bounds.width > 0
+            ? computeHeight(for: bounds.width)
+            : (chipWidths.isEmpty ? 0 : chipHeight)
+        return CGSize(width: UIView.noIntrinsicMetric, height: max(h, chipWidths.isEmpty ? 0 : chipHeight))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let chips = subviews
+        guard !chips.isEmpty, bounds.width > 0 else { return }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for (i, chip) in chips.enumerated() {
+            let w = i < chipWidths.count ? chipWidths[i] : widthForChip(chip)
+            if x > 0 && x + w > bounds.width { x = 0; y += chipHeight + lineSpacing }
+            chip.frame = CGRect(x: x, y: y, width: w, height: chipHeight)
+            x += w + interItemSpacing
+        }
+        let newH = y + chipHeight
+        if abs(newH - intrinsicContentSize.height) > 0.5 {
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
+        }
+    }
+}
+
 private final class AnimeInfoHeaderView: UIView {
     // Callbacks
     var onShare: (() -> Void)?
@@ -1255,8 +1326,13 @@ private final class AnimeInfoHeaderView: UIView {
         return sv
     }()
 
-    // Genres container — holds genresScrollView centered; hidden when no genres
+    // Genres container — holds either genresScrollView (compact) or chipWrapView (regular)
     private let genresContainer = UIView()
+    // ChipWrapView: used on iPad (regular horizontal size class) — wraps chips across rows
+    private let chipWrapView = ChipWrapView()
+    // Constraints toggled by applyGenresLayout() — created once in setup()
+    private var genresContainerHeightConstraint: NSLayoutConstraint?
+    private var chipWrapBottomConstraint: NSLayoutConstraint?
 
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
@@ -1346,14 +1422,25 @@ private final class AnimeInfoHeaderView: UIView {
         actionsRow.alignment = .fill
 
         // Genres: gap-2, items-center, justify-center (centered on mobile)
-        // Wrap genres scroll in centered container
+        // Compact (iPhone): centered horizontal scroll — genresScrollView
+        // Regular (iPad):   left-aligned wrapping   — chipWrapView
         genresContainer.addSubview(genresScrollView)
+        chipWrapView.translatesAutoresizingMaskIntoConstraints = false
+        genresContainer.addSubview(chipWrapView)
         NSLayoutConstraint.activate([
+            // Scroll view (compact): centered, clips to container width
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
             genresScrollView.widthAnchor.constraint(lessThanOrEqualTo: genresContainer.widthAnchor),
+            // Wrap view (regular): left-aligned, full width
+            chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
+            chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
+            chipWrapView.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
         ])
+        // Create the two switchable constraints once; applyGenresLayout toggles isActive
+        genresContainerHeightConstraint = genresContainer.heightAnchor.constraint(equalToConstant: 28)
+        chipWrapBottomConstraint = chipWrapView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor)
 
         // Main content: [coverAndTextColumn, actionsRow, genresContainer]
         // Hayase: gap-6 (24pt) between major sections, px-3 (12pt) horizontal padding
@@ -1399,9 +1486,6 @@ private final class AnimeInfoHeaderView: UIView {
             // up to 180pt, compressing below 180pt when the trailer button is also visible.
             playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
 
-            // Genres scrollview height = 28pt (h-7)
-            genresContainer.heightAnchor.constraint(equalToConstant: 28),
-
             // Hayase: text column has w-full so it fills the parent width even
             // though the parent (coverAndTextColumn) uses items-center (.center).
             // Without this, textColumn takes its intrinsic width (the text's
@@ -1419,6 +1503,27 @@ private final class AnimeInfoHeaderView: UIView {
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        // Apply initial genres layout based on current trait collection
+        applyGenresLayout()
+    }
+
+    // Switch between compact (scroll) and regular (wrap) genres layout.
+    // compact:  genresScrollView centered, genresContainer height fixed to 28pt (h-7)
+    // regular:  chipWrapView left-aligned, genresContainer self-sizes via intrinsicContentSize
+    private func applyGenresLayout() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        genresScrollView.isHidden = isRegular
+        chipWrapView.isHidden = !isRegular
+        genresContainerHeightConstraint?.isActive = !isRegular
+        chipWrapBottomConstraint?.isActive = isRegular
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            applyGenresLayout()
+        }
     }
 
     override func layoutSubviews() {
@@ -1617,11 +1722,7 @@ private final class AnimeInfoHeaderView: UIView {
                       accent:   accent,
                       contrastColor: contrast)
 
-        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for genre in item.genres.prefix(8) {
-            genresStack.addArrangedSubview(makeGenreChip(text: genre))
-        }
-        genresContainer.isHidden = item.genres.isEmpty
+        setGenres(item.genres.prefix(8).map { String($0) })
 
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
@@ -1716,6 +1817,35 @@ private final class AnimeInfoHeaderView: UIView {
         l.clipsToBounds = true
         l.setContentHuggingPriority(.required, for: .horizontal)
         return l
+    }
+
+    // Populate both genresStack (compact scroll) and chipWrapView (regular wrap).
+    private func setGenres(_ genres: [String]) {
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // chipWrapView uses frame-based layout — give it plain UIButtons without AL constraints
+        let wrapChips: [UIView] = genres.map { genre in
+            let btn = UIButton(type: .system)
+            btn.setTitle(genre, for: .normal)
+            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+            btn.setTitleColor(.white, for: .normal)
+            btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+            btn.layer.cornerRadius = 6
+            btn.layer.masksToBounds = true
+            return btn
+        }
+        for genre in genres {
+            genresStack.addArrangedSubview(makeGenreChip(text: genre))
+        }
+        chipWrapView.setChips(wrapChips)
+        genresContainer.isHidden = genres.isEmpty
+    }
+
+    /// Called by the VC when AniList data is fetched for a CoreData-opened anime.
+    /// Shows the trailer button and genre chips that weren't available from CoreData.
+    func updateGenresAndTrailer(genres: [String], trailerYouTubeID: String?) {
+        setGenres(genres)
+        trailerButton.isHidden = trailerYouTubeID == nil
     }
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
@@ -2623,6 +2753,14 @@ class AnimeDetailViewController: UIViewController {
             self.relations = relations
             if !relations.isEmpty {
                 self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            }
+        }
+
+        // When opened from CoreData, animeItem is nil so trailer + genres were hidden.
+        // Fetch them from AniList now and update the header.
+        if animeItem == nil {
+            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres in
+                self?.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
             }
         }
     }
