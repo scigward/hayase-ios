@@ -116,7 +116,7 @@
 		A96105B91D71ED71006D39D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
 		A96105BC1D71ED71006D39D0 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A96105BE1D71ED71006D39D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Resources/Info.plist; sourceTree = "<group>"; };
-		NUNTO000NUNTO000NUNTO000 /* Nunito-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "Nunito-Variable.ttf"; path = "Resources/Fonts/Nunito-Variable.ttf"; sourceTree = "<group>"; };
+		NUNTO000NUNTO000NUNTO000 /* Nunito-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file.truetype; name = "Nunito-Variable.ttf"; path = "Resources/Fonts/Nunito-Variable.ttf"; sourceTree = "<group>"; };
 		NUNTO002NUNTO002NUNTO002 /* UIFont+Nunito.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "UIFont+Nunito.swift"; sourceTree = "<group>"; };
 		A96105E01D72F226006D39D0 /* Hayase-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Hayase-Bridging-Header.h"; sourceTree = "<group>"; };
 		A961069D1D72FBE0006D39D0 /* Model.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Model.xcdatamodel; sourceTree = "<group>"; };

@@ -63,7 +63,7 @@
 	</dict>
 	<key>UIAppFonts</key>
 	<array>
-		<string>Fonts/Nunito-Variable.ttf</string>
+		<string>Nunito-Variable.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
