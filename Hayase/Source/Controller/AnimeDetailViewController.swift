@@ -1295,15 +1295,20 @@ private final class AnimeInfoHeaderView: UIView {
 
     // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
-        let b = UIButton(type: .system)
+        let b = UIButton(type: .custom)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        // Clapperboard (iOS 16+) matches Hayase's animated <Clapperboard> icon; fall back to film.
+        // Use UIButton(type: .custom) + alwaysOriginal to avoid tintColor rendering issues
+        // that affect .system buttons which start as isHidden = true.
+        let iconName = "clapperboard.fill"  // available iOS 16+; "film" used as safe fallback
+        let symName: String
         if #available(iOS 16.0, *) {
-            b.setImage(UIImage(systemName: "clapperboard")?.withConfiguration(iconCfg), for: .normal)
+            symName = iconName
         } else {
-            b.setImage(UIImage(systemName: "film")?.withConfiguration(iconCfg), for: .normal)
+            symName = "film"
         }
-        b.tintColor = .white
+        let img = UIImage(systemName: symName, withConfiguration: iconCfg)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        b.setImage(img, for: .normal)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
@@ -1432,7 +1437,7 @@ private final class AnimeInfoHeaderView: UIView {
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
-            genresScrollView.widthAnchor.constraint(lessThanOrEqualTo: genresContainer.widthAnchor),
+            genresScrollView.widthAnchor.constraint(equalTo: genresContainer.widthAnchor),
             // Wrap view (regular): left-aligned, full width
             chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
@@ -1826,10 +1831,10 @@ private final class AnimeInfoHeaderView: UIView {
         let wrapChips: [UIView] = genres.map { genre in
             let btn = UIButton(type: .system)
             btn.setTitle(genre, for: .normal)
-            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
             btn.setTitleColor(.white, for: .normal)
             btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
             btn.layer.cornerRadius = 6
             btn.layer.masksToBounds = true
             return btn
@@ -1849,14 +1854,14 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
-    /// bg-secondary (#27272a), text-secondary-foreground (white)
+    /// bg-secondary (#27272a), text-secondary-foreground (white), px-4 (16pt) — matches interface
     private func makeGenreChip(text: String) -> UIView {
         let btn = UIButton(type: .system)
         btn.setTitle(text, for: .normal)
-        btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         btn.setTitleColor(.white, for: .normal)
         btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
-        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6  // rounded-md
         btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
