@@ -470,7 +470,7 @@ private final class TreeItemCell: UITableViewCell {
         contentView.addSubview(titleLabel)
         contentView.addSubview(chevronImage)
 
-        titleLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 14, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -546,13 +546,13 @@ private final class SubtitleDelayCell: UITableViewCell {
         selectionStyle = .none
 
         delayLabel.text = "Delay"
-        delayLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        delayLabel.font = .nunito(ofSize: 14, weight: .bold)
         delayLabel.textColor = .white
         delayLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(delayLabel)
 
         secLabel.text = "sec"
-        secLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        secLabel.font = .nunito(ofSize: 14, weight: .regular)
         secLabel.textColor = .white
         secLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(secLabel)
@@ -560,7 +560,7 @@ private final class SubtitleDelayCell: UITableViewCell {
         inputField.keyboardType = .decimalPad
         inputField.textColor = .white
         inputField.textAlignment = .right
-        inputField.font = .systemFont(ofSize: 14, weight: .regular)
+        inputField.font = .nunito(ofSize: 14, weight: .regular)
         inputField.translatesAutoresizingMaskIntoConstraints = false
         inputField.addTarget(self, action: #selector(valueChanged), for: .editingChanged)
         contentView.addSubview(inputField)

@@ -18,10 +18,29 @@ struct AniZipEpisode {
     let title: String       // English title, or "Episode N" fallback
     let overview: String
     let imageURL: String?
-    let airDate: String?
+    let airDate: Date?
     let runtime: Int        // minutes; 0 if unknown
     let rating: Double?     // from ani.zip "rating" field (e.g. "8.9256") — shown as ★ badge
     let isFiller: Bool      // from ani.zip "filler" field — yellow ring + Filler badge
+}
+
+// MARK: - PaddedLabel
+/// UILabel subclass that supports content edge insets (mirrors CSS padding).
+private final class PaddedLabel: UILabel {
+    var contentInsets = UIEdgeInsets.zero
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
+    }
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let s = super.sizeThatFits(size)
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
 }
 
 // MARK: - EpisodeCell
@@ -41,7 +60,7 @@ private final class EpisodeCell: UITableViewCell {
     private let cardView: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
-        v.layer.cornerRadius = 8  // rounded-md
+        v.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         v.clipsToBounds = true
         return v
     }()
@@ -54,39 +73,44 @@ private final class EpisodeCell: UITableViewCell {
         return iv
     }()
 
-    // Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
-    private let runtimeBadge: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+    // Runtime badge: absolute bottom-left, bg-neutral-900/80, px-1 py-0.5 rounded
+    // Mirrors web: <div class='… text-[9.6px] px-1 py-0.5 rounded'>
+    private let runtimeBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
+        l.layer.cornerRadius = 4 // rounded = 0.25rem = 4pt
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Rating badge: absolute bottom-right of thumb, ★ + rating value
-    // Mirrors Hayase EpisodesList: <Star class='text-yellow-400' />  {rating}
-    private let ratingBadge: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+    // Rating badge: absolute bottom-right of thumb, ★ + rating value, px-1 py-0.5 rounded
+    // Mirrors web: <Star class='size-2.5 … text-yellow-400' fill='currentColor' /> {rating}
+    private let ratingBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
+        l.layer.cornerRadius = 4 // rounded = 4pt
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
     // Filler badge: absolute bottom-right of card content, bg-yellow-400, rounded-tl
-    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 absolute bottom-0 right-0'>Filler</div>
-    private let fillerBadge: UILabel = {
-        let l = UILabel()
-        l.text = "  Filler  "
-        l.font = .systemFont(ofSize: 9.6, weight: .bold)
+    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 py-1 px-2 absolute bottom-0 right-0'>Filler</div>
+    private let fillerBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.text = "Filler"
+        l.font = .nunito(ofSize: 9.6, weight: .bold)
         l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
         l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
+        // py-1 (4pt top/bottom) px-2 (8pt left/right) — exact Tailwind spacing
+        l.contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         l.layer.cornerRadius = 4
         l.layer.maskedCorners = [.layerMinXMinYCorner] // rounded-tl only
         l.clipsToBounds = true
@@ -97,7 +121,7 @@ private final class EpisodeCell: UITableViewCell {
     // Title: font-bold text-[12.8px] line-clamp-1
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12.8, weight: .bold)
+        l.font = .nunito(ofSize: 12.8, weight: .bold)
         l.textColor = .white
         l.numberOfLines = 1
         return l
@@ -121,7 +145,7 @@ private final class EpisodeCell: UITableViewCell {
     // Summary: text-[9.6px] text-muted-foreground
     private let overviewLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
         l.numberOfLines = 3
         return l
@@ -130,9 +154,18 @@ private final class EpisodeCell: UITableViewCell {
     // Airdate: text-[9.6px]
     private let metaLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         return l
+    }()
+
+    // Mirrors web `since()` — Intl.RelativeTimeFormat('en', { numeric: 'always' })
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        f.dateTimeStyle = .numeric
+        f.locale = Locale(identifier: "en")
+        return f
     }()
 
     private var currentImageURL: String?
@@ -174,28 +207,38 @@ private final class EpisodeCell: UITableViewCell {
             progressFill.leadingAnchor.constraint(equalTo: progressBar.leadingAnchor),
         ])
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, metaLabel])
+        // Spacer pushes metaLabel to bottom of text column (web: `mt-auto` on date row)
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+        spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
+        // Title has mb-2 (8pt) before the progress bar / overview — web: `font-bold mb-2`
+        textStack.setCustomSpacing(8, after: numberLabel)
         textStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(textStack)
 
-        // Thumbnail width: w-1/2 (50%) up to max-w-52 (208pt) — prevents oversized thumbs on iPad.
+        // Thumbnail width: w-1/2 (50%) + shrink-0.
+        // Priority 999 (below required) lets the max-w-52 cap win on iPad without a
+        // constraint conflict (required == 50% vs required <= 208 when card > 416pt).
+        // On iPhone the 50% value (≈183pt) satisfies both constraints; no collapse risk
+        // because top/bottom/leading constraints are explicit and drive the layout.
         let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
-        thumbWidthPreferred.priority = .defaultHigh
+        thumbWidthPreferred.priority = UILayoutPriority(999)
         let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
 
         NSLayoutConstraint.activate([
-            // Card: margin 6pt top/bottom, 16pt left/right
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            // Card: gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
             // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
             cardView.heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`),
-            // capped at max-w-52 (208pt) so it doesn't stretch across the full width on iPad.
+            // Thumbnail: left side, w-1/2 shrink-0 — always 50% wide even without an image loaded.
             thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
@@ -210,11 +253,11 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
             ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Text stack: right of thumbnail, with 16pt padding
+            // Text stack: py-3 (12pt top/bottom) px-4 (16pt left/right) matching web flex-col container
             textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -8),
+            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
             textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -8),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -12),
 
             // Progress bar height: h-0.5 = 2pt
             progressBar.heightAnchor.constraint(equalToConstant: 2),
@@ -225,20 +268,36 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
+                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Dim episodes that have been watched on AniList (matches desktop's opacity treatment
-        // for completed episodes: reduced opacity on card)
-        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
-        cardView.alpha = isWatchedOnAniList ? 0.5 : 1.0
+        // Web: `watched = _progress >= episode && !completed`
+        // When list is COMPLETED, no thumbnail dimming (web shows full opacity for all episodes).
+        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
+        thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
+        cardView.alpha = 1.0
 
-        // Progress bar (Hayase EpisodesList watchProgress indicator)
-        if anilistID > 0,
+        // Progress fill uses the anime's accent color (bg-custom)
+        progressFill.backgroundColor = accentColor
+
+        // Progress bar — mirrors web logic:
+        // • watched OR completed: full-width solid bg-custom bar, NO neutral track
+        // • in-progress (WatchProgressService has partial fraction): neutral-800 track + partial fill
+        // • otherwise: hidden
+        let showFullBar = isWatchedOnAniList || isListCompleted
+        if showFullBar {
+            // No track — match web `<div class='mb-2 h-0.5 overflow-hidden w-full bg-custom shrink-0' />`
+            progressBar.backgroundColor = accentColor
+            progressBar.isHidden = false
+            savedProgressFraction = 1.0
+            setNeedsLayout()
+        } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
+            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // neutral-800 track
             progressBar.isHidden = false
             savedProgressFraction = saved.fraction
             setNeedsLayout()
@@ -248,30 +307,33 @@ private final class EpisodeCell: UITableViewCell {
         }
 
         if let date = episode.airDate {
-            metaLabel.text = date
+            metaLabel.text = EpisodeCell.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
             metaLabel.isHidden = false
         } else {
             metaLabel.isHidden = true
         }
 
         if episode.runtime > 0 {
-            runtimeBadge.text = " \(episode.runtime)m "
+            runtimeBadge.text = "\(episode.runtime)m"
             runtimeBadge.isHidden = false
         } else {
             runtimeBadge.isHidden = true
         }
 
-        // Rating badge: ★ icon (yellow) + rating value — Hayase EpisodesList.svelte
+        // Rating badge: SF Symbol star.fill (yellow) + rating value — matches web <Star fill='currentColor' />
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
-            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 9.6)])
-            padded.append(NSAttributedString(string: "★ ", attributes: [
-                .foregroundColor: UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), // yellow-400
-                .font: UIFont.systemFont(ofSize: 9.6)
-            ]))
-            padded.append(NSAttributedString(string: "\(ratingStr) ", attributes: [
+            let starAttachment = NSTextAttachment()
+            let starCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular)
+            if let starImg = UIImage(systemName: "star.fill", withConfiguration: starCfg)?
+                .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
+                starAttachment.image = starImg
+                starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)
+            }
+            let padded = NSMutableAttributedString(attachment: starAttachment)
+            padded.append(NSAttributedString(string: " \(ratingStr)", attributes: [
                 .foregroundColor: UIColor(white: 0.98, alpha: 1),
-                .font: UIFont.systemFont(ofSize: 9.6)
+                .font: UIFont.nunito(ofSize: 9.6)
             ]))
             ratingBadge.attributedText = padded
             ratingBadge.isHidden = false
@@ -279,12 +341,17 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.isHidden = true
         }
 
-        // Filler: yellow ring (ring-yellow-400 ring-1) + "Filler" badge
-        // Mirrors Hayase: filler && '!ring-yellow-400 ring-1' on card + <div class='rounded-tl bg-yellow-400'>Filler</div>
+        // Border: filler overrides target (web: `!ring-yellow-400` uses !important)
+        // target = anilistProgress + 1 → ring-custom accent border (ring-1 = 1pt)
+        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
         if episode.isFiller {
             cardView.layer.borderWidth = 1
             cardView.layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor // yellow-400
             fillerBadge.isHidden = false
+        } else if isTarget {
+            cardView.layer.borderWidth = 1
+            cardView.layer.borderColor = accentColor.cgColor // ring-custom
+            fillerBadge.isHidden = true
         } else {
             cardView.layer.borderWidth = 0
             cardView.layer.borderColor = UIColor.clear.cgColor
@@ -334,7 +401,9 @@ private final class EpisodeCell: UITableViewCell {
         cardView.layer.borderWidth = 0
         cardView.layer.borderColor = UIColor.clear.cgColor
         cardView.alpha = 1.0
+        thumbImageView.alpha = 1.0
         progressBar.isHidden = true
+        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // reset to neutral-800 track
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
     }
@@ -358,7 +427,7 @@ private final class PaginationBarView: UIView {
 
     private let infoLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
+        l.font = .nunito(ofSize: 13)
         l.textColor = UIColor(white: 0.63, alpha: 1) // text-muted-foreground
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -484,11 +553,11 @@ private final class PaginationBarView: UIView {
         let rangeStart = (currentPage - 1) * perPage
         let rangeEnd = min(currentPage * perPage, totalCount)
         let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: 13),
+            .font: UIFont.nunito(ofSize: 13, weight: .bold),
             .foregroundColor: UIColor(white: 0.63, alpha: 1)
         ]
         let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 13),
+            .font: UIFont.nunito(ofSize: 13),
             .foregroundColor: UIColor(white: 0.63, alpha: 1)
         ]
         let str = NSMutableAttributedString()
@@ -515,7 +584,7 @@ private final class PaginationBarView: UIView {
             if item.isEllipsis {
                 let label = UILabel()
                 label.text = "..."
-                label.font = .systemFont(ofSize: 13)
+                label.font = .nunito(ofSize: 13)
                 label.textColor = UIColor(white: 0.63, alpha: 1)
                 label.textAlignment = .center
                 label.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -524,7 +593,7 @@ private final class PaginationBarView: UIView {
             } else {
                 let btn = UIButton(type: .system)
                 btn.setTitle("\(item.page)", for: .normal)
-                btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+                btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
                 btn.tag = item.page
                 btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
                 btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
@@ -560,7 +629,7 @@ private final class PaginationBarView: UIView {
             // Add a compact info label in the controls stack
             if controlsStack.arrangedSubviews.count == 3 {
                 let compactInfo = UILabel()
-                compactInfo.font = .systemFont(ofSize: 13)
+                compactInfo.font = .nunito(ofSize: 13)
                 compactInfo.textColor = UIColor(white: 0.63, alpha: 1)
                 compactInfo.textAlignment = .center
                 compactInfo.attributedText = str
@@ -598,11 +667,10 @@ private final class PaginationBarView: UIView {
 
 // MARK: - HorizontalCardsCell
 // A UITableViewCell containing a horizontal UICollectionView.
-// tag 100 → Relations, tag 200 → Characters, tag 300 → Staff.
+// tag 100 → Relations, tag 300 → Staff.
 
 private final class HorizontalCardsCell: UITableViewCell {
     static let relationsReuseID  = "HorizontalRelationsCell"
-    static let charactersReuseID = "HorizontalCharactersCell"
     static let staffReuseID      = "HorizontalStaffCell"
 
     let collectionView: UICollectionView
@@ -648,7 +716,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -656,7 +724,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let typeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.font = .nunito(ofSize: 8, weight: .medium)
         l.textColor = .white
         l.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.85)
         l.layer.cornerRadius = 3
@@ -726,94 +794,6 @@ private final class RelationCardCell: UICollectionViewCell {
     }
 }
 
-// MARK: - CharacterCardCell
-
-private final class CharacterCardCell: UICollectionViewCell {
-    static let reuseID = "CharacterCardCell"
-
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
-        iv.layer.cornerRadius = 6
-        return iv
-    }()
-
-    private let nameLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
-        l.textColor = .label
-        l.numberOfLines = 2
-        return l
-    }()
-
-    private let roleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 1
-        return l
-    }()
-
-    private var imageTask: URLSessionDataTask?
-    private var currentURL: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        let stack = UIStackView(arrangedSubviews: [nameLabel, roleLabel])
-        stack.axis = .vertical
-        stack.spacing = 2
-        [imageView, stack].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
-
-            stack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(with character: AnimeCharacter) {
-        nameLabel.text = character.name
-        roleLabel.text = character.role.capitalized
-        loadImage(from: character.imageURL)
-    }
-
-    private func loadImage(from urlString: String?) {
-        imageTask?.cancel(); imageTask = nil
-        currentURL = urlString
-        imageView.image = nil
-        guard let urlString = urlString, let url = URL(string: urlString) else { return }
-        let captured = urlString
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                if self?.currentURL == captured {
-                    UIView.transition(with: self?.imageView ?? UIImageView(),
-                                      duration: 0.2, options: .transitionCrossDissolve,
-                                      animations: { self?.imageView.image = img })
-                }
-            }
-        }
-        imageTask?.resume()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageTask?.cancel(); imageTask = nil; currentURL = nil
-        imageView.image = nil; nameLabel.text = nil; roleLabel.text = nil
-    }
-}
-
 // MARK: - StaffCardCell (anime/[id]/staff.svelte)
 
 private final class StaffCardCell: UICollectionViewCell {
@@ -830,7 +810,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -838,7 +818,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let roleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8)
+        l.font = .nunito(ofSize: 8)
         l.textColor = .secondaryLabel
         l.numberOfLines = 1
         return l
@@ -932,7 +912,7 @@ private final class ScoreBarChartView: UIView {
             bar.translatesAutoresizingMaskIntoConstraints = false
             let lbl = UILabel()
             lbl.text = "\(point.score)"
-            lbl.font = .systemFont(ofSize: 7)
+            lbl.font = .nunito(ofSize: 7)
             lbl.textColor = .tertiaryLabel
             lbl.textAlignment = .center
             lbl.translatesAutoresizingMaskIntoConstraints = false
@@ -969,7 +949,7 @@ private final class StatsCell: UITableViewCell {
     private func makeTitle(_ text: String) -> UILabel {
         let l = UILabel()
         l.text = text
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.font = .nunito(ofSize: 14, weight: .semibold)
         l.textColor = .label
         return l
     }
@@ -1006,7 +986,7 @@ private final class StatsCell: UITableViewCell {
             let name = status.status.replacingOccurrences(of: "_", with: " ").capitalized
             let nameLabel = UILabel()
             nameLabel.text = name
-            nameLabel.font = .systemFont(ofSize: 11)
+            nameLabel.font = .nunito(ofSize: 11)
             nameLabel.textColor = .label
             nameLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
             let progress = UIProgressView(progressViewStyle: .default)
@@ -1015,7 +995,7 @@ private final class StatsCell: UITableViewCell {
             progress.trackTintColor = .systemGray5
             let countLabel = UILabel()
             countLabel.text = "\(status.amount)"
-            countLabel.font = .systemFont(ofSize: 11)
+            countLabel.font = .nunito(ofSize: 11)
             countLabel.textColor = .secondaryLabel
             countLabel.textAlignment = .right
             countLabel.widthAnchor.constraint(equalToConstant: 52).isActive = true
@@ -1055,6 +1035,75 @@ private final class StatsCell: UITableViewCell {
 //   --muted-foreground: hsl(240 5% 64.9%) = #a1a1aa
 //   --secondary:        hsl(240 3.7% 15.9%) = #27272a
 
+// MARK: - ChipWrapView
+// Used on iPad (regular horizontal size class) to replicate the web's
+// `md:flex-wrap md:justify-start` genre layout — chips wrap to new rows
+// when they exceed the container width.  On iPhone the existing horizontal
+// scroll view is used instead.
+private final class ChipWrapView: UIView {
+    let interItemSpacing: CGFloat = 8
+    let lineSpacing: CGFloat = 8
+    let chipHeight: CGFloat = 28
+
+    private var chipWidths: [CGFloat] = []
+
+    func setChips(_ newChips: [UIView]) {
+        subviews.forEach { $0.removeFromSuperview() }
+        chipWidths = newChips.map { widthForChip($0) }
+        newChips.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+            addSubview($0)
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    private func widthForChip(_ chip: UIView) -> CGFloat {
+        if let btn = chip as? UIButton {
+            let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
+            let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
+            let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            return textW + 24  // px-3 = 12pt each side
+        }
+        return chip.intrinsicContentSize.width
+    }
+
+    private func computeHeight(for width: CGFloat) -> CGFloat {
+        guard !chipWidths.isEmpty, width > 0 else { return chipWidths.isEmpty ? 0 : chipHeight }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for w in chipWidths {
+            if x > 0 && x + w > width { x = 0; y += chipHeight + lineSpacing }
+            x += w + interItemSpacing
+        }
+        return y + chipHeight
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let h = bounds.width > 0
+            ? computeHeight(for: bounds.width)
+            : (chipWidths.isEmpty ? 0 : chipHeight)
+        return CGSize(width: UIView.noIntrinsicMetric, height: max(h, chipWidths.isEmpty ? 0 : chipHeight))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let chips = subviews
+        guard !chips.isEmpty, bounds.width > 0 else { return }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for (i, chip) in chips.enumerated() {
+            let w = i < chipWidths.count ? chipWidths[i] : widthForChip(chip)
+            if x > 0 && x + w > bounds.width { x = 0; y += chipHeight + lineSpacing }
+            chip.frame = CGRect(x: x, y: y, width: w, height: chipHeight)
+            x += w + interItemSpacing
+        }
+        let newH = y + chipHeight
+        if abs(newH - intrinsicContentSize.height) > 0.5 {
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
+        }
+    }
+}
+
 private final class AnimeInfoHeaderView: UIView {
     // Callbacks
     var onShare: (() -> Void)?
@@ -1063,6 +1112,10 @@ private final class AnimeInfoHeaderView: UIView {
     var onEntryEditor: (() -> Void)?
     var onFavorite: (() -> Void)?
     var onBookmark: (() -> Void)?
+
+    /// Accent colour from the current anime's coverImage — used to tint active fav/bookmark icons.
+    /// Mirrors Hayase's `select:!text-custom` on FavoriteButton / BookmarkButton.
+    private var storedAccentColor: UIColor = .white
 
     private var anilistId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
@@ -1112,7 +1165,7 @@ private final class AnimeInfoHeaderView: UIView {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
-        iv.layer.cornerRadius = 6   // rounded = 0.375rem ≈ 6pt
+        iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
         return iv
     }()
 
@@ -1120,7 +1173,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h2: font-light text-muted-foreground text-base (mobile) line-clamp-1 — ABOVE h1
     private let romajiLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .light)  // text-base = 16px on mobile
+        l.font = .nunito(ofSize: 16, weight: .light)  // text-base = 16px on mobile
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -1132,7 +1185,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h1: font-black text-3xl text-white line-clamp-2
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 30, weight: .black)
+        l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -1159,7 +1212,7 @@ private final class AnimeInfoHeaderView: UIView {
     // Description: font-light text-sm text-muted-foreground line-clamp-4
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .light)
+        l.font = .nunito(ofSize: 14, weight: .light)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 4
         return l
@@ -1173,11 +1226,14 @@ private final class AnimeInfoHeaderView: UIView {
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setTitle("▶  Watch Now", for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setTitle("  Watch Now", for: .normal)
         b.tintColor = .black
+        b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
-        b.layer.cornerRadius = 8
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
         return b
@@ -1187,10 +1243,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Matches Hayase EntryEditor.svelte trigger: rounded-l-none bg-custom-400 select:!bg-custom-700
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "pencil.line"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "pencil.line")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1) // lighter variant of accent (custom-400)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // rounded-l-none
         b.layer.masksToBounds = true
         return b
@@ -1200,10 +1257,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <FavoriteButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "heart")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
@@ -1212,32 +1270,47 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <BookmarkButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
 
     // Share button: variant='secondary' size='icon', hidden min-[380px]:flex
+    // TransitionButton: shows Share2 (Lucide) normally, flashes a checkmark briefly after tap.
+    // arrowshape.turn.up.right is the closest SF Symbol to Lucide's Share2 fork icon.
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
 
     // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "film"), for: .normal)
-        b.tintColor = .white
+        let b = UIButton(type: .custom)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        // Use UIButton(type: .custom) + alwaysOriginal to avoid tintColor rendering issues
+        // that affect .system buttons which start as isHidden = true.
+        let iconName = "clapperboard.fill"  // available iOS 16+; "film" used as safe fallback
+        let symName: String
+        if #available(iOS 16.0, *) {
+            symName = iconName
+        } else {
+            symName = "film"
+        }
+        let img = UIImage(systemName: symName, withConfiguration: iconCfg)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        b.setImage(img, for: .normal)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         b.isHidden = true
         return b
@@ -1258,8 +1331,13 @@ private final class AnimeInfoHeaderView: UIView {
         return sv
     }()
 
-    // Genres container — holds genresScrollView centered; hidden when no genres
+    // Genres container — holds either genresScrollView (compact) or chipWrapView (regular)
     private let genresContainer = UIView()
+    // ChipWrapView: used on iPad (regular horizontal size class) — wraps chips across rows
+    private let chipWrapView = ChipWrapView()
+    // Constraints toggled by applyGenresLayout() — created once in setup()
+    private var genresContainerHeightConstraint: NSLayoutConstraint?
+    private var chipWrapBottomConstraint: NSLayoutConstraint?
 
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
@@ -1337,6 +1415,10 @@ private final class AnimeInfoHeaderView: UIView {
         playCombo.axis = .horizontal
         playCombo.spacing = 0  // flush — play rounded-r-none, editor rounded-l-none
         playCombo.alignment = .fill
+        // Low hugging so playCombo fills available space; low compression so it can shrink
+        // when the trailer button is also visible on narrow iPhones (SE = 375pt).
+        playCombo.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        playCombo.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         // Hayase mobile: gap-2 (8pt), items-center, justify-center, overflow-x-clip, [&>*]:flex-shrink-0
         let actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton])
@@ -1345,14 +1427,25 @@ private final class AnimeInfoHeaderView: UIView {
         actionsRow.alignment = .fill
 
         // Genres: gap-2, items-center, justify-center (centered on mobile)
-        // Wrap genres scroll in centered container
+        // Compact (iPhone): centered horizontal scroll — genresScrollView
+        // Regular (iPad):   left-aligned wrapping   — chipWrapView
         genresContainer.addSubview(genresScrollView)
+        chipWrapView.translatesAutoresizingMaskIntoConstraints = false
+        genresContainer.addSubview(chipWrapView)
         NSLayoutConstraint.activate([
+            // Scroll view (compact): centered, clips to container width
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
-            genresScrollView.widthAnchor.constraint(lessThanOrEqualTo: genresContainer.widthAnchor),
+            genresScrollView.widthAnchor.constraint(equalTo: genresContainer.widthAnchor),
+            // Wrap view (regular): left-aligned, full width
+            chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
+            chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
+            chipWrapView.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
         ])
+        // Create the two switchable constraints once; applyGenresLayout toggles isActive
+        genresContainerHeightConstraint = genresContainer.heightAnchor.constraint(equalToConstant: 28)
+        chipWrapBottomConstraint = chipWrapView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor)
 
         // Main content: [coverAndTextColumn, actionsRow, genresContainer]
         // Hayase: gap-6 (24pt) between major sections, px-3 (12pt) horizontal padding
@@ -1393,11 +1486,10 @@ private final class AnimeInfoHeaderView: UIView {
             shareButton.widthAnchor.constraint(equalToConstant: 36),
             trailerButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Play combo: w-[180px] on ≥380px screens (Hayase: min-[380px]:w-[180px])
-            playCombo.widthAnchor.constraint(equalToConstant: 180),
-
-            // Genres scrollview height = 28pt (h-7)
-            genresContainer.heightAnchor.constraint(equalToConstant: 28),
+            // Play combo: max-w-[180px], flex-shrinks to fit on narrow iPhones (SE = 375pt).
+            // Mirrors web `w-full min-[380px]:w-[180px] !shrink` — button fills available space
+            // up to 180pt, compressing below 180pt when the trailer button is also visible.
+            playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
 
             // Hayase: text column has w-full so it fills the parent width even
             // though the parent (coverAndTextColumn) uses items-center (.center).
@@ -1416,6 +1508,27 @@ private final class AnimeInfoHeaderView: UIView {
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        // Apply initial genres layout based on current trait collection
+        applyGenresLayout()
+    }
+
+    // Switch between compact (scroll) and regular (wrap) genres layout.
+    // compact:  genresScrollView centered, genresContainer height fixed to 28pt (h-7)
+    // regular:  chipWrapView left-aligned, genresContainer self-sizes via intrinsicContentSize
+    private func applyGenresLayout() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        genresScrollView.isHidden = isRegular
+        chipWrapView.isHidden = !isRegular
+        genresContainerHeightConstraint?.isActive = !isRegular
+        chipWrapBottomConstraint?.isActive = isRegular
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            applyGenresLayout()
+        }
     }
 
     override func layoutSubviews() {
@@ -1459,25 +1572,63 @@ private final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Actions
 
-    @objc private func shareTapped()       { onShare?() }
-    @objc private func trailerTapped()     { onPlayTrailer?() }
-    @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { onEntryEditor?() }
-    @objc private func favoriteTapped()    { onFavorite?() }
-    @objc private func bookmarkTapped()    { onBookmark?() }
-
-    /// Updates favorite/bookmark button icons to show filled/unfilled state.
-    /// Matches interface: FavoriteButton fills heart when fav(media) is true,
-    /// BookmarkButton fills bookmark when list(media) is truthy.
-    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
-        let heartName = isFavorite ? "heart.fill" : "heart"
-        favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
-
-        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
-        bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+    /// Spring-bounce animation on icon buttons — matches Hayase's `animated-icon` press feedback.
+    private func animateTap(_ button: UIButton) {
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
+            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
+                           options: [], animations: {
+                button.transform = .identity
+            })
+        }
     }
 
-    // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
+    @objc private func shareTapped() {
+        animateTap(shareButton)
+        // TransitionButton: flash checkmark briefly after tap, then restore share icon.
+        // Matches Hayase's TransitionButton (duration=300ms + 500ms = ~800ms total).
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        shareButton.setImage(UIImage(systemName: "checkmark")?.withConfiguration(cfg), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.shareButton.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(cfg), for: .normal)
+        }
+        onShare?()
+    }
+    @objc private func trailerTapped()     { animateTap(trailerButton);     onPlayTrailer?() }
+    @objc private func playTapped()        { onWatch?() }
+    @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
+    @objc private func favoriteTapped()    { animateTap(favoriteButton);    onFavorite?() }
+    @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
+
+    /// Updates favorite/bookmark button icons to show filled/unfilled state.
+    /// Mirrors interface: FavoriteButton fills heart + turns accent when fav(media) is true,
+    /// BookmarkButton fills bookmark + turns accent when list(media) is truthy (`select:!text-custom`).
+    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let heartName = isFavorite ? "heart.fill" : "heart"
+        favoriteButton.setImage(UIImage(systemName: heartName)?.withConfiguration(cfg), for: .normal)
+        favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
+
+        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
+        bookmarkButton.setImage(UIImage(systemName: bookmarkName)?.withConfiguration(cfg), for: .normal)
+        bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
+    }
+
+    /// Updates play button label based on AniList watch status.
+    /// Mirrors PlayButton.svelte: "Continue" (CURRENT/REPEATING/PAUSED), "Rewatch" (COMPLETED), "Watch Now" (else).
+    func updatePlayButtonTitle(listStatus: String?) {
+        let text: String
+        switch listStatus {
+        case "CURRENT", "REPEATING", "PAUSED": text = "  Continue"
+        case "COMPLETED":                       text = "  Rewatch"
+        default:                                text = "  Watch Now"
+        }
+        playButton.setTitle(text, for: .normal)
+    }
+
+
 
     /// Applies pull-down zoom effect on the banner, identical to the homepage banner.
     func applyOverscrollZoom(_ overscroll: CGFloat) {
@@ -1549,10 +1700,22 @@ private final class AnimeInfoHeaderView: UIView {
         // bg-custom text-contrast (luminance-based black/white text)
         let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
+        storedAccentColor = accent
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
-        // EntryEditor: bg-custom-400 (lighter variant of accent)
-        entryEditorButton.backgroundColor = accent.withAlphaComponent(0.7)
+        playButton.setTitleColor(contrast, for: .normal)
+        // EntryEditor: bg-custom-400 = hsl(from var(--custom) h s 60%)
+        // Keep the accent's hue + saturation, but force lightness to 60%.
+        // Convert HSB → HSL, set L=0.6, convert HSL → HSB for UIColor.
+        var hue: CGFloat = 0, satHSB: CGFloat = 0, briHSB: CGFloat = 0
+        accent.getHue(&hue, saturation: &satHSB, brightness: &briHSB, alpha: nil)
+        let l = (2.0 - satHSB) * briHSB / 2.0
+        let s = l == 0 || l == 1 ? 0 : satHSB * briHSB / (l < 0.5 ? 2.0 * l : 2.0 - 2.0 * l)
+        let targetL: CGFloat = 0.6
+        let bNew = targetL + s * min(targetL, 1.0 - targetL)
+        let sNew: CGFloat = bNew > 0 ? 2.0 * (bNew - targetL) / bNew : 0
+        let lighter = UIColor(hue: hue, saturation: sNew, brightness: bNew, alpha: 1)
+        entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
 
         rebuildBadges(score:    item.score,
@@ -1564,11 +1727,7 @@ private final class AnimeInfoHeaderView: UIView {
                       accent:   accent,
                       contrastColor: contrast)
 
-        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for genre in item.genres.prefix(8) {
-            genresStack.addArrangedSubview(makeGenreChip(text: genre))
-        }
-        genresContainer.isHidden = item.genres.isEmpty
+        setGenres(item.genres.prefix(8).map { String($0) })
 
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
@@ -1656,7 +1815,7 @@ private final class AnimeInfoHeaderView: UIView {
                             contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
         let l = UILabel()
         l.text = "  \(text)  "
-        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: 12, weight: .bold)
         l.textColor = contrast
         l.backgroundColor = accent
         l.layer.cornerRadius = 4   // rounded
@@ -1665,15 +1824,44 @@ private final class AnimeInfoHeaderView: UIView {
         return l
     }
 
+    // Populate both genresStack (compact scroll) and chipWrapView (regular wrap).
+    private func setGenres(_ genres: [String]) {
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // chipWrapView uses frame-based layout — give it plain UIButtons without AL constraints
+        let wrapChips: [UIView] = genres.map { genre in
+            let btn = UIButton(type: .system)
+            btn.setTitle(genre, for: .normal)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            btn.setTitleColor(.white, for: .normal)
+            btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+            btn.layer.cornerRadius = 6
+            btn.layer.masksToBounds = true
+            return btn
+        }
+        for genre in genres {
+            genresStack.addArrangedSubview(makeGenreChip(text: genre))
+        }
+        chipWrapView.setChips(wrapChips)
+        genresContainer.isHidden = genres.isEmpty
+    }
+
+    /// Called by the VC when AniList data is fetched for a CoreData-opened anime.
+    /// Shows the trailer button and genre chips that weren't available from CoreData.
+    func updateGenresAndTrailer(genres: [String], trailerYouTubeID: String?) {
+        setGenres(genres)
+        trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
-    /// bg-secondary (#27272a), text-secondary-foreground (white)
+    /// bg-secondary (#27272a), text-secondary-foreground (white), px-4 (16pt) — matches interface
     private func makeGenreChip(text: String) -> UIView {
         let btn = UIButton(type: .system)
         btn.setTitle(text, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         btn.setTitleColor(.white, for: .normal)
         btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
-        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6  // rounded-md
         btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -1761,7 +1949,7 @@ private final class HTabBar: UIView {
         for (i, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
             btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
             btn.layer.cornerRadius = 6   // rounded-md
             btn.clipsToBounds = true
@@ -1802,7 +1990,7 @@ private final class HTabBar: UIView {
                 btn.setTitleColor(contrastColor, for: .normal)
             } else {
                 btn.backgroundColor = .clear
-                btn.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal) // text-muted-foreground
+                btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
             }
         }
     }
@@ -1821,8 +2009,9 @@ class AnimeDetailViewController: UIViewController {
     private var isOnList = false
     private var episodes: [AniZipEpisode] = []
     private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
+    private var currentListStatus: String?             // mediaListEntry.status from AniList
+    private var currentAnimeAccent: UIColor = .white  // cached accent for episode progress bars
     private var relations: [AnimeRelation] = []
-    private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
     private var scoreDistribution: [AnimeScorePoint] = []
     private var statusDistribution: [AnimeStatusCount] = []
@@ -1981,6 +2170,7 @@ class AnimeDetailViewController: UIViewController {
             // Apply coverImage.color as the active tab tint color.
             if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
                 tabBar.accentColor = accent
+                currentAnimeAccent = accent
             }
         } else {
             headerView.configure(with: animeEntity)
@@ -2073,9 +2263,11 @@ class AnimeDetailViewController: UIViewController {
         }
         editorVC.onDelete = { [weak self] in
             self?.anilistProgress = 0
+            self?.currentListStatus = nil
             self?.isOnList = false
             self?.tableView.reloadData()
             self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
+            self?.headerView?.updatePlayButtonTitle(listStatus: nil)
         }
 
         editorVC.modalPresentationStyle = .pageSheet
@@ -2171,7 +2363,7 @@ class AnimeDetailViewController: UIViewController {
                 // Auto-navigate to the page containing the user's current episode (matches web)
                 // Web: Math.floor(progress / perPage) + 1
                 if newProgress > 0 {
-                    let desiredPage = ((newProgress - 1) / self.episodesPerPage) + 1
+                    let desiredPage = newProgress / self.episodesPerPage + 1
                     self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
                 }
                 self.tableView.reloadData()
@@ -2192,8 +2384,10 @@ class AnimeDetailViewController: UIViewController {
         AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
             DispatchQueue.main.async {
                 self?.isOnList = entry != nil
+                self?.currentListStatus = entry?.status
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
+                self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
             }
         }
     }
@@ -2318,7 +2512,7 @@ class AnimeDetailViewController: UIViewController {
             completion(nil)
             return
         }
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations in
             // fetchDetailForItem calls back on main queue
             self?.animeItem?.relations = relations
             self?.relations = relations
@@ -2463,7 +2657,14 @@ class AnimeDetailViewController: UIViewController {
             let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let imageURL = info["image"] as? String
-            let airDate = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDateRaw = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDate: Date? = airDateRaw.flatMap { raw in
+                if let d = ISO8601DateFormatter().date(from: raw) { return d }
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                fmt.locale = Locale(identifier: "en_US_POSIX")
+                return fmt.date(from: raw)
+            }
             let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
             let ratingRaw = info["rating"]
             let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
@@ -2552,11 +2753,19 @@ class AnimeDetailViewController: UIViewController {
         else { id = animeItem?.id }
         guard let anilistId = id else { return }
 
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations in
             guard let self = self else { return }
             self.relations = relations
             if !relations.isEmpty {
                 self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            }
+        }
+
+        // When opened from CoreData, animeItem is nil so trailer + genres were hidden.
+        // Fetch them from AniList now and update the header.
+        if animeItem == nil {
+            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres in
+                self?.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
             }
         }
     }
@@ -2738,7 +2947,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
             let ep = paginatedEpisodes[indexPath.row]
-            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress)
+            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
+                           accentColor: currentAnimeAccent, isListCompleted: currentListStatus == "COMPLETED")
             return cell
 
         case .episodePagination:
@@ -2856,7 +3066,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch collectionView.tag {
         case 100: return relations.count
-        case 200: return characters.count
         case 300: return staff.count
         default:  return 0
         }
@@ -2870,12 +3079,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
                 withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
             else { return UICollectionViewCell() }
             cell.configure(with: relations[indexPath.item])
-            return cell
-        case 200:
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: CharacterCardCell.reuseID, for: indexPath) as? CharacterCardCell
-            else { return UICollectionViewCell() }
-            cell.configure(with: characters[indexPath.item])
             return cell
         case 300:
             guard let cell = collectionView.dequeueReusableCell(
@@ -2986,7 +3189,7 @@ extension AnimeDetailViewController {
         let label = UILabel()
         label.text = loading ? "Loading…" : text
         label.textColor = UIColor(white: loading ? 0.7 : 0.5, alpha: 1)
-        label.font = .systemFont(ofSize: 14)
+        label.font = .nunito(ofSize: 14)
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(label)
@@ -3019,7 +3222,7 @@ extension AnimeDetailViewController {
         // Title
         let titleLabel = UILabel()
         titleLabel.text = thread.title
-        titleLabel.font = .systemFont(ofSize: 12.8, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 12.8, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -3027,7 +3230,7 @@ extension AnimeDetailViewController {
         // Stats row: ♥ likes  👁 views  💬 replies
         let statsLabel = UILabel()
         statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
-        statsLabel.font = .systemFont(ofSize: 9.6)
+        statsLabel.font = .nunito(ofSize: 9.6)
         statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -3036,7 +3239,7 @@ extension AnimeDetailViewController {
         var footerParts = [thread.sinceString]
         if let name = thread.userName { footerParts.append("by \(name)") }
         footerLabel.text = footerParts.joined(separator: " · ")
-        footerLabel.font = .systemFont(ofSize: 9.6)
+        footerLabel.font = .nunito(ofSize: 9.6)
         footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -3050,7 +3253,7 @@ extension AnimeDetailViewController {
         for cat in thread.categories.prefix(3) {
             let badge = ThreadBadgeLabel()
             badge.text = cat
-            badge.font = .systemFont(ofSize: 9.6, weight: .bold)
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
             badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             badge.backgroundColor = accentColor
             badge.layer.cornerRadius = 4
@@ -3123,7 +3326,7 @@ extension AnimeDetailViewController {
 
         let typeLabel = UILabel()
         typeLabel.text = theme.type
-        typeLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        typeLabel.font = .nunito(ofSize: 11, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
@@ -3131,14 +3334,14 @@ extension AnimeDetailViewController {
         let songLabel = UILabel()
         let songTitle = NSMutableAttributedString(
             string: theme.songTitle,
-            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
+            attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
         if !theme.artists.isEmpty {
             songTitle.append(NSAttributedString(
                 string: " by ",
-                attributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+                attributes: [.font: UIFont.nunito(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
             songTitle.append(NSAttributedString(
                 string: theme.artists,
-                attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
+                attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
         }
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
@@ -3166,24 +3369,24 @@ extension AnimeDetailViewController {
 
             let verLabel = UILabel()
             verLabel.text = "v\(entry.version)"
-            verLabel.font = .systemFont(ofSize: 11)
+            verLabel.font = .nunito(ofSize: 11)
             verLabel.textColor = UIColor(white: 0.5, alpha: 1)
             verLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
             epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
-            epLabel.font = .systemFont(ofSize: 11)
+            epLabel.font = .nunito(ofSize: 11)
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            playBtn.setTitle("▶", for: .normal)
-            playBtn.titleLabel?.font = .systemFont(ofSize: 11, weight: .bold)
-            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+            playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
+            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
-            playBtn.layer.cornerRadius = 12
+            playBtn.layer.cornerRadius = 10
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
@@ -3204,8 +3407,8 @@ extension AnimeDetailViewController {
                 playBtn.leadingAnchor.constraint(greaterThanOrEqualTo: epLabel.trailingAnchor, constant: 8),
                 playBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor),
                 playBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-                playBtn.widthAnchor.constraint(equalToConstant: 24),
-                playBtn.heightAnchor.constraint(equalToConstant: 24),
+                playBtn.widthAnchor.constraint(equalToConstant: 20),
+                playBtn.heightAnchor.constraint(equalToConstant: 20),
             ])
             stack.addArrangedSubview(row)
         }

@@ -37,7 +37,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let pageTitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 22, weight: .bold)
+        l.font = .nunito(ofSize: 22, weight: .bold)
         l.textColor = .label
         l.text = "Torrent Client"
         return l
@@ -45,7 +45,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let pageSubtitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .regular)
+        l.font = .nunito(ofSize: 14, weight: .regular)
         l.textColor = .secondaryLabel
         l.text = "Monitor your torrents, and configure settings for your torrent client."
         l.numberOfLines = 0
@@ -88,7 +88,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = .label
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail
@@ -97,7 +97,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let statusBadge: TorrentPillBadge = {
         let l = TorrentPillBadge(horizontalPadding: 10, verticalPadding: 4)
-        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: 12, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
         return l
@@ -116,7 +116,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let progressTitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = .label
         l.text = "Progress"
         return l
@@ -124,7 +124,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private let bigPercentLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = .label
         return l
     }()
@@ -526,7 +526,7 @@ final class TorrentDetailViewController: UIViewController {
 
         let dlIcon = makeIcon("arrow.down.to.line", tint: .label, size: 20)
         let progressTitle = UILabel()
-        progressTitle.font = .systemFont(ofSize: 24, weight: .bold)
+        progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
         progressTitle.textColor = .label
 
@@ -608,7 +608,7 @@ final class TorrentDetailViewController: UIViewController {
         let iconView = makeIcon("network", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Protocol Status"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.font = .nunito(ofSize: 24, weight: .bold)
         title.textColor = .label
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
@@ -646,19 +646,19 @@ final class TorrentDetailViewController: UIViewController {
 
         let headerLabel = UILabel()
         headerLabel.text = header
-        headerLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        headerLabel.font = .nunito(ofSize: 14, weight: .medium)
         headerLabel.textColor = .label
         col.addArrangedSubview(headerLabel)
 
         for (name, desc, dot) in rows {
             let nameLabel = UILabel()
             nameLabel.text = name
-            nameLabel.font = .systemFont(ofSize: 13, weight: .regular)
+            nameLabel.font = .nunito(ofSize: 13, weight: .regular)
             nameLabel.textColor = .label
 
             let descLabel = UILabel()
             descLabel.text = desc
-            descLabel.font = .systemFont(ofSize: 10, weight: .regular)
+            descLabel.font = .nunito(ofSize: 10, weight: .regular)
             descLabel.textColor = .secondaryLabel
             descLabel.numberOfLines = 2
 
@@ -696,7 +696,7 @@ final class TorrentDetailViewController: UIViewController {
         let iconView = makeIcon("person.2.fill", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Peers & Connections"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.font = .nunito(ofSize: 24, weight: .bold)
         title.textColor = .label
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
@@ -734,7 +734,7 @@ final class TorrentDetailViewController: UIViewController {
         let iconView = makeIcon("books.vertical.fill", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Library"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.font = .nunito(ofSize: 24, weight: .bold)
         title.textColor = .label
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
@@ -744,7 +744,7 @@ final class TorrentDetailViewController: UIViewController {
 
         let subtitle = UILabel()
         subtitle.text = "Downloaded torrents and their content."
-        subtitle.font = .systemFont(ofSize: 14, weight: .regular)
+        subtitle.font = .nunito(ofSize: 14, weight: .regular)
         subtitle.textColor = .secondaryLabel
         stack.addArrangedSubview(subtitle)
 
@@ -802,7 +802,7 @@ final class TorrentDetailViewController: UIViewController {
         let iconView = makeIcon(icon, tint: .label, size: 20)
         let titleLabel = UILabel()
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 24, weight: .bold)
         titleLabel.textColor = .label
 
         let titleRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -839,7 +839,7 @@ final class TorrentDetailViewController: UIViewController {
         let iconView = makeIcon(item.icon, tint: item.color, size: 14)
         let titleLabel = UILabel()
         titleLabel.text = item.title
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.font = .nunito(ofSize: 13, weight: .medium)
         titleLabel.textColor = .secondaryLabel
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -847,7 +847,7 @@ final class TorrentDetailViewController: UIViewController {
         topRow.spacing = 4
         topRow.alignment = .center
 
-        item.label.font = .systemFont(ofSize: 24, weight: .bold)
+        item.label.font = .nunito(ofSize: 24, weight: .bold)
         item.label.adjustsFontSizeToFitWidth = true
         item.label.minimumScaleFactor = 0.5
 
@@ -872,7 +872,7 @@ final class TorrentDetailViewController: UIViewController {
 
         let titleLabel = UILabel()
         titleLabel.text = item.title
-        titleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        titleLabel.font = .nunito(ofSize: 12, weight: .regular)
         titleLabel.textColor = .secondaryLabel
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -880,7 +880,7 @@ final class TorrentDetailViewController: UIViewController {
         topRow.spacing = 4
         topRow.alignment = .center
 
-        item.label.font = .systemFont(ofSize: 14, weight: .medium)
+        item.label.font = .nunito(ofSize: 14, weight: .medium)
         item.label.adjustsFontSizeToFitWidth = true
         item.label.minimumScaleFactor = 0.6
 
@@ -894,7 +894,7 @@ final class TorrentDetailViewController: UIViewController {
 
     static func makeValueLabel() -> UILabel {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 18, weight: .bold)
+        l.font = .nunito(ofSize: 18, weight: .bold)
         l.textColor = .label
         return l
     }
@@ -1009,7 +1009,7 @@ final class LibraryEntryCell: UITableViewCell {
 
     private let seriesLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.font = .nunito(ofSize: 14, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 1
         return l
@@ -1017,28 +1017,28 @@ final class LibraryEntryCell: UITableViewCell {
 
     private let episodeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.font = .nunito(ofSize: 12, weight: .regular)
         l.textColor = .secondaryLabel
         return l
     }()
 
     private let filesLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.font = .nunito(ofSize: 12, weight: .regular)
         l.textColor = .secondaryLabel
         return l
     }()
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.font = .nunito(ofSize: 12, weight: .regular)
         l.textColor = .secondaryLabel
         return l
     }()
 
     private let statusBadge: TorrentPillBadge = {
         let l = TorrentPillBadge(horizontalPadding: 6, verticalPadding: 2)
-        l.font = .systemFont(ofSize: 10, weight: .bold)
+        l.font = .nunito(ofSize: 10, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
         return l
@@ -1046,7 +1046,7 @@ final class LibraryEntryCell: UITableViewCell {
 
     private let torrentNameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .regular)
+        l.font = .nunito(ofSize: 11, weight: .regular)
         l.textColor = .tertiaryLabel
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail

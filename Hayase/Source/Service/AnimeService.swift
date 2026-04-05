@@ -15,12 +15,6 @@ struct AnimeRelation {
     let media: AnimeItem
 }
 
-struct AnimeCharacter {
-    let name: String
-    let imageURL: String?
-    let role: String           // "MAIN", "SUPPORTING", "BACKGROUND"
-}
-
 struct AnimeItem {
     let id: Int
     let titleEnglish: String?
@@ -41,7 +35,6 @@ struct AnimeItem {
     var favourites: Int? = nil           // AniList favourites count
     var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
     var relations: [AnimeRelation] = []
-    var characters: [AnimeCharacter] = []
 
     // MARK: - AniList tracking
 
@@ -945,7 +938,7 @@ public class AnimeService: NSObject {
         }
     }
 
-    // MARK: - Detail fetch (relations + characters)
+    // MARK: - Detail fetch (relations)
 
     private let detailQuery = """
     query ($id: Int) {
@@ -963,15 +956,6 @@ public class AnimeService: NSObject {
             }
           }
         }
-        characters(sort: [ROLE, RELEVANCE], page: 1, perPage: 12) {
-          edges {
-            role
-            node {
-              name { full }
-              image { medium }
-            }
-          }
-        }
       }
     }
     """
@@ -983,7 +967,6 @@ public class AnimeService: NSObject {
         }
         struct DetailMedia: Codable {
             let relations: RelationConnection?
-            let characters: CharacterConnection?
         }
         struct RelationConnection: Codable {
             let edges: [RelationEdge]?
@@ -1002,25 +985,12 @@ public class AnimeService: NSObject {
             struct RelTitle: Codable { let english: String?; let romaji: String? }
             struct RelCover: Codable { let large: String?; let color: String? }
         }
-        struct CharacterConnection: Codable {
-            let edges: [CharacterEdge]?
-        }
-        struct CharacterEdge: Codable {
-            let role: String?
-            let node: CharacterNode?
-        }
-        struct CharacterNode: Codable {
-            let name: CharName?
-            let image: CharImage?
-            struct CharName: Codable { let full: String? }
-            struct CharImage: Codable { let medium: String? }
-        }
     }
 
-    /// Fetch relations and characters for an anime by its AniList ID.
+    /// Fetch relations for an anime by its AniList ID.
     /// Calls completion on the main queue.
-    func fetchDetailForItem(id: Int, completion: @escaping ([AnimeRelation], [AnimeCharacter]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion([], []); return }
+    func fetchDetailForItem(id: Int, completion: @escaping ([AnimeRelation]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1032,7 +1002,7 @@ public class AnimeService: NSObject {
             guard let data = data,
                   let resp = try? JSONDecoder().decode(AniListDetailResponse.self, from: data),
                   let media = resp.data?.Media else {
-                DispatchQueue.main.async { completion([], []) }
+                DispatchQueue.main.async { completion([]) }
                 return
             }
 
@@ -1056,15 +1026,7 @@ public class AnimeService: NSObject {
                 return AnimeRelation(relationType: type, media: relItem)
             }
 
-            let characters: [AnimeCharacter] = (media.characters?.edges ?? []).compactMap { edge in
-                guard let node = edge.node, let fullName = node.name?.full else { return nil }
-                return AnimeCharacter(
-                    name: fullName,
-                    imageURL: node.image?.medium,
-                    role: edge.role ?? "SUPPORTING")
-            }
-
-            DispatchQueue.main.async { completion(relations, characters) }
+            DispatchQueue.main.async { completion(relations) }
         }.resume()
     }
 
@@ -1377,6 +1339,36 @@ public class AnimeService: NSObject {
     private static let _fanartQueue = DispatchQueue(label: "com.nyais.fanartcache", attributes: .concurrent)
 
     /// Fetches the TVDB Fanart URL for an AniList media ID from api.ani.zip.
+    /// Fetch trailer YouTube ID and genres for an AniList media entry.
+    /// Used when the detail view is opened from a CoreData entity that doesn't carry this data.
+    /// Calls completion on the main queue.
+    func fetchTrailerAndGenres(id: Int, completion: @escaping (_ trailerYouTubeID: String?, _ genres: [String]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil, []); return }
+        let query = """
+        query($id:Int){Media(id:$id,type:ANIME){genres trailer{id site}}}
+        """
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": ["id": id]])
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let media = ((json["data"] as? [String: Any])?["Media"]) as? [String: Any] else {
+                DispatchQueue.main.async { completion(nil, []) }
+                return
+            }
+            let genres = media["genres"] as? [String] ?? []
+            var trailerID: String? = nil
+            if let trailer = media["trailer"] as? [String: Any],
+               (trailer["site"] as? String)?.lowercased() == "youtube" {
+                trailerID = trailer["id"] as? String
+            }
+            DispatchQueue.main.async { completion(trailerID, genres) }
+        }.resume()
+    }
+
     /// Results are cached in-memory for the lifetime of the app session.
     /// Multiple concurrent callers for the same ID are coalesced — only one network request is made.
     /// Calls completion on the main queue with nil if no Fanart is available.

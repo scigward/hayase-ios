@@ -46,7 +46,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     // Title — font-black, .8rem (12.8pt), white, 2 lines, pt-3 top spacing
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .heavy)
+        l.font = .nunito(ofSize: 12, weight: .heavy)
         l.textColor = .white
         l.numberOfLines = 2
         return l
@@ -55,7 +55,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     // Year label (left side of meta row) — text-neutral-500, xs/medium
     private let yearLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .medium)
+        l.font = .nunito(ofSize: 11, weight: .medium)
         l.textColor = UIColor(white: 0.45, alpha: 1) // neutral-500
         return l
     }()
@@ -63,7 +63,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     // Format label (right side of meta row) — same style as yearLabel
     private let formatLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11, weight: .medium)
+        l.font = .nunito(ofSize: 11, weight: .medium)
         l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()

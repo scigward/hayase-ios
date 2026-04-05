@@ -41,7 +41,7 @@ final class EntryEditorViewController: UIViewController {
     // Title
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 20, weight: .semibold)
+        l.font = .nunito(ofSize: 20, weight: .semibold)
         l.textColor = .white
         l.numberOfLines = 2
         return l
@@ -53,10 +53,10 @@ final class EntryEditorViewController: UIViewController {
         b.setTitle("Watching", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6
         b.contentHorizontalAlignment = .leading
         b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-        b.titleLabel?.font = .systemFont(ofSize: 15)
+        b.titleLabel?.font = .nunito(ofSize: 15)
         return b
     }()
 
@@ -66,10 +66,10 @@ final class EntryEditorViewController: UIViewController {
         b.setTitle("0", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6
         b.contentHorizontalAlignment = .leading
         b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-        b.titleLabel?.font = .systemFont(ofSize: 15)
+        b.titleLabel?.font = .nunito(ofSize: 15)
         return b
     }()
 
@@ -79,8 +79,8 @@ final class EntryEditorViewController: UIViewController {
         tf.keyboardType = .numberPad
         tf.textColor = .white
         tf.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        tf.layer.cornerRadius = 8
-        tf.font = .systemFont(ofSize: 15)
+        tf.layer.cornerRadius = 6
+        tf.font = .nunito(ofSize: 15)
         tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
         tf.leftViewMode = .always
         tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
@@ -93,8 +93,8 @@ final class EntryEditorViewController: UIViewController {
         tf.keyboardType = .numberPad
         tf.textColor = .white
         tf.backgroundColor = UIColor(white: 0.12, alpha: 1)
-        tf.layer.cornerRadius = 8
-        tf.font = .systemFont(ofSize: 15)
+        tf.layer.cornerRadius = 6
+        tf.font = .nunito(ofSize: 15)
         tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
         tf.leftViewMode = .always
         tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
@@ -107,8 +107,8 @@ final class EntryEditorViewController: UIViewController {
         b.setTitle("Save Changes", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(white: 0.20, alpha: 1)
-        b.layer.cornerRadius = 8
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        b.layer.cornerRadius = 6
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .medium)
         return b
     }()
 
@@ -117,8 +117,8 @@ final class EntryEditorViewController: UIViewController {
         b.setTitle("Cancel", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        b.layer.cornerRadius = 6
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .medium)
         return b
     }()
 
@@ -127,8 +127,8 @@ final class EntryEditorViewController: UIViewController {
         b.setTitle("Delete", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(red: 0.80, green: 0.20, blue: 0.20, alpha: 1)
-        b.layer.cornerRadius = 8
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        b.layer.cornerRadius = 6
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .medium)
         return b
     }()
 
@@ -297,7 +297,7 @@ final class EntryEditorViewController: UIViewController {
     private func makeFieldLabel(_ text: String) -> UILabel {
         let l = UILabel()
         l.text = text
-        l.font = .systemFont(ofSize: 14, weight: .bold)
+        l.font = .nunito(ofSize: 14, weight: .bold)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         return l
     }

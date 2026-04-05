@@ -70,6 +70,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     /// Callback fired when the user taps the "Watch Now" / "Continue" play button.
     var onPlayTapped: ((AnimeItem) -> Void)?
+    /// Callback fired when the user taps the favorite (heart) button.
+    var onFavorite: ((AnimeItem) -> Void)?
+    /// Callback fired when the user taps the bookmark button.
+    var onBookmark: ((AnimeItem) -> Void)?
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
@@ -99,7 +103,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg text-center (mobile)
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 28, weight: .black)
+        l.font = .nunito(ofSize: 28, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         l.textAlignment = .center  // Hayase mobile: text-center items-center
@@ -137,7 +141,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Description: text-white/70 text-xs line-clamp-2 text-center text-shadow-lg (centered on mobile)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
         l.numberOfLines = 2
         l.textAlignment = .center  // Hayase mobile: text-center
@@ -156,7 +160,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
         b.clipsToBounds = true
         return b
@@ -244,6 +248,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         // Wire play button tap → callback to parent VC for navigation
         playButton.addTarget(self, action: #selector(playButtonTapped), for: .touchUpInside)
+        favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+        bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
 
         // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
         // Clearlogo replaces title visually — only one is visible at a time.
@@ -327,10 +333,36 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             let textColor = Self.contrastColor(for: customColor)
             self.playButton.tintColor = textColor
             self.playButton.setTitleColor(textColor, for: .normal)
-            // Favorite/Bookmark: white icon in normal state (Hayase ghost variant inherits white text)
-            // On Hayase the select:!text-custom only activates on press — iOS system highlight suffices
+            // Favorite/Bookmark: start with white icon (ghost variant); async fill if already active
             self.favoriteButton.tintColor = .white
             self.bookmarkButton.tintColor = .white
+            let cfg16 = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            self.favoriteButton.setImage(UIImage(systemName: "heart")?.withConfiguration(cfg16), for: .normal)
+            self.bookmarkButton.setImage(UIImage(systemName: "bookmark")?.withConfiguration(cfg16), for: .normal)
+            // Reflect saved state: fill icon + tint to accent if already favourited/bookmarked.
+            // Mirrors Hayase full-banner.svelte FavoriteButton/BookmarkButton fill logic.
+            let itemIDForState = item.id
+            let accentForState = Self.uiColor(fromHex: item.coverColor) ?? .white
+            AniListTracking.shared.checkIsFavourite(mediaID: itemIDForState) { [weak self] isFav in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.currentIndex < self.items.count,
+                          self.items[self.currentIndex].id == itemIDForState else { return }
+                    let name = isFav ? "heart.fill" : "heart"
+                    self.favoriteButton.setImage(UIImage(systemName: name)?.withConfiguration(cfg16), for: .normal)
+                    self.favoriteButton.tintColor = isFav ? accentForState : .white
+                }
+            }
+            AniListTracking.shared.fetchMediaWithEntry(anilistID: itemIDForState) { [weak self] entry, _, _, _, _ in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.currentIndex < self.items.count,
+                          self.items[self.currentIndex].id == itemIDForState else { return }
+                    let name = (entry != nil) ? "bookmark.fill" : "bookmark"
+                    self.bookmarkButton.setImage(UIImage(systemName: name)?.withConfiguration(cfg16), for: .normal)
+                    self.bookmarkButton.tintColor = (entry != nil) ? accentForState : .white
+                }
+            }
             // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
             let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
             if continueIDs.contains(item.id) {
@@ -472,7 +504,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         for text in texts.prefix(4) {
             let l = UILabel()
             l.text = "  \(text)  "
-            l.font = .systemFont(ofSize: 11, weight: .bold)
+            l.font = .nunito(ofSize: 11, weight: .bold)
             // bg-primary/10 in dark = white/10%
             l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
             l.textColor = .white
@@ -546,6 +578,31 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     @objc private func playButtonTapped() {
         guard let item = currentItem else { return }
         onPlayTapped?(item)
+    }
+
+    @objc private func favoriteTapped() {
+        guard let item = currentItem else { return }
+        animateTap(favoriteButton)
+        onFavorite?(item)
+    }
+
+    @objc private func bookmarkTapped() {
+        guard let item = currentItem else { return }
+        animateTap(bookmarkButton)
+        onBookmark?(item)
+    }
+
+    /// Spring-bounce animation on icon buttons — matches Hayase's `animated-icon` press feedback.
+    private func animateTap(_ button: UIButton) {
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
+            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
+                           options: [], animations: {
+                button.transform = .identity
+            })
+        }
     }
 
     private func updateDots() {
@@ -806,7 +863,7 @@ private final class SectionHeaderView: UICollectionReusableView {
     private let titleLabel: UILabel = {
         let l = UILabel()
         // Hayase: font-semibold text-lg leading-none
-        l.font = .systemFont(ofSize: 18, weight: .semibold)
+        l.font = .nunito(ofSize: 18, weight: .semibold)
         l.textColor = UIColor(white: 0.65, alpha: 1) // text-muted-foreground dark
         return l
     }()
@@ -814,7 +871,7 @@ private final class SectionHeaderView: UICollectionReusableView {
     private lazy var viewMoreButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("View More", for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 12) // text-xs
+        b.titleLabel?.font = .nunito(ofSize: 12) // text-xs
         b.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
         b.addTarget(self, action: #selector(viewMoreTapped), for: .touchUpInside)
         return b
@@ -1082,7 +1139,7 @@ class BrowseAnimeViewController: UIViewController {
         emptyLabel = UILabel()
         emptyLabel.text = "No anime found"
         emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 17)
+        emptyLabel.font = .nunito(ofSize: 17)
         emptyLabel.textAlignment = .center
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.isHidden = true
@@ -1346,6 +1403,19 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 guard let self else { return }
                 self.pendingAnimeItem = item
                 self.performSegue(withIdentifier: "showAnimeDetail", sender: nil)
+            }
+            // Wire favorite/bookmark buttons to AniList tracking
+            cell.onFavorite = { item in
+                AniListTracking.shared.toggleFavourite(mediaID: item.id)
+            }
+            cell.onBookmark = { item in
+                AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { entry, _, _, _, _ in
+                    if let listID = entry?.listID {
+                        AniListTracking.shared.deleteEntry(listID: listID)
+                    } else {
+                        AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING")
+                    }
+                }
             }
             return cell
         }

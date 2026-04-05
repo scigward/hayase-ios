@@ -402,7 +402,7 @@ class SettingsViewController: UIViewController {
         // Subtitle: "Manage your app settings, preferences and accounts."
         let subtitle = UILabel()
         subtitle.text = "Manage your app settings, preferences and accounts."
-        subtitle.font = .systemFont(ofSize: 14)
+        subtitle.font = .nunito(ofSize: 14)
         subtitle.textColor = mutedFg
         subtitle.numberOfLines = 0
 
@@ -418,7 +418,7 @@ class SettingsViewController: UIViewController {
         // Version info: matches Hayase sidebar footer
         let versionLabel = UILabel()
         versionLabel.text = "Hayase v\(appVersion())"
-        versionLabel.font = .systemFont(ofSize: 12, weight: .light)
+        versionLabel.font = .nunito(ofSize: 12, weight: .light)
         versionLabel.textColor = mutedFg
 
         // Stack: subtitle → separator → tabGrid → version
@@ -492,7 +492,7 @@ class SettingsViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setTitle(tab.title, for: .normal)
         btn.contentHorizontalAlignment = .leading
-        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
         btn.layer.cornerRadius = 6   // rounded-md
         btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         btn.tag = tab.rawValue
@@ -691,7 +691,7 @@ extension SettingsViewController: UITableViewDataSource {
         container.backgroundColor = .clear
         let label = UILabel()
         label.text = visibleSections[section].header
-        label.font = .systemFont(ofSize: 20, weight: .bold)
+        label.font = .nunito(ofSize: 20, weight: .bold)
         label.textColor = .white
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
@@ -855,14 +855,14 @@ final class HayaseSettingToggleCell: UITableViewCell {
     }()
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .bold)    // font-bold
+        l.font = .nunito(ofSize: 15, weight: .bold)    // font-bold
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)                   // text-xs = 12px
+        l.font = .nunito(ofSize: 12)                   // text-xs = 12px
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // text-muted-foreground
         l.numberOfLines = 0
         return l
@@ -954,21 +954,21 @@ final class HayaseSettingValueCell: UITableViewCell {
     }()
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .bold)
+        l.font = .nunito(ofSize: 15, weight: .bold)
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.numberOfLines = 0
         return l
     }()
     private let valueLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.setContentHuggingPriority(.required, for: .horizontal)
         l.setContentCompressionResistancePriority(.required, for: .horizontal)

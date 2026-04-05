@@ -75,7 +75,7 @@ final class ExtensionsViewController: UIViewController {
         segmentedControl.selectedSegmentTintColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1) // primary #fafafa
         segmentedControl.backgroundColor = UIColor(red: 39/255, green: 39/255, blue: 42/255, alpha: 1)            // muted #27272a
         segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor(red: 161/255, green: 161/255, blue: 170/255, alpha: 1)], for: .normal) // muted-foreground #a1a1aa
-        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1), .font: UIFont.systemFont(ofSize: 13, weight: .semibold)], for: .selected) // primary-foreground #18181b
+        segmentedControl.setTitleTextAttributes([.foregroundColor: UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1), .font: UIFont.nunito(ofSize: 13, weight: .semibold)], for: .selected) // primary-foreground #18181b
         segmentedControl.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(segmentedControl)
@@ -101,7 +101,7 @@ final class ExtensionsViewController: UIViewController {
         importField.backgroundColor = UIColor(white: 0.039, alpha: 1)  // bg-neutral-950
         importField.textColor = .white
         importField.tintColor = .white
-        importField.font = .systemFont(ofSize: 13)
+        importField.font = .nunito(ofSize: 13)
         importField.autocorrectionType = .no
         importField.autocapitalizationType = .none
         importField.keyboardType = .URL
@@ -122,7 +122,7 @@ final class ExtensionsViewController: UIViewController {
         importButton.setTitle("Import Extensions", for: .normal)
         importButton.setTitleColor(UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1), for: .normal)
         importButton.tintColor = UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1)
-        importButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        importButton.titleLabel?.font = .nunito(ofSize: 13, weight: .semibold)
         importButton.backgroundColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1)  // primary #fafafa
         importButton.layer.cornerRadius = 8
         importButton.addTarget(self, action: #selector(importTapped), for: .touchUpInside)
@@ -229,9 +229,9 @@ final class ExtensionsViewController: UIViewController {
             if isEmpty {
                 let title = NSMutableAttributedString()
                 title.append(NSAttributedString(string: "Looks like there's nothing here...\n",
-                    attributes: [.font: UIFont.systemFont(ofSize: 22, weight: .bold), .foregroundColor: UIColor.white]))
+                    attributes: [.font: UIFont.nunito(ofSize: 22, weight: .bold), .foregroundColor: UIColor.white]))
                 title.append(NSAttributedString(string: "Import some extensions in the Repositories tab.",
-                    attributes: [.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor(white: 0.45, alpha: 1)]))
+                    attributes: [.font: UIFont.nunito(ofSize: 14), .foregroundColor: UIColor(white: 0.45, alpha: 1)]))
                 emptyLabel.attributedText = title
             }
         } else {
@@ -241,9 +241,9 @@ final class ExtensionsViewController: UIViewController {
             if isEmpty {
                 let title = NSMutableAttributedString()
                 title.append(NSAttributedString(string: "Looks like there's nothing here...\n",
-                    attributes: [.font: UIFont.systemFont(ofSize: 22, weight: .bold), .foregroundColor: UIColor.white]))
+                    attributes: [.font: UIFont.nunito(ofSize: 22, weight: .bold), .foregroundColor: UIColor.white]))
                 title.append(NSAttributedString(string: "Import some extensions in the field above.",
-                    attributes: [.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor(white: 0.45, alpha: 1)]))
+                    attributes: [.font: UIFont.nunito(ofSize: 14), .foregroundColor: UIColor(white: 0.45, alpha: 1)]))
                 emptyLabel.attributedText = title
             }
         }
@@ -456,14 +456,14 @@ final class ExtensionCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .bold)
+        l.font = .nunito(ofSize: 14, weight: .bold)
         l.textColor = .white
         return l
     }()
 
     private let idLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()
@@ -622,7 +622,7 @@ final class RepoCell: UITableViewCell {
 
     private let urlLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
+        l.font = .nunito(ofSize: 13)
         l.textColor = .white
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingMiddle
@@ -631,7 +631,7 @@ final class RepoCell: UITableViewCell {
 
     private let countLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()
@@ -739,7 +739,7 @@ final class BadgeFlowView: UIView {
             case .badge(let text):
                 let l = PaddedBadgeLabel()
                 l.text = text
-                l.font = .systemFont(ofSize: 13, weight: .bold)         // text-sm font-bold
+                l.font = .nunito(ofSize: 13, weight: .bold)         // text-sm font-bold
                 l.textColor = UIColor(white: 212/255, alpha: 1)         // text-neutral-300 #d4d4d4
                 l.backgroundColor = UIColor(white: 23/255, alpha: 1)   // bg-neutral-900 #171717
                 l.layer.cornerRadius = 4                                // rounded = 4pt
@@ -749,7 +749,7 @@ final class BadgeFlowView: UIView {
             case .flags(let text):
                 let l = UILabel()
                 l.text = text
-                l.font = .systemFont(ofSize: 20)  // text-xl = 20pt
+                l.font = .nunito(ofSize: 20)  // text-xl = 20pt
                 l.textColor = .white
                 addSubview(l)
                 return l

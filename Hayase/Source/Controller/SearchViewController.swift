@@ -304,10 +304,10 @@ class SearchViewController: UIViewController {
     private func setupHeaderView() {
         headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = Self.bgBlack
+        headerView.backgroundColor = Self.bgBackground
         view.addSubview(headerView)
-        // Pin to view.topAnchor (not safeArea) so black bg fills behind the status bar,
-        // exactly like Hayase's sticky `bg-black` header that starts at the very top.
+        // Pin to view.topAnchor (not safeArea) so bg fills behind the status bar,
+        // matching the collection view background color for a seamless appearance.
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -323,7 +323,7 @@ class SearchViewController: UIViewController {
     private func setupTitleRow() {
         titleLabel = UILabel()
         titleLabel.text = "Title"
-        titleLabel.font = .boldSystemFont(ofSize: 20) // text-xl font-bold
+        titleLabel.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold
         titleLabel.textColor = .white
 
         searchInputRow = UIView()
@@ -339,7 +339,7 @@ class SearchViewController: UIViewController {
             string: "Any",
             attributes: [.foregroundColor: Self.mutedFg.withAlphaComponent(0.5)])
         searchField.textColor = .white
-        searchField.font = .systemFont(ofSize: 15)
+        searchField.font = .nunito(ofSize: 15)
         let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
         let iconImageView = UIImageView(
             image: UIImage(systemName: "magnifyingglass")?
@@ -463,7 +463,7 @@ class SearchViewController: UIViewController {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = type.label
-        label.font = .boldSystemFont(ofSize: 20) // text-xl font-bold mb-1 ml-1
+        label.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold mb-1 ml-1
         label.textColor = .white
         container.addSubview(label)
 
@@ -473,7 +473,7 @@ class SearchViewController: UIViewController {
         picker.layer.cornerRadius = 8; picker.layer.masksToBounds = true
         picker.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         picker.setTitleColor(.white, for: .normal)
-        picker.titleLabel?.font = .systemFont(ofSize: 14)
+        picker.titleLabel?.font = .nunito(ofSize: 14)
         picker.titleLabel?.lineBreakMode = .byTruncatingTail
         picker.contentHorizontalAlignment = .left
         picker.setTitle(pickerTitle(for: type), for: .normal)
@@ -725,7 +725,7 @@ class SearchViewController: UIViewController {
 
         let titleLabel = UILabel()
         titleLabel.text = label
-        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.font = .nunito(ofSize: 11, weight: .medium)
         titleLabel.textColor = Self.chipFg
 
         let xButton = UIButton(type: .system)
@@ -816,7 +816,7 @@ class SearchViewController: UIViewController {
         view.addSubview(loadingIndicator)
 
         emptyLabel = UILabel()
-        emptyLabel.textColor = Self.mutedFg; emptyLabel.font = .systemFont(ofSize: 16)
+        emptyLabel.textColor = Self.mutedFg; emptyLabel.font = .nunito(ofSize: 16)
         emptyLabel.textAlignment = .center; emptyLabel.numberOfLines = 0
         emptyLabel.isHidden = true; emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(emptyLabel)

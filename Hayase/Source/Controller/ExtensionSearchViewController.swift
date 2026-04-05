@@ -322,7 +322,7 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.backgroundColor = UIColor(white: 0.1, alpha: 1)
         filterField.textColor = .white
         filterField.tintColor = .white
-        filterField.font = .systemFont(ofSize: 13)
+        filterField.font = .nunito(ofSize: 13)
         filterField.autocorrectionType = .no
         filterField.autocapitalizationType = .none
         filterField.returnKeyType = .done
@@ -342,7 +342,7 @@ final class ExtensionSearchViewController: UIViewController {
         let epLabel = UILabel()
         epLabel.text = "Episode"
         epLabel.textColor = .white
-        epLabel.font = .systemFont(ofSize: 14)
+        epLabel.font = .nunito(ofSize: 14)
 
         episodeField = UITextField()
         episodeField.text = "\(currentEpisode)"
@@ -350,7 +350,7 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
         episodeField.textColor = .white
         episodeField.tintColor = .white
-        episodeField.font = .systemFont(ofSize: 14)
+        episodeField.font = .nunito(ofSize: 14)
         episodeField.textAlignment = .center
         episodeField.layer.cornerRadius = 8
         episodeField.delegate = self
@@ -371,12 +371,12 @@ final class ExtensionSearchViewController: UIViewController {
         // Resolution button
         let resLabel = UILabel()
         resLabel.text = "Resolution"; resLabel.textColor = .white
-        resLabel.font = .systemFont(ofSize: 14)
+        resLabel.font = .nunito(ofSize: 14)
 
         resolutionButton = UIButton(type: .system)
         resolutionButton.setTitle("1080p ▾", for: .normal)
         resolutionButton.setTitleColor(.white, for: .normal)
-        resolutionButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        resolutionButton.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
         resolutionButton.backgroundColor = UIColor(white: 0.1, alpha: 1)
         resolutionButton.layer.cornerRadius = 8
         resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
@@ -395,7 +395,7 @@ final class ExtensionSearchViewController: UIViewController {
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(contrastColor, for: .normal)
-        autoSelectButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+        autoSelectButton.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         autoSelectButton.backgroundColor = accentColor
         autoSelectButton.layer.cornerRadius = 8
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
@@ -491,12 +491,12 @@ final class ExtensionSearchViewController: UIViewController {
         emptyView.translatesAutoresizingMaskIntoConstraints = false
         let oopsLabel = UILabel()
         oopsLabel.text = "Ooops!"
-        oopsLabel.font = .systemFont(ofSize: 30, weight: .bold)
+        oopsLabel.font = .nunito(ofSize: 30, weight: .bold)
         oopsLabel.textColor = .white
         oopsLabel.textAlignment = .center
         let noResultLabel = UILabel()
         noResultLabel.text = "No results found.\nTry specifying a torrent manually by pasting a magnet link into the filter bar."
-        noResultLabel.font = .systemFont(ofSize: 14)
+        noResultLabel.font = .nunito(ofSize: 14)
         noResultLabel.textColor = UIColor(white: 0.45, alpha: 1)
         noResultLabel.textAlignment = .center
         noResultLabel.numberOfLines = 0
@@ -519,12 +519,12 @@ final class ExtensionSearchViewController: UIViewController {
         errorView.translatesAutoresizingMaskIntoConstraints = false
         let errTitle = UILabel()
         errTitle.text = "Ooops!"
-        errTitle.font = .systemFont(ofSize: 30, weight: .bold)
+        errTitle.font = .nunito(ofSize: 30, weight: .bold)
         errTitle.textColor = .white
         errTitle.textAlignment = .center
         errorLabel = UILabel()
         errorLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        errorLabel.font = .systemFont(ofSize: 13)
+        errorLabel.font = .nunito(ofSize: 13)
         errorLabel.textAlignment = .center
         errorLabel.numberOfLines = 0
         let errStack = UIStackView(arrangedSubviews: [errTitle, errorLabel])
@@ -972,7 +972,7 @@ final class TorrentResultCell: UITableViewCell {
     // Right column
     private let groupLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 17, weight: .bold) // text-xl font-bold
+        l.font = .nunito(ofSize: 17, weight: .bold) // text-xl font-bold
         l.textColor = .white
         l.numberOfLines = 1
         return l
@@ -990,7 +990,7 @@ final class TorrentResultCell: UITableViewCell {
     // Simplified filename
     private let filenameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingTail
@@ -1048,8 +1048,8 @@ final class TorrentResultCell: UITableViewCell {
         groupRow.alignment = .center
 
         // Bottom-left: type badge + seeders + size
-        seedersLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        sizeLabel.font = .systemFont(ofSize: 11)
+        seedersLabel.font = .nunito(ofSize: 11, weight: .medium)
+        sizeLabel.font = .nunito(ofSize: 11)
         sizeLabel.textColor = UIColor(white: 0.65, alpha: 1)
 
         let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, seedersLabel, sizeLabel])
@@ -1098,7 +1098,7 @@ final class TorrentResultCell: UITableViewCell {
 
     private static func makeBadgeLabel() -> UILabel {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10, weight: .semibold)
+        l.font = .nunito(ofSize: 10, weight: .semibold)
         l.layer.cornerRadius = 4
         l.clipsToBounds = true
         l.layer.borderWidth = 1
@@ -1209,7 +1209,7 @@ final class TorrentResultCell: UITableViewCell {
         for term in TitleUtils.sanitise(title) {
             let l = UILabel()
             l.text = "  \(term.text)  "
-            l.font = .systemFont(ofSize: 10, weight: .bold)
+            l.font = .nunito(ofSize: 10, weight: .bold)
             // Use WCAG luminance to pick contrasting text colour (mirrors text-contrast-filter)
             l.textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
             l.backgroundColor = term.color

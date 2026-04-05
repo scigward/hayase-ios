@@ -20,7 +20,7 @@ final class VideoTableViewCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .medium)
+        l.font = .nunito(ofSize: 15, weight: .medium)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -28,14 +28,14 @@ final class VideoTableViewCell: UITableViewCell {
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = .secondaryLabel
         return l
     }()
 
     private let statusLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .semibold)
+        l.font = .nunito(ofSize: 12, weight: .semibold)
         l.textAlignment = .right
         l.setContentHuggingPriority(.required, for: .horizontal)
         return l
@@ -223,7 +223,7 @@ class VideoListViewController: UIViewController {
         emptyLabel = UILabel()
         emptyLabel.text = "Fetching metadata from peers…"
         emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 15)
+        emptyLabel.font = .nunito(ofSize: 15)
         emptyLabel.textAlignment = .center
         emptyLabel.numberOfLines = 0
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
