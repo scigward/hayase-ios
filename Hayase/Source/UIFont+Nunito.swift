@@ -1,22 +1,22 @@
 import UIKit
-import CoreText
 
 extension UIFont {
-    // wght axis identifier (ASCII 'w','g','h','t' as UInt32)
-    private static let nunitoWeightAxisID: Int = 2003265652
+    // 'wght' axis tag as UInt32 big-endian (w=0x77, g=0x67, h=0x68, t=0x74)
+    private static let nunitoWeightAxisTag = NSNumber(value: UInt32(0x77676874))
 
     static func nunito(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         let weightValue = nunitoWeightValue(for: weight)
-        let baseDescriptor = UIFontDescriptor(fontAttributes: [
-            .family: "Nunito"
-        ])
+        let baseDescriptor = UIFontDescriptor(fontAttributes: [.family: "Nunito"])
+        // "NSCTFontVariationAttribute" is UIKit's canonical variation key; it is mapped
+        // internally to kCTFontVariationAttribute ("CTFontVariation") when UIKit creates
+        // the underlying CTFont. Using the CoreText key directly on a UIFontDescriptor would
+        // be silently ignored, causing all text to render at the default weight (ExtraLight/200).
+        let variationKey = UIFontDescriptor.AttributeName(rawValue: "NSCTFontVariationAttribute")
         let variationDescriptor = baseDescriptor.addingAttributes([
-            UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String): [
-                NSNumber(value: nunitoWeightAxisID): NSNumber(value: Double(weightValue))
-            ]
+            variationKey: [nunitoWeightAxisTag: NSNumber(value: Double(weightValue))]
         ])
         let font = UIFont(descriptor: variationDescriptor, size: size)
-        // If Nunito failed to load, font family will not be Nunito — fall back to system font
+        // If Nunito failed to register (e.g., font file missing), fall back to system font
         guard font.familyName == "Nunito" else {
             return .systemFont(ofSize: size, weight: weight)
         }
