@@ -1173,8 +1173,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setTitle("▶  Watch Now", for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setTitle("  Watch Now", for: .normal)
         b.tintColor = .black
+        b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         b.layer.cornerRadius = 8
@@ -3179,9 +3182,9 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            playBtn.setTitle("▶", for: .normal)
-            playBtn.titleLabel?.font = .nunito(ofSize: 11, weight: .bold)
-            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+            playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
+            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 12
             playBtn.translatesAutoresizingMaskIntoConstraints = false
