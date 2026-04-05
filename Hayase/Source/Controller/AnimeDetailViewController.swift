@@ -24,6 +24,25 @@ struct AniZipEpisode {
     let isFiller: Bool      // from ani.zip "filler" field — yellow ring + Filler badge
 }
 
+// MARK: - PaddedLabel
+/// UILabel subclass that supports content edge insets (mirrors CSS padding).
+private final class PaddedLabel: UILabel {
+    var contentInsets = UIEdgeInsets.zero
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
+    }
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let s = super.sizeThatFits(size)
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
+}
+
 // MARK: - EpisodeCell
 // Matches Hayase's EpisodesList.svelte exactly:
 // • bg-neutral-950 (#0a0a0a) card, rounded-md (8pt), max-h-28 (112pt)
@@ -41,7 +60,7 @@ private final class EpisodeCell: UITableViewCell {
     private let cardView: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
-        v.layer.cornerRadius = 8  // rounded-md
+        v.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         v.clipsToBounds = true
         return v
     }()
@@ -80,13 +99,15 @@ private final class EpisodeCell: UITableViewCell {
     }()
 
     // Filler badge: absolute bottom-right of card content, bg-yellow-400, rounded-tl
-    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 absolute bottom-0 right-0'>Filler</div>
-    private let fillerBadge: UILabel = {
-        let l = UILabel()
-        l.text = "  Filler  "
+    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 py-1 px-2 absolute bottom-0 right-0'>Filler</div>
+    private let fillerBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.text = "Filler"
         l.font = .nunito(ofSize: 9.6, weight: .bold)
         l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
         l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
+        // py-1 (4pt top/bottom) px-2 (8pt left/right) — exact Tailwind spacing
+        l.contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         l.layer.cornerRadius = 4
         l.layer.maskedCorners = [.layerMinXMinYCorner] // rounded-tl only
         l.clipsToBounds = true
@@ -183,7 +204,12 @@ private final class EpisodeCell: UITableViewCell {
             progressFill.leadingAnchor.constraint(equalTo: progressBar.leadingAnchor),
         ])
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, metaLabel])
+        // Spacer pushes metaLabel to bottom of text column (web: `mt-auto` on date row)
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+        spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
         // Title has mb-2 (8pt) before the progress bar / overview — web: `font-bold mb-2`
@@ -201,8 +227,8 @@ private final class EpisodeCell: UITableViewCell {
         NSLayoutConstraint.activate([
             // Card: gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
             // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
             cardView.heightAnchor.constraint(equalToConstant: 112),
@@ -237,14 +263,15 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0, accentColor: UIColor = .white) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
+                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Web: `opacity-20` on thumbnail div only when watched — text stays full opacity.
-        // Do NOT dim the whole card. Only the thumbnail image fades.
-        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
+        // Web: `watched = _progress >= episode && !completed`
+        // When list is COMPLETED, no thumbnail dimming (web shows full opacity for all episodes).
+        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
         cardView.alpha = 1.0
 
@@ -252,16 +279,20 @@ private final class EpisodeCell: UITableViewCell {
         progressFill.backgroundColor = accentColor
 
         // Progress bar — mirrors web logic:
-        // • watched (anilist progress >= episode): full-width solid bg-custom bar
-        // • in-progress (WatchProgressService has partial fraction): partial bar
+        // • watched OR completed: full-width solid bg-custom bar, NO neutral track
+        // • in-progress (WatchProgressService has partial fraction): neutral-800 track + partial fill
         // • otherwise: hidden
-        if isWatchedOnAniList {
+        let showFullBar = isWatchedOnAniList || isListCompleted
+        if showFullBar {
+            // No track — match web `<div class='mb-2 h-0.5 overflow-hidden w-full bg-custom shrink-0' />`
+            progressBar.backgroundColor = accentColor
             progressBar.isHidden = false
-            savedProgressFraction = 1.0  // full-width solid bar for watched episodes
+            savedProgressFraction = 1.0
             setNeedsLayout()
         } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
+            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // neutral-800 track
             progressBar.isHidden = false
             savedProgressFraction = saved.fraction
             setNeedsLayout()
@@ -284,15 +315,19 @@ private final class EpisodeCell: UITableViewCell {
             runtimeBadge.isHidden = true
         }
 
-        // Rating badge: ★ icon (yellow) + rating value — Hayase EpisodesList.svelte
+        // Rating badge: SF Symbol star.fill (yellow) + rating value — matches web <Star fill='currentColor' />
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
+            let starAttachment = NSTextAttachment()
+            let starCfg = UIImage.SymbolConfiguration(pointSize: 8, weight: .regular)
+            if let starImg = UIImage(systemName: "star.fill", withConfiguration: starCfg)?
+                .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
+                starAttachment.image = starImg
+                starAttachment.bounds = CGRect(x: 0, y: -1, width: 8, height: 8)
+            }
             let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.nunito(ofSize: 9.6)])
-            padded.append(NSAttributedString(string: "★ ", attributes: [
-                .foregroundColor: UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), // yellow-400
-                .font: UIFont.nunito(ofSize: 9.6)
-            ]))
-            padded.append(NSAttributedString(string: "\(ratingStr) ", attributes: [
+            padded.append(NSAttributedString(attachment: starAttachment))
+            padded.append(NSAttributedString(string: " \(ratingStr) ", attributes: [
                 .foregroundColor: UIColor(white: 0.98, alpha: 1),
                 .font: UIFont.nunito(ofSize: 9.6)
             ]))
@@ -302,12 +337,17 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.isHidden = true
         }
 
-        // Filler: yellow ring (ring-yellow-400 ring-1) + "Filler" badge
-        // Mirrors Hayase: filler && '!ring-yellow-400 ring-1' on card + <div class='rounded-tl bg-yellow-400'>Filler</div>
+        // Border: filler overrides target (web: `!ring-yellow-400` uses !important)
+        // target = anilistProgress + 1 → ring-custom accent border (ring-1 = 1pt)
+        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
         if episode.isFiller {
             cardView.layer.borderWidth = 1
             cardView.layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor // yellow-400
             fillerBadge.isHidden = false
+        } else if isTarget {
+            cardView.layer.borderWidth = 1
+            cardView.layer.borderColor = accentColor.cgColor // ring-custom
+            fillerBadge.isHidden = true
         } else {
             cardView.layer.borderWidth = 0
             cardView.layer.borderColor = UIColor.clear.cgColor
@@ -359,6 +399,7 @@ private final class EpisodeCell: UITableViewCell {
         cardView.alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
+        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // reset to neutral-800 track
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
     }
