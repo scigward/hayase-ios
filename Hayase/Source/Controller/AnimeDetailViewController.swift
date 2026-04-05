@@ -1942,7 +1942,7 @@ private final class HTabBar: UIView {
                 btn.setTitleColor(contrastColor, for: .normal)
             } else {
                 btn.backgroundColor = .clear
-                btn.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal) // text-muted-foreground
+                btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
             }
         }
     }
@@ -1961,6 +1961,7 @@ class AnimeDetailViewController: UIViewController {
     private var isOnList = false
     private var episodes: [AniZipEpisode] = []
     private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
+    private var currentListStatus: String?             // mediaListEntry.status from AniList
     private var currentAnimeAccent: UIColor = .white  // cached accent for episode progress bars
     private var relations: [AnimeRelation] = []
     private var characters: [AnimeCharacter] = []
@@ -2215,6 +2216,7 @@ class AnimeDetailViewController: UIViewController {
         }
         editorVC.onDelete = { [weak self] in
             self?.anilistProgress = 0
+            self?.currentListStatus = nil
             self?.isOnList = false
             self?.tableView.reloadData()
             self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
@@ -2335,6 +2337,7 @@ class AnimeDetailViewController: UIViewController {
         AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
             DispatchQueue.main.async {
                 self?.isOnList = entry != nil
+                self?.currentListStatus = entry?.status
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
                 self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
@@ -2889,7 +2892,8 @@ extension AnimeDetailViewController: UITableViewDataSource {
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
             let ep = paginatedEpisodes[indexPath.row]
-            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress, accentColor: currentAnimeAccent)
+            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
+                           accentColor: currentAnimeAccent, isListCompleted: currentListStatus == "COMPLETED")
             return cell
 
         case .episodePagination:
