@@ -18,7 +18,7 @@ struct AniZipEpisode {
     let title: String       // English title, or "Episode N" fallback
     let overview: String
     let imageURL: String?
-    let airDate: String?
+    let airDate: Date?
     let runtime: Int        // minutes; 0 if unknown
     let rating: Double?     // from ani.zip "rating" field (e.g. "8.9256") — shown as ★ badge
     let isFiller: Bool      // from ani.zip "filler" field — yellow ring + Filler badge
@@ -135,6 +135,15 @@ private final class EpisodeCell: UITableViewCell {
         return l
     }()
 
+    // Mirrors web `since()` — Intl.RelativeTimeFormat('en', { numeric: 'always' })
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        f.dateTimeStyle = .numeric
+        f.locale = Locale(identifier: "en")
+        return f
+    }()
+
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
@@ -248,7 +257,7 @@ private final class EpisodeCell: UITableViewCell {
         }
 
         if let date = episode.airDate {
-            metaLabel.text = date
+            metaLabel.text = EpisodeCell.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
             metaLabel.isHidden = false
         } else {
             metaLabel.isHidden = true
@@ -2467,7 +2476,14 @@ class AnimeDetailViewController: UIViewController {
             let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let imageURL = info["image"] as? String
-            let airDate = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDateRaw = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDate: Date? = airDateRaw.flatMap { raw in
+                if let d = ISO8601DateFormatter().date(from: raw) { return d }
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                fmt.locale = Locale(identifier: "en_US_POSIX")
+                return fmt.date(from: raw)
+            }
             let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
             let ratingRaw = info["rating"]
             let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
