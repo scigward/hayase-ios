@@ -1125,7 +1125,7 @@ private final class AnimeInfoHeaderView: UIView {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
-        iv.layer.cornerRadius = 6   // rounded = 0.375rem ≈ 6pt
+        iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
         return iv
     }()
 
@@ -1530,7 +1530,19 @@ private final class AnimeInfoHeaderView: UIView {
         bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 
-    // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
+    /// Updates play button label based on AniList watch status.
+    /// Mirrors PlayButton.svelte: "Continue" (CURRENT/REPEATING/PAUSED), "Rewatch" (COMPLETED), "Watch Now" (else).
+    func updatePlayButtonTitle(listStatus: String?) {
+        let text: String
+        switch listStatus {
+        case "CURRENT", "REPEATING", "PAUSED": text = "  Continue"
+        case "COMPLETED":                       text = "  Rewatch"
+        default:                                text = "  Watch Now"
+        }
+        playButton.setTitle(text, for: .normal)
+    }
+
+
 
     /// Applies pull-down zoom effect on the banner, identical to the homepage banner.
     func applyOverscrollZoom(_ overscroll: CGFloat) {
@@ -1606,13 +1618,17 @@ private final class AnimeInfoHeaderView: UIView {
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
         playButton.setTitleColor(contrast, for: .normal)
-        // EntryEditor: bg-custom-400 — lighter opaque shade of accent, not semi-transparent.
-        // Computed by blending 50% with white, matching Tailwind's 400-level lightening.
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
-        accent.getRed(&r, green: &g, blue: &b, alpha: nil)
-        let lighter = UIColor(red: min(1, r + (1 - r) * 0.5),
-                              green: min(1, g + (1 - g) * 0.5),
-                              blue:  min(1, b + (1 - b) * 0.5), alpha: 1)
+        // EntryEditor: bg-custom-400 = hsl(from var(--custom) h s 60%)
+        // Keep the accent's hue + saturation, but force lightness to 60%.
+        // Convert HSB → HSL, set L=0.6, convert HSL → HSB for UIColor.
+        var hue: CGFloat = 0, satHSB: CGFloat = 0, briHSB: CGFloat = 0
+        accent.getHue(&hue, saturation: &satHSB, brightness: &briHSB, alpha: nil)
+        let l = (2.0 - satHSB) * briHSB / 2.0
+        let s = l == 0 || l == 1 ? 0 : satHSB * briHSB / (l < 0.5 ? 2.0 * l : 2.0 - 2.0 * l)
+        let targetL: CGFloat = 0.6
+        let bNew = targetL + s * min(targetL, 1.0 - targetL)
+        let sNew: CGFloat = bNew > 0 ? 2.0 * (bNew - targetL) / bNew : 0
+        let lighter = UIColor(hue: hue, saturation: sNew, brightness: bNew, alpha: 1)
         entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
 
@@ -2137,6 +2153,7 @@ class AnimeDetailViewController: UIViewController {
             self?.isOnList = false
             self?.tableView.reloadData()
             self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
+            self?.headerView?.updatePlayButtonTitle(listStatus: nil)
         }
 
         editorVC.modalPresentationStyle = .pageSheet
@@ -2255,6 +2272,7 @@ class AnimeDetailViewController: UIViewController {
                 self?.isOnList = entry != nil
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
+                self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
             }
         }
     }
