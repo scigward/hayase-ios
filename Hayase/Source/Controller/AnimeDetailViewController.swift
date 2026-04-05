@@ -1554,6 +1554,7 @@ private final class AnimeInfoHeaderView: UIView {
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
+        playButton.setTitleColor(contrast, for: .normal)
         // EntryEditor: bg-custom-400 (lighter variant of accent)
         entryEditorButton.backgroundColor = accent.withAlphaComponent(0.7)
         entryEditorButton.tintColor = contrast
@@ -3182,11 +3183,11 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
             playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
             playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
-            playBtn.layer.cornerRadius = 12
+            playBtn.layer.cornerRadius = 10
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
@@ -3207,8 +3208,8 @@ extension AnimeDetailViewController {
                 playBtn.leadingAnchor.constraint(greaterThanOrEqualTo: epLabel.trailingAnchor, constant: 8),
                 playBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor),
                 playBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-                playBtn.widthAnchor.constraint(equalToConstant: 24),
-                playBtn.heightAnchor.constraint(equalToConstant: 24),
+                playBtn.widthAnchor.constraint(equalToConstant: 20),
+                playBtn.heightAnchor.constraint(equalToConstant: 20),
             ])
             stack.addArrangedSubview(row)
         }
