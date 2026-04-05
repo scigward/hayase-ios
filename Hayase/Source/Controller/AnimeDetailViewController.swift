@@ -186,25 +186,28 @@ private final class EpisodeCell: UITableViewCell {
         let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
+        // Title has mb-2 (8pt) before the progress bar / overview — web: `font-bold mb-2`
+        textStack.setCustomSpacing(8, after: numberLabel)
         textStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(textStack)
 
-        // Thumbnail width: w-1/2 (50%) up to max-w-52 (208pt) — prevents oversized thumbs on iPad.
+        // Thumbnail width: w-1/2 (50%) + shrink-0 — must NOT collapse when image is absent.
+        // Use .required priority so the 50% width holds even when UIImageView has no content.
+        // max-w-52 (208pt) prevents over-wide thumbs on iPad; no conflict on iPhone (<416pt cards).
         let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
-        thumbWidthPreferred.priority = .defaultHigh
+        thumbWidthPreferred.priority = .required
         let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
 
         NSLayoutConstraint.activate([
-            // Card: margin 6pt top/bottom, 16pt left/right
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            // Card: gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
             // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
             cardView.heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`),
-            // capped at max-w-52 (208pt) so it doesn't stretch across the full width on iPad.
+            // Thumbnail: left side, w-1/2 shrink-0 — always 50% wide even without an image loaded.
             thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
@@ -219,11 +222,11 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
             ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Text stack: right of thumbnail, with 16pt padding
+            // Text stack: py-3 (12pt top/bottom) px-4 (16pt left/right) matching web flex-col container
             textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -8),
+            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
             textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -8),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -12),
 
             // Progress bar height: h-0.5 = 2pt
             progressBar.heightAnchor.constraint(equalToConstant: 2),
@@ -234,18 +237,29 @@ private final class EpisodeCell: UITableViewCell {
         ])
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0) {
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0, accentColor: UIColor = .white) {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Dim episodes that have been watched on AniList (matches desktop's opacity treatment
-        // for completed episodes: reduced opacity on card)
+        // Web: `opacity-20` on thumbnail div only when watched — text stays full opacity.
+        // Do NOT dim the whole card. Only the thumbnail image fades.
         let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
-        cardView.alpha = isWatchedOnAniList ? 0.5 : 1.0
+        thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
+        cardView.alpha = 1.0
 
-        // Progress bar (Hayase EpisodesList watchProgress indicator)
-        if anilistID > 0,
+        // Progress fill uses the anime's accent color (bg-custom)
+        progressFill.backgroundColor = accentColor
+
+        // Progress bar — mirrors web logic:
+        // • watched (anilist progress >= episode): full-width solid bg-custom bar
+        // • in-progress (WatchProgressService has partial fraction): partial bar
+        // • otherwise: hidden
+        if isWatchedOnAniList {
+            progressBar.isHidden = false
+            savedProgressFraction = 1.0  // full-width solid bar for watched episodes
+            setNeedsLayout()
+        } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
             progressBar.isHidden = false
@@ -343,6 +357,7 @@ private final class EpisodeCell: UITableViewCell {
         cardView.layer.borderWidth = 0
         cardView.layer.borderColor = UIColor.clear.cgColor
         cardView.alpha = 1.0
+        thumbImageView.alpha = 1.0
         progressBar.isHidden = true
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
@@ -1898,6 +1913,7 @@ class AnimeDetailViewController: UIViewController {
     private var isOnList = false
     private var episodes: [AniZipEpisode] = []
     private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
+    private var currentAnimeAccent: UIColor = .white  // cached accent for episode progress bars
     private var relations: [AnimeRelation] = []
     private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
@@ -2058,6 +2074,7 @@ class AnimeDetailViewController: UIViewController {
             // Apply coverImage.color as the active tab tint color.
             if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
                 tabBar.accentColor = accent
+                currentAnimeAccent = accent
             }
         } else {
             headerView.configure(with: animeEntity)
@@ -2824,7 +2841,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
             }
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
             let ep = paginatedEpisodes[indexPath.row]
-            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress)
+            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress, accentColor: currentAnimeAccent)
             return cell
 
         case .episodePagination:
