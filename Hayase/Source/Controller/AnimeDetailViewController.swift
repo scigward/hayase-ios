@@ -1173,20 +1173,7 @@ private final class AnimeInfoHeaderView: UIView {
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
-        b.setImage(UIImage(systemName: "play.fill", withConfiguration: config), for: .normal)
-        b.setTitle("Watch Now", for: .normal)
-        b.semanticContentAttribute = .forceLeftToRight
-        if #available(iOS 15.0, *) {
-            var buttonConfig = UIButton.Configuration.plain()
-            buttonConfig.imagePadding = 8
-            buttonConfig.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
-            b.configuration = buttonConfig
-        } else {
-            b.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 4)
-            b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-            b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
-        }
+        b.setTitle("▶  Watch Now", for: .normal)
         b.tintColor = .black
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
@@ -3192,9 +3179,9 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            let playConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
-            playBtn.setImage(UIImage(systemName: "play.fill", withConfiguration: playConfig), for: .normal)
-            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+            playBtn.setTitle("▶", for: .normal)
+            playBtn.titleLabel?.font = .nunito(ofSize: 11, weight: .bold)
+            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 12
             playBtn.translatesAutoresizingMaskIntoConstraints = false
