@@ -1177,8 +1177,8 @@ private final class AnimeInfoHeaderView: UIView {
         b.setImage(UIImage(systemName: "play.fill", withConfiguration: config), for: .normal)
         b.setTitle("Watch Now", for: .normal)
         b.semanticContentAttribute = .forceLeftToRight
-        b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
-        b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        b.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 4)
+        b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
         b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
         b.tintColor = .black
         b.backgroundColor = .white
