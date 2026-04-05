@@ -1073,6 +1073,10 @@ private final class AnimeInfoHeaderView: UIView {
     var onFavorite: (() -> Void)?
     var onBookmark: (() -> Void)?
 
+    /// Accent colour from the current anime's coverImage — used to tint active fav/bookmark icons.
+    /// Mirrors Hayase's `select:!text-custom` on FavoriteButton / BookmarkButton.
+    private var storedAccentColor: UIColor = .white
+
     private var anilistId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
     private(set) var displayedBannerURL: String?
@@ -1246,7 +1250,12 @@ private final class AnimeInfoHeaderView: UIView {
     // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "film"), for: .normal)
+        // Clapperboard (iOS 16+) matches Hayase's animated <Clapperboard> icon; fall back to film.
+        if #available(iOS 16.0, *) {
+            b.setImage(UIImage(systemName: "clapperboard"), for: .normal)
+        } else {
+            b.setImage(UIImage(systemName: "film"), for: .normal)
+        }
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 8
@@ -1471,22 +1480,37 @@ private final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Actions
 
-    @objc private func shareTapped()       { onShare?() }
-    @objc private func trailerTapped()     { onPlayTrailer?() }
+    /// Spring-bounce animation on icon buttons — matches Hayase's `animated-icon` press feedback.
+    private func animateTap(_ button: UIButton) {
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
+            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
+                           options: [], animations: {
+                button.transform = .identity
+            })
+        }
+    }
+
+    @objc private func shareTapped()       { animateTap(shareButton);       onShare?() }
+    @objc private func trailerTapped()     { animateTap(trailerButton);     onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { onEntryEditor?() }
-    @objc private func favoriteTapped()    { onFavorite?() }
-    @objc private func bookmarkTapped()    { onBookmark?() }
+    @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
+    @objc private func favoriteTapped()    { animateTap(favoriteButton);    onFavorite?() }
+    @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
 
     /// Updates favorite/bookmark button icons to show filled/unfilled state.
-    /// Matches interface: FavoriteButton fills heart when fav(media) is true,
-    /// BookmarkButton fills bookmark when list(media) is truthy.
+    /// Mirrors interface: FavoriteButton fills heart + turns accent when fav(media) is true,
+    /// BookmarkButton fills bookmark + turns accent when list(media) is truthy (`select:!text-custom`).
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
         let heartName = isFavorite ? "heart.fill" : "heart"
         favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
+        favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
         let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
         bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+        bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 
     // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
@@ -1561,11 +1585,18 @@ private final class AnimeInfoHeaderView: UIView {
         // bg-custom text-contrast (luminance-based black/white text)
         let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
+        storedAccentColor = accent
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
         playButton.setTitleColor(contrast, for: .normal)
-        // EntryEditor: bg-custom-400 (lighter variant of accent)
-        entryEditorButton.backgroundColor = accent.withAlphaComponent(0.7)
+        // EntryEditor: bg-custom-400 — lighter opaque shade of accent, not semi-transparent.
+        // Computed by blending 50% with white, matching Tailwind's 400-level lightening.
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        accent.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let lighter = UIColor(red: min(1, r + (1 - r) * 0.5),
+                              green: min(1, g + (1 - g) * 0.5),
+                              blue:  min(1, b + (1 - b) * 0.5), alpha: 1)
+        entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
 
         rebuildBadges(score:    item.score,
