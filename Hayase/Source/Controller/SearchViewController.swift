@@ -304,10 +304,10 @@ class SearchViewController: UIViewController {
     private func setupHeaderView() {
         headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = Self.bgBlack
+        headerView.backgroundColor = Self.bgBackground
         view.addSubview(headerView)
-        // Pin to view.topAnchor (not safeArea) so black bg fills behind the status bar,
-        // exactly like Hayase's sticky `bg-black` header that starts at the very top.
+        // Pin to view.topAnchor (not safeArea) so bg fills behind the status bar,
+        // matching the collection view background color for a seamless appearance.
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
