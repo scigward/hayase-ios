@@ -73,26 +73,29 @@ private final class EpisodeCell: UITableViewCell {
         return iv
     }()
 
-    // Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
-    private let runtimeBadge: UILabel = {
-        let l = UILabel()
+    // Runtime badge: absolute bottom-left, bg-neutral-900/80, px-1 py-0.5 rounded
+    // Mirrors web: <div class='… text-[9.6px] px-1 py-0.5 rounded'>
+    private let runtimeBadge: PaddedLabel = {
+        let l = PaddedLabel()
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
+        l.layer.cornerRadius = 4 // rounded = 0.25rem = 4pt
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Rating badge: absolute bottom-right of thumb, ★ + rating value
-    // Mirrors Hayase EpisodesList: <Star class='text-yellow-400' />  {rating}
-    private let ratingBadge: UILabel = {
-        let l = UILabel()
+    // Rating badge: absolute bottom-right of thumb, ★ + rating value, px-1 py-0.5 rounded
+    // Mirrors web: <Star class='size-2.5 … text-yellow-400' fill='currentColor' /> {rating}
+    private let ratingBadge: PaddedLabel = {
+        let l = PaddedLabel()
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
         l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
+        l.layer.cornerRadius = 4 // rounded = 4pt
         l.clipsToBounds = true
         l.isHidden = true
         return l
@@ -309,7 +312,7 @@ private final class EpisodeCell: UITableViewCell {
         }
 
         if episode.runtime > 0 {
-            runtimeBadge.text = " \(episode.runtime)m "
+            runtimeBadge.text = "\(episode.runtime)m"
             runtimeBadge.isHidden = false
         } else {
             runtimeBadge.isHidden = true
@@ -319,15 +322,14 @@ private final class EpisodeCell: UITableViewCell {
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
             let starAttachment = NSTextAttachment()
-            let starCfg = UIImage.SymbolConfiguration(pointSize: 8, weight: .regular)
+            let starCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular)
             if let starImg = UIImage(systemName: "star.fill", withConfiguration: starCfg)?
                 .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
                 starAttachment.image = starImg
-                starAttachment.bounds = CGRect(x: 0, y: -1, width: 8, height: 8)
+                starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)
             }
-            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.nunito(ofSize: 9.6)])
-            padded.append(NSAttributedString(attachment: starAttachment))
-            padded.append(NSAttributedString(string: " \(ratingStr) ", attributes: [
+            let padded = NSMutableAttributedString(attachment: starAttachment)
+            padded.append(NSAttributedString(string: " \(ratingStr)", attributes: [
                 .foregroundColor: UIColor(white: 0.98, alpha: 1),
                 .font: UIFont.nunito(ofSize: 9.6)
             ]))
@@ -2316,7 +2318,7 @@ class AnimeDetailViewController: UIViewController {
                 // Auto-navigate to the page containing the user's current episode (matches web)
                 // Web: Math.floor(progress / perPage) + 1
                 if newProgress > 0 {
-                    let desiredPage = ((newProgress - 1) / self.episodesPerPage) + 1
+                    let desiredPage = newProgress / self.episodesPerPage + 1
                     self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
                 }
                 self.tableView.reloadData()
