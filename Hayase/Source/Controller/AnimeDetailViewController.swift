@@ -1173,7 +1173,10 @@ private final class AnimeInfoHeaderView: UIView {
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setTitle("▶  Watch Now", for: .normal)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
+        b.setImage(UIImage(systemName: "play.fill", withConfiguration: config), for: .normal)
+        b.setTitle("  Watch Now", for: .normal)
+        b.semanticContentAttribute = .forceLeftToRight
         b.tintColor = .black
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
@@ -3179,9 +3182,9 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            playBtn.setTitle("▶", for: .normal)
-            playBtn.titleLabel?.font = .nunito(ofSize: 11, weight: .bold)
-            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+            let playConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+            playBtn.setImage(UIImage(systemName: "play.fill", withConfiguration: playConfig), for: .normal)
+            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 12
             playBtn.translatesAutoresizingMaskIntoConstraints = false
