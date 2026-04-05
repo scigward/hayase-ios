@@ -1175,8 +1175,11 @@ private final class AnimeInfoHeaderView: UIView {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
         b.setImage(UIImage(systemName: "play.fill", withConfiguration: config), for: .normal)
-        b.setTitle("  Watch Now", for: .normal)
+        b.setTitle("Watch Now", for: .normal)
         b.semanticContentAttribute = .forceLeftToRight
+        b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
         b.tintColor = .black
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
