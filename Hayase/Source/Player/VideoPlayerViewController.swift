@@ -782,10 +782,10 @@ final class VideoPlayerViewController: UIViewController {
         performDoubleTapSeek(at: tapLocation)
     }
 
-    /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 5.
+    /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 2.
     private var seekDurationSeconds: Double {
-        let stored = UserDefaults.standard.string(forKey: "pref_seekDuration") ?? "5"
-        return Double(stored) ?? 5
+        let stored = UserDefaults.standard.string(forKey: "pref_seekDuration") ?? "2"
+        return Double(stored) ?? 2
     }
 
     /// Double-tap on the left half of the screen seeks backward; right half seeks forward.
