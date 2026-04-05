@@ -665,11 +665,10 @@ private final class PaginationBarView: UIView {
 
 // MARK: - HorizontalCardsCell
 // A UITableViewCell containing a horizontal UICollectionView.
-// tag 100 → Relations, tag 200 → Characters, tag 300 → Staff.
+// tag 100 → Relations, tag 300 → Staff.
 
 private final class HorizontalCardsCell: UITableViewCell {
     static let relationsReuseID  = "HorizontalRelationsCell"
-    static let charactersReuseID = "HorizontalCharactersCell"
     static let staffReuseID      = "HorizontalStaffCell"
 
     let collectionView: UICollectionView
@@ -790,94 +789,6 @@ private final class RelationCardCell: UICollectionViewCell {
         super.prepareForReuse()
         imageTask?.cancel(); imageTask = nil; currentURL = nil
         imageView.image = nil; titleLabel.text = nil; typeLabel.text = nil
-    }
-}
-
-// MARK: - CharacterCardCell
-
-private final class CharacterCardCell: UICollectionViewCell {
-    static let reuseID = "CharacterCardCell"
-
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
-        iv.layer.cornerRadius = 6
-        return iv
-    }()
-
-    private let nameLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 9, weight: .semibold)
-        l.textColor = .label
-        l.numberOfLines = 2
-        return l
-    }()
-
-    private let roleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 8, weight: .medium)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 1
-        return l
-    }()
-
-    private var imageTask: URLSessionDataTask?
-    private var currentURL: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        let stack = UIStackView(arrangedSubviews: [nameLabel, roleLabel])
-        stack.axis = .vertical
-        stack.spacing = 2
-        [imageView, stack].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
-
-            stack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(with character: AnimeCharacter) {
-        nameLabel.text = character.name
-        roleLabel.text = character.role.capitalized
-        loadImage(from: character.imageURL)
-    }
-
-    private func loadImage(from urlString: String?) {
-        imageTask?.cancel(); imageTask = nil
-        currentURL = urlString
-        imageView.image = nil
-        guard let urlString = urlString, let url = URL(string: urlString) else { return }
-        let captured = urlString
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                if self?.currentURL == captured {
-                    UIView.transition(with: self?.imageView ?? UIImageView(),
-                                      duration: 0.2, options: .transitionCrossDissolve,
-                                      animations: { self?.imageView.image = img })
-                }
-            }
-        }
-        imageTask?.resume()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageTask?.cancel(); imageTask = nil; currentURL = nil
-        imageView.image = nil; nameLabel.text = nil; roleLabel.text = nil
     }
 }
 
@@ -1966,7 +1877,6 @@ class AnimeDetailViewController: UIViewController {
     private var currentListStatus: String?             // mediaListEntry.status from AniList
     private var currentAnimeAccent: UIColor = .white  // cached accent for episode progress bars
     private var relations: [AnimeRelation] = []
-    private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
     private var scoreDistribution: [AnimeScorePoint] = []
     private var statusDistribution: [AnimeStatusCount] = []
@@ -2467,7 +2377,7 @@ class AnimeDetailViewController: UIViewController {
             completion(nil)
             return
         }
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations in
             // fetchDetailForItem calls back on main queue
             self?.animeItem?.relations = relations
             self?.relations = relations
@@ -2708,7 +2618,7 @@ class AnimeDetailViewController: UIViewController {
         else { id = animeItem?.id }
         guard let anilistId = id else { return }
 
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations in
             guard let self = self else { return }
             self.relations = relations
             if !relations.isEmpty {
@@ -3013,7 +2923,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch collectionView.tag {
         case 100: return relations.count
-        case 200: return characters.count
         case 300: return staff.count
         default:  return 0
         }
@@ -3027,12 +2936,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
                 withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
             else { return UICollectionViewCell() }
             cell.configure(with: relations[indexPath.item])
-            return cell
-        case 200:
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: CharacterCardCell.reuseID, for: indexPath) as? CharacterCardCell
-            else { return UICollectionViewCell() }
-            cell.configure(with: characters[indexPath.item])
             return cell
         case 300:
             guard let cell = collectionView.dequeueReusableCell(
