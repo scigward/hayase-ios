@@ -1255,11 +1255,12 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     // Share button: variant='secondary' size='icon', hidden min-[380px]:flex
-    // TransitionButton: shows Share2 normally, flashes a checkmark briefly after tap.
+    // TransitionButton: shows Share2 (Lucide) normally, flashes a checkmark briefly after tap.
+    // arrowshape.turn.up.right is the closest SF Symbol to Lucide's Share2 fork icon.
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "square.and.arrow.up")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
@@ -1379,6 +1380,10 @@ private final class AnimeInfoHeaderView: UIView {
         playCombo.axis = .horizontal
         playCombo.spacing = 0  // flush — play rounded-r-none, editor rounded-l-none
         playCombo.alignment = .fill
+        // Low hugging so playCombo fills available space; low compression so it can shrink
+        // when the trailer button is also visible on narrow iPhones (SE = 375pt).
+        playCombo.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        playCombo.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         // Hayase mobile: gap-2 (8pt), items-center, justify-center, overflow-x-clip, [&>*]:flex-shrink-0
         let actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton])
@@ -1435,8 +1440,10 @@ private final class AnimeInfoHeaderView: UIView {
             shareButton.widthAnchor.constraint(equalToConstant: 36),
             trailerButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Play combo: w-[180px] on ≥380px screens (Hayase: min-[380px]:w-[180px])
-            playCombo.widthAnchor.constraint(equalToConstant: 180),
+            // Play combo: max-w-[180px], flex-shrinks to fit on narrow iPhones (SE = 375pt).
+            // Mirrors web `w-full min-[380px]:w-[180px] !shrink` — button fills available space
+            // up to 180pt, compressing below 180pt when the trailer button is also visible.
+            playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
 
             // Genres scrollview height = 28pt (h-7)
             genresContainer.heightAnchor.constraint(equalToConstant: 28),
@@ -1521,7 +1528,7 @@ private final class AnimeInfoHeaderView: UIView {
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         shareButton.setImage(UIImage(systemName: "checkmark")?.withConfiguration(cfg), for: .normal)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.shareButton.setImage(UIImage(systemName: "square.and.arrow.up")?.withConfiguration(cfg), for: .normal)
+            self?.shareButton.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(cfg), for: .normal)
         }
         onShare?()
     }
