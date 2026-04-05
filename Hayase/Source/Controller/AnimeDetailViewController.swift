@@ -1193,7 +1193,7 @@ private final class AnimeInfoHeaderView: UIView {
         b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
         return b
@@ -1203,10 +1203,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Matches Hayase EntryEditor.svelte trigger: rounded-l-none bg-custom-400 select:!bg-custom-700
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "pencil.line"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "pencil.line")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1) // lighter variant of accent (custom-400)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // rounded-l-none
         b.layer.masksToBounds = true
         return b
@@ -1216,10 +1217,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <FavoriteButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "heart")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
@@ -1228,21 +1230,24 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <BookmarkButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
 
     // Share button: variant='secondary' size='icon', hidden min-[380px]:flex
+    // TransitionButton: shows Share2 normally, flashes a checkmark briefly after tap.
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "square.and.arrow.up")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
@@ -1250,15 +1255,16 @@ private final class AnimeInfoHeaderView: UIView {
     // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
         let b = UIButton(type: .system)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         // Clapperboard (iOS 16+) matches Hayase's animated <Clapperboard> icon; fall back to film.
         if #available(iOS 16.0, *) {
-            b.setImage(UIImage(systemName: "clapperboard"), for: .normal)
+            b.setImage(UIImage(systemName: "clapperboard")?.withConfiguration(iconCfg), for: .normal)
         } else {
-            b.setImage(UIImage(systemName: "film"), for: .normal)
+            b.setImage(UIImage(systemName: "film")?.withConfiguration(iconCfg), for: .normal)
         }
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         b.isHidden = true
         return b
@@ -1493,7 +1499,17 @@ private final class AnimeInfoHeaderView: UIView {
         }
     }
 
-    @objc private func shareTapped()       { animateTap(shareButton);       onShare?() }
+    @objc private func shareTapped() {
+        animateTap(shareButton)
+        // TransitionButton: flash checkmark briefly after tap, then restore share icon.
+        // Matches Hayase's TransitionButton (duration=300ms + 500ms = ~800ms total).
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        shareButton.setImage(UIImage(systemName: "checkmark")?.withConfiguration(cfg), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.shareButton.setImage(UIImage(systemName: "square.and.arrow.up")?.withConfiguration(cfg), for: .normal)
+        }
+        onShare?()
+    }
     @objc private func trailerTapped()     { animateTap(trailerButton);     onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
     @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
@@ -1504,12 +1520,13 @@ private final class AnimeInfoHeaderView: UIView {
     /// Mirrors interface: FavoriteButton fills heart + turns accent when fav(media) is true,
     /// BookmarkButton fills bookmark + turns accent when list(media) is truthy (`select:!text-custom`).
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         let heartName = isFavorite ? "heart.fill" : "heart"
-        favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
+        favoriteButton.setImage(UIImage(systemName: heartName)?.withConfiguration(cfg), for: .normal)
         favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
         let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
-        bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+        bookmarkButton.setImage(UIImage(systemName: bookmarkName)?.withConfiguration(cfg), for: .normal)
         bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 
