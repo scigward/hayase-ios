@@ -2216,32 +2216,43 @@ private final class AnimeInfoHeaderView: UIView {
 }
 
 // MARK: - HTabBar
-// Custom horizontal tab bar matching Hayase's tabs-list.svelte shape exactly.
+// Custom tab bar matching Hayase's tabs-list.svelte + tabs-trigger.svelte.
 // Container: bg-muted (#27272a), rounded-lg (8pt), p-1 (4pt padding).
-// Each tab: rounded-md (6pt), active = accent bg + contrast text, inactive = muted text.
-// Shape is NOT a pill — iOS UISegmentedControl has cornerRadius = height/2 (pill).
-// HTabBar uses cornerRadius = 8 (rounded-lg) on container, 6 (rounded-md) on tabs.
+// Each tab: rounded-md (6pt), active = accent bg + contrast text + font-bold,
+//           inactive = muted text + font-medium.
+// Web +page.svelte: orientation = $breakpoints.xs ? 'horizontal' : 'vertical'
+//   → iPhone (< 480px): vertical (flex-col gap-1 max-w-72 w-full)
+//   → iPad (≥ 480px):   horizontal (h-9 items-center justify-center)
+// Tab triggers: px-8 (32pt) py-1 (4pt) text-sm (14px) rounded-md (6pt)
 
 private final class HTabBar: UIView {
     var onChange: ((Int) -> Void)?
     var selectedIndex: Int = 0 { didSet { updateSelection() } }
     var accentColor: UIColor = UIColor(white: 0.98, alpha: 1) { didSet { updateSelection() } }
 
-    private let scrollView: UIScrollView = {
-        let sv = UIScrollView()
-        sv.showsHorizontalScrollIndicator = false
-        sv.bounces = false
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
+    /// Switches between vertical (iPhone) and horizontal (iPad) layout.
+    /// iPhone: vertical stack, full-width buttons, flex-col gap-1
+    /// iPad: horizontal inline, h-9, items-center
+    var isVertical: Bool = true {
+        didSet {
+            guard oldValue != isVertical else { return }
+            applyOrientation()
+        }
+    }
+
     private let stack: UIStackView = {
         let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.spacing = 2
+        sv.axis = .vertical  // default = vertical (iPhone)
+        sv.spacing = 4       // gap-1 = 4pt
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
     private var buttons: [UIButton] = []
+
+    /// Height constraint for horizontal mode (h-9 = 36pt), deactivated in vertical mode.
+    private var horizontalHeightConstraint: NSLayoutConstraint?
+    /// Stack height == self height minus p-1 insets; only active in horizontal mode.
+    private var stackHeightConstraint: NSLayoutConstraint?
 
     init(titles: [String]) {
         super.init(frame: .zero)
@@ -2250,27 +2261,23 @@ private final class HTabBar: UIView {
         layer.cornerRadius = 8   // rounded-lg
         clipsToBounds = true
 
-        addSubview(scrollView)
-        scrollView.addSubview(stack)
+        addSubview(stack)
 
+        // Stack pinned with p-1 (4pt) insets on all sides
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
 
         for (i, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
-            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
-            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+            // text-sm = 14px, font-medium (inactive default)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            // px-8 (32pt) py-1 (4pt) — matches web trigger overrides
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 32, bottom: 4, right: 32)
             btn.layer.cornerRadius = 6   // rounded-md
             btn.clipsToBounds = true
             btn.tag = i
@@ -2279,19 +2286,28 @@ private final class HTabBar: UIView {
             buttons.append(btn)
         }
         updateSelection()
+        applyOrientation()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Natural width = sum of all button intrinsic widths + inter-button spacing + 8pt
-    /// scrollView insets (4pt each side).  This lets Auto Layout size the muted container
-    /// to fit its content rather than stretching it to the full available width, so the
-    /// dark bg ends right after the last tab button on both iPhone and iPad.
+    /// Calculates intrinsic content size based on orientation.
+    /// Vertical: width = widest button + 8pt insets, height = sum of button heights + spacing + 8pt
+    /// Horizontal: width = sum of button widths + spacing + 8pt, height = noIntrinsicMetric (set by constraint)
     override var intrinsicContentSize: CGSize {
-        let totalButtonWidth = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
-        let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
-        let width = totalButtonWidth + totalSpacing + 8   // 8 = 2 × 4pt scrollView insets
-        return CGSize(width: width, height: UIView.noIntrinsicMetric)
+        if isVertical {
+            let maxButtonWidth = buttons.reduce(CGFloat(0)) { max($0, $1.intrinsicContentSize.width) }
+            let totalButtonHeight = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.height }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = maxButtonWidth + 8     // 2 × 4pt p-1 insets
+            let height = totalButtonHeight + totalSpacing + 8
+            return CGSize(width: width, height: height)
+        } else {
+            let totalButtonWidth = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = totalButtonWidth + totalSpacing + 8
+            return CGSize(width: width, height: UIView.noIntrinsicMetric)
+        }
     }
 
     @objc private func tabTapped(_ sender: UIButton) {
@@ -2308,11 +2324,37 @@ private final class HTabBar: UIView {
             if i == selectedIndex {
                 btn.backgroundColor = accentColor
                 btn.setTitleColor(contrastColor, for: .normal)
+                // data-[state=active]:font-bold
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
             } else {
                 btn.backgroundColor = .clear
                 btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
+                // font-medium (inactive)
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
             }
         }
+    }
+
+    /// Configures stack axis, spacing, and constraints for vertical/horizontal mode.
+    private func applyOrientation() {
+        if isVertical {
+            // Web: flex-col gap-1 max-w-72 w-full
+            stack.axis = .vertical
+            stack.spacing = 4  // gap-1 = 4pt
+            horizontalHeightConstraint?.isActive = false
+            stackHeightConstraint?.isActive = false
+        } else {
+            // Web: h-9 items-center justify-center, inline-flex
+            stack.axis = .horizontal
+            stack.spacing = 0  // no gap between horizontal tabs (p-1 container provides separation)
+            // h-9 = 36pt total height (includes p-1 insets)
+            if horizontalHeightConstraint == nil {
+                horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
+            }
+            horizontalHeightConstraint?.isActive = true
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 }
 
@@ -2368,7 +2410,8 @@ class AnimeDetailViewController: UIViewController {
 
     // Custom HTabBar — replaces UISegmentedControl.
     // Shape: bg-muted container rounded-lg (8pt), tabs rounded-md (6pt). NOT a pill.
-    // Position: full-width with 16pt horizontal inset (reverted from centered).
+    // Web +page.svelte: vertical on iPhone (< 480px), horizontal on iPad (≥ 480px).
+    // Container: justify-center on iPhone, md:justify-start on iPad.
     private lazy var tabBar: HTabBar = {
         let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes"])
         bar.onChange = { [weak self] index in
@@ -2378,25 +2421,68 @@ class AnimeDetailViewController: UIViewController {
         return bar
     }()
 
+    /// Constraints toggled between iPhone/iPad tab bar layout.
+    /// iPhone (vertical): centered, max-w-72, no leading pin
+    /// iPad (horizontal): leading-pinned, shrink-to-fit, height=36
+    private var tabBarCenterXConstraint: NSLayoutConstraint?
+    private var tabBarLeadingConstraint: NSLayoutConstraint?
+    private var tabBarMaxWidthConstraint: NSLayoutConstraint?
+    private var tabBarWidthFillConstraint: NSLayoutConstraint?
+    private var tabBarTrailingConstraint: NSLayoutConstraint?
+
     private lazy var tabBarContainer: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tabBar)
-        // tabBar is pinned to the leading edge and capped at the trailing edge.
-        // intrinsicContentSize makes it shrink-to-fit the buttons; lessThanOrEqualTo
-        // allows it to grow up to the full available width when tabs overflow (scrollable).
+
+        // Always-active constraints: top/bottom padding
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
             tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
-            tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
-            // lessThanOrEqualTo: lets tabBar shrink to its intrinsicContentSize (buttons only),
-            // while still allowing it to grow up to the full width when tabs overflow (scrollable).
-            tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16),
-            tabBar.heightAnchor.constraint(equalToConstant: 36), // h-9 = 36pt
         ])
+
+        // iPhone (vertical): centered, max-w-72 (288pt), w-full (up to max)
+        // Web: <div class='flex justify-center md:justify-start'>
+        //      <Tabs.List> → flex-col gap-1 max-w-72 w-full
+        tabBarCenterXConstraint = tabBar.centerXAnchor.constraint(equalTo: v.centerXAnchor)
+        tabBarMaxWidthConstraint = tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 288) // max-w-72
+        // Fill width minus padding (soft, breaks if maxWidth is smaller)
+        tabBarWidthFillConstraint = tabBar.widthAnchor.constraint(equalTo: v.widthAnchor, constant: -32)
+        tabBarWidthFillConstraint?.priority = .defaultHigh
+
+        // iPad (horizontal): leading-pinned, shrink-to-fit
+        // Web: md:justify-start → leading alignment
+        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16)
+        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16)
+
         return v
     }()
+
+    /// Applies the correct tab bar orientation and container layout for the current size class.
+    /// Called from viewDidLoad, viewWillTransition, or when size class changes.
+    private func applyTabBarLayoutForSizeClass() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+
+        // Toggle HTabBar orientation
+        tabBar.isVertical = !isRegular
+
+        if isRegular {
+            // iPad: horizontal tabs, left-aligned (md:justify-start)
+            tabBarCenterXConstraint?.isActive = false
+            tabBarMaxWidthConstraint?.isActive = false
+            tabBarWidthFillConstraint?.isActive = false
+            tabBarLeadingConstraint?.isActive = true
+            tabBarTrailingConstraint?.isActive = true
+        } else {
+            // iPhone: vertical tabs, centered (justify-center), max-w-72
+            tabBarLeadingConstraint?.isActive = false
+            tabBarTrailingConstraint?.isActive = false
+            tabBarCenterXConstraint?.isActive = true
+            tabBarMaxWidthConstraint?.isActive = true
+            tabBarWidthFillConstraint?.isActive = true
+        }
+    }
 
     // Section indices — section 0 holds the header (banner + cover + text + tab bar);
     // sections 1–4 match Hayase +page.svelte tabs: Episodes | Relations | Threads | Themes.
@@ -2415,6 +2501,7 @@ class AnimeDetailViewController: UIViewController {
 
         setupTableView()
         setupHeaderView()
+        applyTabBarLayoutForSizeClass()
         fetchEpisodes()
         fetchRelationsAndCharacters()
         fetchAniListProgress()
@@ -2442,6 +2529,15 @@ class AnimeDetailViewController: UIViewController {
         nb?.setBackgroundImage(nil, for: .default)
         nb?.shadowImage = nil
         nb?.tintColor = nil
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            applyTabBarLayoutForSizeClass()
+            // Reload the header cell so auto layout picks up the new tab bar size
+            tableView.reloadSections(IndexSet(integer: Section.header.rawValue), with: .none)
+        }
     }
 
 
