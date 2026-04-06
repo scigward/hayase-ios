@@ -29,6 +29,7 @@ struct AnimeItem {
     var synonyms: [String] = []         // media.synonyms from AniList — used for extension title matching
     var year: Int? = nil             // media.seasonYear from AniList
     var startYear: Int? = nil        // media.startDate.year — fallback when seasonYear is null (matches small.svelte)
+    var season: String? = nil        // media.season from AniList (WINTER, SPRING, SUMMER, FALL)
     var format: String? = nil        // media.format from AniList (TV, MOVIE, OVA, etc.)
     var duration: Int? = nil         // media.duration from AniList — episode duration in minutes
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
@@ -129,6 +130,7 @@ public class AnimeService: NSObject {
         let favourites: Int?
         let trailer: Trailer?
         let seasonYear: Int?
+        let season: String?
         let format: String?
         let synonyms: [String]?
         struct StartDate: Codable { let year: Int? }
@@ -376,6 +378,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -403,6 +406,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -457,6 +461,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
@@ -525,6 +530,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
@@ -557,6 +563,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -585,6 +592,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -637,6 +645,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
@@ -700,6 +709,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
@@ -733,6 +743,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -804,6 +815,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
@@ -836,6 +848,7 @@ public class AnimeService: NSObject {
           duration
           status
           seasonYear
+          season
           format
           startDate { year }
           favourites
@@ -888,6 +901,7 @@ public class AnimeService: NSObject {
                     description: desc,
                     synonyms: media.synonyms ?? [],
                     year: media.seasonYear,
+                    season: media.season,
                     startYear: media.startDate?.year,
                     format: media.format,
                     duration: media.duration,
