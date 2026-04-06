@@ -3426,6 +3426,10 @@ extension AnimeDetailViewController: UITableViewDataSource {
                     tabBarContainer.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
                     tabBarContainer.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
                 ])
+                // Apply tab bar layout NOW — the lazy var init above created the constraint
+                // references (tabBarCenterXConstraint etc.) that were still nil when
+                // applyTabBarLayoutForSizeClass() ran earlier in viewDidLoad().
+                applyTabBarLayoutForSizeClass()
             }
             // Pre-set label widths so auto layout computes correct multi-line heights
             headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
@@ -3706,10 +3710,11 @@ extension AnimeDetailViewController {
         cell.backgroundColor = .clear
         cell.selectionStyle = .default
 
-        // bg-neutral-950 card
+        // bg-neutral-950 card — web: rounded-md (6pt), max-h-28 (112pt)
         let card = UIView()
         card.backgroundColor = UIColor(white: 0.039, alpha: 1)
-        card.layer.cornerRadius = 8
+        card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
+        card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
@@ -3737,12 +3742,12 @@ extension AnimeDetailViewController {
         footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Category badges
+        // Category badges — web: inline-flex flex-wrap gap-2
         let accentColor = animeItem.flatMap { item in
             ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
         let badgeStack = UIStackView()
         badgeStack.axis = .horizontal
-        badgeStack.spacing = 4
+        badgeStack.spacing = 8  // gap-2 = 8pt
         badgeStack.translatesAutoresizingMaskIntoConstraints = false
         for cat in thread.categories.prefix(3) {
             let badge = ThreadBadgeLabel()
@@ -3767,24 +3772,29 @@ extension AnimeDetailViewController {
         let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
 
         NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
-            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
+            // gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+            // max-h-28 = 112pt max card height
+            card.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
 
+            // Web inner: py-3 (12pt top/bottom) px-4 (16pt left/right)
             titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
 
             statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
 
-            footerLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            // Footer pushed to bottom (mt-auto)
+            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             footerLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
 
             badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
-            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
         ])
         return cell
     }
@@ -3803,17 +3813,19 @@ extension AnimeDetailViewController {
         cell.backgroundColor = .clear
         cell.selectionStyle = .none
 
-        // bg-neutral-950 card
+        // bg-neutral-950 card — web: rounded-md (6pt)
         let card = UIView()
         card.backgroundColor = UIColor(white: 0.039, alpha: 1)
-        card.layer.cornerRadius = 8
+        card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
+        card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
         // Vertical stack inside card: header row + entry rows
+        // Web: gap-4 = 16pt, text-xs base
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 16  // gap-4 = 16pt
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(stack)
 
@@ -3823,7 +3835,7 @@ extension AnimeDetailViewController {
 
         let typeLabel = UILabel()
         typeLabel.text = theme.type
-        typeLabel.font = .nunito(ofSize: 11, weight: .bold)
+        typeLabel.font = .nunito(ofSize: 12, weight: .bold)  // text-xs = 0.75rem = 12pt
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
@@ -3831,14 +3843,14 @@ extension AnimeDetailViewController {
         let songLabel = UILabel()
         let songTitle = NSMutableAttributedString(
             string: theme.songTitle,
-            attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
+            attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white])  // text-base font-bold
         if !theme.artists.isEmpty {
             songTitle.append(NSAttributedString(
                 string: " by ",
-                attributes: [.font: UIFont.nunito(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+                attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))  // text-xs font-medium
             songTitle.append(NSAttributedString(
                 string: theme.artists,
-                attributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
+                attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))  // text-base (inherits from parent) - but web actually shows same
         }
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
@@ -3866,14 +3878,14 @@ extension AnimeDetailViewController {
 
             let verLabel = UILabel()
             verLabel.text = "v\(entry.version)"
-            verLabel.font = .nunito(ofSize: 11)
+            verLabel.font = .nunito(ofSize: 12)  // text-xs = 12pt
             verLabel.textColor = UIColor(white: 0.5, alpha: 1)
             verLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
             epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
-            epLabel.font = .nunito(ofSize: 11)
+            epLabel.font = .nunito(ofSize: 12)  // text-xs = 12pt
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(epLabel)
@@ -3914,14 +3926,16 @@ extension AnimeDetailViewController {
         let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
 
         NSLayoutConstraint.activate([
+            // gap-2 = 8pt between theme cards (4+4)
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: themeSidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -themeSidePad),
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            // Web: px-7 (28pt) py-4 (16pt) internal card padding
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -28),
         ])
         return cell
     }
@@ -3943,8 +3957,8 @@ private var themeURLKey = "themeURL"
 /// add visual padding around text — we must override `drawText(in:)` and
 /// `intrinsicContentSize` to properly inset badge text inside its background.
 private final class ThreadBadgeLabel: UILabel {
-    let hPad: CGFloat = 6   // horizontal padding
-    let vPad: CGFloat = 2   // vertical padding
+    let hPad: CGFloat = 12  // px-3 = 12pt horizontal padding
+    let vPad: CGFloat = 2   // py-0.5 = 2pt vertical padding
 
     override var intrinsicContentSize: CGSize {
         let base = super.intrinsicContentSize
