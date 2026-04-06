@@ -1217,7 +1217,7 @@ private final class AnimeInfoHeaderView: UIView {
         let v = UIView()
         v.isUserInteractionEnabled = false
         let gradient = CAGradientLayer()
-        let bgColor = UIColor(white: 0.04, alpha: 1)   // --background dark, same as app bg
+        let bgColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
@@ -1482,7 +1482,7 @@ private final class AnimeInfoHeaderView: UIView {
     // • iPad (regular): flex-row items-end (cover left, text right), badges/description visible
 
     private func setup() {
-        backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
 
         // Genres scrollview (centered on mobile)
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1751,7 +1751,7 @@ private final class AnimeInfoHeaderView: UIView {
         // Web desktop: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
         // We approximate with CAGradientLayer — on desktop shift the center-point right (59% vs 50%)
         if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
-            let bgColor = UIColor(white: 0.04, alpha: 1)
+            let bgColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
             if isRegular {
                 // Desktop radial-gradient emulation: less darkening at top-right, more at bottom/edges
                 gradientLayer.type = .radial
@@ -2476,7 +2476,7 @@ class AnimeDetailViewController: UIViewController {
 
     private lazy var tabBarContainer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        v.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tabBar)
 
@@ -2541,7 +2541,7 @@ class AnimeDetailViewController: UIViewController {
         // Hayase anime/[id]/+layout.svelte has no navigation title — info is shown in the header
         title = nil
         navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        view.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
 
         setupTableView()
         setupHeaderView()
@@ -2599,7 +2599,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
-        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        tableView.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
         // Eliminate automatic section header/footer spacing that causes expanding gaps
         // between the tab bar and content cells (iOS 15+ adds ~22pt per section by default).
         if #available(iOS 15.0, *) {
