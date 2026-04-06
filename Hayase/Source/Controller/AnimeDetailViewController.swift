@@ -1575,14 +1575,24 @@ private final class AnimeInfoHeaderView: UIView {
         descriptionLabel.textAlignment = isRegular ? .left : .center
 
         // --- Font sizes ---
-        // Hayase: text-base md:text-lg (romaji), text-3xl md:text-4xl (title)
+        // Hayase: text-base md:text-lg (romaji), text-3xl md:text-4xl (title), text-sm md:text-md (desc)
         romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
         titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
+        descriptionLabel.font = isRegular ? .nunito(ofSize: 16, weight: .light) : .nunito(ofSize: 14, weight: .light)
 
         // --- Badges & description visibility ---
         // Hayase: hidden md:flex / md:block hidden
         badgesScrollView.isHidden = !isRegular
         descriptionLabel.isHidden = !isRegular
+
+        // Custom spacing around badges/description on iPad (md:pt-1 before badges, md:pt-2 before description)
+        if isRegular {
+            textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
+            textColumn.setCustomSpacing(14, after: badgesScrollView) // gap-1.5 + md:pt-2
+        } else {
+            textColumn.setCustomSpacing(6, after: titleLabel)
+            textColumn.setCustomSpacing(6, after: badgesScrollView)
+        }
 
         // --- textColumn width constraint ---
         // On compact, textColumn.width == coverAndTextColumn.width (needed for label wrapping with .center alignment).
@@ -1630,7 +1640,11 @@ private final class AnimeInfoHeaderView: UIView {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
             applyLayoutForSizeClass()
+            // Force an immediate layout pass so the parent table view cell
+            // picks up the new intrinsic height on the next measurement.
             setNeedsLayout()
+            layoutIfNeeded()
+            invalidateIntrinsicContentSize()
         }
     }
 
