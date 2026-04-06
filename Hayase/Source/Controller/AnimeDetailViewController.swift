@@ -1120,7 +1120,8 @@ private final class AnimeInfoHeaderView: UIView {
     private var storedAccentColor: UIColor = .white
 
     private var anilistId: Int?
-    private var malId: Int?
+    /// MAL ID — currently not populated (AnimeItem doesn't include it), so malButton stays hidden.
+    fileprivate var malId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
     private(set) var displayedBannerURL: String?
 
@@ -2367,11 +2368,12 @@ class AnimeDetailViewController: UIViewController {
             self.present(safari, animated: true)
         }
         headerView.onOpenMAL = { [weak self] in
-            // MAL ID not currently stored in AnimeItem; this is a placeholder
-            // for when MAL support is added.
+            // MAL ID not currently available in AnimeItem — the malButton is always
+            // hidden via malId == nil in applyLayoutForSizeClass(). This callback is
+            // wired up as a placeholder for future MAL support.
             guard let self = self else { return }
-            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
-            guard let id, let url = URL(string: "https://myanimelist.net/anime/\(id)") else { return }
+            guard let malId = self.headerView?.malId,
+                  let url = URL(string: "https://myanimelist.net/anime/\(malId)") else { return }
             let safari = SFSafariViewController(url: url)
             self.present(safari, animated: true)
         }
@@ -2925,7 +2927,9 @@ class AnimeDetailViewController: UIViewController {
                     // Just show the trailer button
                     self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
                 }
-                // Store the trailer ID on the item so it's available for future use
+                // Store the trailer ID on the item so the onPlayTrailer closure
+                // (which reads self.animeItem?.trailerYouTubeID) picks it up.
+                // Safe because animeItem is a `var` struct property on this class.
                 self.animeItem?.trailerYouTubeID = trailerID
             }
         }
