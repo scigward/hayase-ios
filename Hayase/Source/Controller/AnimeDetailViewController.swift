@@ -1257,7 +1257,7 @@ private final class AnimeInfoHeaderView: UIView {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
-        b.setTitle(" Watch Now", for: .normal)
+        b.setTitle("Watch Now", for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
@@ -1867,9 +1867,9 @@ private final class AnimeInfoHeaderView: UIView {
     func updatePlayButtonTitle(listStatus: String?) {
         let text: String
         switch listStatus {
-        case "CURRENT", "REPEATING", "PAUSED": text = " Continue"
-        case "COMPLETED":                       text = " Rewatch"
-        default:                                text = " Watch Now"
+        case "CURRENT", "REPEATING", "PAUSED": text = "Continue"
+        case "COMPLETED":                       text = "Rewatch"
+        default:                                text = "Watch Now"
         }
         playButton.setTitle(text, for: .normal)
     }
