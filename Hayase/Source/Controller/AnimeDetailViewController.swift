@@ -1063,7 +1063,8 @@ private final class ChipWrapView: UIView {
             let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
             let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
             let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
-            return textW + 24  // px-3 = 12pt each side
+            let hPad = btn.contentEdgeInsets.left + btn.contentEdgeInsets.right
+            return textW + (hPad > 0 ? hPad : 32)  // px-4 = 16pt each side
         }
         return chip.intrinsicContentSize.width
     }
@@ -1333,29 +1334,46 @@ private final class AnimeInfoHeaderView: UIView {
     }()
 
     // AniList button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    // Uses the same AniListIconView from TrackerIcons (matching the accounts tab in settings)
     private let anilistButton: UIButton = {
-        let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        // "a.circle.fill" SF Symbol approximates the AniList "A" logo
-        b.setImage(UIImage(systemName: "a.circle.fill")?.withConfiguration(iconCfg), for: .normal)
-        b.tintColor = .white
+        let b = UIButton(type: .custom)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         b.isHidden = true  // hidden on mobile, shown on iPad
+        // Add AniListIconView as a centered subview
+        let icon = AniListIconView(frame: .zero)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
+        b.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
+        ])
         return b
     }()
 
     // MAL button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    // Uses the same MALIconView from TrackerIcons (matching the accounts tab in settings)
     private let malButton: UIButton = {
-        let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "m.circle.fill")?.withConfiguration(iconCfg), for: .normal)
-        b.tintColor = .white
+        let b = UIButton(type: .custom)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         b.isHidden = true  // hidden on mobile, shown on iPad when MAL ID available
+        // Add MALIconView as a centered subview
+        let icon = MALIconView(frame: .zero)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
+        b.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
+        ])
         return b
     }()
 
