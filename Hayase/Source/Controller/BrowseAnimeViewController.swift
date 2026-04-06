@@ -62,9 +62,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
     // Banner height: 70% on iPhone, 80% on iPad — matches web h-[70vh] md:h-[80vh]
-    // Called from the VC's makeHomeLayout() with the VC's actual trait collection.
-    static func bannerHeight(isRegular: Bool) -> CGFloat {
-        return UIScreen.main.bounds.height * (isRegular ? 0.80 : 0.70)
+    // viewHeight should be the VC's view.bounds.height for multi-window correctness.
+    static func bannerHeight(isRegular: Bool, viewHeight: CGFloat) -> CGFloat {
+        return viewHeight * (isRegular ? 0.80 : 0.70)
     }
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
@@ -1193,7 +1193,8 @@ class BrowseAnimeViewController: UIViewController {
 
     private func makeHomeLayout() -> UICollectionViewLayout {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular)
+        let viewH = view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height
+        let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular, viewHeight: viewH)
         return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
             if sectionIndex == 0 {
                 // Featured hero banner — full-width, bannerHeight tall, no orthogonal scroll
