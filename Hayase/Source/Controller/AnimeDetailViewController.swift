@@ -3850,7 +3850,7 @@ extension AnimeDetailViewController {
                 attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))  // text-xs font-medium
             songTitle.append(NSAttributedString(
                 string: theme.artists,
-                attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))  // text-base (inherits from parent) - but web actually shows same
+                attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))  // text-base font-bold (same as song title)
         }
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
