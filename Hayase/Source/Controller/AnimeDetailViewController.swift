@@ -1138,6 +1138,16 @@ private final class AnimeInfoHeaderView: UIView {
     /// Content top offset switches between compact (-200) and regular (-260) to match web md:pt-32
     private var contentTopConstraint: NSLayoutConstraint?
 
+    /// Flexible spacer added to the trailing end of actionsRow on iPad.
+    /// Absorbs extra horizontal space so buttons pack to the left (web: md:justify-start).
+    private let actionsTrailingSpacer: UIView = {
+        let v = UIView()
+        // Lowest possible hugging — this view stretches before anything else.
+        v.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
+        v.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
+        return v
+    }()
+
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
@@ -1607,11 +1617,11 @@ private final class AnimeInfoHeaderView: UIView {
         }
 
         // --- Text column alignment & spacing ---
-        // Web: flex flex-col gap-4 items-center md:items-start justify-end w-full
-        // The gap-4 (16pt) is between the text column children; gap-1.5 (6pt) is inside
-        // the inner title wrapper (h2+h1+badges).
+        // Web: flex flex-col gap-1.5 text-center md:text-start w-full
+        // The inner text div has w-full, so children fill the container width.
+        // UIKit equivalent: .fill alignment + textAlignment for visual alignment.
         if isRegular {
-            textColumn.alignment = .leading  // md:items-start
+            textColumn.alignment = .fill  // w-full — labels fill available width; textAlignment handles left-alignment
             textColumn.spacing = 6  // gap-1.5 (inner)
             // md:pt-1 (4pt) before badges, md:pt-2 (8pt) before description
             textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
@@ -1652,11 +1662,13 @@ private final class AnimeInfoHeaderView: UIView {
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
 
         // --- Action button order ---
+        // Remove spacer from superview first (removeArrangedSubview doesn't remove from superview)
+        actionsTrailingSpacer.removeFromSuperview()
         for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
 
         if isRegular {
-            // Desktop order: PlayCombo (md:mr-3) → Favorite → Bookmark → Share → Trailer → AniList → MAL
-            // Web: md:justify-start md:self-start
+            // Desktop order: PlayCombo (md:mr-3) → Favorite → Bookmark → Share → Trailer → AniList → MAL → Spacer
+            // Web: md:justify-start md:self-start — spacer absorbs trailing space
             actionsRow.addArrangedSubview(playCombo)
             actionsRow.addArrangedSubview(favoriteButton)
             actionsRow.addArrangedSubview(bookmarkButton)
@@ -1664,6 +1676,7 @@ private final class AnimeInfoHeaderView: UIView {
             actionsRow.addArrangedSubview(trailerButton)
             actionsRow.addArrangedSubview(anilistButton)
             actionsRow.addArrangedSubview(malButton)
+            actionsRow.addArrangedSubview(actionsTrailingSpacer)
             // Web: md:mr-3 (12pt extra right margin) on play combo
             actionsRow.setCustomSpacing(20, after: playCombo) // 8 (gap-2) + 12 (md:mr-3)
             // Show AniList/MAL on iPad (hidden md:flex)
@@ -1718,13 +1731,36 @@ private final class AnimeInfoHeaderView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+        let currentSC = traitCollection.horizontalSizeClass
+        if previousTraitCollection?.horizontalSizeClass != currentSC {
+            lastAppliedSizeClass = currentSC
             applyLayoutForSizeClass()
             // Force an immediate layout pass so the parent table view cell
             // picks up the new intrinsic height on the next measurement.
             setNeedsLayout()
             layoutIfNeeded()
             invalidateIntrinsicContentSize()
+        }
+    }
+
+    /// Tracks which size class the layout was last configured for.
+    /// Prevents redundant calls to applyLayoutForSizeClass() while ensuring
+    /// the layout is always applied at least once after the view enters the window.
+    private var lastAppliedSizeClass: UIUserInterfaceSizeClass?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // When the view first enters a window, traitCollection becomes valid.
+        // Re-apply layout in case setup() ran with .unspecified size class.
+        if window != nil {
+            let currentSC = traitCollection.horizontalSizeClass
+            if lastAppliedSizeClass != currentSC {
+                lastAppliedSizeClass = currentSC
+                applyLayoutForSizeClass()
+                setNeedsLayout()
+                layoutIfNeeded()
+                invalidateIntrinsicContentSize()
+            }
         }
     }
 
