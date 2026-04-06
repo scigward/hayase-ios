@@ -412,10 +412,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Description: lg:line-clamp-3 lg:text-sm (0.875rem = 14pt)
             descriptionLabel.numberOfLines = 3
             descriptionLabel.font = .nunito(ofSize: 14)
-            // Description max-width: lg:max-w-[75%]
+            // Description max-width: lg:max-w-[75%] of right column
             descriptionMaxWidthConstraint.isActive = false
             descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.375) // 75% of right column = ~37.5% of full
+                lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.375) // 75% of right column (37.5% of full width, since columns are 50/50)
             descriptionMaxWidthConstraint.isActive = true
             // Column padding: lg:pl-5 = 20pt left, lg:pr-5 = 20pt right
             columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
