@@ -2669,13 +2669,18 @@ class AnimeDetailViewController: UIViewController {
 
     // MARK: - iPad two-column grid helpers
 
+    /// Web grid constants matching `grid-cols-[repeat(auto-fit,minmax(500px,1fr))]`:
+    private static let gridOuterPad: CGFloat = 56    // xl:px-14 — outer padding on each side
+    private static let gridMinColWidth: CGFloat = 500 // minmax(500px, 1fr)
+    private static let episodeGap: CGFloat = 16       // gap-x-4 between episode columns
+    private static let threadGap: CGFloat = 40        // gap-x-10 between thread columns
+
     /// Number of columns for the episodes grid. Two columns when table width ≥ 1128pt
     /// (2 × 500pt min-col + 16pt gap-x-4 + 2 × 56pt xl:px-14 outer padding).
     private var episodeColumnCount: Int {
-        let gridWidth = tableView.frame.width - 2 * 56
-        let minColWidth: CGFloat = 500
-        let gap: CGFloat = 16
-        if traitCollection.horizontalSizeClass == .regular && gridWidth >= 2 * minColWidth + gap {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap {
             return 2
         }
         return 1
@@ -2684,10 +2689,9 @@ class AnimeDetailViewController: UIViewController {
     /// Number of columns for the threads grid. Two columns when table width ≥ 1152pt
     /// (2 × 500pt min-col + 40pt gap-x-10 + 2 × 56pt xl:px-14 outer padding).
     private var threadColumnCount: Int {
-        let gridWidth = tableView.frame.width - 2 * 56
-        let minColWidth: CGFloat = 500
-        let gap: CGFloat = 40
-        if traitCollection.horizontalSizeClass == .regular && gridWidth >= 2 * minColWidth + gap {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.threadGap {
             return 2
         }
         return 1
