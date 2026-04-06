@@ -43,28 +43,17 @@ private final class PaddedLabel: UILabel {
     }
 }
 
-// MARK: - EpisodeCell
-// Matches Hayase's EpisodesList.svelte exactly:
-// • bg-neutral-950 (#0a0a0a) card, rounded-md (8pt), max-h-28 (112pt)
-// • Image: left 50%, max-w-52 (208pt) — 16:9 aspect inside
-// • Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
-// • Title: font-bold text-[12.8px] — "{episode}. {title}"
-// • Progress: h-0.5 (2pt) bg-custom (blue approximation) when in progress
-// • Summary: text-[9.6px] text-muted-foreground (#a1a1aa)
-// • Airdate: text-[9.6px] pt-2
+// MARK: - EpisodeCardView
+// Reusable card view extracted from EpisodeCell. Contains all the episode card content
+// (thumbnail, badges, labels, progress bar). Used by both EpisodeCell (single-column)
+// and EpisodePairCell (two-column iPad grid).
 
-private final class EpisodeCell: UITableViewCell {
-    static let reuseID = "AniDetailEpCell"
+private final class EpisodeCardView: UIView {
 
-    // bg-neutral-950 = #0a0a0a
-    private let cardView: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
-        v.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
-        v.clipsToBounds = true
-        return v
-    }()
+    var onTap: ((Int) -> Void)?
+    private var episodeNumber: Int = 0
 
+    // bg-neutral-950 = #0a0a0a — the card IS this view
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -73,52 +62,44 @@ private final class EpisodeCell: UITableViewCell {
         return iv
     }()
 
-    // Runtime badge: absolute bottom-left, bg-neutral-900/80, px-1 py-0.5 rounded
-    // Mirrors web: <div class='… text-[9.6px] px-1 py-0.5 rounded'>
     private let runtimeBadge: PaddedLabel = {
         let l = PaddedLabel()
         l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
-        l.layer.cornerRadius = 4 // rounded = 0.25rem = 4pt
+        l.textColor = UIColor(white: 0.98, alpha: 1)
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
+        l.layer.cornerRadius = 4
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Rating badge: absolute bottom-right of thumb, ★ + rating value, px-1 py-0.5 rounded
-    // Mirrors web: <Star class='size-2.5 … text-yellow-400' fill='currentColor' /> {rating}
     private let ratingBadge: PaddedLabel = {
         let l = PaddedLabel()
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4) // py-0.5 px-1
-        l.layer.cornerRadius = 4 // rounded = 4pt
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
+        l.layer.cornerRadius = 4
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Filler badge: absolute bottom-right of card content, bg-yellow-400, rounded-tl
-    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 py-1 px-2 absolute bottom-0 right-0'>Filler</div>
     private let fillerBadge: PaddedLabel = {
         let l = PaddedLabel()
         l.text = "Filler"
         l.font = .nunito(ofSize: 9.6, weight: .bold)
-        l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
-        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
-        // py-1 (4pt top/bottom) px-2 (8pt left/right) — exact Tailwind spacing
+        l.textColor = UIColor(white: 0.04, alpha: 1)
+        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1)
         l.contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         l.layer.cornerRadius = 4
-        l.layer.maskedCorners = [.layerMinXMinYCorner] // rounded-tl only
+        l.layer.maskedCorners = [.layerMinXMinYCorner]
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Title: font-bold text-[12.8px] line-clamp-1
     private let numberLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 12.8, weight: .bold)
@@ -127,31 +108,27 @@ private final class EpisodeCell: UITableViewCell {
         return l
     }()
 
-    // Progress bar: h-0.5 (2pt) bg-custom — shown when episode in progress
     private let progressBar: UIView = {
         let outer = UIView()
-        outer.backgroundColor = UIColor(white: 0.16, alpha: 1) // track = neutral-800
+        outer.backgroundColor = UIColor(white: 0.16, alpha: 1)
         return outer
     }()
     private let progressFill: UIView = {
         let v = UIView()
-        v.backgroundColor = .white   // approximates bg-custom (cover color)
+        v.backgroundColor = .white
         return v
     }()
     private var progressFillWidthConstraint: NSLayoutConstraint?
-    /// Stored fraction for deferred layout — updated in layoutSubviews once bounds are valid.
     private var savedProgressFraction: Double = 0
 
-    // Summary: text-[9.6px] text-muted-foreground
     private let overviewLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
+        l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 3
         return l
     }()
 
-    // Airdate: text-[9.6px]
     private let metaLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
@@ -159,8 +136,7 @@ private final class EpisodeCell: UITableViewCell {
         return l
     }()
 
-    // Mirrors web `since()` — Intl.RelativeTimeFormat('en', { numeric: 'always' })
-    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+    static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .full
         f.dateTimeStyle = .numeric
@@ -171,8 +147,8 @@ private final class EpisodeCell: UITableViewCell {
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         setup()
     }
 
@@ -181,27 +157,18 @@ private final class EpisodeCell: UITableViewCell {
         setup()
     }
 
-    /// Stored leading/trailing constraints for iPad vs iPhone adaptive padding.
-    /// iPhone: px-3 (12pt) from cell edge — matches web EpisodesList.svelte card wrapper `px-3`.
-    /// iPad:   xl:px-14 (56pt parent) + px-3 (12pt card) = 68pt from cell edge.
-    private var cardLeadingConstraint: NSLayoutConstraint?
-    private var cardTrailingConstraint: NSLayoutConstraint?
-
     private func setup() {
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(cardView)
+        backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
+        layer.cornerRadius = 6
+        clipsToBounds = true
 
         [thumbImageView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            cardView.addSubview($0)
+            addSubview($0)
         }
         fillerBadge.translatesAutoresizingMaskIntoConstraints = false
-        cardView.addSubview(fillerBadge)
+        addSubview(fillerBadge)
 
-        // Progress bar: thin 2pt line
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         progressFill.translatesAutoresizingMaskIntoConstraints = false
         progressBar.addSubview(progressFill)
@@ -213,7 +180,6 @@ private final class EpisodeCell: UITableViewCell {
             progressFill.leadingAnchor.constraint(equalTo: progressBar.leadingAnchor),
         ])
 
-        // Spacer pushes metaLabel to bottom of text column (web: `mt-auto` on date row)
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
         spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
@@ -221,86 +187,63 @@ private final class EpisodeCell: UITableViewCell {
         let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
-        // Title has mb-2 (8pt) before the progress bar / overview — web: `font-bold mb-2`
         textStack.setCustomSpacing(8, after: numberLabel)
         textStack.translatesAutoresizingMaskIntoConstraints = false
-        cardView.addSubview(textStack)
+        addSubview(textStack)
 
-        // Thumbnail width: w-1/2 (50%) + shrink-0.
-        // Priority 999 (below required) lets the max-w-52 cap win on iPad without a
-        // constraint conflict (required == 50% vs required <= 208 when card > 416pt).
-        // On iPhone the 50% value (≈183pt) satisfies both constraints; no collapse risk
-        // because top/bottom/leading constraints are explicit and drive the layout.
-        let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
+        let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
         thumbWidthPreferred.priority = UILayoutPriority(999)
-        let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
-
-        // Card side padding: starts at iPhone default (12pt).
-        // Updated in applyPaddingForSizeClass() for iPad (68pt = xl:px-14 + px-3).
-        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
-        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+        let episodeThumbnailMaxWidth: CGFloat = 208
 
         NSLayoutConstraint.activate([
-            // Card: gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            cardLeadingConstraint!,
-            cardTrailingConstraint!,
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
-            // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
-            cardView.heightAnchor.constraint(equalToConstant: 112),
+            heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, w-1/2 shrink-0 — always 50% wide even without an image loaded.
-            thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
-            thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
-            thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            thumbImageView.topAnchor.constraint(equalTo: topAnchor),
+            thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             thumbWidthPreferred,
             thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth),
 
-            // Runtime badge: bottom-left of thumb
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Rating badge: bottom-right of thumb (Hayase: absolute bottom-1 right-1)
             ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
             ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Text stack: py-3 (12pt top/bottom) px-4 (16pt left/right) matching web flex-col container
             textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -12),
+            textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
-            // Progress bar height: h-0.5 = 2pt
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 
-            // Filler badge: absolute bottom-right of card (rounded-tl only — set via maskedCorners)
-            fillerBadge.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
-            fillerBadge.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            fillerBadge.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fillerBadge.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        addGestureRecognizer(tap)
+    }
+
+    @objc private func cardTapped() {
+        onTap?(episodeNumber)
     }
 
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
                    accentColor: UIColor = .white, isListCompleted: Bool = false) {
+        episodeNumber = episode.number
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Web: `watched = _progress >= episode && !completed`
-        // When list is COMPLETED, no thumbnail dimming (web shows full opacity for all episodes).
         let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
-        cardView.alpha = 1.0
+        alpha = 1.0
 
-        // Progress fill uses the anime's accent color (bg-custom)
         progressFill.backgroundColor = accentColor
 
-        // Progress bar — mirrors web logic:
-        // • watched OR completed: full-width solid bg-custom bar, NO neutral track
-        // • in-progress (WatchProgressService has partial fraction): neutral-800 track + partial fill
-        // • otherwise: hidden
         let showFullBar = isWatchedOnAniList || isListCompleted
         if showFullBar {
-            // No track — match web `<div class='mb-2 h-0.5 overflow-hidden w-full bg-custom shrink-0' />`
             progressBar.backgroundColor = accentColor
             progressBar.isHidden = false
             savedProgressFraction = 1.0
@@ -308,7 +251,7 @@ private final class EpisodeCell: UITableViewCell {
         } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
-            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // neutral-800 track
+            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
             progressBar.isHidden = false
             savedProgressFraction = saved.fraction
             setNeedsLayout()
@@ -318,7 +261,7 @@ private final class EpisodeCell: UITableViewCell {
         }
 
         if let date = episode.airDate {
-            metaLabel.text = EpisodeCell.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
+            metaLabel.text = EpisodeCardView.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
             metaLabel.isHidden = false
         } else {
             metaLabel.isHidden = true
@@ -331,7 +274,6 @@ private final class EpisodeCell: UITableViewCell {
             runtimeBadge.isHidden = true
         }
 
-        // Rating badge: SF Symbol star.fill (yellow) + rating value — matches web <Star fill='currentColor' />
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
             let starAttachment = NSTextAttachment()
@@ -352,20 +294,18 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.isHidden = true
         }
 
-        // Border: filler overrides target (web: `!ring-yellow-400` uses !important)
-        // target = anilistProgress + 1 → ring-custom accent border (ring-1 = 1pt)
         let isTarget = !isListCompleted && episode.number == anilistProgress + 1
         if episode.isFiller {
-            cardView.layer.borderWidth = 1
-            cardView.layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor // yellow-400
+            layer.borderWidth = 1
+            layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor
             fillerBadge.isHidden = false
         } else if isTarget {
-            cardView.layer.borderWidth = 1
-            cardView.layer.borderColor = accentColor.cgColor // ring-custom
+            layer.borderWidth = 1
+            layer.borderColor = accentColor.cgColor
             fillerBadge.isHidden = true
         } else {
-            cardView.layer.borderWidth = 0
-            cardView.layer.borderColor = UIColor.clear.cgColor
+            layer.borderWidth = 0
+            layer.borderColor = UIColor.clear.cgColor
             fillerBadge.isHidden = true
         }
 
@@ -390,24 +330,13 @@ private final class EpisodeCell: UITableViewCell {
         }
     }
 
-    /// Updates card side padding to match web layout for the current size class.
-    /// iPhone (compact): px-3 (12pt) — web EpisodesList card wrapper `px-3`.
-    /// iPad (regular): xl:px-14 (56pt parent) + px-3 (12pt card) = 68pt from cell edge.
-    func applyPaddingForSizeClass(isRegular: Bool) {
-        let sidePad: CGFloat = isRegular ? 68 : 12
-        cardLeadingConstraint?.constant = sidePad
-        cardTrailingConstraint?.constant = -sidePad
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Update progress fill width once bounds are known (avoids async timing issue)
         guard !progressBar.isHidden, progressBar.bounds.width > 0 else { return }
         progressFillWidthConstraint?.constant = progressBar.bounds.width * CGFloat(savedProgressFraction)
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
+    func reset() {
         imageTask?.cancel()
         imageTask = nil
         currentImageURL = nil
@@ -418,14 +347,160 @@ private final class EpisodeCell: UITableViewCell {
         runtimeBadge.isHidden = true
         ratingBadge.isHidden = true
         fillerBadge.isHidden = true
-        cardView.layer.borderWidth = 0
-        cardView.layer.borderColor = UIColor.clear.cgColor
-        cardView.alpha = 1.0
+        layer.borderWidth = 0
+        layer.borderColor = UIColor.clear.cgColor
+        alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
-        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1) // reset to neutral-800 track
+        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
+        episodeNumber = 0
+        onTap = nil
+    }
+}
+
+// MARK: - EpisodeCell
+// Single-column episode cell wrapping an EpisodeCardView.
+
+private final class EpisodeCell: UITableViewCell {
+    static let reuseID = "AniDetailEpCell"
+
+    let cardView = EpisodeCardView()
+    private var cardLeadingConstraint: NSLayoutConstraint?
+    private var cardTrailingConstraint: NSLayoutConstraint?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(cardView)
+
+        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            cardLeadingConstraint!,
+            cardTrailingConstraint!,
+        ])
+    }
+
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
+                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
+        cardView.configure(with: episode, anilistID: anilistID, anilistProgress: anilistProgress,
+                           accentColor: accentColor, isListCompleted: isListCompleted)
+    }
+
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        let sidePad: CGFloat = isRegular ? 68 : 12
+        cardLeadingConstraint?.constant = sidePad
+        cardTrailingConstraint?.constant = -sidePad
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        cardView.reset()
+    }
+}
+
+// MARK: - EpisodePairCell
+// Two-column episode cell for iPad landscape. Each row contains up to 2 EpisodeCardViews
+// in a horizontal stack, matching the web grid: grid-cols-[repeat(auto-fit,minmax(500px,1fr))]
+// with gap-x-4 (16pt) and px-3 (12pt) card wrappers.
+
+private final class EpisodePairCell: UITableViewCell {
+    static let reuseID = "EpisodePairCell"
+
+    let leftCard = EpisodeCardView()
+    let rightCard = EpisodeCardView()
+    var onTapEpisode: ((Int) -> Void)?
+
+    private let stack = UIStackView()
+    private let leftContainer = UIView()
+    private let rightContainer = UIView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 16 // gap-x-4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        leftCard.translatesAutoresizingMaskIntoConstraints = false
+        rightCard.translatesAutoresizingMaskIntoConstraints = false
+
+        leftContainer.addSubview(leftCard)
+        rightContainer.addSubview(rightCard)
+        stack.addArrangedSubview(leftContainer)
+        stack.addArrangedSubview(rightContainer)
+        contentView.addSubview(stack)
+
+        // 56pt leading/trailing (xl:px-14), 14pt top/bottom (gap-y-7 / 2)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            // Each card has px-3 (12pt) inset within its container
+            leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
+            leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
+            leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12),
+            leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12),
+            rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
+            rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
+            rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12),
+            rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12),
+        ])
+    }
+
+    func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
+                   accentColor: UIColor, isListCompleted: Bool) {
+        leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
+                           accentColor: accentColor, isListCompleted: isListCompleted)
+        leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
+
+        if let right = right {
+            rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
+                                accentColor: accentColor, isListCompleted: isListCompleted)
+            rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
+            rightContainer.isHidden = false
+        } else {
+            rightCard.reset()
+            rightContainer.isHidden = true
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        leftCard.reset()
+        rightCard.reset()
+        rightContainer.isHidden = false
+        onTapEpisode = nil
     }
 }
 
@@ -2584,6 +2659,40 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        // Column count may change on rotation or Stage Manager resize even without a size class change
+        coordinator.animate(alongsideTransition: { _ in
+            self.tableView.reloadData()
+        })
+    }
+
+    // MARK: - iPad two-column grid helpers
+
+    /// Number of columns for the episodes grid. Two columns when table width ≥ 1128pt
+    /// (2 × 500pt min-col + 16pt gap-x-4 + 2 × 56pt xl:px-14 outer padding).
+    private var episodeColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * 56
+        let minColWidth: CGFloat = 500
+        let gap: CGFloat = 16
+        if traitCollection.horizontalSizeClass == .regular && gridWidth >= 2 * minColWidth + gap {
+            return 2
+        }
+        return 1
+    }
+
+    /// Number of columns for the threads grid. Two columns when table width ≥ 1152pt
+    /// (2 × 500pt min-col + 40pt gap-x-10 + 2 × 56pt xl:px-14 outer padding).
+    private var threadColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * 56
+        let minColWidth: CGFloat = 500
+        let gap: CGFloat = 40
+        if traitCollection.horizontalSizeClass == .regular && gridWidth >= 2 * minColWidth + gap {
+            return 2
+        }
+        return 1
+    }
+
 
     // MARK: - Setup
 
@@ -2593,6 +2702,8 @@ class AnimeDetailViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
+        tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
+        tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PaginationCell")
@@ -3381,14 +3492,19 @@ extension AnimeDetailViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .header:    return 1
-        case .episodes:  return activeSection == .episodes  ? paginatedEpisodes.count : 0
+        case .episodes:
+            if activeSection != .episodes { return 0 }
+            let cols = episodeColumnCount
+            return (paginatedEpisodes.count + cols - 1) / cols
         case .episodePagination:
             // Show pagination bar when episodes tab is active and there are more than 1 page
             return (activeSection == .episodes && totalEpisodePages > 1) ? 1 : 0
         case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
         case .threads:
             if activeSection != .threads { return 0 }
-            return threadsLoading ? 1 : max(threads.count, 1)  // 1 for loading/empty state
+            if threadsLoading || threads.isEmpty { return 1 }
+            let cols = threadColumnCount
+            return (threads.count + cols - 1) / cols
         case .themes:
             if activeSection != .themes { return 0 }
             return themesLoading ? 1 : max(themes.count, 1)
@@ -3436,16 +3552,36 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return cell
 
         case .episodes:
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
-                return UITableViewCell()
-            }
+            let cols = episodeColumnCount
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
-            let ep = paginatedEpisodes[indexPath.row]
-            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
-                           accentColor: currentAnimeAccent, isListCompleted: currentListStatus == "COMPLETED")
-            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
-            return cell
+            let isCompleted = currentListStatus == "COMPLETED"
+            if cols >= 2 {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: EpisodePairCell.reuseID, for: indexPath) as? EpisodePairCell else {
+                    return UITableViewCell()
+                }
+                let leftIdx = indexPath.row * 2
+                let rightIdx = leftIdx + 1
+                let leftEp = paginatedEpisodes[leftIdx]
+                let rightEp = rightIdx < paginatedEpisodes.count ? paginatedEpisodes[rightIdx] : nil
+                cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
+                               anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
+                               isListCompleted: isCompleted)
+                cell.onTapEpisode = { [weak self] epNumber in
+                    self?.openExtensionSearch(episode: epNumber)
+                }
+                return cell
+            } else {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
+                    return UITableViewCell()
+                }
+                let ep = paginatedEpisodes[indexPath.row]
+                cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
+                               accentColor: currentAnimeAccent, isListCompleted: isCompleted)
+                cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
+                return cell
+            }
 
         case .episodePagination:
             let cell = tableView.dequeueReusableCell(withIdentifier: "PaginationCell", for: indexPath)
@@ -3480,8 +3616,30 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return cell
 
         case .threads:
-            let cell = makeThreadCell(for: indexPath)
-            return cell
+            let cols = threadColumnCount
+            if cols >= 2 && !threadsLoading && !threads.isEmpty {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: ThreadPairCell.reuseID, for: indexPath) as? ThreadPairCell else {
+                    return UITableViewCell()
+                }
+                let accentColor = animeItem.flatMap { item in
+                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
+                let leftIdx = indexPath.row * 2
+                let rightIdx = leftIdx + 1
+                let leftThread = threads[leftIdx]
+                let rightThread = rightIdx < threads.count ? threads[rightIdx] : nil
+                cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
+                cell.onTapThread = { [weak self] threadID in
+                    guard let self = self else { return }
+                    guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
+                    let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                    self.navigationController?.pushViewController(threadVC, animated: true)
+                }
+                return cell
+            } else {
+                let cell = makeThreadCell(for: indexPath)
+                return cell
+            }
 
         case .themes:
             let cell = makeThemeCell(for: indexPath)
@@ -3544,9 +3702,13 @@ extension AnimeDetailViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         switch Section(rawValue: indexPath.section) {
         case .episodes:
+            // In two-column mode, taps are handled by EpisodePairCell's onTapEpisode closure
+            if episodeColumnCount >= 2 { break }
             let ep = paginatedEpisodes[indexPath.row]
             openExtensionSearch(episode: ep.number)
         case .threads:
+            // In two-column mode, taps are handled by ThreadPairCell's onTapThread closure
+            if threadColumnCount >= 2 { break }
             guard !threadsLoading, !threads.isEmpty else { return }
             let thread = threads[indexPath.row]
             let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
@@ -3600,6 +3762,209 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
             withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
         detailVC.animeItem = relation.media
         navigationController?.pushViewController(detailVC, animated: true)
+    }
+}
+
+// MARK: - ThreadCardView
+// Reusable thread card view used by both makeThreadCell (single-column) and
+// ThreadPairCell (two-column iPad grid). Matches the web thread card layout.
+
+private final class ThreadCardView: UIView {
+
+    var onTap: ((Int) -> Void)?
+    private var threadID: Int = 0
+
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12.8, weight: .bold)
+        l.textColor = .white
+        l.numberOfLines = 1
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let statsLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.6, alpha: 1)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return l
+    }()
+
+    private let footerLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.5, alpha: 1)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let badgeStack: UIStackView = {
+        let s = UIStackView()
+        s.axis = .horizontal
+        s.spacing = 8
+        s.translatesAutoresizingMaskIntoConstraints = false
+        return s
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = UIColor(white: 0.039, alpha: 1)
+        layer.cornerRadius = 6
+        clipsToBounds = true
+
+        addSubview(titleLabel)
+        addSubview(statsLabel)
+        addSubview(footerLabel)
+        addSubview(badgeStack)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+
+            statsLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            statsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+
+            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+
+            badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
+            badgeStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        addGestureRecognizer(tap)
+    }
+
+    @objc private func cardTapped() {
+        onTap?(threadID)
+    }
+
+    func configure(with thread: AniListThread, accentColor: UIColor) {
+        threadID = thread.id
+        titleLabel.text = thread.title
+        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
+
+        var footerParts = [thread.sinceString]
+        if let name = thread.userName { footerParts.append("by \(name)") }
+        footerLabel.text = footerParts.joined(separator: " · ")
+
+        // Clear old badges
+        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let contrastColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+        for cat in thread.categories.prefix(3) {
+            let badge = ThreadBadgeLabel()
+            badge.text = cat
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
+            badge.textColor = contrastColor
+            badge.backgroundColor = accentColor
+            badge.layer.cornerRadius = 4
+            badge.clipsToBounds = true
+            badge.textAlignment = .center
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badgeStack.addArrangedSubview(badge)
+        }
+    }
+
+    func reset() {
+        titleLabel.text = nil
+        statsLabel.text = nil
+        footerLabel.text = nil
+        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        threadID = 0
+        onTap = nil
+    }
+}
+
+// MARK: - ThreadPairCell
+// Two-column thread cell for iPad landscape. Matches web grid:
+// grid-cols-[repeat(auto-fit,minmax(500px,1fr))] with gap-x-10 (40pt).
+// Thread cards sit directly in grid cells (no px-3 wrapper).
+
+private final class ThreadPairCell: UITableViewCell {
+    static let reuseID = "ThreadPairCell"
+
+    let leftCard = ThreadCardView()
+    let rightCard = ThreadCardView()
+    var onTapThread: ((Int) -> Void)?
+
+    private let stack = UIStackView()
+    private let rightContainer = UIView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 40 // gap-x-10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        leftCard.translatesAutoresizingMaskIntoConstraints = false
+        rightCard.translatesAutoresizingMaskIntoConstraints = false
+
+        rightContainer.addSubview(rightCard)
+        stack.addArrangedSubview(leftCard)
+        stack.addArrangedSubview(rightContainer)
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            // Right card fills its container (no px-3 wrapper for threads)
+            rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
+            rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
+            rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor),
+            rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
+        ])
+    }
+
+    func configure(left: AniListThread, right: AniListThread?, accentColor: UIColor) {
+        leftCard.configure(with: left, accentColor: accentColor)
+        leftCard.onTap = { [weak self] id in self?.onTapThread?(id) }
+
+        if let right = right {
+            rightCard.configure(with: right, accentColor: accentColor)
+            rightCard.onTap = { [weak self] id in self?.onTapThread?(id) }
+            rightContainer.isHidden = false
+        } else {
+            rightCard.reset()
+            rightContainer.isHidden = true
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        leftCard.reset()
+        rightCard.reset()
+        rightContainer.isHidden = false
+        onTapThread = nil
     }
 }
 
