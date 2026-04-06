@@ -2346,7 +2346,7 @@ private final class HTabBar: UIView {
         } else {
             // Web: h-9 items-center justify-center, inline-flex
             stack.axis = .horizontal
-            stack.spacing = 0  // no gap between horizontal tabs (p-1 container provides separation)
+            stack.spacing = 0  // Web tabs have no explicit gap; p-1 container insets provide visual separation
             // h-9 = 36pt total height (includes p-1 insets)
             if horizontalHeightConstraint == nil {
                 horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
