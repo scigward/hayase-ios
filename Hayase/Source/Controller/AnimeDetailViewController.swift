@@ -2092,9 +2092,9 @@ private final class AnimeInfoHeaderView: UIView {
         entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
 
-        // Build season string matching web season(): "winter 2024" (lowercase season + year)
+        // Build season string matching web season() + CSS capitalize: "Spring 2024" (capitalized season + year)
         let seasonStr: String? = {
-            let szn = item.season?.lowercased()  // AniList WINTER→winter etc.
+            let szn = item.season?.capitalized  // AniList WINTER→Winter, SPRING→Spring etc.
             let yr = item.year ?? item.startYear
             let parts = [szn, yr.map { String($0) }].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: " ")
@@ -2216,7 +2216,7 @@ private final class AnimeInfoHeaderView: UIView {
             badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
         }
 
-        // Badge 4: season(media) — web: "winter 2024" (lowercase season + year)
+        // Badge 4: season(media) — web: "Spring 2024" (CSS capitalize on lowercase season + year)
         if let szn = season, !szn.isEmpty {
             badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor))
         }

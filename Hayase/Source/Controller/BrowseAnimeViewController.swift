@@ -250,8 +250,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private let rightColumn = UIStackView()
 
     // Stored constraints toggled between iPhone/iPad layouts
-    private var clearlogoHeightCompact: NSLayoutConstraint!
-    private var clearlogoHeightRegular: NSLayoutConstraint!
+    // Clearlogo uses width constraints (web: w-[30rem] = 480pt on iPad, capped for mobile)
+    private var clearlogoWidthCompact: NSLayoutConstraint!
+    private var clearlogoWidthRegular: NSLayoutConstraint!
 
     // MARK: Init
 
@@ -339,9 +340,15 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         dotsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dotsStack)
 
-        // Clearlogo constraints: 60pt on iPhone, 100pt on iPad (web: w-[30rem] = ~480pt)
-        clearlogoHeightCompact = clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 60)
-        clearlogoHeightRegular = clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 100)
+        // Clearlogo constraints: WIDTH-based like web w-[30rem] (480pt)
+        // Web: image is inside a w-[900px] max-w-[85%] parent, so effectively limited to 85% of column
+        // iPhone: capped at ~250pt width; iPad: up to 480pt (w-[30rem])
+        clearlogoWidthCompact = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 250)
+        clearlogoWidthRegular = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
+
+        // Also limit clearlogo to 85% of columnsStack width (matches web max-w-[85%] parent)
+        let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
+            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.85)
 
         // Title max-width: web max-w-[85%] — relative to columnsStack width
         titleMaxWidthConstraint = titleLabel.widthAnchor.constraint(
@@ -371,6 +378,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
             titleMaxWidthConstraint,
             descriptionMaxWidthConstraint,
+            clearlogoMaxWidthPct,
 
             buttonRow.widthAnchor.constraint(equalToConstant: 280),
             playButton.heightAnchor.constraint(equalToConstant: 36),
@@ -394,6 +402,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // iPad layout — web lg: breakpoint
             columnsStack.axis = .horizontal
             columnsStack.spacing = 0
+            // Web: right column has self-end — aligns to bottom of the grid row
+            columnsStack.alignment = .bottom
             leftColumn.alignment = .leading       // lg:items-start
             titleLabel.textAlignment = .left       // lg:text-left
             titleLabel.font = .nunito(ofSize: 36, weight: .black) // lg:text-4xl = 2.25rem = 36pt
@@ -406,9 +416,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             rightColumn.isHidden = false
             // pt-4 = 16pt spacing between description and genres in right column
             rightColumn.setCustomSpacing(16, after: descriptionLabel)
-            // Clearlogo sizing
-            clearlogoHeightCompact.isActive = false
-            clearlogoHeightRegular.isActive = true
+            // Clearlogo sizing: web w-[30rem] = 480pt
+            clearlogoWidthCompact.isActive = false
+            clearlogoWidthRegular.isActive = true
             // Description: lg:line-clamp-3 lg:text-sm (0.875rem = 14pt)
             descriptionLabel.numberOfLines = 3
             descriptionLabel.font = .nunito(ofSize: 14)
@@ -424,6 +434,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // iPhone layout — web mobile
             columnsStack.axis = .vertical
             columnsStack.spacing = 0
+            columnsStack.alignment = .fill
             leftColumn.alignment = .center         // items-center
             titleLabel.textAlignment = .center      // text-center
             titleLabel.font = .nunito(ofSize: 30, weight: .black) // text-3xl = 1.875rem = 30pt
@@ -435,9 +446,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             leftColumn.addArrangedSubview(descriptionLabel)
             rightColumn.isHidden = true
             genresStack.isHidden = true
-            // Clearlogo sizing
-            clearlogoHeightRegular.isActive = false
-            clearlogoHeightCompact.isActive = true
+            // Clearlogo sizing: smaller on iPhone
+            clearlogoWidthRegular.isActive = false
+            clearlogoWidthCompact.isActive = true
             // Description: text-xs (0.75rem = 12pt) line-clamp-2
             descriptionLabel.numberOfLines = 2
             descriptionLabel.font = .nunito(ofSize: 12)
@@ -652,8 +663,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         var badges: [(String, UIColor)] = []
 
         // First badge: episode count or duration or 'N/A'
-        if let eps = item.episodes, eps > 0 {
-            badges.append(("\(eps) eps", customColor))
+        // Web of(): returns "<count> Episodes" or "<prog> / <count> Episodes", undefined if count === 1
+        if let eps = item.episodes, eps > 1 {
+            badges.append(("\(eps) Episodes", customColor))
         } else if let dur = item.duration, dur > 0 {
             badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor))
         } else {
@@ -678,8 +690,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
 
         // Season badge (if available)
+        // Web: season().toLowerCase() + CSS capitalize → "Spring 2024", "Winter 2025", etc.
         if let season = item.season, let year = item.year {
-            badges.append(("\(season.lowercased()) \(year)", customColor))
+            badges.append(("\(season.capitalized) \(year)", customColor))
         }
 
         // Score badge: color-coded text per getTextColorForRating
