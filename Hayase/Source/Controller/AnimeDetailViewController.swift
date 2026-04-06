@@ -43,6 +43,13 @@ private final class PaddedLabel: UILabel {
     }
 }
 
+// MARK: - Shared color constants
+// Page background: web --background: hsl(240 10% 3.9%) = #09090b
+// Card background: web bg-neutral-950 = #0a0a0a — but that's only 1/255 different from page bg,
+// invisible on OLED. We use #141414 to match the VISUAL contrast seen on LCD web displays.
+private let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
+private let hayaseCardBackground = UIColor(white: 20/255.0, alpha: 1) // #141414
+
 // MARK: - EpisodeCardView
 // Reusable card view extracted from EpisodeCell. Contains all the episode card content
 // (thumbnail, badges, labels, progress bar). Used by both EpisodeCell (single-column)
@@ -158,9 +165,7 @@ private final class EpisodeCardView: UIView {
     }
 
     private func setup() {
-        // bg-neutral-950 on web (#0a0a0a) against page bg (#09090b) differs by only 1/255,
-        // invisible on OLED. Use #141414 to match the VISUAL contrast seen on LCD web displays.
-        backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
+        backgroundColor = hayaseCardBackground
         layer.cornerRadius = 6
         clipsToBounds = true
 
@@ -1294,7 +1299,7 @@ private final class AnimeInfoHeaderView: UIView {
         let v = UIView()
         v.isUserInteractionEnabled = false
         let gradient = CAGradientLayer()
-        let bgColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+        let bgColor = hayasePageBackground
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
@@ -1559,7 +1564,7 @@ private final class AnimeInfoHeaderView: UIView {
     // • iPad (regular): flex-row items-end (cover left, text right), badges/description visible
 
     private func setup() {
-        backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+        backgroundColor = hayasePageBackground
 
         // Genres scrollview (centered on mobile)
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1828,7 +1833,7 @@ private final class AnimeInfoHeaderView: UIView {
         // Web desktop: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
         // We approximate with CAGradientLayer — on desktop shift the center-point right (59% vs 50%)
         if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
-            let bgColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+            let bgColor = hayasePageBackground
             if isRegular {
                 // Desktop radial-gradient emulation: less darkening at top-right, more at bottom/edges
                 gradientLayer.type = .radial
@@ -2553,7 +2558,7 @@ class AnimeDetailViewController: UIViewController {
 
     private lazy var tabBarContainer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+        v.backgroundColor = hayasePageBackground
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tabBar)
 
@@ -2618,7 +2623,7 @@ class AnimeDetailViewController: UIViewController {
         // Hayase anime/[id]/+layout.svelte has no navigation title — info is shown in the header
         title = nil
         navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+        view.backgroundColor = hayasePageBackground
 
         setupTableView()
         setupHeaderView()
@@ -2716,7 +2721,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
-        tableView.backgroundColor = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1) // --background: hsl(240 10% 3.9%) = #09090b
+        tableView.backgroundColor = hayasePageBackground
         // Eliminate automatic section header/footer spacing that causes expanding gaps
         // between the tab bar and content cells (iOS 15+ adds ~22pt per section by default).
         if #available(iOS 15.0, *) {
@@ -3825,7 +3830,7 @@ private final class ThreadCardView: UIView {
     }
 
     private func setup() {
-        backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
+        backgroundColor = hayaseCardBackground
         layer.cornerRadius = 6
         clipsToBounds = true
 
@@ -4083,7 +4088,7 @@ extension AnimeDetailViewController {
 
         // bg-neutral-950 card — web: rounded-md (6pt), max-h-28 (112pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
+        card.backgroundColor = hayaseCardBackground
         card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -4186,7 +4191,7 @@ extension AnimeDetailViewController {
 
         // bg-neutral-950 card — web: rounded-md (6pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
+        card.backgroundColor = hayaseCardBackground
         card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
