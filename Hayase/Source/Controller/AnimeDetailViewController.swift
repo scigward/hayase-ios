@@ -1112,14 +1112,24 @@ private final class AnimeInfoHeaderView: UIView {
     var onEntryEditor: (() -> Void)?
     var onFavorite: (() -> Void)?
     var onBookmark: (() -> Void)?
+    var onOpenAniList: (() -> Void)?
+    var onOpenMAL: (() -> Void)?
 
     /// Accent colour from the current anime's coverImage — used to tint active fav/bookmark icons.
     /// Mirrors Hayase's `select:!text-custom` on FavoriteButton / BookmarkButton.
     private var storedAccentColor: UIColor = .white
 
     private var anilistId: Int?
+    private var malId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
     private(set) var displayedBannerURL: String?
+
+    // MARK: - Stored layout references for iPad/iPhone switching
+    private var coverAndTextColumn: UIStackView!
+    private var textColumn: UIStackView!
+    private var actionsRow: UIStackView!
+    private var contentStack: UIStackView!
+    private var playCombo: UIStackView!
 
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
@@ -1316,6 +1326,33 @@ private final class AnimeInfoHeaderView: UIView {
         return b
     }()
 
+    // AniList button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    private let anilistButton: UIButton = {
+        let b = UIButton(type: .system)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        // "globe" SF Symbol approximates the AniList icon
+        b.setImage(UIImage(systemName: "a.circle.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 6
+        b.layer.masksToBounds = true
+        b.isHidden = true  // hidden on mobile, shown on iPad
+        return b
+    }()
+
+    // MAL button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    private let malButton: UIButton = {
+        let b = UIButton(type: .system)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "m.circle.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 6
+        b.layer.masksToBounds = true
+        b.isHidden = true  // hidden on mobile, shown on iPad when MAL ID available
+        return b
+    }()
+
     // Genres: variant='secondary' h-7 (28pt) text-nowrap rounded-md
     private let genresStack: UIStackView = {
         let sv = UIStackView()
@@ -1355,21 +1392,12 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     // MARK: - Layout
-    // Matches Hayase +layout.svelte mobile layout exactly:
-    // • flex-col items-center (vertical, centered)
-    // • Cover 180×256 on top
-    // • Text centered below: romaji (h2), title (h1)
-    // • Badges: hidden on mobile (hidden md:flex)
-    // • Description: hidden on mobile (md:block hidden)
-    // • Buttons: Bookmark → Favorite → [Play + EntryEditor] → Share → Trailer
-    // • Genres centered
+    // Matches Hayase +layout.svelte layout:
+    // • iPhone (compact): flex-col items-center (vertical, centered), badges/description hidden
+    // • iPad (regular): flex-row items-end (cover left, text right), badges/description visible
 
     private func setup() {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
-
-        // Badges & description HIDDEN on mobile — Hayase: hidden md:flex / md:block hidden
-        badgesScrollView.isHidden = true
-        descriptionLabel.isHidden = true
 
         // Genres scrollview (centered on mobile)
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1383,77 +1411,76 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Text labels: centered on mobile (Hayase: text-center md:text-start)
-        romajiLabel.textAlignment = .center
-        titleLabel.textAlignment = .center
+        // Badges inside scrollview
+        badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
+        badgesStack.translatesAutoresizingMaskIntoConstraints = false
+        badgesScrollView.addSubview(badgesStack)
+        NSLayoutConstraint.activate([
+            badgesStack.topAnchor.constraint(equalTo: badgesScrollView.topAnchor),
+            badgesStack.bottomAnchor.constraint(equalTo: badgesScrollView.bottomAnchor),
+            badgesStack.leadingAnchor.constraint(equalTo: badgesScrollView.leadingAnchor),
+            badgesStack.trailingAnchor.constraint(equalTo: badgesScrollView.trailingAnchor),
+            badgesStack.heightAnchor.constraint(equalTo: badgesScrollView.heightAnchor),
+        ])
 
-        // Text column: [romajiLabel, titleLabel] — gap-1.5 (6pt)
-        // Hayase: flex flex-col gap-1.5 text-center
-        let textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel])
+        // Text column: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel]
+        // Badges and description are hidden on iPhone (hidden md:flex / md:block hidden)
+        textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel])
         textColumn.axis = .vertical
-        textColumn.spacing = 6
-        textColumn.alignment = .fill  // fill so labels can center their text
+        textColumn.spacing = 6   // gap-1.5
+        textColumn.alignment = .fill
 
-        // Cover + text: VERTICAL on mobile (Hayase: flex-col items-center)
-        // gap-4 (16pt) between items in the text section, gap-5 (20pt) between cover and text
-        let coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
+        // Cover + text
+        coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
         coverAndTextColumn.axis = .vertical
-        coverAndTextColumn.spacing = 16  // gap-4 (items-center flex-col gap-4)
-        coverAndTextColumn.alignment = .center  // items-center
+        coverAndTextColumn.spacing = 16
+        coverAndTextColumn.alignment = .center
 
-        // Action buttons: Hayase mobile order (≥380px):
-        // BookmarkButton(-order-2) → FavoriteButton(-order-1) → [Play + EntryEditor] → Share → Trailer
+        // Action buttons
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         entryEditorButton.addTarget(self, action: #selector(entryEditorTapped), for: .touchUpInside)
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
+        anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
+        malButton.addTarget(self, action: #selector(malTapped), for: .touchUpInside)
 
-        // Play + EntryEditor combo (Hayase: flex w-[180px], play rounded-r-none + editor rounded-l-none)
-        let playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
+        // Play + EntryEditor combo
+        playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
         playCombo.axis = .horizontal
-        playCombo.spacing = 0  // flush — play rounded-r-none, editor rounded-l-none
+        playCombo.spacing = 0
         playCombo.alignment = .fill
-        // Low hugging so playCombo fills available space; low compression so it can shrink
-        // when the trailer button is also visible on narrow iPhones (SE = 375pt).
         playCombo.setContentHuggingPriority(.defaultLow, for: .horizontal)
         playCombo.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        // Hayase mobile: gap-2 (8pt), items-center, justify-center, overflow-x-clip, [&>*]:flex-shrink-0
-        let actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton])
+        // Actions row — initial mobile order; applyLayoutForSizeClass() reorders for iPad
+        actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton, anilistButton, malButton])
         actionsRow.axis = .horizontal
         actionsRow.spacing = 8  // gap-2
         actionsRow.alignment = .fill
 
-        // Genres: gap-2, items-center, justify-center (centered on mobile)
-        // Compact (iPhone): centered horizontal scroll — genresScrollView
-        // Regular (iPad):   left-aligned wrapping   — chipWrapView
+        // Genres container
         genresContainer.addSubview(genresScrollView)
         chipWrapView.translatesAutoresizingMaskIntoConstraints = false
         genresContainer.addSubview(chipWrapView)
         NSLayoutConstraint.activate([
-            // Scroll view (compact): centered, clips to container width
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
             genresScrollView.widthAnchor.constraint(equalTo: genresContainer.widthAnchor),
-            // Wrap view (regular): left-aligned, full width
             chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
             chipWrapView.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
         ])
-        // Create the two switchable constraints once; applyGenresLayout toggles isActive
         genresContainerHeightConstraint = genresContainer.heightAnchor.constraint(equalToConstant: 28)
         chipWrapBottomConstraint = chipWrapView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor)
 
-        // Main content: [coverAndTextColumn, actionsRow, genresContainer]
-        // Hayase: gap-6 (24pt) between major sections, px-3 (12pt) horizontal padding
-        let contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
+        // Main content stack
+        contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
         contentStack.axis = .vertical
         contentStack.spacing = 24  // gap-6
         contentStack.isLayoutMarginsRelativeArrangement = true
-        // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (tabBarContainer has own padding)
         contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
 
         [bannerImageView, bannerGradientView, contentStack].forEach {
@@ -1474,7 +1501,7 @@ private final class AnimeInfoHeaderView: UIView {
             bannerGradientView.trailingAnchor.constraint(equalTo: bannerImageView.trailingAnchor),
             bannerGradientView.bottomAnchor.constraint(equalTo: bannerImageView.bottomAnchor),
 
-            // Cover: w-[180px] h-[256px] — exact Hayase dimensions
+            // Cover: w-[180px] h-[256px]
             coverImageView.widthAnchor.constraint(equalToConstant: 180),
             coverImageView.heightAnchor.constraint(equalToConstant: 256),
 
@@ -1485,49 +1512,125 @@ private final class AnimeInfoHeaderView: UIView {
             entryEditorButton.widthAnchor.constraint(equalToConstant: 36),
             shareButton.widthAnchor.constraint(equalToConstant: 36),
             trailerButton.widthAnchor.constraint(equalToConstant: 36),
+            anilistButton.widthAnchor.constraint(equalToConstant: 36),
+            malButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Play combo: max-w-[180px], flex-shrinks to fit on narrow iPhones (SE = 375pt).
-            // Mirrors web `w-full min-[380px]:w-[180px] !shrink` — button fills available space
-            // up to 180pt, compressing below 180pt when the trailer button is also visible.
+            // Play combo: max width 180pt, flex-shrinks on narrow screens
             playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
 
-            // Hayase: text column has w-full so it fills the parent width even
-            // though the parent (coverAndTextColumn) uses items-center (.center).
-            // Without this, textColumn takes its intrinsic width (the text's
-            // natural width), which may exceed the screen width for long titles.
-            // The label then computes 1-line intrinsic height, the header is
-            // sized too short, and the title gets clipped.
-            textColumn.widthAnchor.constraint(equalTo: coverAndTextColumn.widthAnchor),
+            // Badges scroll view: h-6 (24pt)
+            badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
 
-            // Content stack: overlaps banner so cover image sits within banner area.
-            // Hayase: content starts at pt-4 + pt-12 = 64pt from scroll top, but on iOS we
-            // need clearance below the nav bar (~88pt). Overlap -200 puts content at 100pt
-            // from top, with 16pt margin → cover at 116pt (within the 300pt banner).
+            // Content stack positioning
             contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        // Apply initial genres layout based on current trait collection
-        applyGenresLayout()
+        // textColumn width must match parent for proper label wrapping.
+        // On compact (vertical), it matches coverAndTextColumn width.
+        // On regular (horizontal), textColumn fills remaining space via .fill alignment.
+        textColumnWidthConstraint = textColumn.widthAnchor.constraint(equalTo: coverAndTextColumn.widthAnchor)
+        textColumnWidthConstraint?.isActive = true
+
+        // Apply initial layout based on current trait collection
+        applyLayoutForSizeClass()
     }
 
-    // Switch between compact (scroll) and regular (wrap) genres layout.
-    // compact:  genresScrollView centered, genresContainer height fixed to 28pt (h-7)
-    // regular:  chipWrapView left-aligned, genresContainer self-sizes via intrinsicContentSize
-    private func applyGenresLayout() {
+    /// Constraint toggled between compact/regular — only active on compact (vertical) layout.
+    private var textColumnWidthConstraint: NSLayoutConstraint?
+
+    // MARK: - Adaptive layout (iPhone compact vs iPad regular)
+
+    /// Switches the entire header layout between compact (iPhone) and regular (iPad) mode.
+    /// Compact: cover on top, text centered below, badges/description hidden, mobile button order.
+    /// Regular: cover on left, text right (bottom-aligned), badges/description visible, desktop button order.
+    private func applyLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
+
+        // --- Genres layout (existing) ---
         genresScrollView.isHidden = isRegular
         chipWrapView.isHidden = !isRegular
         genresContainerHeightConstraint?.isActive = !isRegular
         chipWrapBottomConstraint?.isActive = isRegular
+
+        // --- Cover + text axis ---
+        if isRegular {
+            // iPad: cover left, text right, bottom-aligned (md:flex-row md:items-end)
+            coverAndTextColumn.axis = .horizontal
+            coverAndTextColumn.spacing = 20  // gap-5
+            coverAndTextColumn.alignment = .bottom
+        } else {
+            // iPhone: cover on top, text below, centered (flex-col items-center)
+            coverAndTextColumn.axis = .vertical
+            coverAndTextColumn.spacing = 16  // gap-4
+            coverAndTextColumn.alignment = .center
+        }
+
+        // --- Text alignment ---
+        // Hayase: text-center md:text-start
+        romajiLabel.textAlignment = isRegular ? .left : .center
+        titleLabel.textAlignment = isRegular ? .left : .center
+        descriptionLabel.textAlignment = isRegular ? .left : .center
+
+        // --- Font sizes ---
+        // Hayase: text-base md:text-lg (romaji), text-3xl md:text-4xl (title)
+        romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
+        titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
+
+        // --- Badges & description visibility ---
+        // Hayase: hidden md:flex / md:block hidden
+        badgesScrollView.isHidden = !isRegular
+        descriptionLabel.isHidden = !isRegular
+
+        // --- textColumn width constraint ---
+        // On compact, textColumn.width == coverAndTextColumn.width (needed for label wrapping with .center alignment).
+        // On regular, coverAndTextColumn uses .fill alignment inside horizontal axis, so disable the constraint.
+        textColumnWidthConstraint?.isActive = !isRegular
+
+        // --- Content stack padding ---
+        // Hayase: px-3 on mobile, px-3 xl:px-14 on desktop
+        let hPad: CGFloat = isRegular ? 20 : 12
+        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: hPad, bottom: 0, right: hPad)
+
+        // --- Action button order ---
+        // Remove all arranged subviews (doesn't remove from view hierarchy, just from stack arrangement)
+        for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
+
+        if isRegular {
+            // Desktop order: PlayCombo → Favorite → Bookmark → Share → Trailer → AniList → MAL
+            // Hayase +layout.svelte: md:order-none resets to DOM order
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            // Show AniList/MAL on iPad (hidden md:flex)
+            anilistButton.isHidden = false
+            malButton.isHidden = (malId == nil)
+        } else {
+            // Mobile order (≥380px): Bookmark(-order-2) → Favorite(-order-1) → PlayCombo → Share → Trailer
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            // Also add AniList/MAL to the stack (hidden), so they stay managed
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            anilistButton.isHidden = true
+            malButton.isHidden = true
+        }
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
-            applyGenresLayout()
+            applyLayoutForSizeClass()
+            setNeedsLayout()
         }
     }
 
@@ -1538,18 +1641,20 @@ private final class AnimeInfoHeaderView: UIView {
             gradientLayer.frame = bannerGradientView.bounds
         }
 
-        // Tell multi-line labels the maximum width they may use when
-        // computing their intrinsic content size.  This is needed because
-        // coverAndTextColumn uses .center alignment, which does not impose
-        // a width on arranged subviews the way .fill does.  The explicit
-        // textColumn width constraint handles the *layout*, but
-        // preferredMaxLayoutWidth is what UILabel reads when Auto Layout
-        // calls intrinsicContentSize — without it the label can still
-        // report a single-line height.
-        let maxW = bounds.width - 24   // contentStack 12-pt left + right margins
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let hPad: CGFloat = isRegular ? 20 : 12
+        let maxW: CGFloat
+        if isRegular {
+            // On iPad with horizontal layout, the text column occupies the space
+            // to the right of the cover (180pt + spacing 20pt).
+            maxW = bounds.width - 2 * hPad - 180 - 20
+        } else {
+            maxW = bounds.width - 2 * hPad
+        }
         if maxW > 0 {
             titleLabel.preferredMaxLayoutWidth = maxW
             romajiLabel.preferredMaxLayoutWidth = maxW
+            descriptionLabel.preferredMaxLayoutWidth = maxW
         }
     }
 
@@ -1560,14 +1665,21 @@ private final class AnimeInfoHeaderView: UIView {
     /// return a single-line height; the header is then measured too short
     /// and the title text is clipped.
     func updateLabelWidths(forContainerWidth width: CGFloat) {
-        let maxW = width - 24   // contentStack 12-pt left + right margins
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let hPad: CGFloat = isRegular ? 20 : 12
+        let maxW: CGFloat
+        if isRegular {
+            maxW = width - 2 * hPad - 180 - 20
+        } else {
+            maxW = width - 2 * hPad
+        }
         guard maxW > 0 else { return }
         titleLabel.preferredMaxLayoutWidth = maxW
         romajiLabel.preferredMaxLayoutWidth = maxW
-        // Explicitly invalidate so the constraint engine picks up the
-        // updated intrinsic sizes during the next layout pass.
+        descriptionLabel.preferredMaxLayoutWidth = maxW
         titleLabel.invalidateIntrinsicContentSize()
         romajiLabel.invalidateIntrinsicContentSize()
+        descriptionLabel.invalidateIntrinsicContentSize()
     }
 
     // MARK: - Actions
@@ -1601,6 +1713,8 @@ private final class AnimeInfoHeaderView: UIView {
     @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
     @objc private func favoriteTapped()    { animateTap(favoriteButton);    onFavorite?() }
     @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
+    @objc private func anilistTapped()     { animateTap(anilistButton);     onOpenAniList?() }
+    @objc private func malTapped()         { animateTap(malButton);         onOpenMAL?() }
 
     /// Updates favorite/bookmark button icons to show filled/unfilled state.
     /// Mirrors interface: FavoriteButton fills heart + turns accent when fav(media) is true,
@@ -1850,6 +1964,11 @@ private final class AnimeInfoHeaderView: UIView {
     /// Shows the trailer button and genre chips that weren't available from CoreData.
     func updateGenresAndTrailer(genres: [String], trailerYouTubeID: String?) {
         setGenres(genres)
+        trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
+    /// Shows/hides the trailer button without touching genres.
+    func updateTrailerButton(trailerYouTubeID: String?) {
         trailerButton.isHidden = trailerYouTubeID == nil
     }
 
@@ -2225,6 +2344,22 @@ class AnimeDetailViewController: UIViewController {
         }
         headerView.onEntryEditor = { [weak self] in
             self?.showEntryEditor()
+        }
+        headerView.onOpenAniList = { [weak self] in
+            guard let self = self else { return }
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            guard let id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+        headerView.onOpenMAL = { [weak self] in
+            // MAL ID not currently stored in AnimeItem; this is a placeholder
+            // for when MAL support is added.
+            guard let self = self else { return }
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            guard let id, let url = URL(string: "https://myanimelist.net/anime/\(id)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
         }
 
         // Header view + tab bar are embedded in a regular table cell (section 0)
@@ -2761,11 +2896,23 @@ class AnimeDetailViewController: UIViewController {
             }
         }
 
-        // When opened from CoreData, animeItem is nil so trailer + genres were hidden.
-        // Fetch them from AniList now and update the header.
-        if animeItem == nil {
+        // Fetch trailer + genres from AniList when they aren't already available.
+        // CoreData entries never have trailer/genres; AnimeItems from relation cards
+        // also lack trailer data because the relations query doesn't include it.
+        if animeItem == nil || animeItem?.trailerYouTubeID == nil {
             AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres in
-                self?.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
+                guard let self else { return }
+                // Only update genres if the header doesn't already have them
+                // (e.g. from the AnimeItem configure path).
+                let needsGenres = self.animeItem == nil || self.animeItem?.genres.isEmpty == true
+                if needsGenres {
+                    self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
+                } else if let trailerID {
+                    // Just show the trailer button
+                    self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
+                }
+                // Store the trailer ID on the item so it's available for future use
+                self.animeItem?.trailerYouTubeID = trailerID
             }
         }
     }
