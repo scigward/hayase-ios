@@ -1262,6 +1262,8 @@ private final class AnimeInfoHeaderView: UIView {
         b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)  // text-sm = 14px
+        // Web: px-4 (16pt) horizontal padding + 4pt compensation for icon/title edge inset shifts
+        b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
         // mr-2 (8pt) spacing between icon and text
         b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
         b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
