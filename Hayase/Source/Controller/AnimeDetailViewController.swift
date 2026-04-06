@@ -1132,6 +1132,11 @@ private final class AnimeInfoHeaderView: UIView {
     private var contentStack: UIStackView!
     private var playCombo: UIStackView!
 
+    /// Width limiter for content on wide screens — matches web max-w-[1600px]
+    private var contentMaxWidthConstraint: NSLayoutConstraint?
+    /// Content top offset switches between compact (-200) and regular (-260) to match web md:pt-32
+    private var contentTopConstraint: NSLayoutConstraint?
+
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
     private static let secondary     = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
@@ -1521,11 +1526,20 @@ private final class AnimeInfoHeaderView: UIView {
 
             // Badges scroll view: h-6 (24pt)
             badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
+        ])
 
-            // Content stack positioning
-            contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        // Content stack positioning — managed constraint for compact/regular switching
+        contentTopConstraint = contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200)
+        contentTopConstraint?.isActive = true
+        // Center horizontally and constrain max width to 1600pt (web: max-w-[1600px])
+        contentMaxWidthConstraint = contentStack.widthAnchor.constraint(lessThanOrEqualToConstant: 1600)
+        contentMaxWidthConstraint?.isActive = true
+        // Prefer full width; breaks only when max-width takes over
+        let fullWidth = contentStack.widthAnchor.constraint(equalTo: widthAnchor)
+        fullWidth.priority = .defaultHigh  // breaks when maxWidth constraint activates
+        fullWidth.isActive = true
+        NSLayoutConstraint.activate([
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
@@ -1547,53 +1561,67 @@ private final class AnimeInfoHeaderView: UIView {
     /// Switches the entire header layout between compact (iPhone) and regular (iPad) mode.
     /// Compact: cover on top, text centered below, badges/description hidden, mobile button order.
     /// Regular: cover on left, text right (bottom-aligned), badges/description visible, desktop button order.
+    /// Matches web +layout.svelte: all responsive classes (md:*, xl:*).
     private func applyLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
 
-        // --- Genres layout (existing) ---
+        // --- Content top offset ---
+        // Web: pt-4 (16pt) on mobile, md:pt-32 (128pt) on desktop.
+        // The content overlaps into the banner. On desktop the overlap is deeper.
+        contentTopConstraint?.constant = isRegular ? -260 : -200
+
+        // --- Genres layout ---
         genresScrollView.isHidden = isRegular
         chipWrapView.isHidden = !isRegular
         genresContainerHeightConstraint?.isActive = !isRegular
         chipWrapBottomConstraint?.isActive = isRegular
 
         // --- Cover + text axis ---
+        // Web: flex-col md:flex-row w-full items-center md:items-end gap-5 pt-12
         if isRegular {
-            // iPad: cover left, text right, bottom-aligned (md:flex-row md:items-end)
             coverAndTextColumn.axis = .horizontal
             coverAndTextColumn.spacing = 20  // gap-5
-            coverAndTextColumn.alignment = .bottom
+            coverAndTextColumn.alignment = .bottom  // md:items-end
         } else {
-            // iPhone: cover on top, text below, centered (flex-col items-center)
             coverAndTextColumn.axis = .vertical
-            coverAndTextColumn.spacing = 16  // gap-4
-            coverAndTextColumn.alignment = .center
+            coverAndTextColumn.spacing = 16  // gap-4 (via items-center flex-col)
+            coverAndTextColumn.alignment = .center  // items-center
+        }
+
+        // --- Text column alignment & spacing ---
+        // Web: flex flex-col gap-4 items-center md:items-start justify-end w-full
+        // The gap-4 (16pt) is between the text column children; gap-1.5 (6pt) is inside
+        // the inner title wrapper (h2+h1+badges).
+        if isRegular {
+            textColumn.alignment = .leading  // md:items-start
+            textColumn.spacing = 6  // gap-1.5 (inner)
+            // md:pt-1 (4pt) before badges, md:pt-2 (8pt) before description
+            textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
+            textColumn.setCustomSpacing(14, after: badgesScrollView) // gap-1.5 + md:pt-2
+        } else {
+            textColumn.alignment = .fill  // items-center (labels center their text)
+            textColumn.spacing = 6
+            textColumn.setCustomSpacing(6, after: titleLabel)
+            textColumn.setCustomSpacing(6, after: badgesScrollView)
         }
 
         // --- Text alignment ---
-        // Hayase: text-center md:text-start
+        // Web: text-center md:text-start
         romajiLabel.textAlignment = isRegular ? .left : .center
         titleLabel.textAlignment = isRegular ? .left : .center
         descriptionLabel.textAlignment = isRegular ? .left : .center
 
         // --- Font sizes ---
-        // Hayase: text-base md:text-lg (romaji), text-3xl md:text-4xl (title), text-sm md:text-md (desc)
+        // Web: text-base md:text-lg (romaji), text-3xl md:text-4xl (title)
+        // Web: text-sm md:text-md (description), text-base (badges on desktop)
         romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
         titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
         descriptionLabel.font = isRegular ? .nunito(ofSize: 16, weight: .light) : .nunito(ofSize: 14, weight: .light)
 
         // --- Badges & description visibility ---
-        // Hayase: hidden md:flex / md:block hidden
+        // Web: hidden md:flex / md:block hidden
         badgesScrollView.isHidden = !isRegular
         descriptionLabel.isHidden = !isRegular
-
-        // Custom spacing around badges/description on iPad (md:pt-1 before badges, md:pt-2 before description)
-        if isRegular {
-            textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
-            textColumn.setCustomSpacing(14, after: badgesScrollView) // gap-1.5 + md:pt-2
-        } else {
-            textColumn.setCustomSpacing(6, after: titleLabel)
-            textColumn.setCustomSpacing(6, after: badgesScrollView)
-        }
 
         // --- textColumn width constraint ---
         // On compact, textColumn.width == coverAndTextColumn.width (needed for label wrapping with .center alignment).
@@ -1601,17 +1629,16 @@ private final class AnimeInfoHeaderView: UIView {
         textColumnWidthConstraint?.isActive = !isRegular
 
         // --- Content stack padding ---
-        // Hayase: px-3 on mobile, px-3 xl:px-14 on desktop
-        let hPad: CGFloat = isRegular ? 20 : 12
-        contentStack.layoutMargins = UIEdgeInsets(top: 16, left: hPad, bottom: 0, right: hPad)
+        // Web: px-3 (12pt) on mobile, xl:px-14 (56pt) on desktop
+        let hPad: CGFloat = isRegular ? 56 : 12
+        contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
 
         // --- Action button order ---
-        // Remove all arranged subviews (doesn't remove from view hierarchy, just from stack arrangement)
         for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
 
         if isRegular {
-            // Desktop order: PlayCombo → Favorite → Bookmark → Share → Trailer → AniList → MAL
-            // Hayase +layout.svelte: md:order-none resets to DOM order
+            // Desktop order: PlayCombo (md:mr-3) → Favorite → Bookmark → Share → Trailer → AniList → MAL
+            // Web: md:justify-start md:self-start
             actionsRow.addArrangedSubview(playCombo)
             actionsRow.addArrangedSubview(favoriteButton)
             actionsRow.addArrangedSubview(bookmarkButton)
@@ -1619,6 +1646,8 @@ private final class AnimeInfoHeaderView: UIView {
             actionsRow.addArrangedSubview(trailerButton)
             actionsRow.addArrangedSubview(anilistButton)
             actionsRow.addArrangedSubview(malButton)
+            // Web: md:mr-3 (12pt extra right margin) on play combo
+            actionsRow.setCustomSpacing(20, after: playCombo) // 8 (gap-2) + 12 (md:mr-3)
             // Show AniList/MAL on iPad (hidden md:flex)
             anilistButton.isHidden = false
             malButton.isHidden = (malId == nil)
@@ -1629,11 +1658,43 @@ private final class AnimeInfoHeaderView: UIView {
             actionsRow.addArrangedSubview(playCombo)
             actionsRow.addArrangedSubview(shareButton)
             actionsRow.addArrangedSubview(trailerButton)
-            // Also add AniList/MAL to the stack (hidden), so they stay managed
             actionsRow.addArrangedSubview(anilistButton)
             actionsRow.addArrangedSubview(malButton)
             anilistButton.isHidden = true
             malButton.isHidden = true
+        }
+
+        // --- Banner gradient ---
+        // Web mobile: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // Web desktop: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // We approximate with CAGradientLayer — on desktop shift the center-point right (59% vs 50%)
+        if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
+            let bgColor = UIColor(white: 0.04, alpha: 1)
+            if isRegular {
+                // Desktop radial-gradient emulation: less darkening at top-right, more at bottom/edges
+                gradientLayer.type = .radial
+                gradientLayer.startPoint = CGPoint(x: 0.59, y: 0.35) // radial center offset right
+                gradientLayer.endPoint = CGPoint(x: 1.35, y: 1.0)    // ellipse extent
+                gradientLayer.colors = [
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    bgColor.cgColor,
+                ]
+                gradientLayer.locations = [0.0, 0.31, 1.0]
+            } else {
+                // Mobile: linear top-to-bottom (approximates radial at 50%)
+                gradientLayer.type = .axial
+                gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+                gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+                gradientLayer.colors = [
+                    UIColor.black.withAlphaComponent(0.40).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.50).cgColor,
+                    bgColor.cgColor,
+                ]
+                gradientLayer.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
+            }
         }
     }
 
@@ -1657,14 +1718,16 @@ private final class AnimeInfoHeaderView: UIView {
         }
 
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let hPad: CGFloat = isRegular ? 20 : 12
+        let hPad: CGFloat = isRegular ? 56 : 12  // xl:px-14 = 56pt on desktop
+        // Content width limited by max-w-[1600px] on iPad
+        let effectiveWidth = isRegular ? min(bounds.width, 1600) : bounds.width
         let maxW: CGFloat
         if isRegular {
             // On iPad with horizontal layout, the text column occupies the space
             // to the right of the cover (180pt + spacing 20pt).
-            maxW = bounds.width - 2 * hPad - 180 - 20
+            maxW = effectiveWidth - 2 * hPad - 180 - 20
         } else {
-            maxW = bounds.width - 2 * hPad
+            maxW = effectiveWidth - 2 * hPad
         }
         if maxW > 0 {
             titleLabel.preferredMaxLayoutWidth = maxW
@@ -1673,20 +1736,15 @@ private final class AnimeInfoHeaderView: UIView {
         }
     }
 
-    /// Pre-set preferredMaxLayoutWidth on title/romaji labels so that
-    /// the constraint engine uses correct multi-line intrinsic heights
-    /// on the very first layout pass.  Without this, the labels start
-    /// with preferredMaxLayoutWidth = 0, which makes intrinsicContentSize
-    /// return a single-line height; the header is then measured too short
-    /// and the title text is clipped.
     func updateLabelWidths(forContainerWidth width: CGFloat) {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let hPad: CGFloat = isRegular ? 20 : 12
+        let hPad: CGFloat = isRegular ? 56 : 12  // xl:px-14 = 56pt on desktop
+        let effectiveWidth = isRegular ? min(width, 1600) : width
         let maxW: CGFloat
         if isRegular {
-            maxW = width - 2 * hPad - 180 - 20
+            maxW = effectiveWidth - 2 * hPad - 180 - 20
         } else {
-            maxW = width - 2 * hPad
+            maxW = effectiveWidth - 2 * hPad
         }
         guard maxW > 0 else { return }
         titleLabel.preferredMaxLayoutWidth = maxW
@@ -1939,12 +1997,14 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     /// Badge pill: bg-custom (accent colour, mirrors Hayase --custom) rounded px-3.5 font-bold h-6 text-contrast
+    /// Web uses text-base (16pt) on desktop for badge text.
     private func makeBadge(text: String,
                             accent: UIColor = .white,
                             contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
         let l = UILabel()
         l.text = "  \(text)  "
-        l.font = .nunito(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: isRegular ? 16 : 12, weight: .bold)  // text-base on desktop
         l.textColor = contrast
         l.backgroundColor = accent
         l.layer.cornerRadius = 4   // rounded
