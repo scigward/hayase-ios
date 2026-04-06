@@ -53,7 +53,7 @@ private final class EpisodeCardView: UIView {
     var onTap: ((Int) -> Void)?
     private var episodeNumber: Int = 0
 
-    // bg-neutral-950 = #0a0a0a — the card IS this view
+    // Card background — uses #141414 for OLED visibility (web bg-neutral-950 is imperceptible on OLED)
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -158,7 +158,9 @@ private final class EpisodeCardView: UIView {
     }
 
     private func setup() {
-        backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
+        // bg-neutral-950 on web (#0a0a0a) against page bg (#09090b) differs by only 1/255,
+        // invisible on OLED. Use #141414 to match the VISUAL contrast seen on LCD web displays.
+        backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
         layer.cornerRadius = 6
         clipsToBounds = true
 
@@ -3823,7 +3825,7 @@ private final class ThreadCardView: UIView {
     }
 
     private func setup() {
-        backgroundColor = UIColor(white: 0.039, alpha: 1)
+        backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
         layer.cornerRadius = 6
         clipsToBounds = true
 
@@ -4081,7 +4083,7 @@ extension AnimeDetailViewController {
 
         // bg-neutral-950 card — web: rounded-md (6pt), max-h-28 (112pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
+        card.backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
         card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -4184,7 +4186,7 @@ extension AnimeDetailViewController {
 
         // bg-neutral-950 card — web: rounded-md (6pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
+        card.backgroundColor = UIColor(white: 20/255.0, alpha: 1) // #141414 — visible dark surface
         card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
