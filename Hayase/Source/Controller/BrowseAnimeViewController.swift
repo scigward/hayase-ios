@@ -316,8 +316,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         // Right column: description + genres (iPad only)
         // Web: flex flex-col self-end lg:items-end items-center lg:pr-5 w-full min-w-0
+        // description has pt-3 (12pt top), genres have pt-4 (16pt top) — both are individual padding
         rightColumn.axis = .vertical
-        rightColumn.spacing = 16
+        rightColumn.spacing = 0  // no gap between children — pt-3/pt-4 are on elements themselves
         rightColumn.alignment = .trailing  // lg:items-end
         rightColumn.isHidden = true  // shown on iPad only
 
@@ -403,6 +404,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             descriptionLabel.removeFromSuperview()
             rightColumn.insertArrangedSubview(descriptionLabel, at: 0)
             rightColumn.isHidden = false
+            // pt-4 = 16pt spacing between description and genres in right column
+            rightColumn.setCustomSpacing(16, after: descriptionLabel)
             // Clearlogo sizing
             clearlogoHeightCompact.isActive = false
             clearlogoHeightRegular.isActive = true
@@ -1068,17 +1071,19 @@ private final class SectionHeaderView: UICollectionReusableView {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        // Hayase: font-semibold text-lg leading-none
+        // Web: font-semibold text-lg leading-none text-muted-foreground
+        // text-lg = 1.125rem = 18pt, --muted-foreground dark: hsl(240 5% 64.9%) ≈ #a3a3ab
         l.font = .nunito(ofSize: 18, weight: .semibold)
-        l.textColor = UIColor(white: 0.65, alpha: 1) // text-muted-foreground dark
+        l.textColor = UIColor(red: 163/255.0, green: 163/255.0, blue: 171/255.0, alpha: 1) // hsl(240 5% 64.9%)
         return l
     }()
 
     private lazy var viewMoreButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("View More", for: .normal)
-        b.titleLabel?.font = .nunito(ofSize: 12) // text-xs
-        b.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
+        // Web: ml-auto text-xs = 0.75rem = 12pt
+        b.titleLabel?.font = .nunito(ofSize: 12)
+        b.setTitleColor(UIColor(red: 163/255.0, green: 163/255.0, blue: 171/255.0, alpha: 1), for: .normal)
         b.addTarget(self, action: #selector(viewMoreTapped), for: .touchUpInside)
         return b
     }()
@@ -1289,19 +1294,24 @@ class BrowseAnimeViewController: UIViewController {
                 // No header supplementary for section 0
             }
             // Sections 1..n: horizontal-scroll poster rows (Hayase small.svelte card ratio)
+            // Web: each card has p-4 (16pt) all around. Card content is w-[9.5rem] (152pt).
+            // So each card's outer slot = 152 + 32 = 184pt. Gap between covers = 32pt.
+            let itemW = PosterLayout.width + 32  // 152 + 32 = 184pt total slot width
             let item = NSCollectionLayoutItem(
-                layoutSize: .init(widthDimension: .absolute(PosterLayout.width),
+                layoutSize: .init(widthDimension: .absolute(itemW),
                                   heightDimension: .absolute(PosterLayout.height)))
-            // 16pt trailing gap between cards (matches Hayase small.svelte p-4 outer padding)
-            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
+            // 32pt trailing inset: content renders in left 152pt, gap on right
+            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 32)
             let group = NSCollectionLayoutGroup.horizontal(
-                layoutSize: .init(widthDimension: .estimated(PosterLayout.width),
+                layoutSize: .init(widthDimension: .estimated(itemW),
                                   heightDimension: .absolute(PosterLayout.height)),
                 subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
             section.orthogonalScrollingBehavior = .continuous
-            // px-4 = 16pt leading, pt-5 top handled in header height, bottom 24pt breathing room
-            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 24, trailing: 0)
+            // Section leading = web first card's p-4 left (16pt)
+            // Section trailing = 0 (last card's 32pt trailing inset provides right padding)
+            // pb-5 = 20pt bottom (web scroll container -mb-5 pb-5)
+            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 20, trailing: 0)
             // Header: pt-5 (20pt top) + text-lg (18pt) + 10pt bottom = 48pt total
             let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
                                                     heightDimension: .absolute(48))
