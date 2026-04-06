@@ -1221,11 +1221,12 @@ private final class AnimeInfoHeaderView: UIView {
         return l
     }()
 
-    // Badges row — bg-primary/10 pills. horizontal stack (scrollable)
+    // Badges row — bg-custom pills. horizontal stack (scrollable)
+    // Web: gap-2 (8pt) between badges
     private let badgesStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 6
+        sv.spacing = 8  // gap-2
         sv.alignment = .center
         return sv
     }()
@@ -1251,15 +1252,19 @@ private final class AnimeInfoHeaderView: UIView {
     // AniList/MAL buttons: hidden md:flex (desktop only — hidden on iOS)
 
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
+    // Web: PlayButton size='default' → font-bold, Play fill icon (0.8rem ≈ 13pt), mr-2 (8pt) gap, text-sm (14px)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
-        b.setTitle("  Watch Now", for: .normal)
+        b.setTitle(" Watch Now", for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
-        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)  // text-sm = 14px
+        // mr-2 (8pt) spacing between icon and text
+        b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
@@ -1862,9 +1867,9 @@ private final class AnimeInfoHeaderView: UIView {
     func updatePlayButtonTitle(listStatus: String?) {
         let text: String
         switch listStatus {
-        case "CURRENT", "REPEATING", "PAUSED": text = "  Continue"
-        case "COMPLETED":                       text = "  Rewatch"
-        default:                                text = "  Watch Now"
+        case "CURRENT", "REPEATING", "PAUSED": text = " Continue"
+        case "COMPLETED":                       text = " Rewatch"
+        default:                                text = " Watch Now"
         }
         playButton.setTitle(text, for: .normal)
     }
@@ -1959,12 +1964,22 @@ private final class AnimeInfoHeaderView: UIView {
         entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
 
+        // Build season string matching web season(): "winter 2024" (lowercase season + year)
+        let seasonStr: String? = {
+            let szn = item.season?.lowercased()  // AniList WINTER→winter etc.
+            let yr = item.year ?? item.startYear
+            let parts = [szn, yr.map { String($0) }].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }()
+
         rebuildBadges(score:    item.score,
                       status:   item.status,
                       episodes: item.episodes,
                       nextEp:   nil,
                       format:   item.format,
-                      season:   nil,
+                      season:   seasonStr,
+                      duration: item.duration,
+                      progress: item.mediaListEntry?.progress,
                       accent:   accent,
                       contrastColor: contrast)
 
@@ -2015,55 +2030,110 @@ private final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Helpers
 
-    /// Builds the badges row matching Hayase's +layout.svelte badge pills.
-    /// Badges: duration/eps, format, status, season, score — all bg-custom (accent), rounded, font-bold h-6
+    /// Builds the badges row matching web +layout.svelte badge pills.
+    /// Web badge order: of(media) ?? duration(media) ?? 'N/A', format(media), status(media), season(media), averageScore
+    /// All badges: rounded px-3.5 font-bold bg-custom text-contrast h-6 py-0 text-base
+    /// Score badge uses rating-specific colour: green ≥75, orange ≥65, red otherwise (getBGColorForRating).
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
                                 nextEp: Int?, format: String?, season: String?,
+                                duration: Int? = nil, progress: Int? = nil,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        // duration/eps badge
-        if let eps = episodes, eps > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps", accent: accent, contrast: contrastColor))
-        } else if let next = nextEp, next > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing", accent: accent, contrast: contrastColor))
+
+        // Badge 1: of(media) ?? duration(media) ?? 'N/A'
+        // Web of(): if eps == 1 or nil → nil. If progress && progress != eps → "X / Y Episodes". Else "Y Episodes".
+        // Fallback: duration(media) → "X Minutes", then "N/A"
+        let badge1Text: String
+        if let eps = episodes, eps > 1 {
+            if let prog = progress, prog > 0, prog != eps {
+                badge1Text = "\(prog) / \(eps) Episodes"
+            } else {
+                badge1Text = "\(eps) Episodes"
+            }
+        } else if let dur = duration, dur > 0 {
+            badge1Text = "\(dur) Minute\(dur > 1 ? "s" : "")"
+        } else {
+            badge1Text = "N/A"
         }
-        // format badge
+        badgesStack.addArrangedSubview(makeBadge(text: badge1Text, accent: accent, contrast: contrastColor))
+
+        // Badge 2: format(media) — web FORMAT_MAP
         if let fmt = format {
-            let display = fmt == "TV_SHORT" ? "TV Short" : fmt.replacingOccurrences(of: "_", with: " ").capitalized
+            let display: String
+            switch fmt {
+            case "TV":       display = "TV Series"
+            case "TV_SHORT": display = "TV Short"
+            case "MOVIE":    display = "Movie"
+            case "SPECIAL":  display = "Special"
+            case "OVA":      display = "OVA"
+            case "ONA":      display = "ONA"
+            case "MUSIC":    display = "Music"
+            default:         display = fmt.replacingOccurrences(of: "_", with: " ").capitalized
+            }
             badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
         }
-        // status badge
+
+        // Badge 3: status(media) — web STATUS_MAP
         if let st = status {
             let display: String
             switch st {
-            case "RELEASING":        display = "Airing"
+            case "RELEASING":        display = "Releasing"
+            case "NOT_YET_RELEASED": display = "Not Yet Released"
             case "FINISHED":         display = "Finished"
-            case "NOT_YET_RELEASED": display = "Upcoming"
+            case "CANCELLED":        display = "Cancelled"
+            case "HIATUS":           display = "Hiatus"
             default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
             }
             badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
         }
-        // score badge
+
+        // Badge 4: season(media) — web: "winter 2024" (lowercase season + year)
+        if let szn = season, !szn.isEmpty {
+            badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor))
+        }
+
+        // Badge 5: averageScore — web uses getBGColorForRating for bg colour
+        // ≥75 → green, ≥65 → orange, else → red
         if let sc = score, sc > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc), accent: accent, contrast: contrastColor))
+            let scoreBG: UIColor
+            let scoreInt = Int(sc)
+            if scoreInt >= 75 {
+                scoreBG = UIColor(red: 0.21, green: 0.52, blue: 0.21, alpha: 1) // green-700
+            } else if scoreInt >= 65 {
+                scoreBG = UIColor(red: 0.98, green: 0.65, blue: 0.20, alpha: 1) // orange-400
+            } else {
+                scoreBG = UIColor(red: 0.96, green: 0.44, blue: 0.44, alpha: 1) // red-400
+            }
+            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc),
+                                                      accent: scoreBG,
+                                                      contrast: .white))
         }
     }
 
-    /// Badge pill: bg-custom (accent colour, mirrors Hayase --custom) rounded px-3.5 font-bold h-6 text-contrast
-    /// Web uses text-base (16pt) on desktop for badge text.
+    /// Badge pill matching web +layout.svelte:
+    /// `rounded px-3.5 font-bold bg-custom text-contrast h-6 py-0 text-base`
+    /// Uses PaddedLabel for proper px-3.5 (14pt) horizontal padding.
+    /// Height constrained to h-6 (24pt).
     private func makeBadge(text: String,
                             accent: UIColor = .white,
-                            contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
+                            contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UIView {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let l = UILabel()
-        l.text = "  \(text)  "
+        let l = PaddedLabel()
+        l.text = text
         l.font = .nunito(ofSize: isRegular ? 16 : 12, weight: .bold)  // text-base on desktop
         l.textColor = contrast
         l.backgroundColor = accent
-        l.layer.cornerRadius = 4   // rounded
+        // px-3.5 = 14pt horizontal padding. Tailwind `rounded` = 0.25rem = 4pt
+        l.contentInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+        l.layer.cornerRadius = 4   // rounded = 0.25rem
         l.clipsToBounds = true
+        l.textAlignment = .center
         l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // h-6 (24pt)
+        l.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }
 
