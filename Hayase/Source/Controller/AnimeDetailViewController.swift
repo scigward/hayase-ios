@@ -181,6 +181,12 @@ private final class EpisodeCell: UITableViewCell {
         setup()
     }
 
+    /// Stored leading/trailing constraints for iPad vs iPhone adaptive padding.
+    /// iPhone: px-3 (12pt) from cell edge — matches web EpisodesList.svelte card wrapper `px-3`.
+    /// iPad:   xl:px-14 (56pt parent) + px-3 (12pt card) = 68pt from cell edge.
+    private var cardLeadingConstraint: NSLayoutConstraint?
+    private var cardTrailingConstraint: NSLayoutConstraint?
+
     private func setup() {
         backgroundColor = .clear
         selectionStyle = .none
@@ -229,11 +235,16 @@ private final class EpisodeCell: UITableViewCell {
         thumbWidthPreferred.priority = UILayoutPriority(999)
         let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
 
+        // Card side padding: starts at iPhone default (12pt).
+        // Updated in applyPaddingForSizeClass() for iPad (68pt = xl:px-14 + px-3).
+        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+
         NSLayoutConstraint.activate([
             // Card: gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            cardLeadingConstraint!,
+            cardTrailingConstraint!,
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
             // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
             cardView.heightAnchor.constraint(equalToConstant: 112),
@@ -379,6 +390,15 @@ private final class EpisodeCell: UITableViewCell {
         }
     }
 
+    /// Updates card side padding to match web layout for the current size class.
+    /// iPhone (compact): px-3 (12pt) — web EpisodesList card wrapper `px-3`.
+    /// iPad (regular): xl:px-14 (56pt parent) + px-3 (12pt card) = 68pt from cell edge.
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        let sidePad: CGFloat = isRegular ? 68 : 12
+        cardLeadingConstraint?.constant = sidePad
+        cardTrailingConstraint?.constant = -sidePad
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         // Update progress fill width once bounds are known (avoids async timing issue)
@@ -473,6 +493,10 @@ private final class PaginationBarView: UIView {
         return sv
     }()
 
+    /// Stored leading/trailing constraints for adaptive iPad padding.
+    private var infoLeadingConstraint: NSLayoutConstraint?
+    private var controlsTrailingConstraint: NSLayoutConstraint?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -487,17 +511,28 @@ private final class PaginationBarView: UIView {
         addSubview(infoLabel)
         addSubview(controlsStack)
 
+        infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+
         NSLayoutConstraint.activate([
-            infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            infoLeadingConstraint!,
             infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            controlsTrailingConstraint!,
             controlsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             controlsStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
             controlsStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
 
             heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
         ])
+    }
+
+    /// Updates horizontal padding to match the content area for the current size class.
+    /// iPhone: 16pt; iPad: xl:px-14 (56pt) to align with episode cards.
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        let sidePad: CGFloat = isRegular ? 56 : 16
+        infoLeadingConstraint?.constant = sidePad
+        controlsTrailingConstraint?.constant = -sidePad
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -698,6 +733,15 @@ private final class HorizontalCardsCell: UITableViewCell {
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Updates collection view section insets to match the content area padding.
+    /// iPhone: 16pt; iPad: xl:px-14 (56pt) to align with header content.
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
+            let sidePad: CGFloat = isRegular ? 56 : 16
+            layout.sectionInset = UIEdgeInsets(top: 0, left: sidePad, bottom: 0, right: sidePad)
+        }
+    }
 }
 
 // MARK: - RelationCardCell
@@ -2452,9 +2496,9 @@ class AnimeDetailViewController: UIViewController {
         tabBarWidthFillConstraint?.priority = .defaultHigh
 
         // iPad (horizontal): leading-pinned, shrink-to-fit
-        // Web: md:justify-start → leading alignment
-        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16)
-        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16)
+        // Web: md:justify-start → leading alignment, xl:px-14 (56pt) padding
+        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 56)
+        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -56)
 
         return v
     }()
@@ -2535,8 +2579,8 @@ class AnimeDetailViewController: UIViewController {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
             applyTabBarLayoutForSizeClass()
-            // Reload the header cell so auto layout picks up the new tab bar size
-            tableView.reloadSections(IndexSet(integer: Section.header.rawValue), with: .none)
+            // Reload all sections so cells pick up the new iPad/iPhone padding
+            tableView.reloadData()
         }
     }
 
@@ -3396,6 +3440,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
             let ep = paginatedEpisodes[indexPath.row]
             cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
                            accentColor: currentAnimeAccent, isListCompleted: currentListStatus == "COMPLETED")
+            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
             return cell
 
         case .episodePagination:
@@ -3414,6 +3459,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 ])
             }
             paginationBar.configure(currentPage: currentEpisodePage, totalCount: episodes.count, perPage: episodesPerPage)
+            paginationBar.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
             return cell
 
         case .relations:
@@ -3425,6 +3471,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
             cell.collectionView.delegate = self
             cell.collectionView.register(RelationCardCell.self,
                                          forCellWithReuseIdentifier: RelationCardCell.reuseID)
+            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
             cell.collectionView.reloadData()
             return cell
 
@@ -3716,11 +3763,14 @@ extension AnimeDetailViewController {
         card.addSubview(badgeStack)
         statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
+        // Thread card side padding: 16pt on iPhone, xl:px-14 (56pt) on iPad — matches parent container
+        let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
-            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
 
             titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
@@ -3860,11 +3910,14 @@ extension AnimeDetailViewController {
             stack.addArrangedSubview(row)
         }
 
+        // Theme card side padding: 16pt on iPhone, xl:px-14 (56pt) on iPad — matches parent container
+        let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
-            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: themeSidePad),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -themeSidePad),
             stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
