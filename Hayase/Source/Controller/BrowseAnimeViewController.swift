@@ -178,9 +178,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // max-w-[90%] mobile, max-w-[75%] iPad constraint for description
     private var descriptionMaxWidthConstraint: NSLayoutConstraint!
 
-    // Play button: bg-custom text-contrast — matches Hayase PlayButton
-    // Shows "Watch Now" / "Continue" / "Rewatch" based on status (defaults to "Watch Now")
-    // Hayase: size='default' (h-9 px-4 py-2), rounded-md (6pt), font-bold
+    // Play button: bg-custom text-contrast — matches web PlayButton in banner
+    // Web: size='default' (h-9 px-4 py-2), base text-sm font-medium + class font-bold
+    // So: h-9 = 36pt, text-sm = 14pt, font-bold override, rounded-md (6pt)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
@@ -188,7 +188,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
-        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
         b.clipsToBounds = true
         return b
@@ -646,20 +646,56 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     private func updateBadges(for item: AnimeItem, customColor: UIColor) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        var texts: [String] = []
-        // full-banner.svelte: of(current) ?? duration(current) ?? 'N/A', format, status, score
-        if let eps = item.episodes, eps > 0 { texts.append("\(eps) eps") }
-        if let fmt = item.format { texts.append(fmt.capitalized) }
-        if let st = item.status {
-            switch st {
-            case "RELEASING": texts.append("Airing")
-            case "FINISHED": texts.append("Finished")
-            case "NOT_YET_RELEASED": texts.append("Upcoming")
-            default: texts.append(st.replacingOccurrences(of: "_", with: " ").capitalized)
-            }
+
+        // Prepare badge data: (text, textColor)
+        // Web: of(current) ?? duration(current) ?? 'N/A', format, status, season?, score?
+        var badges: [(String, UIColor)] = []
+
+        // First badge: episode count or duration or 'N/A'
+        if let eps = item.episodes, eps > 0 {
+            badges.append(("\(eps) eps", customColor))
+        } else if let dur = item.duration, dur > 0 {
+            badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor))
+        } else {
+            badges.append(("N/A", customColor))
         }
-        if let score = item.score, score > 0 { texts.append(String(format: "%.0f%%", score)) }
-        for text in texts.prefix(4) {
+
+        // Format badge: FORMAT_MAP matching web
+        if let fmt = item.format {
+            let fmtMap: [String: String] = [
+                "TV": "TV Series", "TV_SHORT": "TV Short", "MOVIE": "Movie",
+                "SPECIAL": "Special", "OVA": "OVA", "ONA": "ONA", "MUSIC": "Music"]
+            badges.append((fmtMap[fmt] ?? fmt.capitalized, customColor))
+        }
+
+        // Status badge: STATUS_MAP matching web
+        if let st = item.status {
+            let stMap: [String: String] = [
+                "RELEASING": "Releasing", "FINISHED": "Finished",
+                "NOT_YET_RELEASED": "Not Yet Released",
+                "CANCELLED": "Cancelled", "HIATUS": "Hiatus"]
+            badges.append((stMap[st] ?? st.capitalized, customColor))
+        }
+
+        // Season badge (if available)
+        if let season = item.season, let year = item.year {
+            badges.append(("\(season.lowercased()) \(year)", customColor))
+        }
+
+        // Score badge: color-coded text per getTextColorForRating
+        if let score = item.score, score > 0 {
+            let scoreColor: UIColor
+            if score >= 75 {
+                scoreColor = UIColor(red: 21/255.0, green: 128/255.0, blue: 61/255.0, alpha: 1) // text-green-700
+            } else if score >= 65 {
+                scoreColor = UIColor(red: 251/255.0, green: 146/255.0, blue: 60/255.0, alpha: 1) // text-orange-400
+            } else {
+                scoreColor = UIColor(red: 239/255.0, green: 68/255.0, blue: 68/255.0, alpha: 1) // text-red-500
+            }
+            badges.append((String(format: "%.0f%%", score), scoreColor))
+        }
+
+        for (text, textColor) in badges {
             // Web: rounded px-3.5 h-7 text-sm !text-custom bg-primary/10 font-bold inline-flex items-center
             let pill = UIView()
             pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
@@ -670,7 +706,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             let l = UILabel()
             l.text = text
             l.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
-            l.textColor = customColor  // !text-custom — cover color
+            l.textColor = textColor
             l.translatesAutoresizingMaskIntoConstraints = false
             pill.addSubview(l)
 
