@@ -1331,7 +1331,7 @@ private final class AnimeInfoHeaderView: UIView {
     private let anilistButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        // "globe" SF Symbol approximates the AniList icon
+        // "a.circle.fill" SF Symbol approximates the AniList "A" logo
         b.setImage(UIImage(systemName: "a.circle.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
