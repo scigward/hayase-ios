@@ -62,8 +62,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
     // Banner height: 70% on iPhone, 80% on iPad — matches web h-[70vh] md:h-[80vh]
-    static var bannerHeight: CGFloat {
-        let isRegular = UIScreen.main.traitCollection.horizontalSizeClass == .regular
+    // Called from the VC's makeHomeLayout() with the VC's actual trait collection.
+    static func bannerHeight(isRegular: Bool) -> CGFloat {
         return UIScreen.main.bounds.height * (isRegular ? 0.80 : 0.70)
     }
 
@@ -826,7 +826,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.transform = .identity
             return
         }
-        let scale = 1.0 + overscroll / FeaturedBannerCell.bannerHeight
+        let scale = 1.0 + overscroll / bounds.height
         // Scale up from center-top so the bottom stays anchored and the image grows upward
         let yShift = -overscroll / 2.0
         backgroundImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
@@ -1192,6 +1192,8 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeHomeLayout() -> UICollectionViewLayout {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular)
         return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
             if sectionIndex == 0 {
                 // Featured hero banner — full-width, bannerHeight tall, no orthogonal scroll
@@ -1200,7 +1202,7 @@ class BrowseAnimeViewController: UIViewController {
                                       heightDimension: .fractionalHeight(1.0)))
                 let group = NSCollectionLayoutGroup.vertical(
                     layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                                      heightDimension: .absolute(FeaturedBannerCell.bannerHeight)),
+                                      heightDimension: .absolute(computedBannerHeight)),
                     subitems: [item])
                 let bannerSection = NSCollectionLayoutSection(group: group)
                 // Explicit .zero so no additional insets are added.
