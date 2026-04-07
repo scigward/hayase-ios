@@ -3601,8 +3601,8 @@ class AnimeDetailViewController: UIViewController {
             present(searchVC, animated: true)
         } else {
             // iPhone: present fullScreen modal (matches web Dialog overlay).
-            // Using modal instead of push ensures the view always appears
-            // regardless of the parent navigation controller state.
+            // The web always uses Dialog.Root for SearchModal (never page
+            // navigation), so modal presentation is the correct analogue.
             searchVC.modalPresentationStyle = .fullScreen
             present(searchVC, animated: true)
         }

@@ -190,7 +190,7 @@ final class ExtensionSearchViewController: UIViewController {
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
     /// Whether this VC is presented modally (formSheet on iPad, fullScreen on iPhone).
-    private var isPresentedAsSheet: Bool {
+    private var isPresentedModally: Bool {
         return navigationController == nil
     }
 
@@ -324,8 +324,8 @@ final class ExtensionSearchViewController: UIViewController {
         ])
 
         // Close button (X) — mirrors web Dialog close button (absolute right-4 top-4)
-        // Only shown when presented as a sheet; when pushed, the nav back button suffices.
-        if isPresentedAsSheet {
+        // Shown when presented modally; dismisses the modal on tap.
+        if isPresentedModally {
             closeButton = UIButton(type: .system)
             let xCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
             closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
@@ -887,7 +887,7 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     @objc private func closeTapped() {
-        if isPresentedAsSheet {
+        if isPresentedModally {
             dismiss(animated: true)
         } else {
             navigationController?.popViewController(animated: true)
