@@ -1175,6 +1175,110 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }
 }
 
+// MARK: - SkeletonBannerCell
+// Matches Hayase's banner/skeleton-banner.svelte:
+// Full-height cell with placeholder bars at bottom-left (pl-5 pb-5 justify-end flex-col)
+// All bars: bg-primary/5 animate-pulse rounded
+
+private final class SkeletonBannerCell: UICollectionViewCell {
+    static let reuseID = "SkeletonBannerCell"
+
+    private var shimmerViews: [UIView] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        // Web skeleton-banner.svelte layout (bottom-aligned, left-padded):
+        // h-6 w-[500px]        – title bar
+        // h-1.5 w-[250px] my-5 – spacer
+        // h-2.5 w-[450px] mb-2 – description line 1
+        // h-2.5 w-[350px] mb-2 – description line 2
+        // h-2.5 w-[300px] mb-2 – description line 3
+        // h-2.5 w-[250px] mb-2 – description line 4
+        // h-1.5 w-[150px] my-3 – spacer
+        // h-6 w-[160px] mb-4   – button placeholder
+
+        let bars: [(height: CGFloat, width: CGFloat)] = [
+            (24, 500),   // title: h-6 = 24pt, w-[500px] (capped by parent)
+            (6, 250),    // spacer: h-1.5 = 6pt
+            (10, 450),   // desc 1: h-2.5 = 10pt
+            (10, 350),   // desc 2
+            (10, 300),   // desc 3
+            (10, 250),   // desc 4
+            (6, 150),    // spacer: h-1.5 = 6pt
+            (24, 160),   // button: h-6 = 24pt
+        ]
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        for (i, bar) in bars.enumerated() {
+            let container = UIView()
+            container.backgroundColor = .black
+            container.layer.cornerRadius = 4
+            container.clipsToBounds = true
+
+            let shimmer = UIView()
+            shimmer.backgroundColor = UIColor.white.withAlphaComponent(0.05) // bg-primary/5
+            shimmer.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(shimmer)
+
+            container.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(container)
+            NSLayoutConstraint.activate([
+                container.heightAnchor.constraint(equalToConstant: bar.height),
+                container.widthAnchor.constraint(equalToConstant: bar.width),
+                shimmer.topAnchor.constraint(equalTo: container.topAnchor),
+                shimmer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                shimmer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                shimmer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+
+            shimmerViews.append(shimmer)
+
+            // Spacing after each bar to match web my-X / mb-X values
+            switch i {
+            case 0: stack.setCustomSpacing(20, after: container) // title → spacer (my-5 top = 20pt)
+            case 1: stack.setCustomSpacing(20, after: container) // spacer my-5 bottom = 20pt
+            case 2, 3, 4, 5: stack.setCustomSpacing(8, after: container) // desc lines mb-2 = 8pt
+            case 6: stack.setCustomSpacing(12, after: container) // spacer my-3 bottom = 12pt
+            default: break // button: mb-4 handled by pb-5 padding
+            }
+        }
+
+        // Pin stack to bottom-left with pl-5 (20pt) pb-5 (20pt) padding
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
+        ])
+
+        startPulse()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func startPulse() {
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.05
+        pulse.toValue = 0.12
+        pulse.duration = 1.0
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        shimmerViews.forEach { $0.layer.add(pulse, forKey: "pulse") }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+    }
+}
+
 // MARK: - SectionHeaderView
 // Matches Hayase home page: font-semibold text-lg text-muted-foreground + "View More" text-xs
 
@@ -1368,6 +1472,8 @@ class BrowseAnimeViewController: UIViewController {
         // Skeleton shimmer cells (shown while home sections are loading)
         collectionView.register(SkeletonPosterCell.self,
                                 forCellWithReuseIdentifier: SkeletonPosterCell.reuseID)
+        collectionView.register(SkeletonBannerCell.self,
+                                forCellWithReuseIdentifier: SkeletonBannerCell.reuseID)
         // Section headers (sections 1..n when home)
         collectionView.register(SectionHeaderView.self,
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -1733,6 +1839,10 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         // Skeleton mode: shimmer placeholders while sections load
         if isLoadingSections {
+            if indexPath.section == 0 {
+                return collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SkeletonBannerCell.reuseID, for: indexPath)
+            }
             return collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
         }
