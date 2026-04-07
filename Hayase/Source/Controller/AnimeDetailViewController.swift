@@ -2252,7 +2252,9 @@ private final class AnimeInfoHeaderView: UIView {
     /// Height constrained to h-6 (24pt).
     private func makeBadge(text: String,
                             accent: UIColor = .white,
-                            contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UIView {
+                            contrast: UIColor = UIColor(white: 0.07, alpha: 1),
+                            filterType: String? = nil,
+                            filterValue: String? = nil) -> UIView {
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let l = PaddedLabel()
         l.text = text
