@@ -189,9 +189,10 @@ final class ExtensionSearchViewController: UIViewController {
 
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
-    /// Whether this VC is presented modally as a sheet (iPad) vs pushed (iPhone).
+    /// Whether this VC is presented modally (sheet on iPad, or fullScreen fallback on iPhone)
+    /// vs pushed onto a navigation stack.
     private var isPresentedAsSheet: Bool {
-        return modalPresentationStyle == .formSheet || modalPresentationStyle == .pageSheet
+        return navigationController == nil
     }
 
     // MARK: Lifecycle
@@ -205,8 +206,8 @@ final class ExtensionSearchViewController: UIViewController {
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
 
-        // Round top corners when presented as sheet (matches web lg:rounded-t-xl = 12px)
-        if isPresentedAsSheet {
+        // Round top corners when presented as formSheet sheet (matches web lg:rounded-t-xl = 12px)
+        if modalPresentationStyle == .formSheet {
             view.layer.cornerRadius = 12
             view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             view.clipsToBounds = true

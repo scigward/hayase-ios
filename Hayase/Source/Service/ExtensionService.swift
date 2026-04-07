@@ -488,25 +488,48 @@ final class ExtensionService {
 
     // MARK: - Dedupe (mirrors Extensions.dedupe)
 
+    /// Mirrors web extensions.dedupe() exactly.
+    /// - seeders/leechers: first non-zero wins (||=), values ≥ 30 000 are treated as bogus → 0
+    /// - downloads/size/date: first non-zero/non-nil wins (||=)
+    /// - id: first non-nil wins (??=)
+    /// - type: best > alt > batch priority (lower index wins)
     private func dedupe(_ entries: [TorrentResult]) -> [TorrentResult] {
         let accuracyRank = ["high": 0, "medium": 1, "low": 2]
+        let typeRank     = ["best": 0, "alt": 1, "batch": 2]
         var seen: [String: TorrentResult] = [:]
         for entry in entries {
             if var existing = seen[entry.hash] {
                 // Merge extension IDs
                 existing.extensionIds.formUnion(entry.extensionIds)
-                // Take better accuracy
+                // Take better accuracy (lower rank = better)
                 let eRank = accuracyRank[entry.accuracy]    ?? 2
                 let xRank = accuracyRank[existing.accuracy] ?? 2
                 if eRank < xRank { existing.accuracy = entry.accuracy }
                 // Prefer longer title
                 if entry.title.count > existing.title.count { existing.title = entry.title }
-                existing.link      = existing.link.isEmpty      ? entry.link      : existing.link
-                existing.seeders   = max(existing.seeders,   entry.seeders)
-                existing.leechers  = max(existing.leechers,  entry.leechers)
-                existing.downloads = max(existing.downloads, entry.downloads)
-                existing.size      = max(existing.size,      entry.size)
-                if existing.type == nil { existing.type = entry.type }
+                // link: first non-empty wins (??=)
+                if existing.link.isEmpty { existing.link = entry.link }
+                // id: first non-nil wins (??=)
+                if existing.id == nil { existing.id = entry.id }
+                // seeders/leechers: first non-zero wins, ≥30000 treated as bogus (web ||= with guard)
+                if existing.seeders == 0 {
+                    existing.seeders = entry.seeders >= 30_000 ? 0 : entry.seeders
+                }
+                if existing.leechers == 0 {
+                    existing.leechers = entry.leechers >= 30_000 ? 0 : entry.leechers
+                }
+                // downloads/size: first non-zero wins (||=)
+                if existing.downloads == 0 { existing.downloads = entry.downloads }
+                if existing.size      == 0 { existing.size      = entry.size }
+                // date: first non-nil wins (||=)
+                if existing.date == nil { existing.date = entry.date }
+                // type: best > alt > batch — lower index wins
+                let eTypeRank = typeRank[entry.type    ?? "best"] ?? 0
+                let xTypeRank = typeRank[existing.type ?? "best"] ?? 0
+                if eTypeRank <= xTypeRank {
+                    existing.type = entry.type
+                }
+                existing.type = existing.type ?? entry.type
                 seen[entry.hash] = existing
             } else {
                 seen[entry.hash] = entry

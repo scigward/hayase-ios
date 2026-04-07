@@ -3599,8 +3599,12 @@ class AnimeDetailViewController: UIViewController {
             searchVC.modalPresentationStyle = .formSheet
             searchVC.preferredContentSize = CGSize(width: 1024, height: UIScreen.main.bounds.height - 16)
             present(searchVC, animated: true)
+        } else if let nav = navigationController {
+            nav.pushViewController(searchVC, animated: true)
         } else {
-            navigationController?.pushViewController(searchVC, animated: true)
+            // Defensive fallback: if no navigation controller, present modally
+            searchVC.modalPresentationStyle = .fullScreen
+            present(searchVC, animated: true)
         }
     }
 }
