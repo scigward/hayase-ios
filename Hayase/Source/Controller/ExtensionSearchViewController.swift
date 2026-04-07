@@ -767,16 +767,18 @@ final class ExtensionSearchViewController: UIViewController {
         emptyView.isHidden = !filteredResults.isEmpty || loadingIndicator.isAnimating
     }
 
-    /// Mirrors web's filterAndSortResults() from SearchModal.svelte exactly.
-    /// Multi-tier ranking: low accuracy → rank 3, low seeders (≤15) → rank 2,
-    /// normal → rank 1, quality releases → rank 0.
-    /// Within rank 1: sort by accuracy (high first), then by seeders descending.
+    /// Mirrors web filterAndSortResults() from SearchModal.svelte exactly.
+    /// Ranks: low accuracy → 3, low seeders → 2, quality(best/alt with pref) → 0, normal → 1.
+    /// Within rank 1: accuracy (high first), then by preference (size or seeders).
     private func filterAndSortResults(_ results: [TorrentResult]) -> [TorrentResult] {
+        let preference = UserDefaults.standard.string(forKey: "pref_lookupPreference") ?? "quality"
         return results.sorted { a, b in
             func getRank(_ res: TorrentResult) -> Int {
                 if res.accuracy == "low" { return 3 }
+                // Web: if (downloaded.has(res.hash)) return 0
+                // iOS doesn't track downloaded torrents yet — skip this rank
                 if res.seeders <= 15 { return 2 }
-                if res.type == "best" || res.type == "alt" { return 0 }
+                if (res.type == "best" || res.type == "alt") && preference == "quality" { return 0 }
                 return 1
             }
             let rankA = getRank(a)
@@ -786,6 +788,8 @@ final class ExtensionSearchViewController: UIViewController {
                 let scoreA = a.accuracy == "high" ? 1 : 0
                 let scoreB = b.accuracy == "high" ? 1 : 0
                 if scoreA != scoreB { return scoreA > scoreB }
+                // Sort by preference: size ascending or seeders descending
+                if preference == "size" { return a.size < b.size }
                 return b.seeders < a.seeders  // more seeders first
             }
             return false
