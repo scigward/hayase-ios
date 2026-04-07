@@ -502,10 +502,10 @@ final class ExtensionService {
                 // Prefer longer title
                 if entry.title.count > existing.title.count { existing.title = entry.title }
                 existing.link      = existing.link.isEmpty      ? entry.link      : existing.link
-                existing.seeders   = existing.seeders   == 0    ? entry.seeders   : existing.seeders
-                existing.leechers  = existing.leechers  == 0    ? entry.leechers  : existing.leechers
-                existing.downloads = existing.downloads == 0    ? entry.downloads : existing.downloads
-                existing.size      = existing.size      == 0    ? entry.size      : existing.size
+                existing.seeders   = max(existing.seeders,   entry.seeders)
+                existing.leechers  = max(existing.leechers,  entry.leechers)
+                existing.downloads = max(existing.downloads, entry.downloads)
+                existing.size      = max(existing.size,      entry.size)
                 if existing.type == nil { existing.type = entry.type }
                 seen[entry.hash] = existing
             } else {

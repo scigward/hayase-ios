@@ -204,7 +204,6 @@ final class ExtensionSearchViewController: UIViewController {
         }
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.title = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
 
         // Round top corners when presented as sheet (matches web lg:rounded-t-xl = 12px)
         if isPresentedAsSheet {
