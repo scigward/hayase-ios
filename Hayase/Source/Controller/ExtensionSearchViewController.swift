@@ -189,8 +189,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
-    /// Whether this VC is presented modally (sheet on iPad, or fullScreen fallback on iPhone)
-    /// vs pushed onto a navigation stack.
+    /// Whether this VC is presented modally (formSheet on iPad, fullScreen on iPhone).
     private var isPresentedAsSheet: Bool {
         return navigationController == nil
     }

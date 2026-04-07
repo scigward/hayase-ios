@@ -3599,10 +3599,10 @@ class AnimeDetailViewController: UIViewController {
             searchVC.modalPresentationStyle = .formSheet
             searchVC.preferredContentSize = CGSize(width: 1024, height: UIScreen.main.bounds.height - 16)
             present(searchVC, animated: true)
-        } else if let nav = navigationController {
-            nav.pushViewController(searchVC, animated: true)
         } else {
-            // Defensive fallback: if no navigation controller, present modally
+            // iPhone: present fullScreen modal (matches web Dialog overlay).
+            // Using modal instead of push ensures the view always appears
+            // regardless of the parent navigation controller state.
             searchVC.modalPresentationStyle = .fullScreen
             present(searchVC, animated: true)
         }
