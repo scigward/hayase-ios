@@ -345,11 +345,13 @@ public class AnimeService: NSObject {
 
     /// Strip HTML tags and decode common HTML entities from AniList description text.
     /// AniList returns description(asHtml: false) but may still include <br> and HTML entities.
+    /// Matches web interface's desc() + notes() pipeline:
+    ///   1. Strip HTML tags  2. Collapse multiple newlines  3. Remove "Source: ..." / "Note(s): ..."
     static func stripHTML(_ html: String) -> String {
         var s = html
         // <br> / <br/> / <br /> → newline
         s = s.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
-        // Remove all remaining HTML tags
+        // Remove all remaining HTML tags — web: replace(/<[^>]+>/g, '')
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
         // Decode common HTML entities
         s = s.replacingOccurrences(of: "&amp;", with: "&")
@@ -359,6 +361,12 @@ public class AnimeService: NSObject {
         s = s.replacingOccurrences(of: "&apos;", with: "'")
         s = s.replacingOccurrences(of: "&quot;", with: "\"")
         s = s.replacingOccurrences(of: "&nbsp;", with: " ")
+        // Collapse multiple newlines to single newline — web: replace(/\n+/g, '\n')
+        s = s.replacingOccurrences(of: #"\n+"#, with: "\n", options: .regularExpression)
+        // Remove "Source: ..." lines — web notes(): replace(/\n?\(?Source: [^)]+\)?\n?/m, '')
+        s = s.replacingOccurrences(of: #"\n?\(?Source: [^)]+\)?\n?"#, with: "", options: .regularExpression)
+        // Remove "Note(s): ..." lines — web notes(): replace(/\n?Notes?:[ |\n][^\n]+\n?/m, '')
+        s = s.replacingOccurrences(of: #"\n?Notes?:[ |\n][^\n]+\n?"#, with: "", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

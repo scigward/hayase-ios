@@ -503,8 +503,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             self.titleLabel.isHidden = true
             self.clearlogoImageView.isHidden = true
             self.clearlogoImageView.image = nil
-            self.descriptionLabel.text = item.description
-            self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
+            // Web desc(): defaults to "No description available." when empty/null
+            let descText = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.descriptionLabel.text = (descText?.isEmpty ?? true) ? "No description available." : descText
+            self.descriptionLabel.isHidden = false
             // Play button bg-custom: use coverImage.color as background (Hayase --custom var)
             let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
             self.updateBadges(for: item, customColor: customColor)

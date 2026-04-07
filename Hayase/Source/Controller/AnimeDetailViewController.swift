@@ -2048,8 +2048,9 @@ private final class AnimeInfoHeaderView: UIView {
         genresContainer.isHidden = true
 
         // Description: font-light text-sm text-muted-foreground
+        // Web desc(): defaults to "No description available." when empty/null
         let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
 
         trailerButton.isHidden = true
 
@@ -2117,8 +2118,9 @@ private final class AnimeInfoHeaderView: UIView {
 
         setGenres(item.genres.prefix(8).map { String($0) })
 
+        // Web desc(): defaults to "No description available." when empty/null
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
 
         // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
@@ -2229,20 +2231,24 @@ private final class AnimeInfoHeaderView: UIView {
         }
 
         // Badge 5: averageScore — tappable — web uses getBGColorForRating for bg colour
-        // ≥75 → green, ≥65 → orange, else → red
+        // Exact Tailwind values: green-700 #15803d, orange-400 #fb923c, red-400 #f87171
         if let sc = score, sc > 0 {
             let scoreBG: UIColor
             let scoreInt = Int(sc)
             if scoreInt >= 75 {
-                scoreBG = UIColor(red: 0.21, green: 0.52, blue: 0.21, alpha: 1) // green-700
+                scoreBG = UIColor(red: 21/255.0, green: 128/255.0, blue: 61/255.0, alpha: 1) // green-700 #15803d
             } else if scoreInt >= 65 {
-                scoreBG = UIColor(red: 0.98, green: 0.65, blue: 0.20, alpha: 1) // orange-400
+                scoreBG = UIColor(red: 251/255.0, green: 146/255.0, blue: 60/255.0, alpha: 1) // orange-400 #fb923c
             } else {
-                scoreBG = UIColor(red: 0.96, green: 0.44, blue: 0.44, alpha: 1) // red-400
+                scoreBG = UIColor(red: 248/255.0, green: 113/255.0, blue: 113/255.0, alpha: 1) // red-400 #f87171
             }
+            // Web: text-contrast (cover-color based), not hardcoded white
+            // Web: tappable, navigates to search sorted by SCORE_DESC
             badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc),
                                                       accent: scoreBG,
-                                                      contrast: .white))
+                                                      contrast: contrastColor,
+                                                      filterType: "score",
+                                                      filterValue: "SCORE_DESC"))
         }
     }
 
