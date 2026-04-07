@@ -169,13 +169,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     // Description: text-white/70 text-xs lg:text-sm
     //   text-center lg:text-right text-shadow-lg max-w-[90%] lg:max-w-[75%] pt-3
-    //   No truncation per design requirement
+    //   line-clamp-2 (mobile) lg:line-clamp-3 (iPad)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         // text-xs = 0.75rem = 12pt (iPad uses 14pt set in applyLayoutForSizeClass)
         l.font = .nunito(ofSize: 12)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
-        l.numberOfLines = 0
+        l.numberOfLines = 2  // line-clamp-2 (mobile default; iPad overrides to 3)
         l.textAlignment = .center
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
@@ -431,8 +431,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Clearlogo sizing: web w-[30rem] = 480pt
             clearlogoWidthCompact.isActive = false
             clearlogoWidthRegular.isActive = true
-            // Description: lg:text-sm (0.875rem = 14pt) — no truncation
-            descriptionLabel.numberOfLines = 0
+            // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
+            descriptionLabel.numberOfLines = 3
             descriptionLabel.font = .nunito(ofSize: 14)
             // Description max-width: lg:max-w-[75%] of right column
             descriptionMaxWidthConstraint.isActive = false
@@ -461,8 +461,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Clearlogo sizing: smaller on iPhone
             clearlogoWidthRegular.isActive = false
             clearlogoWidthCompact.isActive = true
-            // Description: text-xs (0.75rem = 12pt) — no truncation
-            descriptionLabel.numberOfLines = 0
+            // Description: text-xs (0.75rem = 12pt), line-clamp-2
+            descriptionLabel.numberOfLines = 2
             descriptionLabel.font = .nunito(ofSize: 12)
             // Description max-width: max-w-[90%]
             descriptionMaxWidthConstraint.isActive = false
