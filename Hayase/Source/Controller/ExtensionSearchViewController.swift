@@ -280,10 +280,8 @@ final class ExtensionSearchViewController: UIViewController {
         bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
-        // Anime title — small single-line label at the bottom of the banner
+        // Anime title — shown via the titleLabel in controlsView (not navigation bar)
         // Sits on the dark gradient zone → always readable. One line, truncated.
-        // Note: anime title shown in navigation bar via navigationItem.title
-        // No overlay label needed on the banner image.
 
         // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
         // fall back to AniList banner. Single image load = no visible flicker/swap.

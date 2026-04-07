@@ -1242,13 +1242,15 @@ private final class SkeletonBannerCell: UICollectionViewCell {
 
             shimmerViews.append(shimmer)
 
-            // Spacing after each bar to match web my-X / mb-X values
+            // Spacing after each bar to match web CSS margins
+            // Web: title(mb-1) → spacer1(my-5) → desc lines(mb-2) → spacer2(my-3) → button(mb-4)
             switch i {
-            case 0: stack.setCustomSpacing(20, after: container) // title → spacer (my-5 top = 20pt)
-            case 1: stack.setCustomSpacing(20, after: container) // spacer my-5 bottom = 20pt
-            case 2, 3, 4, 5: stack.setCustomSpacing(8, after: container) // desc lines mb-2 = 8pt
-            case 6: stack.setCustomSpacing(12, after: container) // spacer my-3 bottom = 12pt
-            default: break // button: mb-4 handled by pb-5 padding
+            case 0: stack.setCustomSpacing(24, after: container) // title mb-1(4) + spacer my-5 top(20) = 24
+            case 1: stack.setCustomSpacing(20, after: container) // spacer my-5 bottom = 20
+            case 2, 3, 4: stack.setCustomSpacing(8, after: container) // desc lines mb-2 = 8
+            case 5: stack.setCustomSpacing(20, after: container) // desc4 mb-2(8) + spacer2 my-3 top(12) = 20
+            case 6: stack.setCustomSpacing(12, after: container) // spacer2 my-3 bottom = 12
+            default: break // button: mb-4 + trailing empty div mb-3 = bottom padding
             }
         }
 
