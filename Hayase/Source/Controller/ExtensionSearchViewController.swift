@@ -303,8 +303,9 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
         ])
 
-        // ── 2. CONTROLS VIEW — EXPLICIT height 156pt, pinned to bannerView.bottom ───
-        // height = 12 (top) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 12 (bottom) = 156
+        // ── 2. CONTROLS VIEW — EXPLICIT height 188pt, pinned to bannerView.bottom ───
+        // height = 12 (top) + 28 (title) + 16 (gap) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 0 (bottom) = 188
+        // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
 
@@ -313,9 +314,19 @@ final class ExtensionSearchViewController: UIViewController {
         controlsView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(controlsView)
 
+        // Anime title — matches web: text-2xl font-bold (1.5rem = 24px)
+        let titleLabel = UILabel()
+        titleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
+        titleLabel.font = .nunito(ofSize: 24, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        controlsView.addSubview(titleLabel)
+
         // Filter field
         filterField = UITextField()
-        filterField.placeholder = "Filter by text, or paste a magnet / torrent link"
+        filterField.placeholder = "Filter by text, or paste a magnet link or torrent file here to specify a torrent manually"
         filterField.attributedPlaceholder = NSAttributedString(
             string: filterField.placeholder ?? "",
             attributes: [.foregroundColor: UIColor(white: 0.45, alpha: 1)])
@@ -407,9 +418,14 @@ final class ExtensionSearchViewController: UIViewController {
             controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 156),
+            controlsView.heightAnchor.constraint(equalToConstant: 188),
 
-            filterField.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 12),
+            // Anime title (web: text-2xl font-bold, first child of space-y-4 container)
+            titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
+
+            filterField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
             filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
@@ -972,7 +988,7 @@ final class TorrentResultCell: UITableViewCell {
     // Right column
     private let groupLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 17, weight: .bold) // text-xl font-bold
+        l.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold (1.25rem = 20px)
         l.textColor = .white
         l.numberOfLines = 1
         return l
@@ -1009,6 +1025,7 @@ final class TorrentResultCell: UITableViewCell {
     private let typeBadgeLabel = TorrentResultCell.makeBadgeLabel()
     private let seedersLabel = UILabel()
     private let sizeLabel = UILabel()
+    private let dateLabel = UILabel()
 
     // Tech terms stack (right side of bottom)
     private let termsStack: UIStackView = {
@@ -1047,12 +1064,14 @@ final class TorrentResultCell: UITableViewCell {
         groupRow.spacing = 8
         groupRow.alignment = .center
 
-        // Bottom-left: type badge + seeders + size
+        // Bottom-left: type badge + seeders + size + date (mirrors web details row)
         seedersLabel.font = .nunito(ofSize: 11, weight: .medium)
         sizeLabel.font = .nunito(ofSize: 11)
-        sizeLabel.textColor = UIColor(white: 0.65, alpha: 1)
+        sizeLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
+        dateLabel.font = .nunito(ofSize: 11)
+        dateLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
 
-        let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, seedersLabel, sizeLabel])
+        let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, seedersLabel, sizeLabel, dateLabel])
         leftBottom.axis = .horizontal
         leftBottom.spacing = 6
         leftBottom.alignment = .center
@@ -1090,7 +1109,7 @@ final class TorrentResultCell: UITableViewCell {
             contentCol.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             contentCol.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
             contentCol.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
-            contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
+            contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
     }
 
@@ -1201,8 +1220,17 @@ final class TorrentResultCell: UITableViewCell {
         seedersLabel.text = "\(result.seeders) Seeders"
         seedersLabel.textColor = result.seeders > 20 ? green20 : (result.seeders < 5 ? red5 : yellow5)
 
-        // ── Size
-        sizeLabel.text = result.size > 0 ? formatBytes(result.size) : ""
+        // ── Size (web: fastPrettyBytes uses base-1000 SI units)
+        sizeLabel.text = result.size > 0 ? fastPrettyBytes(result.size) : ""
+
+        // ── Date (web: since(new Date(result.date)) — relative time like "2 days ago")
+        if let date = result.date {
+            dateLabel.text = sinceDate(date)
+            dateLabel.isHidden = false
+        } else {
+            dateLabel.text = ""
+            dateLabel.isHidden = true
+        }
 
         // ── Tech term badges (right side)
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -1220,14 +1248,28 @@ final class TorrentResultCell: UITableViewCell {
     }
 }
 
-// MARK: - Byte formatter
+// MARK: - Byte formatter (mirrors web fastPrettyBytes — base-1000 SI units)
 
-private func formatBytes(_ bytes: Int64) -> String {
-    let gb = 1_073_741_824.0; let mb = 1_048_576.0; let d = Double(bytes)
-    if d >= gb { return String(format: "%.2f GB", d / gb) }
-    if d >= mb { return String(format: "%.0f MB", d / mb) }
-    if d > 0   { return String(format: "%.0f KB", d / 1024) }
-    return ""
+private func fastPrettyBytes(_ bytes: Int64) -> String {
+    let d = Double(bytes)
+    let units = [" B", " kB", " MB", " GB", " TB"]
+    if d.isNaN { return "0 B" }
+    if d < 1 { return "\(d) B" }
+    let exponent = min(Int(log(d) / log(1000)), units.count - 1)
+    let value = d / pow(1000, Double(exponent))
+    // Match web: Number(value.toFixed(1)) — drops trailing ".0"
+    let formatted = (value.truncatingRemainder(dividingBy: 1) == 0)
+        ? String(format: "%.0f", value)
+        : String(format: "%.1f", value)
+    return formatted + units[exponent]
+}
+
+// MARK: - Relative date (mirrors web since() from utils.ts)
+
+private func sinceDate(_ date: Date) -> String {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .full
+    return formatter.localizedString(for: date, relativeTo: Date())
 }
 
 // MARK: - UIColor luminance helper (WCAG relative luminance for text contrast)
