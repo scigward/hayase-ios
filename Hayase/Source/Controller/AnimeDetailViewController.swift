@@ -1241,6 +1241,10 @@ private final class AnimeInfoHeaderView: UIView {
     var onBookmark: (() -> Void)?
     var onOpenAniList: (() -> Void)?
     var onOpenMAL: (() -> Void)?
+    /// Callback for genre chip tap — passes genre name for search navigation.
+    var onGenreTapped: ((String) -> Void)?
+    /// Callback for badge pill tap — passes filter type and value for search navigation.
+    var onBadgeTapped: ((String, String) -> Void)?
 
     /// Accent colour from the current anime's coverImage — used to tint active fav/bookmark icons.
     /// Mirrors Hayase's `select:!text-custom` on FavoriteButton / BookmarkButton.
@@ -2199,10 +2203,11 @@ private final class AnimeInfoHeaderView: UIView {
             case "MUSIC":    display = "Music"
             default:         display = fmt.replacingOccurrences(of: "_", with: " ").capitalized
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                                        filterType: "format", filterValue: fmt))
         }
 
-        // Badge 3: status(media) — web STATUS_MAP
+        // Badge 3: status(media) — tappable — web STATUS_MAP
         if let st = status {
             let display: String
             switch st {
@@ -2213,15 +2218,17 @@ private final class AnimeInfoHeaderView: UIView {
             case "HIATUS":           display = "Hiatus"
             default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                                      filterType: "status", filterValue: st))
         }
 
         // Badge 4: season(media) — web: "Spring 2024" (CSS capitalize on lowercase season + year)
         if let szn = season, !szn.isEmpty {
-            badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor))
+            badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor,
+                                                      filterType: "season", filterValue: szn))
         }
 
-        // Badge 5: averageScore — web uses getBGColorForRating for bg colour
+        // Badge 5: averageScore — tappable — web uses getBGColorForRating for bg colour
         // ≥75 → green, ≥65 → orange, else → red
         if let sc = score, sc > 0 {
             let scoreBG: UIColor
@@ -2262,7 +2269,25 @@ private final class AnimeInfoHeaderView: UIView {
         // h-6 (24pt)
         l.heightAnchor.constraint(equalToConstant: 24).isActive = true
         l.translatesAutoresizingMaskIntoConstraints = false
+        // Make tappable if filter info provided
+        if let filterType = filterType, let filterValue = filterValue {
+            l.isUserInteractionEnabled = true
+            let tap = DetailBadgeTapGesture(target: self, action: #selector(detailBadgeTapped(_:)))
+            tap.filterType = filterType
+            tap.filterValue = filterValue
+            l.addGestureRecognizer(tap)
+        }
         return l
+    }
+
+    /// Custom UITapGestureRecognizer for detail badge navigation.
+    private class DetailBadgeTapGesture: UITapGestureRecognizer {
+        var filterType: String = ""
+        var filterValue: String = ""
+    }
+
+    @objc private func detailBadgeTapped(_ gesture: DetailBadgeTapGesture) {
+        onBadgeTapped?(gesture.filterType, gesture.filterValue)
     }
 
     // Populate both genresStack (compact scroll) and chipWrapView (regular wrap).
@@ -2278,6 +2303,8 @@ private final class AnimeInfoHeaderView: UIView {
             btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
             btn.layer.cornerRadius = 6
             btn.layer.masksToBounds = true
+            // Tappable: navigate to search with genre filter
+            btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
             return btn
         }
         for genre in genres {
@@ -2301,6 +2328,7 @@ private final class AnimeInfoHeaderView: UIView {
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
     /// bg-secondary (#27272a), text-secondary-foreground (white), px-4 (16pt) — matches interface
+    /// Tappable: navigates to search with genre filter matching web on:click
     private func makeGenreChip(text: String) -> UIView {
         let btn = UIButton(type: .system)
         btn.setTitle(text, for: .normal)
@@ -2313,7 +2341,13 @@ private final class AnimeInfoHeaderView: UIView {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 28).isActive = true // h-7
         btn.setContentHuggingPriority(.required, for: .horizontal)
+        btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
         return btn
+    }
+
+    @objc private func genreChipTapped(_ sender: UIButton) {
+        guard let genre = sender.title(for: .normal) else { return }
+        onGenreTapped?(genre)
     }
 
     private func loadImage(from urlString: String?,
@@ -2563,8 +2597,9 @@ class AnimeDetailViewController: UIViewController {
         v.addSubview(tabBar)
 
         // Always-active constraints: top/bottom padding
+        // top = 24pt matches gap-6 from web's main container spacing (same as between genres and buttons)
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
+            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
             tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
         ])
 
@@ -2614,6 +2649,54 @@ class AnimeDetailViewController: UIViewController {
     // sections 1–4 match Hayase +page.svelte tabs: Episodes | Relations | Threads | Themes.
     private enum Section: Int, CaseIterable {
         case header = 0, episodes, episodePagination, relations, threads, themes
+    }
+
+    // MARK: - Search navigation helpers
+
+    /// Navigate to Search tab with a genre filter.
+    /// Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
+    private func navigateToSearchTab(genre: String) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        searchVC.prefillSearchExtended(genre: genre)
+        navigationController?.popToRootViewController(animated: false)
+        tabBarController?.selectedIndex = 1
+    }
+
+    /// Navigate to Search tab with a badge filter (format, status, season, score).
+    private func navigateToSearchTab(filterType: String, value: String) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        switch filterType {
+        case "format":
+            searchVC.prefillSearchExtended(format: value)
+        case "status":
+            searchVC.prefillSearchExtended(status: value)
+        case "season":
+            // Season badge text is like "Spring 2024" — parse season and year
+            let parts = value.components(separatedBy: " ")
+            if parts.count == 2, let year = Int(parts[1]) {
+                searchVC.prefillSearchExtended(season: parts[0].uppercased(), seasonYear: year)
+            } else {
+                searchVC.prefillSearchExtended(season: value.uppercased())
+            }
+        case "score":
+            searchVC.prefillSearchExtended(sort: value)
+        default:
+            break
+        }
+        navigationController?.popToRootViewController(animated: false)
+        tabBarController?.selectedIndex = 1
     }
 
     // MARK: - Lifecycle
@@ -2824,6 +2907,16 @@ class AnimeDetailViewController: UIViewController {
                   let url = URL(string: "https://myanimelist.net/anime/\(malId)") else { return }
             let safari = SFSafariViewController(url: url)
             self.present(safari, animated: true)
+        }
+
+        // Wire genre chip taps → navigate to Search tab with genre filter
+        headerView.onGenreTapped = { [weak self] genre in
+            self?.navigateToSearchTab(genre: genre)
+        }
+
+        // Wire badge pill taps → navigate to Search tab with appropriate filter
+        headerView.onBadgeTapped = { [weak self] filterType, value in
+            self?.navigateToSearchTab(filterType: filterType, value: value)
         }
 
         // Header view + tab bar are embedded in a regular table cell (section 0)
