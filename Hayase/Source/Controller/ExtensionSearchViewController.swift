@@ -1395,10 +1395,14 @@ private func fastPrettyBytes(_ bytes: Int64) -> String {
 
 // MARK: - Relative date (mirrors web since() from utils.ts)
 
+private let sharedRelativeDateFormatter: RelativeDateTimeFormatter = {
+    let f = RelativeDateTimeFormatter()
+    f.unitsStyle = .full
+    return f
+}()
+
 private func sinceDate(_ date: Date) -> String {
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .full
-    return formatter.localizedString(for: date, relativeTo: Date())
+    return sharedRelativeDateFormatter.localizedString(for: date, relativeTo: Date())
 }
 
 // MARK: - UIColor luminance helper (WCAG relative luminance for text contrast)
