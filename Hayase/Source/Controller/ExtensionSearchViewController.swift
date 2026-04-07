@@ -180,6 +180,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var emptyView: UIView!
     private var errorView: UIView!
     private var errorLabel: UILabel!
+    private var skeletonView: UIStackView!
 
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
@@ -233,7 +234,7 @@ final class ExtensionSearchViewController: UIViewController {
         // height 0 when Auto Layout can't resolve the circular dependency.
         // Fix: TWO separate views, each with an explicit heightAnchor constant.
         //   bannerView  → 160pt (always visible, never 0)
-        //   controlsView → 156pt (12+38+10+34+10+40+12)
+        //   controlsView → 188pt (12+28+16+38+10+34+10+40)
         // tableView.top = controlsView.bottom → always correct.
         // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -494,31 +495,94 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     private func setupStateViews() {
-        // Loading
+        // Loading spinner (shown during search alongside skeleton)
         loadingIndicator = UIActivityIndicatorView(style: .large)
         loadingIndicator.color = .white
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(loadingIndicator)
 
+        // Skeleton loading cards (web shows 12 shimmer placeholders during search)
+        skeletonView = UIStackView()
+        skeletonView.axis = .vertical
+        skeletonView.spacing = 8
+        skeletonView.isHidden = true
+        skeletonView.translatesAutoresizingMaskIntoConstraints = false
+        let cardBg = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1) // bg-neutral-950
+        let shimmerColor = UIColor.white.withAlphaComponent(0.05)             // bg-primary/5
+        for _ in 0..<12 {
+            let card = UIView()
+            card.backgroundColor = cardBg
+            card.layer.cornerRadius = 6
+            card.clipsToBounds = true
+            card.translatesAutoresizingMaskIntoConstraints = false
+            card.heightAnchor.constraint(equalToConstant: 106).isActive = true
+
+            // Shimmer bars matching web skeleton: title bar, filename bar, two bottom bars
+            let bar1 = UIView(); bar1.backgroundColor = shimmerColor; bar1.layer.cornerRadius = 4
+            bar1.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(bar1)
+            let bar2 = UIView(); bar2.backgroundColor = shimmerColor; bar2.layer.cornerRadius = 4
+            bar2.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(bar2)
+            let bar3 = UIView(); bar3.backgroundColor = shimmerColor; bar3.layer.cornerRadius = 4
+            bar3.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(bar3)
+            let bar4 = UIView(); bar4.backgroundColor = shimmerColor; bar4.layer.cornerRadius = 4
+            bar4.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(bar4)
+
+            NSLayoutConstraint.activate([
+                // h-4 w-40 mt-2
+                bar1.topAnchor.constraint(equalTo: card.topAnchor, constant: 20),
+                bar1.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                bar1.heightAnchor.constraint(equalToConstant: 16),
+                bar1.widthAnchor.constraint(equalToConstant: 160),
+                // h-2 w-28 mt-1
+                bar2.topAnchor.constraint(equalTo: bar1.bottomAnchor, constant: 8),
+                bar2.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                bar2.heightAnchor.constraint(equalToConstant: 8),
+                bar2.widthAnchor.constraint(equalToConstant: 112),
+                // bottom left h-2 w-20
+                bar3.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+                bar3.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+                bar3.heightAnchor.constraint(equalToConstant: 8),
+                bar3.widthAnchor.constraint(equalToConstant: 80),
+                // bottom right h-2 w-20
+                bar4.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+                bar4.leadingAnchor.constraint(equalTo: bar3.trailingAnchor, constant: 8),
+                bar4.heightAnchor.constraint(equalToConstant: 8),
+                bar4.widthAnchor.constraint(equalToConstant: 80),
+            ])
+
+            skeletonView.addArrangedSubview(card)
+        }
+
+        let skeletonScroll = UIScrollView()
+        skeletonScroll.translatesAutoresizingMaskIntoConstraints = false
+        skeletonScroll.isUserInteractionEnabled = false
+        skeletonScroll.addSubview(skeletonView)
+        view.addSubview(skeletonScroll)
+
         // Empty view — "Ooops!" (mirrors {:else} case)
+        // Web: text-4xl = 2.25rem = 36px, text-lg = 1.125rem = 18px
         emptyView = UIView()
         emptyView.isHidden = true
         emptyView.translatesAutoresizingMaskIntoConstraints = false
         let oopsLabel = UILabel()
         oopsLabel.text = "Ooops!"
-        oopsLabel.font = .nunito(ofSize: 30, weight: .bold)
+        oopsLabel.font = .nunito(ofSize: 36, weight: .bold) // text-4xl
         oopsLabel.textColor = .white
         oopsLabel.textAlignment = .center
         let noResultLabel = UILabel()
-        noResultLabel.text = "No results found.\nTry specifying a torrent manually by pasting a magnet link into the filter bar."
-        noResultLabel.font = .nunito(ofSize: 14)
-        noResultLabel.textColor = UIColor(white: 0.45, alpha: 1)
+        noResultLabel.text = "No results found.\nTry specifying a torrent manually by pasting a magnet link or torrent file into the filter bar."
+        noResultLabel.font = .nunito(ofSize: 18) // text-lg
+        noResultLabel.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
         noResultLabel.textAlignment = .center
         noResultLabel.numberOfLines = 0
         let emptyStack = UIStackView(arrangedSubviews: [oopsLabel, noResultLabel])
         emptyStack.axis = .vertical
-        emptyStack.spacing = 8
+        emptyStack.spacing = 12 // mb-3 = 12px
         emptyStack.translatesAutoresizingMaskIntoConstraints = false
         emptyView.addSubview(emptyStack)
         NSLayoutConstraint.activate([
@@ -535,17 +599,17 @@ final class ExtensionSearchViewController: UIViewController {
         errorView.translatesAutoresizingMaskIntoConstraints = false
         let errTitle = UILabel()
         errTitle.text = "Ooops!"
-        errTitle.font = .nunito(ofSize: 30, weight: .bold)
+        errTitle.font = .nunito(ofSize: 36, weight: .bold) // text-4xl
         errTitle.textColor = .white
         errTitle.textAlignment = .center
         errorLabel = UILabel()
-        errorLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        errorLabel.font = .nunito(ofSize: 13)
+        errorLabel.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
+        errorLabel.font = .nunito(ofSize: 18) // text-lg
         errorLabel.textAlignment = .center
         errorLabel.numberOfLines = 0
         let errStack = UIStackView(arrangedSubviews: [errTitle, errorLabel])
         errStack.axis = .vertical
-        errStack.spacing = 8
+        errStack.spacing = 12 // mb-3 = 12px
         errStack.translatesAutoresizingMaskIntoConstraints = false
         errorView.addSubview(errStack)
         NSLayoutConstraint.activate([
@@ -559,6 +623,17 @@ final class ExtensionSearchViewController: UIViewController {
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
+
+            // Skeleton fills the tableView area
+            skeletonScroll.topAnchor.constraint(equalTo: tableView.topAnchor, constant: 8),
+            skeletonScroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            skeletonScroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            skeletonScroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            skeletonView.topAnchor.constraint(equalTo: skeletonScroll.topAnchor),
+            skeletonView.leadingAnchor.constraint(equalTo: skeletonScroll.leadingAnchor, constant: 16),
+            skeletonView.trailingAnchor.constraint(equalTo: skeletonScroll.trailingAnchor, constant: -16),
+            skeletonView.widthAnchor.constraint(equalTo: skeletonScroll.widthAnchor, constant: -32),
+
             emptyView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             emptyView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
             emptyView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
@@ -581,6 +656,10 @@ final class ExtensionSearchViewController: UIViewController {
         tableView.reloadData()
         emptyView.isHidden  = true
         errorView.isHidden  = true
+        // Show skeleton loading placeholders (matching web's 12 shimmer cards)
+        skeletonView.isHidden = false
+        skeletonView.superview?.isHidden = false
+        startSkeletonPulse()
         loadingIndicator.startAnimating()
 
         let ep  = currentEpisode
@@ -601,6 +680,9 @@ final class ExtensionSearchViewController: UIViewController {
                 self.tableView.reloadData()
             }
             self.loadingIndicator.stopAnimating()
+            self.skeletonView.isHidden = true
+            self.skeletonView.superview?.isHidden = true
+            self.stopSkeletonPulse()
             // If auto-select was requested (episode change from player),
             // automatically pick the best result and start playback.
             if self.autoSelectAfterSearch {
@@ -612,13 +694,65 @@ final class ExtensionSearchViewController: UIViewController {
 
     private func applyFilter() {
         let query = filterText.lowercased()
+        let filtered: [TorrentResult]
         if query.isEmpty {
-            filteredResults = results
+            filtered = results
         } else {
-            filteredResults = results.filter { $0.title.lowercased().contains(query) }
+            filtered = results.filter { $0.title.lowercased().contains(query) }
         }
+        filteredResults = filterAndSortResults(filtered)
         tableView.reloadData()
         emptyView.isHidden = !filteredResults.isEmpty || loadingIndicator.isAnimating
+    }
+
+    /// Mirrors web's filterAndSortResults() from SearchModal.svelte exactly.
+    /// Multi-tier ranking: low accuracy → rank 3, low seeders (≤15) → rank 2,
+    /// normal → rank 1, quality releases → rank 0.
+    /// Within rank 1: sort by accuracy (high first), then by seeders descending.
+    private func filterAndSortResults(_ results: [TorrentResult]) -> [TorrentResult] {
+        return results.sorted { a, b in
+            func getRank(_ res: TorrentResult) -> Int {
+                if res.accuracy == "low" { return 3 }
+                if res.seeders <= 15 { return 2 }
+                if res.type == "best" || res.type == "alt" { return 0 }
+                return 1
+            }
+            let rankA = getRank(a)
+            let rankB = getRank(b)
+            if rankA != rankB { return rankA < rankB }
+            if rankA == 1 {
+                let scoreA = a.accuracy == "high" ? 1 : 0
+                let scoreB = b.accuracy == "high" ? 1 : 0
+                if scoreA != scoreB { return scoreA > scoreB }
+                return b.seeders < a.seeders  // more seeders first
+            }
+            return false
+        }
+    }
+
+    // MARK: - Skeleton pulse animation (mirrors web animate-pulse)
+
+    private func startSkeletonPulse() {
+        for card in skeletonView.arrangedSubviews {
+            for bar in card.subviews {
+                let anim = CABasicAnimation(keyPath: "opacity")
+                anim.fromValue = 1.0
+                anim.toValue = 0.5
+                anim.duration = 2.0
+                anim.autoreverses = true
+                anim.repeatCount = .infinity
+                anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                bar.layer.add(anim, forKey: "pulse")
+            }
+        }
+    }
+
+    private func stopSkeletonPulse() {
+        for card in skeletonView.arrangedSubviews {
+            for bar in card.subviews {
+                bar.layer.removeAnimation(forKey: "pulse")
+            }
+        }
     }
 
     // MARK: - Actions
@@ -680,14 +814,9 @@ final class ExtensionSearchViewController: UIViewController {
 
     @objc private func autoSelectTapped() {
         guard !filteredResults.isEmpty else { return }
-        // Best: high accuracy first, then most seeders (mirrors filterAndSortResults)
-        guard let best = filteredResults.sorted(by: { a, b in
-            let scoreA = a.accuracy == "high" ? 2 : a.accuracy == "medium" ? 1 : 0
-            let scoreB = b.accuracy == "high" ? 2 : b.accuracy == "medium" ? 1 : 0
-            if scoreA != scoreB { return scoreA > scoreB }
-            return a.seeders > b.seeders
-        }).first else { return }
-        confirmDownload(best)
+        // filteredResults is already sorted by filterAndSortResults() (matching web's
+        // playBest which takes filterAndSortResults(...)[0])
+        confirmDownload(filteredResults[0])
     }
 
     // MARK: - Download
@@ -1045,7 +1174,7 @@ final class TorrentResultCell: UITableViewCell {
         // Hayase px-4 sm:px-6 on the container → we use 16px card inset
         let card = UIView()
         card.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
-        card.layer.cornerRadius = 8
+        card.layer.cornerRadius = 6  // rounded-md (0.375rem = 6px)
         card.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(card)
 
@@ -1098,11 +1227,11 @@ final class TorrentResultCell: UITableViewCell {
             card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
-            // BadgeCheck — absolute top-left (mirrors top-4 left-4)
-            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            badgeCheckView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            badgeCheckView.widthAnchor.constraint(equalToConstant: 16),
-            badgeCheckView.heightAnchor.constraint(equalToConstant: 16),
+            // BadgeCheck — absolute top-left (mirrors top-4 left-4 = 16px, size 1.2rem ≈ 19px)
+            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            badgeCheckView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
+            badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
 
             // Content column: p-3 (12pt), pl-6 to clear the BadgeCheck (mirrors pl-6 md:pl-0)
             contentCol.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 36),
@@ -1130,13 +1259,13 @@ final class TorrentResultCell: UITableViewCell {
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
         case "high":
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
             badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
                 .withTintColor(green, renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         case "medium":
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
                 .withTintColor(UIColor(white: 0.2, alpha: 1), renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
