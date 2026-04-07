@@ -524,12 +524,11 @@ final class ExtensionService {
                 // date: first non-nil wins (||=)
                 if existing.date == nil { existing.date = entry.date }
                 // type: best > alt > batch — lower index wins
+                // Web: (rank(entry) <= rank(dupe) ? entry.type : dupe.type) ?? entry.type ?? dupe.type
                 let eTypeRank = typeRank[entry.type    ?? "best"] ?? 0
                 let xTypeRank = typeRank[existing.type ?? "best"] ?? 0
-                if eTypeRank <= xTypeRank {
-                    existing.type = entry.type
-                }
-                existing.type = existing.type ?? entry.type
+                let chosen = eTypeRank <= xTypeRank ? entry.type : existing.type
+                existing.type = chosen ?? entry.type ?? existing.type
                 seen[entry.hash] = existing
             } else {
                 seen[entry.hash] = entry
