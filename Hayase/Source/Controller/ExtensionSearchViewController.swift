@@ -191,7 +191,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     /// Whether this VC is presented modally as a sheet (iPad) vs pushed (iPhone).
     private var isPresentedAsSheet: Bool {
-        return presentingViewController != nil && navigationController == nil
+        return modalPresentationStyle == .formSheet || modalPresentationStyle == .pageSheet
     }
 
     // MARK: Lifecycle
