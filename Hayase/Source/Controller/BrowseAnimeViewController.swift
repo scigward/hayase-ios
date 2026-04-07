@@ -94,6 +94,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     var onFavorite: ((AnimeItem) -> Void)?
     /// Callback fired when the user taps the bookmark button.
     var onBookmark: ((AnimeItem) -> Void)?
+    /// Callback for badge tap: passes filter type and value for search navigation.
+    /// Filter types: "format", "status", "season", "score"
+    var onBadgeTapped: ((_ filterType: String, _ value: String, _ value2: String?) -> Void)?
+    /// Callback for genre tap: passes the genre name for search navigation.
+    var onGenreTapped: ((_ genre: String) -> Void)?
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
@@ -162,14 +167,15 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return sv
     }()
 
-    // Description: text-white/70 text-xs lg:text-sm line-clamp-2 lg:line-clamp-3
+    // Description: text-white/70 text-xs lg:text-sm
     //   text-center lg:text-right text-shadow-lg max-w-[90%] lg:max-w-[75%] pt-3
+    //   No truncation per design requirement
     private let descriptionLabel: UILabel = {
         let l = UILabel()
         // text-xs = 0.75rem = 12pt (iPad uses 14pt set in applyLayoutForSizeClass)
         l.font = .nunito(ofSize: 12)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
-        l.numberOfLines = 2
+        l.numberOfLines = 0
         l.textAlignment = .center
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
@@ -307,6 +313,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         leftColumn.axis = .vertical
         leftColumn.spacing = 16  // gap-4
         leftColumn.alignment = .center  // will be .leading on iPad
+        // Add a small spacer to push clearlogo/title slightly lower
+        let logoTopSpacer = UIView()
+        logoTopSpacer.translatesAutoresizingMaskIntoConstraints = false
+        logoTopSpacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        leftColumn.addArrangedSubview(logoTopSpacer)
+        leftColumn.setCustomSpacing(0, after: logoTopSpacer)
         leftColumn.addArrangedSubview(clearlogoImageView)
         leftColumn.addArrangedSubview(titleLabel)
         leftColumn.addArrangedSubview(badgeStack)
@@ -419,8 +431,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Clearlogo sizing: web w-[30rem] = 480pt
             clearlogoWidthCompact.isActive = false
             clearlogoWidthRegular.isActive = true
-            // Description: lg:line-clamp-3 lg:text-sm (0.875rem = 14pt)
-            descriptionLabel.numberOfLines = 3
+            // Description: lg:text-sm (0.875rem = 14pt) — no truncation
+            descriptionLabel.numberOfLines = 0
             descriptionLabel.font = .nunito(ofSize: 14)
             // Description max-width: lg:max-w-[75%] of right column
             descriptionMaxWidthConstraint.isActive = false
@@ -449,8 +461,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Clearlogo sizing: smaller on iPhone
             clearlogoWidthRegular.isActive = false
             clearlogoWidthCompact.isActive = true
-            // Description: text-xs (0.75rem = 12pt) line-clamp-2
-            descriptionLabel.numberOfLines = 2
+            // Description: text-xs (0.75rem = 12pt) — no truncation
+            descriptionLabel.numberOfLines = 0
             descriptionLabel.font = .nunito(ofSize: 12)
             // Description max-width: max-w-[90%]
             descriptionMaxWidthConstraint.isActive = false
@@ -485,9 +497,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard currentIndex < items.count else { return }
         let item = items[currentIndex]
         let block = {
-            // Reset title/clearlogo — will be resolved by loadClearlogo
+            // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
+            // Web: {#await episodesCached()} shows nothing while loading, then clearlogo or text.
             self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
-            self.titleLabel.isHidden = false
+            self.titleLabel.isHidden = true
             self.clearlogoImageView.isHidden = true
             self.clearlogoImageView.image = nil
             self.descriptionLabel.text = item.description
@@ -625,7 +638,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Make sure we're still displaying the same item (rotation may have advanced)
             guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
             guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
-                // No clearlogo — keep text title visible (already the default)
+                // No clearlogo available — show text title as fallback
+                DispatchQueue.main.async {
+                    guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
+                    UIView.animate(withDuration: 0.3) {
+                        self.titleLabel.isHidden = false
+                    }
+                }
                 return
             }
             // Check image cache first
@@ -635,7 +654,18 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             }
             let captured = urlStr
             self.clearlogoTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
+                guard let data, let image = UIImage(data: data) else {
+                    // Download failed — show text title as fallback
+                    DispatchQueue.main.async {
+                        guard let self,
+                              self.currentIndex < self.items.count,
+                              self.items[self.currentIndex].id == itemID else { return }
+                        UIView.animate(withDuration: 0.3) {
+                            self.titleLabel.isHidden = false
+                        }
+                    }
+                    return
+                }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
                     self?.showClearlogo(image, forItemID: itemID)
@@ -658,44 +688,43 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private func updateBadges(for item: AnimeItem, customColor: UIColor) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        // Prepare badge data: (text, textColor)
+        // Prepare badge data: (text, textColor, filterType, filterValue, filterValue2)
         // Web: of(current) ?? duration(current) ?? 'N/A', format, status, season?, score?
-        var badges: [(String, UIColor)] = []
+        // filterType: nil = not tappable, "format"/"status"/"season"/"score" = tappable
+        var badges: [(String, UIColor, String?, String?, String?)] = []
 
-        // First badge: episode count or duration or 'N/A'
-        // Web of(): returns "<count> Episodes" or "<prog> / <count> Episodes", undefined if count === 1
+        // First badge: episode count or duration or 'N/A' — not tappable (web: plain div, no Button)
         if let eps = item.episodes, eps > 1 {
-            badges.append(("\(eps) Episodes", customColor))
+            badges.append(("\(eps) Episodes", customColor, nil, nil, nil))
         } else if let dur = item.duration, dur > 0 {
-            badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor))
+            badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor, nil, nil, nil))
         } else {
-            badges.append(("N/A", customColor))
+            badges.append(("N/A", customColor, nil, nil, nil))
         }
 
-        // Format badge: FORMAT_MAP matching web
+        // Format badge: FORMAT_MAP matching web — tappable
         if let fmt = item.format {
             let fmtMap: [String: String] = [
                 "TV": "TV Series", "TV_SHORT": "TV Short", "MOVIE": "Movie",
                 "SPECIAL": "Special", "OVA": "OVA", "ONA": "ONA", "MUSIC": "Music"]
-            badges.append((fmtMap[fmt] ?? fmt.capitalized, customColor))
+            badges.append((fmtMap[fmt] ?? fmt.capitalized, customColor, "format", fmt, nil))
         }
 
-        // Status badge: STATUS_MAP matching web
+        // Status badge: STATUS_MAP matching web — tappable
         if let st = item.status {
             let stMap: [String: String] = [
                 "RELEASING": "Releasing", "FINISHED": "Finished",
                 "NOT_YET_RELEASED": "Not Yet Released",
                 "CANCELLED": "Cancelled", "HIATUS": "Hiatus"]
-            badges.append((stMap[st] ?? st.capitalized, customColor))
+            badges.append((stMap[st] ?? st.capitalized, customColor, "status", st, nil))
         }
 
-        // Season badge (if available)
-        // Web: season().toLowerCase() + CSS capitalize → "Spring 2024", "Winter 2025", etc.
+        // Season badge (if available) — tappable, passes season + year
         if let season = item.season, let year = item.year {
-            badges.append(("\(season.capitalized) \(year)", customColor))
+            badges.append(("\(season.capitalized) \(year)", customColor, "season", season, String(year)))
         }
 
-        // Score badge: color-coded text per getTextColorForRating
+        // Score badge: color-coded text per getTextColorForRating — tappable (sorts by SCORE_DESC)
         if let score = item.score, score > 0 {
             let scoreColor: UIColor
             if score >= 75 {
@@ -705,10 +734,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             } else {
                 scoreColor = UIColor(red: 239/255.0, green: 68/255.0, blue: 68/255.0, alpha: 1) // text-red-500
             }
-            badges.append((String(format: "%.0f%%", score), scoreColor))
+            badges.append((String(format: "%.0f%%", score), scoreColor, "score", "SCORE_DESC", nil))
         }
 
-        for (text, textColor) in badges {
+        for (text, textColor, filterType, filterValue, filterValue2) in badges {
             // Web: rounded px-3.5 h-7 text-sm !text-custom bg-primary/10 font-bold inline-flex items-center
             let pill = UIView()
             pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
@@ -729,8 +758,37 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
                 l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
             ])
+            // Make tappable badges respond to taps (format, status, season, score)
+            if let filterType = filterType, let filterValue = filterValue {
+                pill.isUserInteractionEnabled = true
+                let tap = BadgeTapGesture(target: self, action: #selector(badgePillTapped(_:)))
+                tap.filterType = filterType
+                tap.filterValue = filterValue
+                tap.filterValue2 = filterValue2
+                pill.addGestureRecognizer(tap)
+            }
             badgeStack.addArrangedSubview(pill)
         }
+    }
+
+    /// Custom UITapGestureRecognizer that carries badge filter metadata.
+    private class BadgeTapGesture: UITapGestureRecognizer {
+        var filterType: String = ""
+        var filterValue: String = ""
+        var filterValue2: String?
+    }
+
+    @objc private func badgePillTapped(_ gesture: BadgeTapGesture) {
+        onBadgeTapped?(gesture.filterType, gesture.filterValue, gesture.filterValue2)
+    }
+
+    /// Custom UITapGestureRecognizer that carries genre name.
+    private class GenreTapGesture: UITapGestureRecognizer {
+        var genre: String = ""
+    }
+
+    @objc private func genrePillTapped(_ gesture: GenreTapGesture) {
+        onGenreTapped?(gesture.genre)
     }
 
     /// Populates the genre pill buttons on iPad (web: hidden lg:flex, right column of banner).
@@ -768,6 +826,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
                 l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
             ])
+            // Make genre pill tappable — navigates to search with genre filter
+            pill.isUserInteractionEnabled = true
+            let tap = GenreTapGesture(target: self, action: #selector(genrePillTapped(_:)))
+            tap.genre = genre
+            pill.addGestureRecognizer(tap)
             genresStack.addArrangedSubview(pill)
         }
     }
@@ -1699,6 +1762,16 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                     }
                 }
             }
+            // Wire badge taps → navigate to Search tab with the appropriate filter
+            cell.onBadgeTapped = { [weak self] filterType, value, value2 in
+                guard let self else { return }
+                self.navigateToSearch(filterType: filterType, value: value, value2: value2)
+            }
+            // Wire genre taps → navigate to Search tab with genre filter
+            cell.onGenreTapped = { [weak self] genre in
+                guard let self else { return }
+                self.navigateToSearch(genre: genre)
+            }
             return cell
         }
 
@@ -1807,9 +1880,47 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             bannerCell.applyScrollFade(offsetY)
         }
     }
-}
 
-// MARK: - UISearchResultsUpdating
+    // MARK: - Navigate to Search with filters
+
+    /// Navigate to Search tab with a genre filter. Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
+    private func navigateToSearch(genre: String) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        searchVC.prefillSearchExtended(genre: genre)
+        tabBarController?.selectedIndex = 1
+    }
+
+    /// Navigate to Search tab with a badge filter. filterType: "format", "status", "season", "score"
+    private func navigateToSearch(filterType: String, value: String, value2: String?) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        switch filterType {
+        case "format":
+            searchVC.prefillSearchExtended(format: value)
+        case "status":
+            searchVC.prefillSearchExtended(status: value)
+        case "season":
+            let year = value2.flatMap { Int($0) }
+            searchVC.prefillSearchExtended(season: value, seasonYear: year)
+        case "score":
+            searchVC.prefillSearchExtended(sort: value)
+        default:
+            break
+        }
+        tabBarController?.selectedIndex = 1
+    }
+}
 
 extension BrowseAnimeViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {

@@ -246,7 +246,14 @@ class SearchViewController: UIViewController {
         }
         if let pending = pendingPrefill {
             pendingPrefill = nil
-            applyPrefill(genre: pending.genre, sort: pending.sort)
+            let ext = pendingExtended
+            pendingExtended = nil
+            applyPrefillExtended(genre: pending.genre,
+                                 format: ext?.format,
+                                 status: ext?.status,
+                                 season: ext?.season,
+                                 seasonYear: ext?.seasonYear,
+                                 sort: pending.sort)
         }
     }
 
@@ -272,7 +279,38 @@ class SearchViewController: UIViewController {
         else { pendingPrefill = (genre: genre, sort: sort) }
     }
 
+    /// Extended prefill matching web `goto('/app/search', { state: { search: { ... } } })`.
+    /// Accepts optional genre, format, status, season + year, sort filters.
+    func prefillSearchExtended(genre: String? = nil,
+                               format: String? = nil,
+                               status: String? = nil,
+                               season: String? = nil,
+                               seasonYear: Int? = nil,
+                               sort: String? = nil) {
+        if isViewLoaded {
+            applyPrefillExtended(genre: genre, format: format, status: status,
+                                 season: season, seasonYear: seasonYear, sort: sort)
+        } else {
+            // Store for later
+            pendingPrefill = (genre: genre, sort: sort)
+            pendingExtended = (format: format, status: status,
+                               season: season, seasonYear: seasonYear)
+        }
+    }
+
+    private var pendingExtended: (format: String?, status: String?,
+                                  season: String?, seasonYear: Int?)?
+
     private func applyPrefill(genre: String?, sort: String?) {
+        applyPrefillExtended(genre: genre, sort: sort)
+    }
+
+    private func applyPrefillExtended(genre: String? = nil,
+                                      format: String? = nil,
+                                      status: String? = nil,
+                                      season: String? = nil,
+                                      seasonYear: Int? = nil,
+                                      sort: String? = nil) {
         selectedGenres = []; selectedYear = nil; selectedSeason = nil
         selectedFormats = []; selectedStatuses = []
         selectedSort = "TRENDING_DESC"; activeChipEntries = []
@@ -280,6 +318,27 @@ class SearchViewController: UIViewController {
             selectedGenres = [genre]
             let name = FilterType.genre.options.first { $0.apiValue == genre }?.displayName ?? genre
             activeChipEntries.append((label: name, type: .genre, apiValue: genre))
+        }
+        if let format = format {
+            selectedFormats = [format]
+            let name = FilterType.format.options.first { $0.apiValue == format }?.displayName ?? format
+            activeChipEntries.append((label: name, type: .format, apiValue: format))
+        }
+        if let status = status {
+            selectedStatuses = [status]
+            let name = FilterType.status.options.first { $0.apiValue == status }?.displayName ?? status
+            activeChipEntries.append((label: name, type: .status, apiValue: status))
+        }
+        if let season = season {
+            selectedSeason = season
+            let name = FilterType.season.options.first { $0.apiValue == season }?.displayName ?? season.capitalized
+            activeChipEntries.append((label: name, type: .season, apiValue: season))
+        }
+        if let seasonYear = seasonYear {
+            let yearStr = String(seasonYear)
+            selectedYear = yearStr
+            let name = FilterType.year.options.first { $0.apiValue == yearStr }?.displayName ?? yearStr
+            activeChipEntries.append((label: name, type: .year, apiValue: yearStr))
         }
         if let sort = sort, sort != "TRENDING_DESC" { selectedSort = sort }
         refreshFilterPickers(); rebuildActiveChips(); updateBoltTint()
