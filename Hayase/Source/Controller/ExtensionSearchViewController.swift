@@ -1,5 +1,5 @@
 // ExtensionSearchViewController.swift
-// Ports SearchModal.svelte from scigward/interface exactly to native UIKit.
+// Ports SearchModal.svelte from hayase-app/interface exactly to native UIKit.
 //
 // Layout (matches SearchModal.svelte):
 //   [Banner image header with gradient + title]
@@ -256,12 +256,12 @@ final class ExtensionSearchViewController: UIViewController {
         // height was determined only by inner-constraint chains can silently collapse to
         // height 0 when Auto Layout can't resolve the circular dependency.
         // Fix: TWO separate views, each with an explicit heightAnchor constant.
-        //   bannerView  → 160pt (always visible, never 0)
-        //   controlsView → 220pt (32+28+16+38+16+34+16+40)
+        //   bannerView  → 144pt (max-h-36, always visible, never 0)
+        //   controlsView → 220pt (32+28+16+36+16+36+16+36+4)
         // tableView.top = controlsView.bottom → always correct.
         // ─────────────────────────────────────────────────────────────────────────────────
 
-        // ── 1. BANNER VIEW — fixed 160pt, sticks at top ──────────────────────────────
+        // ── 1. BANNER VIEW — fixed 144pt (max-h-36), sticks at top ──────────────────────────────
         let bannerView = UIView()
         bannerView.clipsToBounds = true
         bannerView.backgroundColor = UIColor(white: 0.08, alpha: 1)
