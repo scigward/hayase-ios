@@ -670,10 +670,17 @@ final class CenteredDialogPresentationController: UIPresentationController {
         return layer
     }()
 
+    private var isCalculatingFrame = false
+
     // MARK: Frame
 
     override var frameOfPresentedViewInContainerView: CGRect {
         guard let containerView = containerView else { return .zero }
+        // Guard against re-entrant calls from layout passes
+        if isCalculatingFrame { return presentedView?.frame ?? .zero }
+        isCalculatingFrame = true
+        defer { isCalculatingFrame = false }
+
         let bounds = containerView.bounds
         // max-w-3xl = 768px
         let maxWidth: CGFloat = 768
@@ -681,14 +688,22 @@ final class CenteredDialogPresentationController: UIPresentationController {
         let width = min(maxWidth, bounds.width - 32)
         // max-h-[80%]
         let maxHeight = bounds.height * 0.8
-        // Let the content determine height, capped at maxHeight
-        let targetSize = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
-        let fittingHeight = presentedViewController.view.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-        let height = min(fittingHeight > 0 ? fittingHeight : maxHeight, maxHeight)
+
+        // Size the presented view at the target width and do a layout pass
+        // so the scroll view computes its content size from auto-layout constraints.
+        // systemLayoutSizeFitting doesn't work with scroll views (they report 0 intrinsic height).
+        let pv = presentedViewController.view!
+        pv.frame = CGRect(x: 0, y: 0, width: width, height: maxHeight)
+        pv.layoutIfNeeded()
+
+        // Read the scroll view's content size for the actual content height
+        var contentHeight: CGFloat = 0
+        for subview in pv.subviews where subview is UIScrollView {
+            contentHeight = (subview as! UIScrollView).contentSize.height
+            break
+        }
+
+        let height = min(contentHeight > 0 ? contentHeight : maxHeight, maxHeight)
         let x = (bounds.width - width) / 2
         let y = (bounds.height - height) / 2
         return CGRect(x: x, y: y, width: width, height: height)
