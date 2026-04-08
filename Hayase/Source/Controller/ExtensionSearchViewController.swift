@@ -1569,11 +1569,12 @@ final class TorrentResultCell: UITableViewCell {
 
         // ── Dot separator visibility: dot appears before a visible item when a prior item is also visible
         // Web: .details span+span::before means dots only appear between adjacent visible spans
+        // UIStackView automatically skips hidden views, so dots naturally bridge visible neighbours
         let sizeVisible = result.size > 0
         sizeLabel.isHidden = !sizeVisible
         dot1.isHidden = typeBadgeLabel.isHidden  // dot between type badge and seeders
         dot2.isHidden = !sizeVisible              // dot between seeders and size
-        dot3.isHidden = dateLabel.isHidden || !sizeVisible  // dot between size and date
+        dot3.isHidden = dateLabel.isHidden         // dot between size/seeders and date
 
         // ── Tech term badges (right side, reversed to match web flex-row-reverse)
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
