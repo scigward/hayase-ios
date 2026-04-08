@@ -3720,6 +3720,9 @@ extension AnimeDetailViewController: UITableViewDataSource {
                 let ep = paginatedEpisodes[indexPath.row]
                 cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
                                accentColor: currentAnimeAccent, isListCompleted: isCompleted)
+                cell.cardView.onTap = { [weak self] epNumber in
+                    self?.openExtensionSearch(episode: epNumber)
+                }
                 cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
                 return cell
             }
