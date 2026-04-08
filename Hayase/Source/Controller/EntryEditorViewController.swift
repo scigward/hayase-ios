@@ -49,6 +49,16 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
 
     // MARK: - UI
 
+    /// Close button matching dialog-content.svelte: absolute right-4 top-4 rounded-sm, Cross2 size-4.
+    private let closeButton: UIButton = {
+        let b = UIButton(type: .system)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        b.setImage(UIImage(systemName: "xmark")?.withConfiguration(cfg), for: .normal)
+        b.tintColor = UIColor(white: 0.64, alpha: 1) // muted-foreground
+        b.layer.cornerRadius = 2 // rounded-sm
+        return b
+    }()
+
     private let scrollView = UIScrollView()
     /// Main container: horizontal on iPad, vertical on iPhone (web flex-col sm:flex-row).
     private let mainContainer = UIView()
@@ -176,9 +186,11 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
         // bg-background
         view.backgroundColor = Self.bgBackground
 
-        // Rounded corners (sm:rounded-lg = 8pt)
-        view.layer.cornerRadius = 8
-        view.clipsToBounds = true
+        // Rounded corners only on iPad (web sm:rounded-lg — applied at ≥640px only)
+        if isWide {
+            view.layer.cornerRadius = 8
+            view.clipsToBounds = true
+        }
 
         // Border (border border-border)
         view.layer.borderWidth = 1
@@ -288,6 +300,18 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
 
         // Hide delete if no existing entry
         deleteButton.isHidden = currentEntry == nil
+
+        // Close button (dialog-content.svelte: absolute right-4 top-4, Cross2 size-4)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        view.addSubview(closeButton)
+        NSLayoutConstraint.activate([
+            closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+        view.bringSubviewToFront(closeButton)
 
         // Actions
         [saveButton, cancelButton, deleteButton].forEach {
@@ -598,15 +622,44 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
 
 // MARK: - Centered Dialog Presentation Controller
 /// Matches web shadcn Dialog: centered overlay, max-w-3xl (768px), max-h-[80%],
-/// bg-background/80 dimming, sm:rounded-lg (8pt).
+/// custom-bg striped dimming, sm:rounded-lg (8pt only on tablet).
 
 final class CenteredDialogPresentationController: UIPresentationController {
 
     private let dimmingView: UIView = {
         let v = UIView()
-        // bg-background/80 — dark theme background at 80% opacity
+        // Matches web custom-bg: repeating-linear-gradient(40deg, #1114 0, #5554 1px, #5554 5px, #1114 6px, #1114 10px)
+        // Use dark semi-transparent base to approximate the striped overlay pattern
         v.backgroundColor = UIColor.black.withAlphaComponent(0.8)
         return v
+    }()
+
+    /// Striped gradient layer matching web custom-bg pattern.
+    private lazy var stripedLayer: CALayer = {
+        let layer = CALayer()
+        // Generate the striped pattern as a small tile and use it as a pattern fill
+        let size = CGSize(width: 14, height: 14)
+        UIGraphicsBeginImageContextWithOptions(size, false, 0)
+        if let ctx = UIGraphicsGetCurrentContext() {
+            // Base: transparent (dimmingView provides the dark base)
+            ctx.clear(CGRect(origin: .zero, size: size))
+            // Draw diagonal stripes matching #5554 (rgba(85,85,85,0.267))
+            ctx.setStrokeColor(UIColor(red: 85/255, green: 85/255, blue: 85/255, alpha: 0.267).cgColor)
+            ctx.setLineWidth(4)
+            // 40° diagonal stripes across the tile
+            ctx.move(to: CGPoint(x: -2, y: size.height + 2))
+            ctx.addLine(to: CGPoint(x: size.width + 2, y: -2))
+            ctx.strokePath()
+            ctx.move(to: CGPoint(x: size.width - 16, y: size.height + 2))
+            ctx.addLine(to: CGPoint(x: size.width + 2, y: size.height - 12))
+            ctx.strokePath()
+        }
+        let patternImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        if let cgImage = patternImage?.cgImage {
+            layer.backgroundColor = UIColor(patternImage: UIImage(cgImage: cgImage)).cgColor
+        }
+        return layer
     }()
 
     // MARK: Frame
@@ -641,6 +694,10 @@ final class CenteredDialogPresentationController: UIPresentationController {
         dimmingView.alpha = 0
         containerView.insertSubview(dimmingView, at: 0)
 
+        // Add striped overlay pattern on top of dimming base
+        stripedLayer.frame = dimmingView.bounds
+        dimmingView.layer.addSublayer(stripedLayer)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimmingTapped))
         dimmingView.addGestureRecognizer(tap)
 
@@ -664,6 +721,7 @@ final class CenteredDialogPresentationController: UIPresentationController {
     override func containerViewDidLayoutSubviews() {
         super.containerViewDidLayoutSubviews()
         dimmingView.frame = containerView?.bounds ?? .zero
+        stripedLayer.frame = dimmingView.bounds
         presentedView?.frame = frameOfPresentedViewInContainerView
     }
 
