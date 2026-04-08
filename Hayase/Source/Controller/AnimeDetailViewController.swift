@@ -3585,30 +3585,32 @@ class AnimeDetailViewController: UIViewController {
 
     // MARK: - Navigation
 
-    /// Push the extension-based torrent search screen for the given episode number.
-    /// On iPad (regular horizontal size class), presents as a formSheet dialog
-    /// matching web's Dialog.Content (max-w-5xl centered sheet).
-    /// On iPhone, pushes onto the navigation stack.
+    /// Present the extension-based torrent search screen for the given episode.
+    /// Always presented modally (matching web's Dialog.Root — never page navigation):
+    ///   • iPad (regular size class): .formSheet, max-w-5xl (1024pt), rounded top corners
+    ///   • iPhone (compact size class): .fullScreen overlay (web h-full, no rounded corners)
     private func openExtensionSearch(episode: Int) {
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
         searchVC.initialEpisode = episode
 
         if traitCollection.horizontalSizeClass == .regular {
-            // iPad: present as sheet (matches web Dialog.Root)
+            // iPad: centered sheet (web Dialog.Content max-w-5xl lg:rounded-t-xl)
             searchVC.modalPresentationStyle = .formSheet
-            searchVC.preferredContentSize = CGSize(width: 1024, height: UIScreen.main.bounds.height - 16)
-            present(searchVC, animated: true)
-        } else if let nav = navigationController {
-            // iPhone: push onto the navigation stack. Using push instead of
-            // modal presentation avoids silent failures when the VC hierarchy
-            // already has a presented modal (e.g. entry editor, Safari, etc.).
-            nav.pushViewController(searchVC, animated: true)
+            searchVC.preferredContentSize = CGSize(width: 1024, height: view.bounds.height - 16)
         } else {
-            // Defensive fallback: no nav controller available, present fullScreen.
+            // iPhone: fullScreen overlay (web Dialog.Content h-full w-full)
             searchVC.modalPresentationStyle = .fullScreen
-            present(searchVC, animated: true)
         }
+
+        // Walk up the presentation chain to the topmost visible VC.
+        // present() silently fails when called on a VC that is already
+        // presenting another modal (e.g. Safari, entry editor, share sheet).
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(searchVC, animated: true)
     }
 }
 
