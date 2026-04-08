@@ -190,6 +190,7 @@ final class ExtensionSearchViewController: UIViewController {
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
     /// Whether this VC is presented modally (formSheet on iPad, fullScreen on iPhone).
+    /// When true, a close button is shown and dismiss() is used instead of pop.
     private var isPresentedModally: Bool {
         return navigationController == nil
     }
@@ -206,7 +207,7 @@ final class ExtensionSearchViewController: UIViewController {
         navigationItem.largeTitleDisplayMode = .never
 
         // Round top corners only on iPad formSheet (matches web lg:rounded-t-xl = 12px).
-        // On iPhone .pageSheet, the system provides native rounded corners.
+        // On iPhone .fullScreen, no rounding (web has no rounding on mobile).
         if modalPresentationStyle == .formSheet
             && traitCollection.horizontalSizeClass == .regular {
             view.layer.cornerRadius = 12
@@ -256,7 +257,7 @@ final class ExtensionSearchViewController: UIViewController {
         // height 0 when Auto Layout can't resolve the circular dependency.
         // Fix: TWO separate views, each with an explicit heightAnchor constant.
         //   bannerView  → 160pt (always visible, never 0)
-        //   controlsView → 188pt (12+28+16+38+10+34+10+40)
+        //   controlsView → 208pt (32+28+16+38+10+34+10+40)
         // tableView.top = controlsView.bottom → always correct.
         // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -337,11 +338,19 @@ final class ExtensionSearchViewController: UIViewController {
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(closeButton)
+
+            // Web: absolute right-4 top-4 = 16px from dialog top/right.
+            // On .formSheet (iPad), view.topAnchor IS the dialog top.
+            // On .fullScreen (iPhone), we must use safeAreaLayoutGuide so the
+            // button sits below the status bar / Dynamic Island.
+            let closeTopAnchor: NSLayoutConstraint
+            if modalPresentationStyle == .formSheet {
+                closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
+            } else {
+                closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
+            }
             NSLayoutConstraint.activate([
-                // Web: absolute right-4 top-4 = 16px from dialog top/right.
-                // Pin to view.topAnchor (not safeArea) so position is consistent
-                // across .pageSheet (iPhone) and .formSheet (iPad).
-                closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+                closeTopAnchor,
                 closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
                 closeButton.widthAnchor.constraint(equalToConstant: 28),
                 closeButton.heightAnchor.constraint(equalToConstant: 28),
@@ -477,7 +486,7 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
-            // controlsView: starts at safe area top (below sheet handle / transparent nav bar), EXPLICIT height
+            // controlsView: starts at safe area top (below status bar on fullScreen, top of sheet on formSheet), EXPLICIT height
             controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),

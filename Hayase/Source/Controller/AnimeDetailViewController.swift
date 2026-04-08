@@ -3588,7 +3588,7 @@ class AnimeDetailViewController: UIViewController {
     /// Present the extension-based torrent search screen for the given episode.
     /// Always presented modally (matching web's Dialog.Root — never page navigation):
     ///   • iPad (regular size class): .formSheet, max-w-5xl (1024pt), rounded top corners
-    ///   • iPhone (compact size class): .pageSheet (web Dialog.Content h-full w-full, almost full screen)
+    ///   • iPhone (compact size class): .fullScreen (web Dialog.Content h-full w-full)
     private func openExtensionSearch(episode: Int) {
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
@@ -3599,17 +3599,23 @@ class AnimeDetailViewController: UIViewController {
             searchVC.modalPresentationStyle = .formSheet
             searchVC.preferredContentSize = CGSize(width: 1024, height: view.bounds.height - 16)
         } else {
-            // iPhone: bottom sheet (web Dialog.Content h-full max-h-[calc(100%-1rem)])
-            // .pageSheet = native bottom sheet matching web Dialog appearance.
-            // .fullScreen can silently fail in certain VC hierarchies; .pageSheet
-            // is more reliable and matches the web's almost-full-screen sheet UI.
-            searchVC.modalPresentationStyle = .pageSheet
+            // iPhone: full-screen overlay (web Dialog.Content h-full w-full).
+            // .fullScreen is the most reliable presentation on iPhone — unlike
+            // .pageSheet it never silently fails in deep VC hierarchies (nav →
+            // tab → presented chains).  The web dialog is also effectively
+            // full-screen on mobile (max-h calc(100% - 1rem) ≈ 100%).
+            searchVC.modalPresentationStyle = .fullScreen
         }
 
-        // Walk up the presentation chain to the topmost visible VC.
-        // present() silently fails when called on a VC that is already
-        // presenting another modal (e.g. Safari, entry editor, share sheet).
-        var presenter: UIViewController = self
+        // Start from the window's root VC (usually UITabBarController) so we
+        // traverse the FULL presentation chain.  Starting from `self` (a child
+        // pushed inside UINavigationController) can miss modals that were
+        // presented by parent containers, causing present() to silently fail.
+        guard var presenter = view.window?.rootViewController else {
+            // Defensive fallback: if the window is somehow nil, try self.
+            self.present(searchVC, animated: true)
+            return
+        }
         while let presented = presenter.presentedViewController {
             presenter = presented
         }
