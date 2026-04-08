@@ -317,7 +317,7 @@ final class ExtensionSearchViewController: UIViewController {
             bannerView.topAnchor.constraint(equalTo: view.topAnchor),
             bannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bannerView.heightAnchor.constraint(equalToConstant: 160),
+            bannerView.heightAnchor.constraint(equalToConstant: 144),  // max-h-36 = 9rem = 144px
 
             // bannerImageView fills the bannerView entirely
             bannerImageView.topAnchor.constraint(equalTo: bannerView.topAnchor),
@@ -544,13 +544,15 @@ final class ExtensionSearchViewController: UIViewController {
         return UIColor(red: r, green: g, blue: b, alpha: 1)
     }
 
-    /// Compute WCAG luminance and return black or white for best contrast.
-    /// Mirrors Hayase's text-contrast CSS class (luminance > 0.5 → dark text).
+    /// Compute perceived brightness and return dark or white for best contrast.
+    /// Mirrors web's text-contrast CSS class: (R*299 + G*587 + B*114) / 1000, threshold 128.
     static func luminanceContrastColor(for color: UIColor) -> UIColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: nil)
-        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        return luminance > 0.5 ? UIColor(white: 0.07, alpha: 1) : .white
+        // Web formula: ((R*299 + G*587 + B*114) / 1000 - 128) * -1000
+        // Simplified: brightness = R*0.299 + G*0.587 + B*0.114, threshold ≈ 0.502
+        let brightness = r * 0.299 + g * 0.587 + b * 0.114
+        return brightness > 0.502 ? UIColor(white: 0.07, alpha: 1) : .white
     }
 
     private func setupTableView() {
@@ -620,7 +622,7 @@ final class ExtensionSearchViewController: UIViewController {
                 bar1.heightAnchor.constraint(equalToConstant: 16),
                 bar1.widthAnchor.constraint(equalToConstant: 160),
                 // h-2 w-28 mt-1
-                bar2.topAnchor.constraint(equalTo: bar1.bottomAnchor, constant: 8),
+                bar2.topAnchor.constraint(equalTo: bar1.bottomAnchor, constant: 4),
                 bar2.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
                 bar2.heightAnchor.constraint(equalToConstant: 8),
                 bar2.widthAnchor.constraint(equalToConstant: 112),
@@ -742,7 +744,6 @@ final class ExtensionSearchViewController: UIViewController {
         skeletonView.isHidden = false
         skeletonView.superview?.isHidden = false
         startSkeletonPulse()
-        loadingIndicator.startAnimating()
 
         let ep  = currentEpisode
         let res = currentResolution
@@ -761,7 +762,6 @@ final class ExtensionSearchViewController: UIViewController {
                 self.emptyView.isHidden  = true
                 self.tableView.reloadData()
             }
-            self.loadingIndicator.stopAnimating()
             self.skeletonView.isHidden = true
             self.skeletonView.superview?.isHidden = true
             self.stopSkeletonPulse()
@@ -788,7 +788,7 @@ final class ExtensionSearchViewController: UIViewController {
         }
         filteredResults = filterAndSortResults(filtered)
         tableView.reloadData()
-        emptyView.isHidden = !filteredResults.isEmpty || loadingIndicator.isAnimating
+        emptyView.isHidden = !filteredResults.isEmpty || !skeletonView.isHidden
     }
 
     /// Mirrors web filterAndSortResults() from SearchModal.svelte exactly.
