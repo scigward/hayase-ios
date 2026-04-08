@@ -154,6 +154,12 @@ private final class EpisodeCardView: UIView {
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
+    // Constraints for toggling thumbnail visibility (web: {#if image} conditional rendering)
+    private var textLeadingToThumb: NSLayoutConstraint!
+    private var textLeadingToCard: NSLayoutConstraint!
+    private var thumbWidthPreferred: NSLayoutConstraint!
+    private var thumbMaxWidth: NSLayoutConstraint!
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -198,9 +204,18 @@ private final class EpisodeCardView: UIView {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textStack)
 
-        let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
+        thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
         thumbWidthPreferred.priority = UILayoutPriority(999)
         let episodeThumbnailMaxWidth: CGFloat = 208
+        thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth)
+
+        // Two text-stack leading constraints: one anchored to thumb (with image),
+        // one anchored to card edge (no image). Web: {#if image} conditionally
+        // removes the thumbnail div entirely — text takes full width when no image.
+        textLeadingToThumb = textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16)
+        textLeadingToCard = textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16) // px-4
+        textLeadingToThumb.isActive = true   // default: thumb visible
+        textLeadingToCard.isActive = false
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 112),
@@ -209,7 +224,7 @@ private final class EpisodeCardView: UIView {
             thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             thumbImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             thumbWidthPreferred,
-            thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth),
+            thumbMaxWidth,
 
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
@@ -217,7 +232,7 @@ private final class EpisodeCardView: UIView {
             ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
             ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
+            textLeadingToThumb,
             textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             textStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
@@ -321,6 +336,17 @@ private final class EpisodeCardView: UIView {
         imageTask?.cancel()
         imageTask = nil
 
+        // Web: {#if image} — only render thumbnail div when image URL exists.
+        // When no image, hide the thumbnail area entirely and let text take full width.
+        let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
+        thumbImageView.isHidden = !hasImage
+        runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
+        ratingBadge.isHidden = !hasImage || episode.rating == nil
+        thumbWidthPreferred.isActive = hasImage
+        thumbMaxWidth.isActive = hasImage
+        textLeadingToThumb.isActive = hasImage
+        textLeadingToCard.isActive = !hasImage
+
         if let urlStr = episode.imageURL, let url = URL(string: urlStr) {
             let captured = urlStr
             imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -348,6 +374,12 @@ private final class EpisodeCardView: UIView {
         imageTask = nil
         currentImageURL = nil
         thumbImageView.image = nil
+        thumbImageView.isHidden = false
+        // Restore default thumb-visible layout
+        thumbWidthPreferred.isActive = true
+        thumbMaxWidth.isActive = true
+        textLeadingToThumb.isActive = true
+        textLeadingToCard.isActive = false
         numberLabel.text = nil
         overviewLabel.text = nil
         metaLabel.text = nil
