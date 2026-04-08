@@ -189,7 +189,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     private let resolutions = ["2160", "1080", "720", "540", "480"]
 
-    /// Whether this VC is presented modally (formSheet on iPad, fullScreen on iPhone).
+    /// Whether this VC is presented modally (custom dialog on iPad, fullScreen on iPhone).
     /// When true, a close button is shown and dismiss() is used instead of pop.
     private var isPresentedModally: Bool {
         return navigationController == nil
@@ -206,14 +206,8 @@ final class ExtensionSearchViewController: UIViewController {
         view.backgroundColor = .black
         navigationItem.largeTitleDisplayMode = .never
 
-        // Round top corners only on iPad formSheet (matches web lg:rounded-t-xl = 12px).
-        // On iPhone .fullScreen, no rounding (web has no rounding on mobile).
-        if modalPresentationStyle == .formSheet
-            && traitCollection.horizontalSizeClass == .regular {
-            view.layer.cornerRadius = 12
-            view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            view.clipsToBounds = true
-        }
+        // Corner rounding is handled by BottomDialogPresentationController on iPad
+        // (.custom presentation) and not needed on iPhone (.fullScreen).
 
         setupHeader()
         setupTableView()
@@ -350,12 +344,12 @@ final class ExtensionSearchViewController: UIViewController {
             view.addSubview(closeButton)
 
             // Web: absolute right-4 top-4 = 16px from dialog top/right.
-            // On .formSheet (iPad), view.topAnchor IS the dialog top.
+            // On .custom (iPad), view.topAnchor IS the dialog top (set by BottomDialogPresentationController).
             // On .fullScreen (iPhone), we must use safeAreaLayoutGuide so the
             // button sits below the status bar / Dynamic Island.
             // Size: 36×36 ensures reliable touch target while keeping visual compact.
             let closeTopAnchor: NSLayoutConstraint
-            if modalPresentationStyle == .formSheet {
+            if modalPresentationStyle == .custom || modalPresentationStyle == .formSheet {
                 closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
             } else {
                 closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
@@ -510,8 +504,11 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
-            // controlsView: starts at safe area top (below status bar on fullScreen, top of sheet on formSheet), EXPLICIT height
-            controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            // controlsView: on .custom (iPad), dialog top IS the content top (BottomDialogPresentationController
+            // positions the view at y=16 from screen top). On .fullScreen (iPhone), use safe area to clear
+            // the status bar / Dynamic Island.
+            controlsView.topAnchor.constraint(equalTo:
+                modalPresentationStyle == .custom ? view.topAnchor : view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlsView.heightAnchor.constraint(equalToConstant: 220),
@@ -1262,6 +1259,16 @@ extension ExtensionSearchViewController: UITextFieldDelegate {
     }
 }
 
+// MARK: - UIViewControllerTransitioningDelegate (provides custom bottom-dialog on iPad)
+
+extension ExtensionSearchViewController: UIViewControllerTransitioningDelegate {
+    func presentationController(forPresented presented: UIViewController,
+                                presenting: UIViewController?,
+                                source: UIViewController) -> UIPresentationController? {
+        return BottomDialogPresentationController(presentedViewController: presented, presenting: presenting)
+    }
+}
+
 // MARK: - TorrentResultCell (mirrors each result card in SearchModal.svelte)
 
 final class TorrentResultCell: UITableViewCell {
@@ -1722,5 +1729,115 @@ private final class PaddedLabel: UILabel {
     override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
         let insetBounds = bounds.inset(by: textInsets)
         return super.textRect(forBounds: insetBounds, limitedToNumberOfLines: numberOfLines)
+    }
+}
+
+// MARK: - Bottom-anchored dialog presentation (mirrors web Dialog.Content on iPad)
+//
+// Web Dialog.Content class:
+//   bg-black h-full max-w-5xl w-full max-h-[calc(100%-1rem)] border-b-0
+//   !rounded-b-none mt-2 lg:rounded-t-xl overflow-clip
+//
+// Position: centered via translate(-50%,-50%), mt-2 shifts down 8px.
+// Effective: top=16px from viewport, bottom flush with viewport bottom.
+// Top corners 12px, bottom corners square. Border on top/left/right (not bottom).
+// Max width 1024px (max-w-5xl).
+
+/// Custom presentation controller that positions the dialog as a bottom-anchored
+/// sheet matching the web interface's Dialog.Content exactly.
+final class BottomDialogPresentationController: UIPresentationController {
+
+    /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay).
+    private let dimmingView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        return v
+    }()
+
+    // MARK: Frame
+
+    override var frameOfPresentedViewInContainerView: CGRect {
+        guard let containerView = containerView else { return .zero }
+        // max-w-5xl = 1024px, centered horizontally
+        let maxWidth: CGFloat = 1024
+        let width = min(maxWidth, containerView.bounds.width)
+        let x = (containerView.bounds.width - width) / 2
+        // top = 16px from viewport top (web: centered + mt-2 + max-h-[calc(100%-1rem)])
+        // bottom = flush with viewport bottom (web: extends to 100vh)
+        let topInset: CGFloat = 16
+        let height = containerView.bounds.height - topInset
+        return CGRect(x: x, y: topInset, width: width, height: height)
+    }
+
+    // MARK: Transitions
+
+    override func presentationTransitionWillBegin() {
+        guard let containerView = containerView else { return }
+        dimmingView.frame = containerView.bounds
+        dimmingView.alpha = 0
+        containerView.insertSubview(dimmingView, at: 0)
+
+        // Tap outside → dismiss (matches web Dialog.Overlay click-to-close)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dimmingTapped))
+        dimmingView.addGestureRecognizer(tap)
+
+        presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
+            self.dimmingView.alpha = 1
+        })
+    }
+
+    override func dismissalTransitionWillBegin() {
+        presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
+            self.dimmingView.alpha = 0
+        })
+    }
+
+    override func dismissalTransitionDidEnd(_ completed: Bool) {
+        if completed { dimmingView.removeFromSuperview() }
+    }
+
+    // MARK: Layout
+
+    override func containerViewDidLayoutSubviews() {
+        super.containerViewDidLayoutSubviews()
+        dimmingView.frame = containerView?.bounds ?? .zero
+        presentedView?.frame = frameOfPresentedViewInContainerView
+
+        // lg:rounded-t-xl (12px top corners) + !rounded-b-none (square bottom)
+        presentedView?.layer.cornerRadius = 12
+        presentedView?.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        presentedView?.clipsToBounds = true
+
+        // Border on top, left, right (web: border + border-b-0)
+        // Dark theme border-input ≈ HSL(240, 3.7%, 15.9%) ≈ #27272a
+        if let pv = presentedView, pv.layer.sublayers?.contains(where: { $0.name == "dialogBorder" }) != true {
+            let border = CAShapeLayer()
+            border.name = "dialogBorder"
+            updateBorderPath(border, in: pv.bounds)
+            border.strokeColor = UIColor(white: 0.16, alpha: 1).cgColor
+            border.fillColor = nil
+            border.lineWidth = 1
+            pv.layer.addSublayer(border)
+        } else if let border = presentedView?.layer.sublayers?.first(where: { $0.name == "dialogBorder" }) as? CAShapeLayer {
+            updateBorderPath(border, in: presentedView?.bounds ?? .zero)
+        }
+    }
+
+    /// Draw border path on top + left + right edges only (no bottom).
+    private func updateBorderPath(_ layer: CAShapeLayer, in bounds: CGRect) {
+        let r: CGFloat = 12
+        let path = UIBezierPath()
+        // Start at bottom-left, go up to top-left corner, arc, go right to top-right corner, arc, go down to bottom-right
+        path.move(to: CGPoint(x: 0, y: bounds.height))
+        path.addLine(to: CGPoint(x: 0, y: r))
+        path.addArc(withCenter: CGPoint(x: r, y: r), radius: r, startAngle: .pi, endAngle: 3 * .pi / 2, clockwise: true)
+        path.addLine(to: CGPoint(x: bounds.width - r, y: 0))
+        path.addArc(withCenter: CGPoint(x: bounds.width - r, y: r), radius: r, startAngle: 3 * .pi / 2, endAngle: 0, clockwise: true)
+        path.addLine(to: CGPoint(x: bounds.width, y: bounds.height))
+        layer.path = path.cgPath
+    }
+
+    @objc private func dimmingTapped() {
+        presentedViewController.dismiss(animated: true)
     }
 }
