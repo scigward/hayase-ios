@@ -567,12 +567,9 @@ final class ExtensionService {
                 seen[entry.hash] = entry
             }
         }
-        // Sort: high accuracy first, then by seeders descending
-        return seen.values.sorted {
-            let r0 = accuracyRank[$0.accuracy] ?? 2
-            let r1 = accuracyRank[$1.accuracy] ?? 2
-            return r0 == r1 ? $0.seeders > $1.seeders : r0 < r1
-        }
+        // Web returns Object.values(deduped) — no sorting here.
+        // Sorting happens later in filterAndSortResults().
+        return Array(seen.values)
     }
 
     // MARK: - Internal: CodeManager methods
