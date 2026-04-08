@@ -3011,13 +3011,9 @@ class AnimeDetailViewController: UIViewController {
             self?.headerView?.updatePlayButtonTitle(listStatus: nil)
         }
 
-        editorVC.modalPresentationStyle = .pageSheet
-        if #available(iOS 15.0, *) {
-            if let sheet = editorVC.sheetPresentationController {
-                sheet.detents = [.medium(), .large()]
-                sheet.prefersGrabberVisible = true
-            }
-        }
+        // Web: shadcn Dialog — centered overlay with max-w-3xl, max-h-[80%], rounded-lg
+        editorVC.modalPresentationStyle = .custom
+        editorVC.transitioningDelegate = editorVC
         present(editorVC, animated: true)
     }
 
