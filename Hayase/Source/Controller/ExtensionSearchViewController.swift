@@ -1321,7 +1321,7 @@ final class TorrentResultCell: UITableViewCell {
     private let filenameLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 11)
-        l.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
+        l.textColor = UIColor(white: 0.64, alpha: 1) // text-muted-foreground HSL(240,5%,64.9%) ≈ #a1a1aa
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingTail
         return l
@@ -1386,9 +1386,9 @@ final class TorrentResultCell: UITableViewCell {
         // Web: text-[.7rem] = 11.2px ≈ 11pt, normal weight. .details span+span::before for dots.
         seedersLabel.font = .nunito(ofSize: 11)  // normal weight (web inherits from parent)
         sizeLabel.font = .nunito(ofSize: 11)
-        sizeLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
+        sizeLabel.textColor = UIColor.white.withAlphaComponent(0.8) // text-white/80
         dateLabel.font = .nunito(ofSize: 11)
-        dateLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
+        dateLabel.textColor = UIColor.white.withAlphaComponent(0.8) // text-white/80
 
         // [typeBadge • seeders • size • date] with dot separators
         let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, dot1, seedersLabel, dot2, sizeLabel, dot3, dateLabel])
@@ -1614,12 +1614,12 @@ final class TorrentResultCell: UITableViewCell {
             typeBadgeLabel.isHidden = true
         }
 
-        // ── Seeders colour (green >20, yellow 5-20, red <5) — mirrors Hayase exactly
-        let green20 = UIColor(red: 0.220, green: 0.600, blue: 0.200, alpha: 1) // text-green-600
-        let red5    = UIColor(red: 0.700, green: 0.200, blue: 0.200, alpha: 1) // text-red-600
-        let yellow5 = UIColor(red: 0.800, green: 0.600, blue: 0.100, alpha: 1) // text-yellow-600
+        // ── Seeders colour (green >20, yellow 5-20, red <5) — exact Tailwind CSS v3 colours
+        let green600 = UIColor(red: 0.086, green: 0.639, blue: 0.290, alpha: 1)  // text-green-600 #16a34a
+        let red600   = UIColor(red: 0.863, green: 0.149, blue: 0.149, alpha: 1)  // text-red-600 #dc2626
+        let yellow600 = UIColor(red: 0.792, green: 0.541, blue: 0.016, alpha: 1) // text-yellow-600 #ca8a04
         seedersLabel.text = "\(result.seeders) Seeders"
-        seedersLabel.textColor = result.seeders > 20 ? green20 : (result.seeders < 5 ? red5 : yellow5)
+        seedersLabel.textColor = result.seeders > 20 ? green600 : (result.seeders < 5 ? red600 : yellow600)
 
         // ── Size (web: fastPrettyBytes uses base-1000 SI units)
         sizeLabel.text = result.size > 0 ? fastPrettyBytes(result.size) : ""
@@ -1650,7 +1650,7 @@ final class TorrentResultCell: UITableViewCell {
             l.textInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
             l.text = term.text
             l.font = .nunito(ofSize: 11, weight: .bold)  // text-[.7rem] font-bold
-            // Use WCAG luminance to pick contrasting text colour (mirrors text-contrast-filter)
+            // Use Rec.601 brightness to pick contrasting text colour (mirrors web text-contrast-filter)
             l.textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
             l.backgroundColor = term.color
             l.layer.cornerRadius = 4  // rounded
