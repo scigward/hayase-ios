@@ -3588,7 +3588,7 @@ class AnimeDetailViewController: UIViewController {
     /// Present the extension-based torrent search screen for the given episode.
     /// Always presented modally (matching web's Dialog.Root — never page navigation):
     ///   • iPad (regular size class): .formSheet, max-w-5xl (1024pt), rounded top corners
-    ///   • iPhone (compact size class): .fullScreen overlay (web h-full, no rounded corners)
+    ///   • iPhone (compact size class): .pageSheet (web Dialog.Content h-full w-full, almost full screen)
     private func openExtensionSearch(episode: Int) {
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
@@ -3599,8 +3599,11 @@ class AnimeDetailViewController: UIViewController {
             searchVC.modalPresentationStyle = .formSheet
             searchVC.preferredContentSize = CGSize(width: 1024, height: view.bounds.height - 16)
         } else {
-            // iPhone: fullScreen overlay (web Dialog.Content h-full w-full)
-            searchVC.modalPresentationStyle = .fullScreen
+            // iPhone: bottom sheet (web Dialog.Content h-full max-h-[calc(100%-1rem)])
+            // .pageSheet = native bottom sheet matching web Dialog appearance.
+            // .fullScreen can silently fail in certain VC hierarchies; .pageSheet
+            // is more reliable and matches the web's almost-full-screen sheet UI.
+            searchVC.modalPresentationStyle = .pageSheet
         }
 
         // Walk up the presentation chain to the topmost visible VC.

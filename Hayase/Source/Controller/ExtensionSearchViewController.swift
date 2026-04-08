@@ -205,8 +205,10 @@ final class ExtensionSearchViewController: UIViewController {
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
 
-        // Round top corners when presented as formSheet sheet (matches web lg:rounded-t-xl = 12px)
-        if modalPresentationStyle == .formSheet {
+        // Round top corners only on iPad formSheet (matches web lg:rounded-t-xl = 12px).
+        // On iPhone .pageSheet, the system provides native rounded corners.
+        if modalPresentationStyle == .formSheet
+            && traitCollection.horizontalSizeClass == .regular {
             view.layer.cornerRadius = 12
             view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             view.clipsToBounds = true
@@ -336,15 +338,18 @@ final class ExtensionSearchViewController: UIViewController {
             closeButton.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(closeButton)
             NSLayoutConstraint.activate([
-                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+                // Web: absolute right-4 top-4 = 16px from dialog top/right.
+                // Pin to view.topAnchor (not safeArea) so position is consistent
+                // across .pageSheet (iPhone) and .formSheet (iPad).
+                closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
                 closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
                 closeButton.widthAnchor.constraint(equalToConstant: 28),
                 closeButton.heightAnchor.constraint(equalToConstant: 28),
             ])
         }
 
-        // ── 2. CONTROLS VIEW — EXPLICIT height 188pt, pinned to bannerView.bottom ───
-        // height = 12 (top) + 28 (title) + 16 (gap) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 0 (bottom) = 188
+        // ── 2. CONTROLS VIEW — EXPLICIT height 208pt, pinned to bannerView.bottom ───
+        // height = 32 (top, web pt-8) + 28 (title) + 16 (gap) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 0 (bottom) = 208
         // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
@@ -472,14 +477,14 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
-            // controlsView: starts at safe area top (below transparent nav bar), EXPLICIT height
+            // controlsView: starts at safe area top (below sheet handle / transparent nav bar), EXPLICIT height
             controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 188),
+            controlsView.heightAnchor.constraint(equalToConstant: 208),
 
-            // Anime title (web: text-2xl font-bold, first child of space-y-4 container)
-            titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 12),
+            // Anime title (web: text-2xl font-bold, first child of pt-8 + space-y-4 container)
+            titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 32),
             titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
 
