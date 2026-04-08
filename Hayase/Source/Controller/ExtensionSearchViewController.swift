@@ -1262,6 +1262,9 @@ extension ExtensionSearchViewController: UITextFieldDelegate {
 // MARK: - UIViewControllerTransitioningDelegate (provides custom bottom-dialog on iPad)
 
 extension ExtensionSearchViewController: UIViewControllerTransitioningDelegate {
+    /// Called by UIKit when `modalPresentationStyle == .custom`. Returns the custom
+    /// `BottomDialogPresentationController` that positions the dialog as a bottom-anchored
+    /// sheet matching the web interface's Dialog.Content (max-w-5xl, rounded-t-xl, bottom-flush).
     func presentationController(forPresented presented: UIViewController,
                                 presenting: UIViewController?,
                                 source: UIViewController) -> UIPresentationController? {
