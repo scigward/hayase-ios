@@ -38,7 +38,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(white: 0.16, alpha: 1) // --muted in dark mode
+        iv.backgroundColor = UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1) // web default: #1890ff
         iv.layer.cornerRadius = 4
         return iv
     }()
@@ -188,6 +188,8 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         let displayYear = item.year ?? item.startYear
         yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
         formatLabel.text = formatString(item.format)
+        // Set cover color placeholder matching web's load.svelte: style:background={color ?? '#1890ff'}
+        coverImageView.backgroundColor = UIColor(hexString: item.coverColor) ?? UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1)
         loadCover(urlString: item.coverURL ?? "")
         // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
         if let status = item.mediaListEntry?.status {
@@ -254,11 +256,29 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         imageTask = nil
         currentURLString = nil
         coverImageView.image = nil
+        coverImageView.backgroundColor = UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1) // default #1890ff
         titleLabel.text = nil
         yearLabel.text = nil
         formatLabel.text = nil
         statusDotView.isHidden = true
         statusDotView.backgroundColor = nil
+    }
+}
+
+// MARK: - UIColor hex initializer (matches web coverImage.color "#e3566b" format)
+
+private extension UIColor {
+    convenience init?(hexString: String?) {
+        guard let hex = hexString?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        var cleanHex = hex
+        if cleanHex.hasPrefix("#") { cleanHex = String(cleanHex.dropFirst()) }
+        guard cleanHex.count == 6, let rgb = UInt64(cleanHex, radix: 16) else { return nil }
+        self.init(
+            red: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1
+        )
     }
 }
 

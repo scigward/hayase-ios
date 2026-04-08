@@ -1750,11 +1750,46 @@ private final class PaddedLabel: UILabel {
 /// sheet matching the web interface's Dialog.Content exactly.
 final class BottomDialogPresentationController: UIPresentationController {
 
-    /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay).
+    /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg pattern).
     private let dimmingView: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor.black.withAlphaComponent(0.8)
         return v
+    }()
+
+    /// Blur effect matching web's `backdrop-blur-sm` (blur 4px).
+    private let blurView: UIVisualEffectView = {
+        let blur = UIBlurEffect(style: .dark)
+        let v = UIVisualEffectView(effect: blur)
+        v.alpha = 0.3 // subtle to match backdrop-blur-sm
+        return v
+    }()
+
+    /// Striped gradient layer matching web custom-bg pattern:
+    /// repeating-linear-gradient(40deg, #1114 0, #5554 1px, #5554 5px, #1114 6px, #1114 10px)
+    private lazy var stripedLayer: CALayer = {
+        let layer = CALayer()
+        let size = CGSize(width: 14, height: 14)
+        UIGraphicsBeginImageContextWithOptions(size, false, 0)
+        if let ctx = UIGraphicsGetCurrentContext() {
+            ctx.clear(CGRect(origin: .zero, size: size))
+            // Draw diagonal stripes matching #5554 (rgba(85,85,85,0.267))
+            ctx.setStrokeColor(UIColor(red: 85/255, green: 85/255, blue: 85/255, alpha: 0.267).cgColor)
+            ctx.setLineWidth(4)
+            // 40° diagonal stripes across the tile
+            ctx.move(to: CGPoint(x: -2, y: size.height + 2))
+            ctx.addLine(to: CGPoint(x: size.width + 2, y: -2))
+            ctx.strokePath()
+            ctx.move(to: CGPoint(x: size.width - 16, y: size.height + 2))
+            ctx.addLine(to: CGPoint(x: size.width + 2, y: size.height - 12))
+            ctx.strokePath()
+        }
+        let patternImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        if let cgImage = patternImage?.cgImage {
+            layer.backgroundColor = UIColor(patternImage: UIImage(cgImage: cgImage)).cgColor
+        }
+        return layer
     }()
 
     // MARK: Frame
@@ -1776,9 +1811,19 @@ final class BottomDialogPresentationController: UIPresentationController {
 
     override func presentationTransitionWillBegin() {
         guard let containerView = containerView else { return }
+
+        // Add backdrop blur behind dimming (matching web's backdrop-blur-sm)
+        blurView.frame = containerView.bounds
+        blurView.alpha = 0
+        containerView.insertSubview(blurView, at: 0)
+
         dimmingView.frame = containerView.bounds
         dimmingView.alpha = 0
-        containerView.insertSubview(dimmingView, at: 0)
+        containerView.insertSubview(dimmingView, above: blurView)
+
+        // Add striped overlay pattern on top of dimming base
+        stripedLayer.frame = dimmingView.bounds
+        dimmingView.layer.addSublayer(stripedLayer)
 
         // Tap outside → dismiss (matches web Dialog.Overlay click-to-close)
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimmingTapped))
@@ -1786,24 +1831,32 @@ final class BottomDialogPresentationController: UIPresentationController {
 
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 1
+            self.blurView.alpha = 0.3
         })
     }
 
     override func dismissalTransitionWillBegin() {
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
+            self.blurView.alpha = 0
         })
     }
 
     override func dismissalTransitionDidEnd(_ completed: Bool) {
-        if completed { dimmingView.removeFromSuperview() }
+        if completed {
+            dimmingView.removeFromSuperview()
+            blurView.removeFromSuperview()
+        }
     }
 
     // MARK: Layout
 
     override func containerViewDidLayoutSubviews() {
         super.containerViewDidLayoutSubviews()
-        dimmingView.frame = containerView?.bounds ?? .zero
+        let bounds = containerView?.bounds ?? .zero
+        dimmingView.frame = bounds
+        blurView.frame = bounds
+        stripedLayer.frame = dimmingView.bounds
         presentedView?.frame = frameOfPresentedViewInContainerView
 
         // lg:rounded-t-xl (12px top corners) + !rounded-b-none (square bottom)

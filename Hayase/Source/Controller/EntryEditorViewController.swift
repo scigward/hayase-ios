@@ -358,7 +358,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
             imageView.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor),
             imageView.bottomAnchor.constraint(equalTo: mainContainer.bottomAnchor),
             imageView.widthAnchor.constraint(equalToConstant: 260),
-            imageView.heightAnchor.constraint(greaterThanOrEqualToConstant: 400),
+            imageView.heightAnchor.constraint(equalToConstant: 400),
 
             // Form: right side
             formContainer.topAnchor.constraint(equalTo: mainContainer.topAnchor),
