@@ -466,8 +466,9 @@ final class ExtensionSearchViewController: UIViewController {
             progressOverlay.leadingAnchor.constraint(equalTo: autoSelectButton.leadingAnchor),
             progressOverlay.widthAnchor.constraint(equalTo: autoSelectButton.widthAnchor),
         ])
-        // Initially hidden (translated fully left)
-        progressOverlay.transform = CGAffineTransform(translationX: -UIScreen.main.bounds.width, y: 0)
+        // Initially hidden (translated fully left). Use view.bounds.width as a
+        // conservative off-screen shift since the button hasn't been laid out yet.
+        progressOverlay.transform = CGAffineTransform(translationX: -view.bounds.width, y: 0)
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
