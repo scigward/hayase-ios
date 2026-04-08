@@ -4378,8 +4378,7 @@ extension AnimeDetailViewController {
         stack.addArrangedSubview(headerRow)
 
         // -- Version rows --
-        let accentColor = animeItem.flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
-            ?? UIColor(red: 0.24, green: 0.71, blue: 0.95, alpha: 1)
+        let accentColor = currentAnimeAccent
 
         for entry in theme.entries {
             let row = UIView()
@@ -4400,11 +4399,12 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+            // Web: size='icon-sm' → h-[1.6rem] w-[1.6rem] = 25.6px ≈ 26pt, icon 0.7rem = 11.2px ≈ 11pt
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
             playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
             playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
-            playBtn.layer.cornerRadius = 10
+            playBtn.layer.cornerRadius = 13  // fully circular (26/2)
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
@@ -4425,8 +4425,8 @@ extension AnimeDetailViewController {
                 playBtn.leadingAnchor.constraint(greaterThanOrEqualTo: epLabel.trailingAnchor, constant: 8),
                 playBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor),
                 playBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-                playBtn.widthAnchor.constraint(equalToConstant: 20),
-                playBtn.heightAnchor.constraint(equalToConstant: 20),
+                playBtn.widthAnchor.constraint(equalToConstant: 26),
+                playBtn.heightAnchor.constraint(equalToConstant: 26),
             ])
             stack.addArrangedSubview(row)
         }

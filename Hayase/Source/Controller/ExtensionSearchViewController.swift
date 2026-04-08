@@ -203,7 +203,7 @@ final class ExtensionSearchViewController: UIViewController {
         if shouldAutoSelectOnSearch {
             autoSelectAfterSearch = true
         }
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        view.backgroundColor = .black
         navigationItem.largeTitleDisplayMode = .never
 
         // Round top corners only on iPad formSheet (matches web lg:rounded-t-xl = 12px).
@@ -384,7 +384,7 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.attributedPlaceholder = NSAttributedString(
             string: filterField.placeholder ?? "",
             attributes: [.foregroundColor: UIColor(white: 0.45, alpha: 1)])
-        filterField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        filterField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background (nearly black)
         filterField.textColor = .white
         filterField.tintColor = .white
         filterField.font = .nunito(ofSize: 13)
@@ -392,6 +392,8 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.autocapitalizationType = .none
         filterField.returnKeyType = .done
         filterField.layer.cornerRadius = 8
+        filterField.layer.borderWidth = 1
+        filterField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         filterField.leftViewMode = .always
         let magIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
         magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
@@ -412,12 +414,14 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField = UITextField()
         episodeField.text = "\(currentEpisode)"
         episodeField.keyboardType = .numberPad
-        episodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        episodeField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
         episodeField.textColor = .white
         episodeField.tintColor = .white
         episodeField.font = .nunito(ofSize: 14)
         episodeField.textAlignment = .center
         episodeField.layer.cornerRadius = 8
+        episodeField.layer.borderWidth = 1
+        episodeField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         episodeField.delegate = self
         episodeField.translatesAutoresizingMaskIntoConstraints = false
         let toolbar = UIToolbar(); toolbar.sizeToFit()
@@ -442,8 +446,10 @@ final class ExtensionSearchViewController: UIViewController {
         resolutionButton.setTitle("1080p ▾", for: .normal)
         resolutionButton.setTitleColor(.white, for: .normal)
         resolutionButton.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
-        resolutionButton.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        resolutionButton.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
         resolutionButton.layer.cornerRadius = 8
+        resolutionButton.layer.borderWidth = 1
+        resolutionButton.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
         resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         resolutionButton.addTarget(self, action: #selector(resolutionTapped), for: .touchUpInside)
 
@@ -480,9 +486,8 @@ final class ExtensionSearchViewController: UIViewController {
             progressOverlay.leadingAnchor.constraint(equalTo: autoSelectButton.leadingAnchor),
             progressOverlay.widthAnchor.constraint(equalTo: autoSelectButton.widthAnchor),
         ])
-        // Initially hidden (translated fully left). Use view.bounds.width as a
-        // conservative off-screen shift since the button hasn't been laid out yet.
-        progressOverlay.transform = CGAffineTransform(translationX: -view.bounds.width, y: 0)
+        // Initially hidden. At rest the overlay sits at .identity (covering the button);
+        // the animation slides it right to reveal the accent colour underneath.
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
@@ -546,7 +551,7 @@ final class ExtensionSearchViewController: UIViewController {
     private func setupTableView() {
         tableView = UITableView(frame: .zero, style: .plain)
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1)
+        tableView.backgroundColor = .black
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 16, right: 0)
         tableView.delegate   = self
@@ -916,16 +921,23 @@ final class ExtensionSearchViewController: UIViewController {
     /// Start the 5-second progress bar animation on Auto Select button.
     /// When the animation completes, auto-selects the best result.
     /// Mirrors web `autoStart` + `animating` on ProgressButton.
+    /// Only runs if pref_searchAutoSelect is enabled (matches web $settings.searchAutoSelect).
     private func startProgressAnimation() {
         guard !filteredResults.isEmpty else { return }
+        // Check the searchAutoSelect setting (default true, matches web)
+        let autoSelectEnabled = UserDefaults.standard.object(forKey: "pref_searchAutoSelect") as? Bool ?? true
+        guard autoSelectEnabled else { return }
         progressOverlay.isHidden = false
-        progressOverlay.transform = CGAffineTransform(translationX: -autoSelectButton.bounds.width, y: 0)
+        // Web: overlay starts at translateX(0%) covering the button, slides to translateX(100%) off-right.
+        // The dark overlay progressively slides off, revealing the bright accent button from left to right.
+        progressOverlay.transform = .identity
         UIView.animate(withDuration: 5.0, delay: 0, options: [.curveLinear]) { [weak self] in
-            self?.progressOverlay.transform = .identity
+            guard let self else { return }
+            self.progressOverlay.transform = CGAffineTransform(translationX: self.autoSelectButton.bounds.width, y: 0)
         } completion: { [weak self] finished in
             guard let self, finished else { return }
             self.progressOverlay.isHidden = true
-            self.progressOverlay.transform = CGAffineTransform(translationX: -self.autoSelectButton.bounds.width, y: 0)
+            self.progressOverlay.transform = .identity
             // Auto-select best result when animation completes (mirrors web animationend → onclick)
             if !self.filteredResults.isEmpty {
                 self.confirmDownload(self.filteredResults[0])
@@ -936,7 +948,7 @@ final class ExtensionSearchViewController: UIViewController {
     private func stopProgressAnimation() {
         progressOverlay.layer.removeAllAnimations()
         progressOverlay.isHidden = true
-        progressOverlay.transform = CGAffineTransform(translationX: -autoSelectButton.bounds.width, y: 0)
+        progressOverlay.transform = .identity
     }
 
     // MARK: - Download
@@ -1291,6 +1303,10 @@ final class TorrentResultCell: UITableViewCell {
     private let seedersLabel = UILabel()
     private let sizeLabel = UILabel()
     private let dateLabel = UILabel()
+    // Dot separators between detail items (mirrors web .details span+span::before { content: '•' })
+    private let dot1 = TorrentResultCell.makeDotSeparator()
+    private let dot2 = TorrentResultCell.makeDotSeparator()
+    private let dot3 = TorrentResultCell.makeDotSeparator()
 
     // Tech terms stack (right side of bottom)
     private let termsStack: UIStackView = {
@@ -1303,7 +1319,7 @@ final class TorrentResultCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor(white: 0.04, alpha: 1) // page bg
+        backgroundColor = .black // page bg
         selectionStyle = .none
 
         // Card: bg-neutral-950 (#111111), 6px radius, mb-2 p-3
@@ -1326,15 +1342,17 @@ final class TorrentResultCell: UITableViewCell {
         groupRow.alignment = .center
 
         // Bottom-left: type badge + seeders + size + date (mirrors web details row)
+        // Web uses .details span+span::before { content: '•' } for dot separators
         seedersLabel.font = .nunito(ofSize: 11, weight: .medium)
         sizeLabel.font = .nunito(ofSize: 11)
         sizeLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
         dateLabel.font = .nunito(ofSize: 11)
         dateLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
 
-        let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, seedersLabel, sizeLabel, dateLabel])
+        // [typeBadge • seeders • size • date] with dot separators
+        let leftBottom = UIStackView(arrangedSubviews: [typeBadgeLabel, dot1, seedersLabel, dot2, sizeLabel, dot3, dateLabel])
         leftBottom.axis = .horizontal
-        leftBottom.spacing = 6
+        leftBottom.spacing = 0
         leftBottom.alignment = .center
 
         // Bottom-right: tech term badges
@@ -1368,8 +1386,8 @@ final class TorrentResultCell: UITableViewCell {
             // Content column: p-3 (12pt), pl-6 to clear the BadgeCheck (mirrors pl-6 md:pl-0)
             contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 36),
             contentCol.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
-            contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 10),
-            contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -10),
+            contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
+            contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
             contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
     }
@@ -1426,6 +1444,17 @@ final class TorrentResultCell: UITableViewCell {
         l.layer.cornerRadius = 4
         l.clipsToBounds = true
         l.layer.borderWidth = 1
+        return l
+    }
+
+    /// Creates a dot separator label matching web `.details span+span::before { content: '•' }`
+    private static func makeDotSeparator() -> UILabel {
+        let l = UILabel()
+        l.text = " • "
+        l.font = .nunito(ofSize: 6.4) // font-size: .4rem = 6.4px
+        l.textColor = UIColor(red: 0.451, green: 0.451, blue: 0.451, alpha: 1) // #737373
+        l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
         return l
     }
 
@@ -1537,6 +1566,14 @@ final class TorrentResultCell: UITableViewCell {
             dateLabel.text = ""
             dateLabel.isHidden = true
         }
+
+        // ── Dot separator visibility: dot appears before a visible item when a prior item is also visible
+        // Web: .details span+span::before means dots only appear between adjacent visible spans
+        let sizeVisible = result.size > 0
+        sizeLabel.isHidden = !sizeVisible
+        dot1.isHidden = typeBadgeLabel.isHidden  // dot between type badge and seeders
+        dot2.isHidden = !sizeVisible              // dot between seeders and size
+        dot3.isHidden = dateLabel.isHidden || !sizeVisible  // dot between size and date
 
         // ── Tech term badges (right side, reversed to match web flex-row-reverse)
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
