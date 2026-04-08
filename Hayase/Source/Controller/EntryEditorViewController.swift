@@ -68,7 +68,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        iv.backgroundColor = .black // web: style:background={media.coverImage?.color ?? '#000'}
         return iv
     }()
 
@@ -125,7 +125,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
         tf.font = .nunito(ofSize: 14)
         tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
         tf.leftViewMode = .always
-        tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
+        tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: EntryEditorViewController.mutedFG])
         return tf
     }()
 
@@ -141,7 +141,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
         tf.font = .nunito(ofSize: 14)
         tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
         tf.leftViewMode = .always
-        tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
+        tf.attributedPlaceholder = NSAttributedString(string: "0", attributes: [.foregroundColor: EntryEditorViewController.mutedFG])
         return tf
     }()
 
@@ -634,6 +634,14 @@ final class CenteredDialogPresentationController: UIPresentationController {
         return v
     }()
 
+    /// Blur effect matching web's `backdrop-blur-sm` (blur 4px).
+    private let blurView: UIVisualEffectView = {
+        let blur = UIBlurEffect(style: .dark)
+        let v = UIVisualEffectView(effect: blur)
+        v.alpha = 0.3 // subtle to match backdrop-blur-sm
+        return v
+    }()
+
     /// Striped gradient layer matching web custom-bg pattern.
     private lazy var stripedLayer: CALayer = {
         let layer = CALayer()
@@ -694,6 +702,11 @@ final class CenteredDialogPresentationController: UIPresentationController {
         dimmingView.alpha = 0
         containerView.insertSubview(dimmingView, at: 0)
 
+        // Add backdrop blur matching web's backdrop-blur-sm
+        blurView.frame = containerView.bounds
+        containerView.insertSubview(blurView, at: 0)
+        blurView.alpha = 0
+
         // Add striped overlay pattern on top of dimming base
         stripedLayer.frame = dimmingView.bounds
         dimmingView.layer.addSublayer(stripedLayer)
@@ -703,24 +716,31 @@ final class CenteredDialogPresentationController: UIPresentationController {
 
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 1
+            self.blurView.alpha = 0.3
         })
     }
 
     override func dismissalTransitionWillBegin() {
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
+            self.blurView.alpha = 0
         })
     }
 
     override func dismissalTransitionDidEnd(_ completed: Bool) {
-        if completed { dimmingView.removeFromSuperview() }
+        if completed {
+            dimmingView.removeFromSuperview()
+            blurView.removeFromSuperview()
+        }
     }
 
     // MARK: Layout
 
     override func containerViewDidLayoutSubviews() {
         super.containerViewDidLayoutSubviews()
-        dimmingView.frame = containerView?.bounds ?? .zero
+        let bounds = containerView?.bounds ?? .zero
+        dimmingView.frame = bounds
+        blurView.frame = bounds
         stripedLayer.frame = dimmingView.bounds
         presentedView?.frame = frameOfPresentedViewInContainerView
     }
