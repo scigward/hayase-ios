@@ -492,7 +492,7 @@ final class ExtensionService {
 
     // MARK: - Update peer counts (mirrors web extensions.updatePeerCounts)
 
-    /// Scrape UDP trackers for live peer counts and overwrite extension-reported values.
+    /// Scrape HTTP tracker for live peer counts and overwrite extension-reported values.
     /// Mirrors web's `updatePeerCounts()` in extensions.ts:
     ///   for (const { hash, complete, downloaded, incomplete } of updated) {
     ///     found.downloads = Number(downloaded)
@@ -503,9 +503,8 @@ final class ExtensionService {
         guard !entries.isEmpty else { return entries }
 
         let hashes = entries.map(\.hash)
-        let magnetLinks = entries.map(\.link)
 
-        let scraped = await TrackerScrapeService.scrape(hashes: hashes, magnetLinks: magnetLinks)
+        let scraped = await TrackerScrapeService.scrape(hashes: hashes)
 
         guard !scraped.isEmpty else { return entries }
 
