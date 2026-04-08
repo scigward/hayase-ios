@@ -35,6 +35,7 @@ struct AnimeItem {
     var trailerYouTubeID: String? = nil  // non-nil when AniList trailer site == "youtube"
     var favourites: Int? = nil           // AniList favourites count
     var coverColor: String? = nil        // media.coverImage.color — dominant hex color (e.g. "#e3566b"), used as --custom in Hayase
+    var malId: Int? = nil                // media.idMal from AniList — used for the MAL button link
     var relations: [AnimeRelation] = []
 
     // MARK: - AniList tracking
@@ -116,6 +117,7 @@ public class AnimeService: NSObject {
 
     private struct AniListMedia: Codable {
         let id: Int?
+        let idMal: Int?
         let title: Title?
         let coverImage: CoverImage?
         let bannerImage: String?
@@ -377,6 +379,7 @@ public class AnimeService: NSObject {
       Page(page: 1, perPage: 20) {
         media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear, genre_not_in: $nsfw) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -405,6 +408,7 @@ public class AnimeService: NSObject {
       Page(page: 1, perPage: 5) {
         media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot, genre_not_in: $nsfw) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -475,7 +479,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
             }
             DispatchQueue.main.async { completion(items) }
         }.resume()
@@ -544,7 +549,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
                 if let mle = media.mediaListEntry, let s = mle.status {
                     item.mediaListEntry = AnimeItem.MediaListEntry(
                         listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
@@ -562,6 +568,7 @@ public class AnimeService: NSObject {
       Page(page: 1, perPage: 50) {
         media(type: ANIME, id_in: $idIn) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -591,6 +598,7 @@ public class AnimeService: NSObject {
       Page(page: 1, perPage: 50) {
         media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -659,7 +667,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
                 if let mle = media.mediaListEntry, let s = mle.status {
                     item.mediaListEntry = AnimeItem.MediaListEntry(
                         listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
@@ -723,7 +732,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
                 if let mle = media.mediaListEntry, let s = mle.status {
                     item.mediaListEntry = AnimeItem.MediaListEntry(
                         listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
@@ -742,6 +752,7 @@ public class AnimeService: NSObject {
         pageInfo { hasNextPage }
         media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season, genre_not_in: $nsfw) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -829,7 +840,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
                 if let mle = media.mediaListEntry, let s = mle.status {
                     item.mediaListEntry = AnimeItem.MediaListEntry(
                         listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
@@ -847,6 +859,7 @@ public class AnimeService: NSObject {
       Page(page: 1, perPage: 50) {
         media(type: ANIME, id_in: $ids, sort: POPULARITY_DESC) {
           id
+          idMal
           title { english romaji }
           coverImage { large medium color }
           bannerImage
@@ -915,7 +928,8 @@ public class AnimeService: NSObject {
                     duration: media.duration,
                     trailerYouTubeID: trailerID,
                     favourites: media.favourites,
-                    coverColor: media.coverImage?.color)
+                    coverColor: media.coverImage?.color,
+                    malId: media.idMal)
                 if let mle = media.mediaListEntry, let s = mle.status {
                     item.mediaListEntry = AnimeItem.MediaListEntry(
                         listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
@@ -1364,10 +1378,10 @@ public class AnimeService: NSObject {
     /// Fetch trailer YouTube ID and genres for an AniList media entry.
     /// Used when the detail view is opened from a CoreData entity that doesn't carry this data.
     /// Calls completion on the main queue.
-    func fetchTrailerAndGenres(id: Int, completion: @escaping (_ trailerYouTubeID: String?, _ genres: [String]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion(nil, []); return }
+    func fetchTrailerAndGenres(id: Int, completion: @escaping (_ trailerYouTubeID: String?, _ genres: [String], _ malId: Int?) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil, [], nil); return }
         let query = """
-        query($id:Int){Media(id:$id,type:ANIME){genres trailer{id site}}}
+        query($id:Int){Media(id:$id,type:ANIME){idMal genres trailer{id site}}}
         """
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1378,16 +1392,17 @@ public class AnimeService: NSObject {
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let media = ((json["data"] as? [String: Any])?["Media"]) as? [String: Any] else {
-                DispatchQueue.main.async { completion(nil, []) }
+                DispatchQueue.main.async { completion(nil, [], nil) }
                 return
             }
             let genres = media["genres"] as? [String] ?? []
+            let malId = (media["idMal"] as? NSNumber)?.intValue
             var trailerID: String? = nil
             if let trailer = media["trailer"] as? [String: Any],
                (trailer["site"] as? String)?.lowercased() == "youtube" {
                 trailerID = trailer["id"] as? String
             }
-            DispatchQueue.main.async { completion(trailerID, genres) }
+            DispatchQueue.main.async { completion(trailerID, genres, malId) }
         }.resume()
     }
 

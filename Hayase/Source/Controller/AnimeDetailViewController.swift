@@ -1283,7 +1283,7 @@ private final class AnimeInfoHeaderView: UIView {
     private var storedAccentColor: UIColor = .white
 
     private var anilistId: Int?
-    /// MAL ID — currently not populated (AnimeItem doesn't include it), so malButton stays hidden.
+    /// MAL ID — populated from AniList's `idMal` field. Used for the MAL button link on iPad.
     fileprivate var malId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
     private(set) var displayedBannerURL: String?
@@ -2097,6 +2097,7 @@ private final class AnimeInfoHeaderView: UIView {
 
     func configure(with item: AnimeItem) {
         anilistId = item.id
+        malId = item.malId
 
         let english = item.titleEnglish
         let romaji  = item.titleRomaji
@@ -2364,6 +2365,17 @@ private final class AnimeInfoHeaderView: UIView {
     /// Shows/hides the trailer button without touching genres.
     func updateTrailerButton(trailerYouTubeID: String?) {
         trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
+    /// Show/hide the MAL button based on malId availability and size class.
+    /// On iPad (regular), the button is shown when malId is non-nil.
+    /// On iPhone (compact), it's always hidden.
+    func updateMALButtonVisibility() {
+        if traitCollection.horizontalSizeClass == .regular {
+            malButton.isHidden = (malId == nil)
+        } else {
+            malButton.isHidden = true
+        }
     }
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
@@ -2939,9 +2951,6 @@ class AnimeDetailViewController: UIViewController {
             self.present(safari, animated: true)
         }
         headerView.onOpenMAL = { [weak self] in
-            // MAL ID not currently available in AnimeItem — the malButton is always
-            // hidden via malId == nil in applyLayoutForSizeClass(). This callback is
-            // wired up as a placeholder for future MAL support.
             guard let self = self else { return }
             guard let malId = self.headerView?.malId,
                   let url = URL(string: "https://myanimelist.net/anime/\(malId)") else { return }
@@ -3493,11 +3502,11 @@ class AnimeDetailViewController: UIViewController {
             }
         }
 
-        // Fetch trailer + genres from AniList when they aren't already available.
+        // Fetch trailer + genres + MAL ID from AniList when they aren't already available.
         // CoreData entries never have trailer/genres; AnimeItems from relation cards
         // also lack trailer data because the relations query doesn't include it.
-        if animeItem == nil || animeItem?.trailerYouTubeID == nil {
-            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres in
+        if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {
+            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
                 guard let self else { return }
                 // Only update genres if the header doesn't already have them
                 // (e.g. from the AnimeItem configure path).
@@ -3512,6 +3521,15 @@ class AnimeDetailViewController: UIViewController {
                 // (which reads self.animeItem?.trailerYouTubeID) picks it up.
                 // Safe because animeItem is a `var` struct property on this class.
                 self.animeItem?.trailerYouTubeID = trailerID
+
+                // Set MAL ID on the header so the MAL button becomes visible (iPad).
+                // This is needed for the CoreData path where AnimeItem doesn't exist yet,
+                // and also for relation-card AnimeItems that don't carry malId.
+                if let malId, self.headerView?.malId == nil {
+                    self.headerView?.malId = malId
+                    self.animeItem?.malId = malId
+                    self.headerView?.updateMALButtonVisibility()
+                }
             }
         }
     }
