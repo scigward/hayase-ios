@@ -218,6 +218,8 @@ final class ExtensionSearchViewController: UIViewController {
         setupHeader()
         setupTableView()
         setupStateViews()
+        // Bring close button to front so it's not covered by controlsView/tableView
+        if let cb = closeButton { view.bringSubviewToFront(cb) }
         triggerSearch()
     }
 
@@ -330,11 +332,12 @@ final class ExtensionSearchViewController: UIViewController {
         // Shown when presented modally; dismisses the modal on tap.
         if isPresentedModally {
             closeButton = UIButton(type: .system)
-            let xCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            // Web: Cross2 size-4 (16px), data-[state=open]:text-muted-foreground, rounded-sm (2px)
+            let xCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .medium)
             closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
-            closeButton.tintColor = UIColor(white: 0.7, alpha: 1)
-            closeButton.backgroundColor = UIColor(white: 0.1, alpha: 0.6)
-            closeButton.layer.cornerRadius = 14
+            closeButton.tintColor = UIColor(white: 0.64, alpha: 1)  // text-muted-foreground
+            closeButton.backgroundColor = .clear  // web bg-accent/70 is near-invisible on dark bg
+            closeButton.layer.cornerRadius = 2  // rounded-sm
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(closeButton)
@@ -362,6 +365,9 @@ final class ExtensionSearchViewController: UIViewController {
         // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
+
+        // Web: px-4 sm:px-6 → 16px on mobile (<640px), 24px on ≥640px (iPad formSheet)
+        let hPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
 
         let controlsView = UIView()
         controlsView.backgroundColor = .clear     // transparent — banner visible behind controls
@@ -504,25 +510,25 @@ final class ExtensionSearchViewController: UIViewController {
 
             // Anime title (web: text-2xl font-bold, first child of pt-8 + space-y-4 container)
             titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 32),
-            titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
+            titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
 
             filterField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-            filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
-            filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
+            filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
             filterField.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
 
             controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
-            controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
-            controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
+            controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
             controlsRow.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
 
             episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),  // flexible width, grows to fill
             episodeField.heightAnchor.constraint(equalToConstant: 36),  // h-9
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
-            autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
-            autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
+            autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px (web size='default')
         ])
 
@@ -703,6 +709,9 @@ final class ExtensionSearchViewController: UIViewController {
         ])
         view.addSubview(errorView)
 
+        // Web: px-4 sm:px-6 → responsive horizontal padding for skeleton/state views
+        let skelPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
@@ -713,9 +722,9 @@ final class ExtensionSearchViewController: UIViewController {
             skeletonScroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             skeletonScroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             skeletonView.topAnchor.constraint(equalTo: skeletonScroll.topAnchor),
-            skeletonView.leadingAnchor.constraint(equalTo: skeletonScroll.leadingAnchor, constant: 16),
-            skeletonView.trailingAnchor.constraint(equalTo: skeletonScroll.trailingAnchor, constant: -16),
-            skeletonView.widthAnchor.constraint(equalTo: skeletonScroll.widthAnchor, constant: -32),
+            skeletonView.leadingAnchor.constraint(equalTo: skeletonScroll.leadingAnchor, constant: skelPad),
+            skeletonView.trailingAnchor.constraint(equalTo: skeletonScroll.trailingAnchor, constant: -skelPad),
+            skeletonView.widthAnchor.constraint(equalTo: skeletonScroll.widthAnchor, constant: -skelPad * 2),
 
             emptyView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             emptyView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
@@ -1242,6 +1251,10 @@ extension ExtensionSearchViewController: UITextFieldDelegate {
 final class TorrentResultCell: UITableViewCell {
     static let reuseID = "TorrentResultCell"
 
+    /// Stored constraints for responsive horizontal padding (px-4 sm:px-6)
+    private var cardLeadingConstraint: NSLayoutConstraint!
+    private var cardTrailingConstraint: NSLayoutConstraint!
+
     /// Card container — stored for highlight effects
     private let cardView: UIView = {
         let v = UIView()
@@ -1339,12 +1352,16 @@ final class TorrentResultCell: UITableViewCell {
         // fileIconView is kept on the model for accuracy-badge toggle but not added to layout.
 
         // Group row: [groupLabel ········· extIconsStack]
+        // Web: group label has pl-6 (24px) on mobile to clear the BadgeCheck icon.
+        // Use layoutMargins to indent group row content without affecting trailing position.
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let groupRow = UIStackView(arrangedSubviews: [groupLabel, spacer, extIconsStack])
         groupRow.axis = .horizontal
         groupRow.spacing = 8
         groupRow.alignment = .center
+        groupRow.layoutMargins = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 0) // pl-6 = 24px
+        groupRow.isLayoutMarginsRelativeArrangement = true
 
         // Bottom-left: type badge + seeders + size + date (mirrors web details row)
         // Web uses .details span+span::before { content: '•' } for dot separators
@@ -1375,11 +1392,15 @@ final class TorrentResultCell: UITableViewCell {
         contentCol.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(contentCol)
 
+        // Card margins: responsive px-4 (16pt) on mobile, sm:px-6 (24pt) on iPad
+        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+
         NSLayoutConstraint.activate([
-            // Card: mb-2 (4pt top/bottom gap) + px-4 (16pt side inset matching Hayase container)
+            // Card: mb-2 (4pt top/bottom gap) + responsive side inset
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardLeadingConstraint,
+            cardTrailingConstraint,
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
             // BadgeCheck — absolute top-left (mirrors top-4 left-4 = 16px, size 1.2rem ≈ 19px)
@@ -1388,8 +1409,9 @@ final class TorrentResultCell: UITableViewCell {
             badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
             badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
 
-            // Content column: p-3 (12pt), pl-6 to clear the BadgeCheck (mirrors pl-6 md:pl-0)
-            contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 36),
+            // Content column: p-3 (12pt) + pl-2 (8pt) = 20pt from card left
+            // Group row uses layoutMargins.left=24 for the pl-6 indent to clear BadgeCheck
+            contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 20),
             contentCol.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
             contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
             contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
@@ -1466,6 +1488,11 @@ final class TorrentResultCell: UITableViewCell {
     func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white) {
         let title = result.title
         accentColor = accent
+
+        // Responsive card margins: px-4 (16pt) mobile, sm:px-6 (24pt) iPad
+        let hPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+        cardLeadingConstraint.constant = hPad
+        cardTrailingConstraint.constant = -hPad
 
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
