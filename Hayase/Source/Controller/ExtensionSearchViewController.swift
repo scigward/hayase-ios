@@ -358,7 +358,7 @@ final class ExtensionSearchViewController: UIViewController {
         }
 
         // ── 2. CONTROLS VIEW — EXPLICIT height 220pt, pinned to bannerView.bottom ───
-        // height = 32 (top, web pt-8) + 28 (title) + 16 (space-y-4) + 38 (filter) + 16 (space-y-4) + 34 (row) + 16 (space-y-4) + 40 (button) + 0 (bottom) = 220
+        // height = 32 (top, web pt-8) + 28 (title) + 16 (space-y-4) + 36 (filter h-9) + 16 (space-y-4) + 36 (row h-9) + 16 (space-y-4) + 36 (button h-9) + 4 (bottom buffer) = 220
         // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
@@ -387,18 +387,18 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background (nearly black)
         filterField.textColor = .white
         filterField.tintColor = .white
-        filterField.font = .nunito(ofSize: 13)
+        filterField.font = .nunito(ofSize: 14)  // text-sm = 0.875rem = 14px
         filterField.autocorrectionType = .no
         filterField.autocapitalizationType = .none
         filterField.returnKeyType = .done
-        filterField.layer.cornerRadius = 8
+        filterField.layer.cornerRadius = 6  // rounded-md
         filterField.layer.borderWidth = 1
         filterField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         filterField.leftViewMode = .always
         let magIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
         magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
         magIcon.contentMode = .scaleAspectFit
-        magIcon.frame = CGRect(x: 0, y: 0, width: 32, height: 18)
+        magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 16)  // pl-9 = 2.25rem = 36pt left padding for icon area
         filterField.leftView = magIcon
         filterField.delegate = self
         filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
@@ -417,9 +417,14 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
         episodeField.textColor = .white
         episodeField.tintColor = .white
-        episodeField.font = .nunito(ofSize: 14)
+        episodeField.font = .nunito(ofSize: 14)  // text-sm = 14px
         episodeField.textAlignment = .center
-        episodeField.layer.cornerRadius = 8
+        // Add left/right padding (web Input: px-3 = 12pt)
+        episodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
+        episodeField.leftViewMode = .always
+        episodeField.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
+        episodeField.rightViewMode = .always
+        episodeField.layer.cornerRadius = 6  // rounded-md
         episodeField.layer.borderWidth = 1
         episodeField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         episodeField.delegate = self
@@ -445,9 +450,9 @@ final class ExtensionSearchViewController: UIViewController {
         resolutionButton = UIButton(type: .system)
         resolutionButton.setTitle("1080p ▾", for: .normal)
         resolutionButton.setTitleColor(.white, for: .normal)
-        resolutionButton.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+        resolutionButton.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)  // text-sm
         resolutionButton.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
-        resolutionButton.layer.cornerRadius = 8
+        resolutionButton.layer.cornerRadius = 6  // rounded-md
         resolutionButton.layer.borderWidth = 1
         resolutionButton.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
         resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
@@ -466,9 +471,9 @@ final class ExtensionSearchViewController: UIViewController {
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(contrastColor, for: .normal)
-        autoSelectButton.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
+        autoSelectButton.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)  // text-sm font-bold
         autoSelectButton.backgroundColor = accentColor
-        autoSelectButton.layer.cornerRadius = 8
+        autoSelectButton.layer.cornerRadius = 6  // rounded-md
         autoSelectButton.clipsToBounds = true
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
@@ -505,20 +510,20 @@ final class ExtensionSearchViewController: UIViewController {
             filterField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
             filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
-            filterField.heightAnchor.constraint(equalToConstant: 38),
+            filterField.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
 
             controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
             controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
-            controlsRow.heightAnchor.constraint(equalToConstant: 34),
+            controlsRow.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
 
-            episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
-            episodeField.heightAnchor.constraint(equalToConstant: 34),
+            episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),  // flexible width, grows to fill
+            episodeField.heightAnchor.constraint(equalToConstant: 36),  // h-9
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
             autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
-            autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
+            autoSelectButton.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px (web size='default')
         ])
 
         // headerView is the bottom edge that tableView.topAnchor pins to

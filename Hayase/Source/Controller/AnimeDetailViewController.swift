@@ -4399,12 +4399,14 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            // Web: size='icon-sm' → h-[1.6rem] w-[1.6rem] = 25.6px ≈ 26pt, icon 0.7rem = 11.2px ≈ 11pt
-            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+            // Web: size='icon-sm' → h-[1.6rem] w-[1.6rem] = 25.6px ≈ 26pt
+            // icon: iconSizes['icon-sm'] = '0.7rem' ≈ 11pt, Play fill='currentColor'
+            // class='rounded-full bg-custom text-contrast'
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
             playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
             playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
-            playBtn.layer.cornerRadius = 13  // fully circular (26/2)
+            playBtn.layer.cornerRadius = 13  // fully circular (26/2), web rounded-full
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
