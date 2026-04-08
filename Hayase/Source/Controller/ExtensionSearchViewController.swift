@@ -1819,7 +1819,7 @@ final class BottomDialogPresentationController: UIPresentationController {
 
         dimmingView.frame = containerView.bounds
         dimmingView.alpha = 0
-        containerView.insertSubview(dimmingView, above: blurView)
+        containerView.insertSubview(dimmingView, aboveSubview: blurView)
 
         // Add striped overlay pattern on top of dimming base
         stripedLayer.frame = dimmingView.bounds
