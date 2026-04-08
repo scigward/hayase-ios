@@ -333,7 +333,7 @@ final class ExtensionSearchViewController: UIViewController {
         if isPresentedModally {
             closeButton = UIButton(type: .system)
             // Web: Cross2 size-4 (16px), data-[state=open]:text-muted-foreground, rounded-sm (2px)
-            let xCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            let xCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
             closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
             closeButton.tintColor = UIColor(white: 0.64, alpha: 1)  // text-muted-foreground
             closeButton.backgroundColor = .clear  // web bg-accent/70 is near-invisible on dark bg
