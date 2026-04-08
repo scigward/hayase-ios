@@ -175,6 +175,11 @@ final class ExtensionSearchViewController: UIViewController {
     private var episodeField: UITextField!
     private var resolutionButton: UIButton!
     private var autoSelectButton: UIButton!
+    /// Progress overlay on Auto Select button (mirrors web ProgressButton animation)
+    private var progressOverlay: UIView!
+
+    // Close button (mirrors web Dialog close X button)
+    private var closeButton: UIButton!
 
     // State overlays
     private var emptyView: UIView!
@@ -183,6 +188,11 @@ final class ExtensionSearchViewController: UIViewController {
     private var skeletonView: UIStackView!
 
     private let resolutions = ["2160", "1080", "720", "540", "480"]
+
+    /// Whether this VC is presented modally (formSheet on iPad, fullScreen on iPhone).
+    private var isPresentedModally: Bool {
+        return navigationController == nil
+    }
 
     // MARK: Lifecycle
 
@@ -194,7 +204,13 @@ final class ExtensionSearchViewController: UIViewController {
         }
         view.backgroundColor = UIColor(white: 0.04, alpha: 1)
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.title = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
+
+        // Round top corners when presented as formSheet sheet (matches web lg:rounded-t-xl = 12px)
+        if modalPresentationStyle == .formSheet {
+            view.layer.cornerRadius = 12
+            view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            view.clipsToBounds = true
+        }
 
         setupHeader()
         setupTableView()
@@ -205,17 +221,21 @@ final class ExtensionSearchViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // Transparent nav bar so banner can extend to the very top of the screen
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
-        navigationController?.navigationBar.isTranslucent = true
+        if let nav = navigationController {
+            nav.navigationBar.setBackgroundImage(UIImage(), for: .default)
+            nav.navigationBar.shadowImage = UIImage()
+            nav.navigationBar.isTranslucent = true
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Restore opaque nav bar for the previous screen
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
-        navigationController?.navigationBar.isTranslucent = true
+        if let nav = navigationController {
+            nav.navigationBar.setBackgroundImage(nil, for: .default)
+            nav.navigationBar.shadowImage = nil
+            nav.navigationBar.isTranslucent = true
+        }
         // Clean up any pending direct-to-player state
         cleanupPendingState()
     }
@@ -252,17 +272,16 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(bannerImageView)
 
-        // Gradient: clear at top → black at bottom (same as AnimeInfoHeaderView)
+        // Gradient: bottom 70% fade to black/80 → transparent at top
+        // Matches web: bg-gradient-to-t from-black/80 to-transparent, h-[70%]
         bannerGradientLayer = CAGradientLayer()
         bannerGradientLayer.colors = [UIColor.clear.cgColor,
-                                       UIColor.black.withAlphaComponent(0.85).cgColor]
+                                       UIColor.black.withAlphaComponent(0.80).cgColor]
         bannerGradientLayer.locations = [0.3, 1.0]
         bannerImageView.layer.addSublayer(bannerGradientLayer)
 
-        // Anime title — small single-line label at the bottom of the banner
+        // Anime title — shown via the titleLabel in controlsView (not navigation bar)
         // Sits on the dark gradient zone → always readable. One line, truncated.
-        // Note: anime title shown in navigation bar via navigationItem.title
-        // No overlay label needed on the banner image.
 
         // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
         // fall back to AniList banner. Single image load = no visible flicker/swap.
@@ -303,6 +322,26 @@ final class ExtensionSearchViewController: UIViewController {
             bannerImageView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
             bannerImageView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
         ])
+
+        // Close button (X) — mirrors web Dialog close button (absolute right-4 top-4)
+        // Shown when presented modally; dismisses the modal on tap.
+        if isPresentedModally {
+            closeButton = UIButton(type: .system)
+            let xCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
+            closeButton.tintColor = UIColor(white: 0.7, alpha: 1)
+            closeButton.backgroundColor = UIColor(white: 0.1, alpha: 0.6)
+            closeButton.layer.cornerRadius = 14
+            closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+            closeButton.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(closeButton)
+            NSLayoutConstraint.activate([
+                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+                closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+                closeButton.widthAnchor.constraint(equalToConstant: 28),
+                closeButton.heightAnchor.constraint(equalToConstant: 28),
+            ])
+        }
 
         // ── 2. CONTROLS VIEW — EXPLICIT height 188pt, pinned to bannerView.bottom ───
         // height = 12 (top) + 28 (title) + 16 (gap) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 0 (bottom) = 188
@@ -403,16 +442,33 @@ final class ExtensionSearchViewController: UIViewController {
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
         controlsView.addSubview(controlsRow)
 
-        // Auto Select button
+        // Auto Select button — matches web ProgressButton
         autoSelectButton = UIButton(type: .system)
         autoSelectButton.setTitle("Auto Select Torrent", for: .normal)
         autoSelectButton.setTitleColor(contrastColor, for: .normal)
         autoSelectButton.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
         autoSelectButton.backgroundColor = accentColor
         autoSelectButton.layer.cornerRadius = 8
+        autoSelectButton.clipsToBounds = true
         autoSelectButton.addTarget(self, action: #selector(autoSelectTapped), for: .touchUpInside)
         autoSelectButton.translatesAutoresizingMaskIntoConstraints = false
         controlsView.addSubview(autoSelectButton)
+
+        // Progress overlay — mirrors web ProgressButton (bg-black/20, slides right over 5s)
+        progressOverlay = UIView()
+        progressOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        progressOverlay.isUserInteractionEnabled = false
+        progressOverlay.translatesAutoresizingMaskIntoConstraints = false
+        autoSelectButton.addSubview(progressOverlay)
+        NSLayoutConstraint.activate([
+            progressOverlay.topAnchor.constraint(equalTo: autoSelectButton.topAnchor),
+            progressOverlay.bottomAnchor.constraint(equalTo: autoSelectButton.bottomAnchor),
+            progressOverlay.leadingAnchor.constraint(equalTo: autoSelectButton.leadingAnchor),
+            progressOverlay.widthAnchor.constraint(equalTo: autoSelectButton.widthAnchor),
+        ])
+        // Initially hidden (translated fully left)
+        progressOverlay.transform = CGAffineTransform(translationX: -UIScreen.main.bounds.width, y: 0)
+        progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
             // controlsView: starts at safe area top (below transparent nav bar), EXPLICIT height
@@ -436,7 +492,7 @@ final class ExtensionSearchViewController: UIViewController {
             controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             controlsRow.heightAnchor.constraint(equalToConstant: 34),
 
-            episodeField.widthAnchor.constraint(equalToConstant: 80),
+            episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
@@ -649,6 +705,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     private func triggerSearch() {
         searchTask?.cancel()
+        stopProgressAnimation()
         guard let item = animeItem else { return }
 
         results = []
@@ -688,6 +745,10 @@ final class ExtensionSearchViewController: UIViewController {
             if self.autoSelectAfterSearch {
                 self.autoSelectAfterSearch = false
                 self.autoSelectTapped()
+            } else if !self.filteredResults.isEmpty {
+                // Start the 5-second progress bar animation
+                // (mirrors web searchAutoSelect + startAnimation)
+                self.startProgressAnimation()
             }
         }
     }
@@ -705,16 +766,18 @@ final class ExtensionSearchViewController: UIViewController {
         emptyView.isHidden = !filteredResults.isEmpty || loadingIndicator.isAnimating
     }
 
-    /// Mirrors web's filterAndSortResults() from SearchModal.svelte exactly.
-    /// Multi-tier ranking: low accuracy → rank 3, low seeders (≤15) → rank 2,
-    /// normal → rank 1, quality releases → rank 0.
-    /// Within rank 1: sort by accuracy (high first), then by seeders descending.
+    /// Mirrors web filterAndSortResults() from SearchModal.svelte exactly.
+    /// Ranks: low accuracy → 3, low seeders → 2, quality(best/alt with pref) → 0, normal → 1.
+    /// Within rank 1: accuracy (high first), then by preference (size or seeders).
     private func filterAndSortResults(_ results: [TorrentResult]) -> [TorrentResult] {
+        let preference = UserDefaults.standard.string(forKey: "pref_lookupPreference") ?? "quality"
         return results.sorted { a, b in
             func getRank(_ res: TorrentResult) -> Int {
                 if res.accuracy == "low" { return 3 }
+                // Web: if (downloaded.has(res.hash)) return 0
+                // iOS doesn't track downloaded torrents yet — skip this rank
                 if res.seeders <= 15 { return 2 }
-                if res.type == "best" || res.type == "alt" { return 0 }
+                if (res.type == "best" || res.type == "alt") && preference == "quality" { return 0 }
                 return 1
             }
             let rankA = getRank(a)
@@ -724,6 +787,8 @@ final class ExtensionSearchViewController: UIViewController {
                 let scoreA = a.accuracy == "high" ? 1 : 0
                 let scoreB = b.accuracy == "high" ? 1 : 0
                 if scoreA != scoreB { return scoreA > scoreB }
+                // Sort by preference: size ascending or seeders descending
+                if preference == "size" { return a.size < b.size }
                 return b.seeders < a.seeders  // more seeders first
             }
             return false
@@ -758,6 +823,7 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func filterChanged() {
+        stopProgressAnimation()
         filterText = filterField.text ?? ""
         // Detect magnet link
         let text = filterText
@@ -813,10 +879,49 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     @objc private func autoSelectTapped() {
+        stopProgressAnimation()
         guard !filteredResults.isEmpty else { return }
         // filteredResults is already sorted by filterAndSortResults() (matching web's
         // playBest which takes filterAndSortResults(...)[0])
         confirmDownload(filteredResults[0])
+    }
+
+    @objc private func closeTapped() {
+        if isPresentedModally {
+            dismiss(animated: true)
+        } else {
+            navigationController?.popViewController(animated: true)
+        }
+    }
+
+    // MARK: - Progress animation (mirrors web ProgressButton — 5s auto-fill bar)
+
+    private var progressTimer: Timer?
+
+    /// Start the 5-second progress bar animation on Auto Select button.
+    /// When the animation completes, auto-selects the best result.
+    /// Mirrors web `autoStart` + `animating` on ProgressButton.
+    private func startProgressAnimation() {
+        guard !filteredResults.isEmpty else { return }
+        progressOverlay.isHidden = false
+        progressOverlay.transform = CGAffineTransform(translationX: -autoSelectButton.bounds.width, y: 0)
+        UIView.animate(withDuration: 5.0, delay: 0, options: [.curveLinear]) { [weak self] in
+            self?.progressOverlay.transform = .identity
+        } completion: { [weak self] finished in
+            guard let self, finished else { return }
+            self.progressOverlay.isHidden = true
+            self.progressOverlay.transform = CGAffineTransform(translationX: -self.autoSelectButton.bounds.width, y: 0)
+            // Auto-select best result when animation completes (mirrors web animationend → onclick)
+            if !self.filteredResults.isEmpty {
+                self.confirmDownload(self.filteredResults[0])
+            }
+        }
+    }
+
+    private func stopProgressAnimation() {
+        progressOverlay.layer.removeAllAnimations()
+        progressOverlay.isHidden = true
+        progressOverlay.transform = CGAffineTransform(translationX: -autoSelectButton.bounds.width, y: 0)
     }
 
     // MARK: - Download
@@ -1072,14 +1177,21 @@ extension ExtensionSearchViewController: UITableViewDataSource, UITableViewDeleg
         guard indexPath.row < filteredResults.count else { return cell }
         let result = filteredResults[indexPath.row]
         let configs = ExtensionService.shared.configs
-        cell.configure(with: result, configs: configs)
+        let accent = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
+        cell.configure(with: result, configs: configs, accent: accent)
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        stopProgressAnimation()
         guard indexPath.row < filteredResults.count else { return }
         confirmDownload(filteredResults[indexPath.row])
+    }
+
+    // Stop progress animation when user scrolls results (mirrors web on:pointermove/on:pointerenter)
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        stopProgressAnimation()
     }
 }
 
@@ -1097,6 +1209,15 @@ extension ExtensionSearchViewController: UITextFieldDelegate {
 
 final class TorrentResultCell: UITableViewCell {
     static let reuseID = "TorrentResultCell"
+
+    /// Card container — stored for highlight effects
+    private let cardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1) // bg-neutral-950
+        v.layer.cornerRadius = 6  // rounded-md (0.375rem = 6px)
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
 
     // BadgeCheck icon — top-left, mirrors <BadgeCheck /> absolute position
     private let badgeCheckView: UIImageView = {
@@ -1170,16 +1291,12 @@ final class TorrentResultCell: UITableViewCell {
         backgroundColor = UIColor(white: 0.04, alpha: 1) // page bg
         selectionStyle = .none
 
-        // Card: bg-neutral-950 (#111111), 8px radius, mb-2 p-3
+        // Card: bg-neutral-950 (#111111), 6px radius, mb-2 p-3
         // Hayase px-4 sm:px-6 on the container → we use 16px card inset
-        let card = UIView()
-        card.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
-        card.layer.cornerRadius = 6  // rounded-md (0.375rem = 6px)
-        card.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(card)
+        contentView.addSubview(cardView)
 
         // BadgeCheck absolute top-left (mirrors absolute top-4 left-4)
-        card.addSubview(badgeCheckView)
+        cardView.addSubview(badgeCheckView)
 
         // NOTE: Hayase shows the left Folder/File icon only on {#if $breakpoints.md} (≥768pt).
         // iOS phones are always <768pt wide, so we hide the left icon — matching Hayase mobile.
@@ -1218,31 +1335,75 @@ final class TorrentResultCell: UITableViewCell {
         contentCol.axis = .vertical
         contentCol.spacing = 4
         contentCol.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(contentCol)
+        cardView.addSubview(contentCol)
 
         NSLayoutConstraint.activate([
             // Card: mb-2 (4pt top/bottom gap) + px-4 (16pt side inset matching Hayase container)
-            card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
             // BadgeCheck — absolute top-left (mirrors top-4 left-4 = 16px, size 1.2rem ≈ 19px)
-            badgeCheckView.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
-            badgeCheckView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            badgeCheckView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            badgeCheckView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
             badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
             badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
 
             // Content column: p-3 (12pt), pl-6 to clear the BadgeCheck (mirrors pl-6 md:pl-0)
-            contentCol.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 36),
-            contentCol.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            contentCol.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
-            contentCol.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
+            contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 36),
+            contentCol.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
+            contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 10),
+            contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -10),
             contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    // MARK: Card press highlight (mirrors web select:ring-1 select:ring-custom select:bg-neutral-900 select:scale-[1.02])
+
+    /// Accent color for ring highlight — set from coverColor in configure()
+    private var accentColor: UIColor = .white
+
+    override func setHighlighted(_ highlighted: Bool, animated: Bool) {
+        super.setHighlighted(highlighted, animated: animated)
+        applyHighlight(highlighted)
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        super.setSelected(selected, animated: animated)
+        applyHighlight(selected)
+    }
+
+    private func applyHighlight(_ active: Bool) {
+        let duration = active ? 0.1 : 0.25
+        UIView.animate(withDuration: duration, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            if active {
+                // ring-1 ring-custom
+                self.cardView.layer.borderWidth = 1
+                self.cardView.layer.borderColor = self.accentColor.cgColor
+                // bg-neutral-900
+                self.cardView.backgroundColor = UIColor(white: 0.1, alpha: 1)
+                // scale-[1.02]
+                self.cardView.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+                // shadow-lg
+                self.cardView.layer.shadowColor = UIColor.black.cgColor
+                self.cardView.layer.shadowOpacity = 0.4
+                self.cardView.layer.shadowOffset = CGSize(width: 0, height: 4)
+                self.cardView.layer.shadowRadius = 8
+                // group-select/card:text-custom (group label turns accent color)
+                self.groupLabel.textColor = self.accentColor
+            } else {
+                self.cardView.layer.borderWidth = 0
+                self.cardView.layer.borderColor = nil
+                self.cardView.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
+                self.cardView.transform = .identity
+                self.cardView.layer.shadowOpacity = 0
+                self.groupLabel.textColor = .white
+            }
+        }
+    }
 
     private static func makeBadgeLabel() -> UILabel {
         let l = UILabel()
@@ -1253,8 +1414,9 @@ final class TorrentResultCell: UITableViewCell {
         return l
     }
 
-    func configure(with result: TorrentResult, configs: [String: ExtensionConfig]) {
+    func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white) {
         let title = result.title
+        accentColor = accent
 
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
@@ -1361,9 +1523,9 @@ final class TorrentResultCell: UITableViewCell {
             dateLabel.isHidden = true
         }
 
-        // ── Tech term badges (right side)
+        // ── Tech term badges (right side, reversed to match web flex-row-reverse)
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for term in TitleUtils.sanitise(title) {
+        for term in TitleUtils.sanitise(title).reversed() {
             let l = UILabel()
             l.text = "  \(term.text)  "
             l.font = .nunito(ofSize: 10, weight: .bold)

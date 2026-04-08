@@ -3586,11 +3586,26 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Navigation
 
     /// Push the extension-based torrent search screen for the given episode number.
+    /// On iPad (regular horizontal size class), presents as a formSheet dialog
+    /// matching web's Dialog.Content (max-w-5xl centered sheet).
+    /// On iPhone, pushes onto the navigation stack.
     private func openExtensionSearch(episode: Int) {
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
         searchVC.initialEpisode = episode
-        navigationController?.pushViewController(searchVC, animated: true)
+
+        if traitCollection.horizontalSizeClass == .regular {
+            // iPad: present as sheet (matches web Dialog.Root)
+            searchVC.modalPresentationStyle = .formSheet
+            searchVC.preferredContentSize = CGSize(width: 1024, height: UIScreen.main.bounds.height - 16)
+            present(searchVC, animated: true)
+        } else {
+            // iPhone: present fullScreen modal (matches web Dialog overlay).
+            // The web always uses Dialog.Root for SearchModal (never page
+            // navigation), so modal presentation is the correct analogue.
+            searchVC.modalPresentationStyle = .fullScreen
+            present(searchVC, animated: true)
+        }
     }
 }
 
