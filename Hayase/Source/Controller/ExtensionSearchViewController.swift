@@ -102,7 +102,7 @@ private enum TitleUtils {
            m.range(at: 1).location != NSNotFound {
             return nsTitle.substring(with: m.range(at: 1))
         }
-        return "Unknown"
+        return "No Group"
     }
 
     /// Simplified filename — mirrors simplifyFilename()
@@ -1326,11 +1326,11 @@ final class TorrentResultCell: UITableViewCell {
     private let dot2 = TorrentResultCell.makeDotSeparator()
     private let dot3 = TorrentResultCell.makeDotSeparator()
 
-    // Tech terms stack (right side of bottom)
+    // Tech terms stack (right side of bottom, web: ml-2 = 8px between badges)
     private let termsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 4
+        sv.spacing = 8  // ml-2 = 0.5rem = 8px
         sv.alignment = .center
         return sv
     }()
@@ -1364,8 +1364,8 @@ final class TorrentResultCell: UITableViewCell {
         groupRow.isLayoutMarginsRelativeArrangement = true
 
         // Bottom-left: type badge + seeders + size + date (mirrors web details row)
-        // Web uses .details span+span::before { content: '•' } for dot separators
-        seedersLabel.font = .nunito(ofSize: 11, weight: .medium)
+        // Web: text-[.7rem] = 11.2px ≈ 11pt, normal weight. .details span+span::before for dots.
+        seedersLabel.font = .nunito(ofSize: 11)  // normal weight (web inherits from parent)
         sizeLabel.font = .nunito(ofSize: 11)
         sizeLabel.textColor = UIColor(white: 0.8, alpha: 1) // text-white/80
         dateLabel.font = .nunito(ofSize: 11)
@@ -1388,7 +1388,7 @@ final class TorrentResultCell: UITableViewCell {
         // Content column (no left icon on mobile — matches Hayase mobile layout)
         let contentCol = UIStackView(arrangedSubviews: [groupRow, filenameLabel, bottomRow])
         contentCol.axis = .vertical
-        contentCol.spacing = 4
+        contentCol.distribution = .equalSpacing  // justify-between (web h-20 flex-col justify-between)
         contentCol.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(contentCol)
 
@@ -1465,10 +1465,13 @@ final class TorrentResultCell: UITableViewCell {
         }
     }
 
-    private static func makeBadgeLabel() -> UILabel {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10, weight: .semibold)
-        l.layer.cornerRadius = 4
+    /// Creates a type badge label (Best Release / Alt Release / Batch).
+    /// Web: rounded px-3 py-1 border text-[.7rem] — proper 12px/4px insets, 4px radius, 1px border.
+    private static func makeBadgeLabel() -> PaddedLabel {
+        let l = PaddedLabel()
+        l.textInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
+        l.font = .nunito(ofSize: 11)  // text-[.7rem] = 11.2px ≈ 11pt, normal weight
+        l.layer.cornerRadius = 4      // rounded (0.25rem = 4px)
         l.clipsToBounds = true
         l.layer.borderWidth = 1
         return l
@@ -1554,23 +1557,24 @@ final class TorrentResultCell: UITableViewCell {
         filenameLabel.text = TitleUtils.simplify(title)
 
         // ── Type badge (mirrors Best Release/Alt Release/Batch spans)
+        // Web: rounded px-3 py-1 mr-0.5 border — PaddedLabel handles px-3 py-1 insets
         if let rtype = result.type, !rtype.isEmpty {
             switch rtype.lowercased() {
             case "best":
                 // background: #1d2d1e; border: #53da33; color: #53da33
-                typeBadgeLabel.text = "  Best Release  "
+                typeBadgeLabel.text = "Best Release"
                 typeBadgeLabel.textColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.176, blue: 0.118, alpha: 1)
                 typeBadgeLabel.layer.borderColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1).cgColor
             case "alt":
                 // background: #391d20; border: #c52d2d; color: #c52d2d
-                typeBadgeLabel.text = "  Alt Release  "
+                typeBadgeLabel.text = "Alt Release"
                 typeBadgeLabel.textColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.220, green: 0.114, blue: 0.125, alpha: 1)
                 typeBadgeLabel.layer.borderColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1).cgColor
             default: // "batch"
                 // background: #1d2031; border: #2d5ec5; color: #2d5ec5
-                typeBadgeLabel.text = "  Batch  "
+                typeBadgeLabel.text = "Batch"
                 typeBadgeLabel.textColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.125, blue: 0.192, alpha: 1)
                 typeBadgeLabel.layer.borderColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1).cgColor
@@ -1609,15 +1613,17 @@ final class TorrentResultCell: UITableViewCell {
         dot3.isHidden = dateLabel.isHidden         // dot between size/seeders and date
 
         // ── Tech term badges (right side, reversed to match web flex-row-reverse)
+        // Web: rounded px-3 py-1 ml-2 font-bold text-contrast-filter
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for term in TitleUtils.sanitise(title).reversed() {
-            let l = UILabel()
-            l.text = "  \(term.text)  "
-            l.font = .nunito(ofSize: 10, weight: .bold)
+            let l = PaddedLabel()
+            l.textInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
+            l.text = term.text
+            l.font = .nunito(ofSize: 11, weight: .bold)  // text-[.7rem] font-bold
             // Use WCAG luminance to pick contrasting text colour (mirrors text-contrast-filter)
             l.textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
             l.backgroundColor = term.color
-            l.layer.cornerRadius = 4
+            l.layer.cornerRadius = 4  // rounded
             l.clipsToBounds = true
             termsStack.addArrangedSubview(l)
         }
@@ -1663,5 +1669,27 @@ private extension UIColor {
         func lin(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
         let L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
         return L > 0.35
+    }
+}
+
+// MARK: - PaddedLabel (proper px-3 py-1 insets matching web badge padding)
+
+/// UILabel subclass that adds internal padding (web px-3 py-1) instead of space-character hacks.
+private final class PaddedLabel: UILabel {
+    var textInsets = UIEdgeInsets.zero
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: textInsets))
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(width: size.width + textInsets.left + textInsets.right,
+                      height: size.height + textInsets.top + textInsets.bottom)
+    }
+
+    override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
+        let insetBounds = bounds.inset(by: textInsets)
+        return super.textRect(forBounds: insetBounds, limitedToNumberOfLines: numberOfLines)
     }
 }
