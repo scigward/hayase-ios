@@ -232,7 +232,7 @@ final class TrackerScrapeService {
     /// [8: protocol_id (0x41727101980), 4: action (0=connect), 4: transaction_id]
     private static func buildConnectRequest(transactionId: UInt32) -> Data {
         var data = Data(capacity: 16)
-        data.appendUInt64(0x0000041727101980)  // protocol_id
+        data.appendUInt64(0x41727101980)  // protocol_id
         data.appendUInt32(0)                    // action = connect
         data.appendUInt32(transactionId)
         return data
