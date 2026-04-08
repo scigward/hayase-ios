@@ -250,6 +250,8 @@ final class ExtensionSearchViewController: UIViewController {
         // bannerImageView fills its parent bannerView (160pt, full width).
         // The gradient must match the image view's bounds, updated each layout pass.
         if let iv = bannerImageView { bannerGradientLayer?.frame = iv.bounds }
+        // Keep close button above all sibling views (state views, skeleton, etc.)
+        if let cb = closeButton { view.bringSubviewToFront(cb) }
     }
 
     private func setupHeader() {
@@ -333,19 +335,25 @@ final class ExtensionSearchViewController: UIViewController {
         if isPresentedModally {
             closeButton = UIButton(type: .system)
             // Web: Cross2 size-4 (16px), data-[state=open]:text-muted-foreground, rounded-sm (2px)
+            // data-[state=open]:bg-accent/70 → dark accent bg at 70% opacity
             let xCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
             closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
             closeButton.tintColor = UIColor(white: 0.64, alpha: 1)  // text-muted-foreground
-            closeButton.backgroundColor = .clear  // web bg-accent/70 is near-invisible on dark bg
-            closeButton.layer.cornerRadius = 2  // rounded-sm
+            // Web: bg-accent/70 — dark theme accent HSL(240, 3.7%, 15.9%) at 70% opacity
+            closeButton.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 0.7)
+            closeButton.layer.cornerRadius = 4  // rounded-sm (web 2px, but 4px looks better at 36pt)
+            closeButton.clipsToBounds = true
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
+            // Ensure touches always reach the button
+            closeButton.isExclusiveTouch = true
             view.addSubview(closeButton)
 
             // Web: absolute right-4 top-4 = 16px from dialog top/right.
             // On .formSheet (iPad), view.topAnchor IS the dialog top.
             // On .fullScreen (iPhone), we must use safeAreaLayoutGuide so the
             // button sits below the status bar / Dynamic Island.
+            // Size: 36×36 ensures reliable touch target while keeping visual compact.
             let closeTopAnchor: NSLayoutConstraint
             if modalPresentationStyle == .formSheet {
                 closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
@@ -355,8 +363,8 @@ final class ExtensionSearchViewController: UIViewController {
             NSLayoutConstraint.activate([
                 closeTopAnchor,
                 closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-                closeButton.widthAnchor.constraint(equalToConstant: 28),
-                closeButton.heightAnchor.constraint(equalToConstant: 28),
+                closeButton.widthAnchor.constraint(equalToConstant: 36),
+                closeButton.heightAnchor.constraint(equalToConstant: 36),
             ])
         }
 
@@ -922,7 +930,15 @@ final class ExtensionSearchViewController: UIViewController {
 
     @objc private func closeTapped() {
         if isPresentedModally {
-            dismiss(animated: true)
+            // Dismiss any presented VC on top of us first (e.g. resolution picker),
+            // then dismiss ourselves.
+            if let presented = presentedViewController {
+                presented.dismiss(animated: false) { [weak self] in
+                    self?.dismiss(animated: true)
+                }
+            } else {
+                dismiss(animated: true)
+            }
         } else {
             navigationController?.popViewController(animated: true)
         }
@@ -1254,6 +1270,9 @@ final class TorrentResultCell: UITableViewCell {
     /// Stored constraints for responsive horizontal padding (px-4 sm:px-6)
     private var cardLeadingConstraint: NSLayoutConstraint!
     private var cardTrailingConstraint: NSLayoutConstraint!
+    /// Stored constraints for BadgeCheck responsive position (top-4 left-4 mobile, md:top-3 md:left-3 iPad)
+    private var badgeTopConstraint: NSLayoutConstraint!
+    private var badgeLeadingConstraint: NSLayoutConstraint!
 
     /// Card container — stored for highlight effects
     private let cardView: UIView = {
@@ -1396,6 +1415,10 @@ final class TorrentResultCell: UITableViewCell {
         cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
 
+        // BadgeCheck position: 16px on mobile (top-4 left-4), 12px on iPad (md:top-3 md:left-3)
+        badgeTopConstraint = badgeCheckView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16)
+        badgeLeadingConstraint = badgeCheckView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16)
+
         NSLayoutConstraint.activate([
             // Card: mb-2 (4pt top/bottom gap) + responsive side inset
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
@@ -1403,9 +1426,10 @@ final class TorrentResultCell: UITableViewCell {
             cardTrailingConstraint,
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
-            // BadgeCheck — absolute top-left (mirrors top-4 left-4 = 16px, size 1.2rem ≈ 19px)
-            badgeCheckView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
-            badgeCheckView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+            // BadgeCheck — absolute top-left (mobile: top-4 left-4 = 16px, iPad md: top-3 left-3 = 12px)
+            // size 1.2rem ≈ 19px. Position updated in configure() for responsive sizing.
+            badgeTopConstraint,
+            badgeLeadingConstraint,
             badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
             badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
 
@@ -1497,6 +1521,11 @@ final class TorrentResultCell: UITableViewCell {
         cardLeadingConstraint.constant = hPad
         cardTrailingConstraint.constant = -hPad
 
+        // Responsive BadgeCheck position: top-4 left-4 (16px) mobile, md:top-3 md:left-3 (12px) iPad
+        let badgeInset: CGFloat = traitCollection.horizontalSizeClass == .regular ? 12 : 16
+        badgeTopConstraint.constant = badgeInset
+        badgeLeadingConstraint.constant = badgeInset
+
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
         case "high":
@@ -1507,8 +1536,9 @@ final class TorrentResultCell: UITableViewCell {
             badgeCheckView.isHidden = false
         case "medium":
             let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
+            // Web: text-muted-foreground/20 — muted foreground (≈ white 0.65) at 20% opacity
             badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
-                .withTintColor(UIColor(white: 0.2, alpha: 1), renderingMode: .alwaysOriginal)
+                .withTintColor(UIColor(white: 0.65, alpha: 0.2), renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         default:
             badgeCheckView.isHidden = true
@@ -1658,17 +1688,18 @@ private func sinceDate(_ date: Date) -> String {
     return sharedRelativeDateFormatter.localizedString(for: date, relativeTo: Date())
 }
 
-// MARK: - UIColor luminance helper (WCAG relative luminance for text contrast)
+// MARK: - UIColor luminance helper (mirrors web text-contrast-filter)
 
 private extension UIColor {
     /// True when the colour is light enough that dark text is more readable.
+    /// Mirrors web `.text-contrast-filter` which uses CSS `filter: invert(1) grayscale(1)
+    /// brightness(1.2) contrast(9000)` — equivalent to the Rec.601 perceived-brightness
+    /// formula: (R*299 + G*587 + B*114) / 1000, threshold 128 (i.e. 0.502 in 0–1).
     var isLight: Bool {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         getRed(&r, green: &g, blue: &b, alpha: &a)
-        // Linearise sRGB components
-        func lin(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
-        let L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-        return L > 0.35
+        let brightness = r * 0.299 + g * 0.587 + b * 0.114
+        return brightness > 0.502
     }
 }
 
