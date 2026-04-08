@@ -483,7 +483,40 @@ final class ExtensionService {
             throw ExtensionError.callFailed(msgs)
         }
 
-        return dedupe(all)
+        let deduped = dedupe(all)
+
+        // Mirrors web: `navigator.onLine ? await this.updatePeerCounts(deduped) : deduped`
+        // Scrape live tracker peer counts to get accurate seeders/leechers/downloads.
+        return await updatePeerCounts(deduped)
+    }
+
+    // MARK: - Update peer counts (mirrors web extensions.updatePeerCounts)
+
+    /// Scrape UDP trackers for live peer counts and overwrite extension-reported values.
+    /// Mirrors web's `updatePeerCounts()` in extensions.ts:
+    ///   for (const { hash, complete, downloaded, incomplete } of updated) {
+    ///     found.downloads = Number(downloaded)
+    ///     found.leechers = Number(incomplete)
+    ///     found.seeders = Number(complete)
+    ///   }
+    private func updatePeerCounts(_ entries: [TorrentResult]) async -> [TorrentResult] {
+        guard !entries.isEmpty else { return entries }
+
+        let hashes = entries.map(\.hash)
+        let magnetLinks = entries.map(\.link)
+
+        let scraped = await TrackerScrapeService.scrape(hashes: hashes, magnetLinks: magnetLinks)
+
+        guard !scraped.isEmpty else { return entries }
+
+        var updated = entries
+        for scrapeResult in scraped {
+            guard let idx = updated.firstIndex(where: { $0.hash == scrapeResult.hash }) else { continue }
+            updated[idx].seeders   = scrapeResult.complete
+            updated[idx].leechers  = scrapeResult.incomplete
+            updated[idx].downloads = scrapeResult.downloaded
+        }
+        return updated
     }
 
     // MARK: - Dedupe (mirrors Extensions.dedupe)
