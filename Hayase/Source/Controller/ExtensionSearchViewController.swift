@@ -257,7 +257,7 @@ final class ExtensionSearchViewController: UIViewController {
         // height 0 when Auto Layout can't resolve the circular dependency.
         // Fix: TWO separate views, each with an explicit heightAnchor constant.
         //   bannerView  → 160pt (always visible, never 0)
-        //   controlsView → 208pt (32+28+16+38+10+34+10+40)
+        //   controlsView → 220pt (32+28+16+38+16+34+16+40)
         // tableView.top = controlsView.bottom → always correct.
         // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -357,8 +357,8 @@ final class ExtensionSearchViewController: UIViewController {
             ])
         }
 
-        // ── 2. CONTROLS VIEW — EXPLICIT height 208pt, pinned to bannerView.bottom ───
-        // height = 32 (top, web pt-8) + 28 (title) + 16 (gap) + 38 (filter) + 10 + 34 (row) + 10 + 40 (button) + 0 (bottom) = 208
+        // ── 2. CONTROLS VIEW — EXPLICIT height 220pt, pinned to bannerView.bottom ───
+        // height = 32 (top, web pt-8) + 28 (title) + 16 (space-y-4) + 38 (filter) + 16 (space-y-4) + 34 (row) + 16 (space-y-4) + 40 (button) + 0 (bottom) = 220
         // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
@@ -490,7 +490,7 @@ final class ExtensionSearchViewController: UIViewController {
             controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 208),
+            controlsView.heightAnchor.constraint(equalToConstant: 220),
 
             // Anime title (web: text-2xl font-bold, first child of pt-8 + space-y-4 container)
             titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 32),
@@ -502,7 +502,7 @@ final class ExtensionSearchViewController: UIViewController {
             filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             filterField.heightAnchor.constraint(equalToConstant: 38),
 
-            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 10),
+            controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
             controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             controlsRow.heightAnchor.constraint(equalToConstant: 34),
@@ -510,7 +510,7 @@ final class ExtensionSearchViewController: UIViewController {
             episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
             episodeField.heightAnchor.constraint(equalToConstant: 34),
 
-            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 10),
+            autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
             autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: 16),
             autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -16),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 40),
