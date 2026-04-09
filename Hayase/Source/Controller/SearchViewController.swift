@@ -145,7 +145,7 @@ class SearchViewController: UIViewController {
     private static let mutedFg      = UIColor(red: 0.631, green: 0.631, blue: 0.667, alpha: 1)
     private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
     private static let chipBg       = UIColor(red: 0.98,  green: 0.98,  blue: 0.98,  alpha: 1)
-    private static let chipFg       = UIColor(red: 0.059, green: 0.059, blue: 0.078, alpha: 1)
+    private static let chipFg       = UIColor(red: 24/255.0, green: 24/255.0, blue: 27/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
 
     // MARK: - Filter state
     // Hayase: genres / formats / status multi-select; year / season / sort single-select
@@ -365,7 +365,7 @@ class SearchViewController: UIViewController {
     private func setupHeaderView() {
         headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = Self.bgBackground
+        headerView.backgroundColor = Self.bgBlack  // web: sticky header is bg-black
         view.addSubview(headerView)
         // Pin to view.topAnchor (not safeArea) so bg fills behind the status bar,
         // matching the collection view background color for a seamless appearance.
@@ -533,7 +533,9 @@ class SearchViewController: UIViewController {
         picker.backgroundColor = Self.bgBackground
         picker.layer.cornerRadius = 8; picker.layer.masksToBounds = true
         picker.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        picker.setTitleColor(.white, for: .normal)
+        // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
+        let isPlaceholder = pickerTitle(for: type) == "Any" || pickerTitle(for: type) == "Accuracy"
+        picker.setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
         picker.titleLabel?.font = .nunito(ofSize: 14)
         picker.titleLabel?.lineBreakMode = .byTruncatingTail
         picker.contentHorizontalAlignment = .left
@@ -739,7 +741,11 @@ class SearchViewController: UIViewController {
         let panelTypes = FilterType.allCases.filter { $0 != .trace }
         for (i, type) in panelTypes.enumerated() {
             guard i < filterPickerButtons.count else { continue }
-            filterPickerButtons[i].setTitle(pickerTitle(for: type), for: .normal)
+            let title = pickerTitle(for: type)
+            filterPickerButtons[i].setTitle(title, for: .normal)
+            // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
+            let isPlaceholder = title == "Any" || title == "Accuracy"
+            filterPickerButtons[i].setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
         }
     }
 
@@ -782,11 +788,11 @@ class SearchViewController: UIViewController {
     private func makeActiveChip(label: String, type: FilterType, apiValue: String) -> UIView {
         let container = UIView()
         container.backgroundColor = Self.chipBg
-        container.layer.cornerRadius = 12; container.layer.masksToBounds = true
+        container.layer.cornerRadius = 6; container.layer.masksToBounds = true  // rounded-md = 0.375rem ≈ 6pt
 
         let titleLabel = UILabel()
         titleLabel.text = label
-        titleLabel.font = .nunito(ofSize: 11, weight: .medium)
+        titleLabel.font = .nunito(ofSize: 12, weight: .semibold)  // text-xs font-semibold
         titleLabel.textColor = Self.chipFg
 
         let xButton = UIButton(type: .system)

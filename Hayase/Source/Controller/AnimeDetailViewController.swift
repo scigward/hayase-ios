@@ -2226,35 +2226,47 @@ private final class AnimeInfoHeaderView: UIView {
         badgesStack.addArrangedSubview(makeBadge(text: badge1Text, accent: accent, contrast: contrastColor))
 
         // Badge 2: format(media) — web FORMAT_MAP
-        if let fmt = format {
+        // Web always shows this badge, returning 'N/A' when format is null.
+        do {
             let display: String
-            switch fmt {
-            case "TV":       display = "TV Series"
-            case "TV_SHORT": display = "TV Short"
-            case "MOVIE":    display = "Movie"
-            case "SPECIAL":  display = "Special"
-            case "OVA":      display = "OVA"
-            case "ONA":      display = "ONA"
-            case "MUSIC":    display = "Music"
-            default:         display = fmt.replacingOccurrences(of: "_", with: " ").capitalized
+            if let fmt = format {
+                switch fmt {
+                case "TV":       display = "TV Series"
+                case "TV_SHORT": display = "TV Short"
+                case "MOVIE":    display = "Movie"
+                case "SPECIAL":  display = "Special"
+                case "OVA":      display = "OVA"
+                case "ONA":      display = "ONA"
+                case "MUSIC":    display = "Music"
+                default:         display = fmt.replacingOccurrences(of: "_", with: " ").capitalized
+                }
+            } else {
+                display = "N/A"
             }
             badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
-                                                        filterType: "format", filterValue: fmt))
+                                                         filterType: format != nil ? "format" : nil,
+                                                         filterValue: format))
         }
 
         // Badge 3: status(media) — tappable — web STATUS_MAP
-        if let st = status {
+        // Web always shows this badge, returning 'N/A' when status is null.
+        do {
             let display: String
-            switch st {
-            case "RELEASING":        display = "Releasing"
-            case "NOT_YET_RELEASED": display = "Not Yet Released"
-            case "FINISHED":         display = "Finished"
-            case "CANCELLED":        display = "Cancelled"
-            case "HIATUS":           display = "Hiatus"
-            default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
+            if let st = status {
+                switch st {
+                case "RELEASING":        display = "Releasing"
+                case "NOT_YET_RELEASED": display = "Not Yet Released"
+                case "FINISHED":         display = "Finished"
+                case "CANCELLED":        display = "Cancelled"
+                case "HIATUS":           display = "Hiatus"
+                default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
+                }
+            } else {
+                display = "N/A"
             }
             badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
-                                                      filterType: "status", filterValue: st))
+                                                      filterType: status != nil ? "status" : nil,
+                                                      filterValue: status))
         }
 
         // Badge 4: season(media) — web: "Spring 2024" (CSS capitalize on lowercase season + year)
@@ -2294,10 +2306,13 @@ private final class AnimeInfoHeaderView: UIView {
                             contrast: UIColor = UIColor(white: 0.07, alpha: 1),
                             filterType: String? = nil,
                             filterValue: String? = nil) -> UIView {
-        let isRegular = traitCollection.horizontalSizeClass == .regular
+        // Badges are only visible on iPad (regular) — hidden md:flex — so always use the
+        // desktop font size (text-base = 16pt). Using traitCollection here is unreliable because
+        // badges may be built before the view enters the window hierarchy, when
+        // horizontalSizeClass can still be .unspecified.
         let l = PaddedLabel()
         l.text = text
-        l.font = .nunito(ofSize: isRegular ? 16 : 12, weight: .bold)  // text-base on desktop
+        l.font = .nunito(ofSize: 16, weight: .bold)  // text-base (16pt) — desktop only
         l.textColor = contrast
         l.backgroundColor = accent
         // px-3.5 = 14pt horizontal padding. Tailwind `rounded` = 0.25rem = 4pt
@@ -2308,8 +2323,8 @@ private final class AnimeInfoHeaderView: UIView {
         l.setContentHuggingPriority(.required, for: .horizontal)
         l.setContentCompressionResistancePriority(.required, for: .horizontal)
         // h-6 (24pt)
-        l.heightAnchor.constraint(equalToConstant: 24).isActive = true
         l.translatesAutoresizingMaskIntoConstraints = false
+        l.heightAnchor.constraint(equalToConstant: 24).isActive = true
         // Make tappable if filter info provided
         if let filterType = filterType, let filterValue = filterValue {
             l.isUserInteractionEnabled = true
