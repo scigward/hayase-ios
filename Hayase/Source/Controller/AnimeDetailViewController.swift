@@ -2996,7 +2996,7 @@ class AnimeDetailViewController: UIViewController {
         editorVC.currentEntry = currentEntry
         editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
         editorVC.coverURL = animeItem?.coverURL
-        editorVC.bannerURL = headerView?.displayedBannerURL ?? animeItem?.bannerURL
+        editorVC.bannerURL = animeItem?.bannerURL
 
         editorVC.onSave = { [weak self] in
             self?.fetchAniListProgress()
