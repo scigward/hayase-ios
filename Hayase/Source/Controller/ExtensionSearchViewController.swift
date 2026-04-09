@@ -262,7 +262,7 @@ final class ExtensionSearchViewController: UIViewController {
         // ── 1. BANNER VIEW — fixed 144pt (max-h-36), sticks at top ──────────────────────────────
         let bannerView = UIView()
         bannerView.clipsToBounds = true
-        bannerView.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        bannerView.backgroundColor = .black
         bannerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bannerView)
 
@@ -284,10 +284,13 @@ final class ExtensionSearchViewController: UIViewController {
         // Anime title — shown via the titleLabel in controlsView (not navigation bar)
         // Sits on the dark gradient zone → always readable. One line, truncated.
 
-        // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
-        // fall back to AniList banner. Single image load = no visible flicker/swap.
-        let bannerFallback = animeItem?.bannerURL ?? animeItem?.coverURL
-        if let anilistID = animeItem?.id {
+        // Banner image source — mirrors web Banner component's breakpoint behavior:
+        //   md (iPad regular): ani.zip Fanart → Poster → AniList banner → cover
+        //   mobile (iPhone compact): cover(media) = coverImage (no fanart fetch)
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        if isRegular, let anilistID = animeItem?.id {
+            // iPad — fetch ani.zip Fanart/Poster, fall back to AniList banner → cover
+            let bannerFallback = animeItem?.bannerURL ?? animeItem?.coverURL
             AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
                 let urlStr = fanartURL ?? bannerFallback
                 guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -302,12 +305,21 @@ final class ExtensionSearchViewController: UIViewController {
                     }
                 }.resume()
             }
-        } else if let urlStr = bannerFallback, let url = URL(string: urlStr) {
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                if let data, let img = UIImage(data: data) {
-                    DispatchQueue.main.async { self?.bannerImageView.image = img }
+        } else {
+            // iPhone — use cover image directly (matches web: cover(media) on non-md)
+            let urlStr = animeItem?.coverURL ?? animeItem?.bannerURL
+            if let urlStr, let url = URL(string: urlStr) {
+                if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                    bannerImageView.image = cached
+                } else {
+                    URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                        if let data, let img = UIImage(data: data) {
+                            SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
+                            DispatchQueue.main.async { self?.bannerImageView.image = img }
+                        }
+                    }.resume()
                 }
-            }.resume()
+            }
         }
 
         NSLayoutConstraint.activate([
