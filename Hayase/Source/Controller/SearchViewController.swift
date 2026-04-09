@@ -145,7 +145,7 @@ class SearchViewController: UIViewController {
     private static let mutedFg      = UIColor(red: 0.631, green: 0.631, blue: 0.667, alpha: 1)
     private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
     private static let chipBg       = UIColor(red: 0.98,  green: 0.98,  blue: 0.98,  alpha: 1)
-    private static let chipFg       = UIColor(red: 24/255.0, green: 24/255.0, blue: 27/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
+    private static let chipFg       = UIColor(red: 24.0/255.0, green: 24.0/255.0, blue: 27.0/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
 
     // MARK: - Filter state
     // Hayase: genres / formats / status multi-select; year / season / sort single-select
