@@ -2298,8 +2298,10 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     /// Badge pill matching web +layout.svelte:
-    /// `rounded px-3.5 font-bold bg-custom text-contrast h-6 py-0 text-base`
-    /// Uses PaddedLabel for proper px-3.5 (14pt) horizontal padding.
+    /// `rounded px-3.5 font-bold bg-custom select:!bg-custom-600 text-contrast h-6 py-0 text-base`
+    /// Tappable badges use BadgeButton (UIButton subclass) for press feedback:
+    /// on press, bg darkens to `bg-custom-600` (matching web select:!bg-custom-600).
+    /// Non-tappable badges (first badge) use PaddedLabel (no interaction).
     /// Height constrained to h-6 (24pt).
     private func makeBadge(text: String,
                             accent: UIColor = .white,
@@ -2310,40 +2312,68 @@ private final class AnimeInfoHeaderView: UIView {
         // desktop font size (text-base = 16pt). Using traitCollection here is unreliable because
         // badges may be built before the view enters the window hierarchy, when
         // horizontalSizeClass can still be .unspecified.
-        let l = PaddedLabel()
-        l.text = text
-        l.font = .nunito(ofSize: 16, weight: .bold)  // text-base (16pt) — desktop only
-        l.textColor = contrast
-        l.backgroundColor = accent
-        // px-3.5 = 14pt horizontal padding. Tailwind `rounded` = 0.25rem = 4pt
-        l.contentInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
-        l.layer.cornerRadius = 4   // rounded = 0.25rem
-        l.clipsToBounds = true
-        l.textAlignment = .center
-        l.setContentHuggingPriority(.required, for: .horizontal)
-        l.setContentCompressionResistancePriority(.required, for: .horizontal)
-        // h-6 (24pt)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        // Make tappable if filter info provided
         if let filterType = filterType, let filterValue = filterValue {
-            l.isUserInteractionEnabled = true
-            let tap = DetailBadgeTapGesture(target: self, action: #selector(detailBadgeTapped(_:)))
-            tap.filterType = filterType
-            tap.filterValue = filterValue
-            l.addGestureRecognizer(tap)
+            // Tappable badge: use BadgeButton for press highlight (select:!bg-custom-600)
+            let btn = BadgeButton(type: .custom)
+            btn.setTitle(text, for: .normal)
+            btn.titleLabel?.font = .nunito(ofSize: 16, weight: .bold)  // text-base font-bold
+            btn.setTitleColor(contrast, for: .normal)
+            btn.normalBgColor = accent
+            // bg-custom-600: darken the accent color by reducing brightness ~25%
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            accent.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            btn.highlightedBgColor = UIColor(hue: h, saturation: min(s * 1.1, 1), brightness: max(b * 0.75, 0), alpha: a)
+            btn.backgroundColor = accent
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)  // px-3.5
+            btn.layer.cornerRadius = 4   // rounded = 0.25rem
+            btn.clipsToBounds = true
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            btn.heightAnchor.constraint(equalToConstant: 24).isActive = true  // h-6
+            btn.setContentHuggingPriority(.required, for: .horizontal)
+            btn.setContentCompressionResistancePriority(.required, for: .horizontal)
+            btn.filterType = filterType
+            btn.filterValue = filterValue
+            btn.addTarget(self, action: #selector(detailBadgeTapped(_:)), for: .touchUpInside)
+            return btn
+        } else {
+            // Non-tappable badge (e.g. episode count / duration): plain label, no interaction
+            let l = PaddedLabel()
+            l.text = text
+            l.font = .nunito(ofSize: 16, weight: .bold)
+            l.textColor = contrast
+            l.backgroundColor = accent
+            l.contentInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+            l.layer.cornerRadius = 4
+            l.clipsToBounds = true
+            l.textAlignment = .center
+            l.setContentHuggingPriority(.required, for: .horizontal)
+            l.setContentCompressionResistancePriority(.required, for: .horizontal)
+            l.translatesAutoresizingMaskIntoConstraints = false
+            l.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            return l
         }
-        return l
     }
 
-    /// Custom UITapGestureRecognizer for detail badge navigation.
-    private class DetailBadgeTapGesture: UITapGestureRecognizer {
+    /// UIButton subclass for info badge pills with press highlight feedback.
+    /// On press: bg darkens to highlightedBgColor (matching web select:!bg-custom-600).
+    /// On release: bg restores to normalBgColor.
+    private class BadgeButton: UIButton {
+        var normalBgColor: UIColor = .white
+        var highlightedBgColor: UIColor = .gray
         var filterType: String = ""
         var filterValue: String = ""
+
+        override var isHighlighted: Bool {
+            didSet {
+                UIView.animate(withDuration: 0.15) {
+                    self.backgroundColor = self.isHighlighted ? self.highlightedBgColor : self.normalBgColor
+                }
+            }
+        }
     }
 
-    @objc private func detailBadgeTapped(_ gesture: DetailBadgeTapGesture) {
-        onBadgeTapped?(gesture.filterType, gesture.filterValue)
+    @objc private func detailBadgeTapped(_ sender: BadgeButton) {
+        onBadgeTapped?(sender.filterType, sender.filterValue)
     }
 
     // Populate both genresStack (compact scroll) and chipWrapView (regular wrap).
@@ -2351,10 +2381,11 @@ private final class AnimeInfoHeaderView: UIView {
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         // chipWrapView uses frame-based layout — give it plain UIButtons without AL constraints
         let wrapChips: [UIView] = genres.map { genre in
-            let btn = UIButton(type: .system)
+            let btn = UIButton(type: .custom)
             btn.setTitle(genre, for: .normal)
             btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
             btn.setTitleColor(.white, for: .normal)
+            btn.setTitleColor(storedAccentColor, for: .highlighted)  // select:!text-custom
             btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
             btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
             btn.layer.cornerRadius = 6
@@ -2395,12 +2426,14 @@ private final class AnimeInfoHeaderView: UIView {
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
     /// bg-secondary (#27272a), text-secondary-foreground (white), px-4 (16pt) — matches interface
+    /// On press: text becomes accent color (select:!text-custom)
     /// Tappable: navigates to search with genre filter matching web on:click
     private func makeGenreChip(text: String) -> UIView {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .custom)
         btn.setTitle(text, for: .normal)
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         btn.setTitleColor(.white, for: .normal)
+        btn.setTitleColor(storedAccentColor, for: .highlighted)  // select:!text-custom
         btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6  // rounded-md
