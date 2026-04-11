@@ -2756,27 +2756,39 @@ class AnimeDetailViewController: UIViewController {
     /// Navigate to Search tab with a genre filter.
     /// Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
     private func navigateToSearchTab(genre: String) {
-        guard let controllers = tabBarController?.viewControllers,
+        // Capture both references before any navigation — popToRootViewController removes self
+        // from the nav stack, setting self.navigationController = nil, which makes
+        // self.tabBarController return nil afterward.
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
               controllers.count > 1,
               let navController = controllers[1] as? UINavigationController,
               let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tabBarController?.selectedIndex = 1
+            tbc?.selectedIndex = 1
             return
         }
+        let nav = navigationController
         searchVC.prefillSearchExtended(genre: genre)
-        navigationController?.popToRootViewController(animated: false)
-        tabBarController?.selectedIndex = 1
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
     }
 
     /// Navigate to Search tab with a badge filter (format, status, season, score).
     private func navigateToSearchTab(filterType: String, value: String) {
-        guard let controllers = tabBarController?.viewControllers,
+        // Capture both references before any navigation — popToRootViewController removes self
+        // from the nav stack, setting self.navigationController = nil, which makes
+        // self.tabBarController return nil afterward.
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
               controllers.count > 1,
               let navController = controllers[1] as? UINavigationController,
               let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tabBarController?.selectedIndex = 1
+            tbc?.selectedIndex = 1
             return
         }
+        let nav = navigationController
         switch filterType {
         case "format":
             searchVC.prefillSearchExtended(format: value)
@@ -2795,8 +2807,8 @@ class AnimeDetailViewController: UIViewController {
         default:
             break
         }
-        navigationController?.popToRootViewController(animated: false)
-        tabBarController?.selectedIndex = 1
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
     }
 
     // MARK: - Lifecycle
