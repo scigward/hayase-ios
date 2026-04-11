@@ -139,7 +139,7 @@ private final class EpisodeCardView: UIView {
     private let metaLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0)
+        l.textColor = .white  // web: inherits text-secondary-foreground (white), same as episode title
         return l
     }()
 
