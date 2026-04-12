@@ -6,40 +6,6 @@
 import UIKit
 import WebKit
 
-// MARK: - AnimeThemeEntry
-
-struct AnimeThemeEntry {
-    let version: Int
-    let episodes: String
-    let videoURL: String?
-}
-
-// MARK: - AnimeTheme
-
-struct AnimeTheme {
-    let type: String
-    let songTitle: String
-    let artists: String
-    let entries: [AnimeThemeEntry]
-
-    init?(dict: [String: Any]) {
-        guard let slug = dict["slug"] as? String else { return nil }
-        self.type = slug.uppercased()
-        let song = dict["song"] as? [String: Any]
-        self.songTitle = song?["title"] as? String ?? "Unknown"
-        let artistArr = song?["artists"] as? [[String: Any]] ?? []
-        self.artists = artistArr.compactMap { $0["name"] as? String }.joined(separator: ", ")
-        let rawEntries = dict["animethemeentries"] as? [[String: Any]] ?? []
-        self.entries = rawEntries.compactMap { e -> AnimeThemeEntry? in
-            let ver = e["version"] as? Int ?? 1
-            let eps = e["episodes"] as? String ?? ""
-            let videos = e["videos"] as? [[String: Any]] ?? []
-            let link = videos.last?["link"] as? String
-            return AnimeThemeEntry(version: ver, episodes: eps, videoURL: link)
-        }
-    }
-}
-
 var themeURLKey = "themeURL"
 
 // MARK: - ThemePlayerViewController

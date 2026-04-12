@@ -5,49 +5,6 @@
 
 import UIKit
 
-// MARK: - AniListThread
-
-struct AniListThread {
-    let id: Int
-    let title: String
-    let viewCount: Int
-    let replyCount: Int
-    let likeCount: Int
-    let isLocked: Bool
-    let createdAt: TimeInterval
-    let userName: String?
-    let avatarURL: String?
-    let categories: [String]
-
-    init?(dict: [String: Any]) {
-        guard let id = dict["id"] as? Int else { return nil }
-        self.id = id
-        self.title = dict["title"] as? String ?? "Thread \(id)"
-        self.viewCount = dict["viewCount"] as? Int ?? 0
-        self.replyCount = dict["replyCount"] as? Int ?? 0
-        self.likeCount = dict["likeCount"] as? Int ?? 0
-        self.isLocked = dict["isLocked"] as? Bool ?? false
-        self.createdAt = dict["createdAt"] as? TimeInterval ?? 0
-        let user = dict["user"] as? [String: Any]
-        self.userName = user?["name"] as? String
-        let avatar = user?["avatar"] as? [String: Any]
-        self.avatarURL = avatar?["large"] as? String
-        let cats = dict["categories"] as? [[String: Any]] ?? []
-        self.categories = cats.compactMap { $0["name"] as? String }.filter { $0 != "Anime" }
-    }
-
-    var sinceString: String {
-        let diff = Date().timeIntervalSince1970 - createdAt
-        switch diff {
-        case ..<60:        return "just now"
-        case ..<3600:      return "\(Int(diff/60))m ago"
-        case ..<86400:     return "\(Int(diff/3600))h ago"
-        case ..<2592000:   return "\(Int(diff/86400))d ago"
-        default:           return "\(Int(diff/2592000))mo ago"
-        }
-    }
-}
-
 // MARK: - ThreadBadgeLabel
 
 final class ThreadBadgeLabel: UILabel {

@@ -26,7 +26,6 @@ class AnimeDetailViewController: UIViewController {
     private var staff: [AnimeStaffMember] = []
     private var scoreDistribution: [AnimeScorePoint] = []
     private var statusDistribution: [AnimeStatusCount] = []
-    private var episodeFetchTask: URLSessionDataTask?
 
     private let episodesPerPage = 16
     private var currentEpisodePage: Int = 1
@@ -48,7 +47,7 @@ class AnimeDetailViewController: UIViewController {
     }()
 
     private var threads: [AniListThread] = []
-    private var themes: [AnimeTheme] = []
+    private var themes: [AnimeThemesTheme] = []
     private var threadsLoading = false
     private var themesLoading = false
 
@@ -397,7 +396,7 @@ class AnimeDetailViewController: UIViewController {
         present(editorVC, animated: true)
     }
 
-    // MARK: - Fetch episodes (ani.zip)
+    // MARK: - Fetch episodes (AniZipService)
 
     private func isMovie(format: String?, titles: [String], synonyms: [String], duration: Int?, episodes: Int?) -> Bool {
         if format == "MOVIE" { return true }
@@ -496,16 +495,10 @@ class AnimeDetailViewController: UIViewController {
 
         let format = animeItem?.format
 
-        guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(id)") else { return }
+        AniZipService.shared.episodes(anilistID: id) { [weak self] response in
+            guard let self = self, let response = response else { return }
 
-        episodeFetchTask?.cancel()
-        episodeFetchTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self = self,
-                  let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-
-            let mappings = json["mappings"] as? [String: Any]
-            let hasAnidbId = (mappings?["anidb_id"] as? NSNumber)?.intValue != nil
+            let hasAnidbId = response.mappings?.anidb_id != nil
 
             if !hasAnidbId, let fmt = format, ["SPECIAL", "OVA", "ONA"].contains(fmt) {
                 self.resolveParentID(format: fmt) { [weak self] parentID in
@@ -535,23 +528,22 @@ class AnimeDetailViewController: UIViewController {
                                 }
                             }
 
-                            self.fetchAniZipEpisodeJSON(anilistID: parentID) { [weak self] parentJSON in
+                            AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
                                 guard let self = self else { return }
-                                let finalJSON = parentJSON ?? json
-                                self.processEpisodeJSON(finalJSON, anilistEpisodes: anilistEpisodes,
-                                                        anilistId: id, alSchedule: alSchedule)
+                                let finalResponse = parentResponse ?? response
+                                self.processEpisodeResponse(finalResponse, anilistEpisodes: anilistEpisodes,
+                                                            anilistId: id, alSchedule: alSchedule)
                             }
                         }
                     } else {
-                        self.processEpisodeJSON(json, anilistEpisodes: anilistEpisodes, anilistId: id)
+                        self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
                     }
                 }
                 return
             }
 
-            self.processEpisodeJSON(json, anilistEpisodes: anilistEpisodes, anilistId: id)
+            self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
         }
-        episodeFetchTask?.resume()
     }
 
     private func resolveParentID(format: String, completion: @escaping (Int?) -> Void) {
@@ -577,33 +569,17 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
-    private func fetchAniZipEpisodeJSON(anilistID: Int, completion: @escaping ([String: Any]?) -> Void) {
-        guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(anilistID)") else {
-            completion(nil)
-            return
-        }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                completion(nil)
-                return
-            }
-            completion(json)
-        }.resume()
-    }
-
-    private func processEpisodeJSON(_ json: [String: Any], anilistEpisodes: Int?, anilistId: Int,
-                                    alSchedule: [Int: Date]? = nil) {
-        let episodesDict = json["episodes"] as? [String: Any] ?? [:]
-        let episodesResCount = (json["episodeCount"] as? NSNumber)?.intValue
-        let specialCount = (json["specialCount"] as? NSNumber)?.intValue ?? 0
+    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
+                                        alSchedule: [Int: Date]? = nil) {
+        let episodesDict = response.episodes ?? [:]
+        let episodesResCount = response.episodeCount
+        let specialCount = response.specialCount ?? 0
 
         let count = anilistEpisodes ?? episodesResCount ?? 0
 
         var filtered: [String: FilteredEpisode] = [:]
-        for (key, val) in episodesDict {
-            guard let info = val as? [String: Any] else { continue }
-            let airdate = info["airdate"] as? String
+        for (key, entry) in episodesDict {
+            let airdate = entry.airdate ?? entry.airDate
             var airdatems: Double? = nil
             if let airdate = airdate {
                 if let d = ISO8601DateFormatter().date(from: airdate) {
@@ -617,8 +593,7 @@ class AnimeDetailViewController: UIViewController {
                     }
                 }
             }
-            let anidbEid = (info["anidbEid"] as? NSNumber)?.intValue
-            filtered[key] = FilteredEpisode(key: key, info: info, airdatems: airdatems, anidbEid: anidbEid)
+            filtered[key] = FilteredEpisode(key: key, entry: entry, airdatems: airdatems, anidbEid: entry.anidbEid)
         }
 
         let hasSpecial = specialCount > 0
@@ -627,9 +602,9 @@ class AnimeDetailViewController: UIViewController {
         let now = Date().timeIntervalSince1970 * 1000
 
         var anizipBannerURL: String? = nil
-        if let imagesArray = json["images"] as? [[String: Any]] {
-            let fanart = imagesArray.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
-            let poster  = imagesArray.first(where: { ($0["coverType"] as? String) == "Poster"  })?["url"] as? String
+        if let images = response.images {
+            let fanart = images.first(where: { $0.coverType == "Fanart" })?.url
+            let poster = images.first(where: { $0.coverType == "Poster" })?.url
             anizipBannerURL = fanart ?? poster
         }
 
@@ -674,13 +649,13 @@ class AnimeDetailViewController: UIViewController {
                 resolvedEntry = filtered["\(episode)"]
             }
 
-            let info = resolvedEntry?.info ?? [:]
-            let titles = info["title"] as? [String: String] ?? [:]
+            let entry = resolvedEntry?.entry
+            let titles = entry?.title ?? [:]
             let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
-            let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
+            let overview = (entry?.overview ?? entry?.summary ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let imageURL = info["image"] as? String
-            let airDateRaw = info["airdate"] as? String ?? info["airDate"] as? String
+            let imageURL = entry?.image
+            let airDateRaw = entry?.airdate ?? entry?.airDate
             let airDate: Date? = airDateRaw.flatMap { raw in
                 if let d = ISO8601DateFormatter().date(from: raw) { return d }
                 let fmt = DateFormatter()
@@ -688,10 +663,8 @@ class AnimeDetailViewController: UIViewController {
                 fmt.locale = Locale(identifier: "en_US_POSIX")
                 return fmt.date(from: raw)
             }
-            let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
-            let ratingRaw = info["rating"]
-            let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
-                ?? (ratingRaw as? String).flatMap(Double.init)
+            let runtime = entry?.length ?? entry?.runtime ?? 0
+            let rating: Double? = entry?.rating.flatMap(Double.init)
 
             parsed.append(AniZipEpisode(
                 number: episode,
@@ -816,70 +789,41 @@ class AnimeDetailViewController: UIViewController {
         tableView.reloadSections(sectionsToReload, with: .automatic)
     }
 
-    // MARK: - Threads (AniList forum)
+    // MARK: - Threads (AnimeService)
 
     private func fetchThreads() {
         guard let id = animeItem?.id else { return }
         threadsLoading = true
         tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
 
-        let query = """
-        query($id:Int){Page(perPage:20){threads(mediaCategoryId:$id,sort:CREATED_AT_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
-        """
-        let body: [String: Any] = ["query": query, "variables": ["id": id]]
-        guard let data = try? JSONSerialization.data(withJSONObject: body),
-              let url = URL(string: "https://graphql.anilist.co") else { return }
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = data
-        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-            guard let self, let data else { return }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
-               let rawThreads = page["threads"] as? [[String: Any]] {
-                let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
-                DispatchQueue.main.async {
-                    self.threads = parsed
-                    self.threadsLoading = false
-                    if self.activeSection == .threads {
-                        self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)
-                    }
-                }
-            } else {
-                DispatchQueue.main.async { self.threadsLoading = false }
+        AnimeService.sharedAnimeService.fetchForumThreads(mediaID: id) { [weak self] parsed in
+            guard let self else { return }
+            self.threads = parsed
+            self.threadsLoading = false
+            if self.activeSection == .threads {
+                self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)
             }
-        }.resume()
+        }
     }
 
-    // MARK: - Themes (animethemes.moe)
+    // MARK: - Themes (AnimeThemesService)
 
     private func fetchThemes() {
         guard let id = animeItem?.id else { return }
         themesLoading = true
         tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .none)
 
-        var comps = URLComponents(string: "https://api.animethemes.moe/anime/")!
-        comps.percentEncodedQuery = "fields%5Baudio%5D=id,basename,link,size&fields%5Bvideo%5D=id,basename,link,tags&filter%5Bexternal_id%5D=\(id)&filter%5Bhas%5D=resources&filter%5Bsite%5D=AniList&include=animethemes.animethemeentries.videos,animethemes.song,animethemes.song.artists"
-        guard let url = comps.url else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data else { return }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let animes = json["anime"] as? [[String: Any]],
-               let first = animes.first,
-               let rawThemes = first["animethemes"] as? [[String: Any]] {
-                let parsed = rawThemes.compactMap { AnimeTheme(dict: $0) }
-                DispatchQueue.main.async {
-                    self.themes = parsed
-                    self.themesLoading = false
-                    if self.activeSection == .themes {
-                        self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
-                    }
+        AnimeThemesService.shared.themes(anilistID: id) { [weak self] response in
+            guard let self else { return }
+            let parsed = response?.anime?.first?.animethemes ?? []
+            DispatchQueue.main.async {
+                self.themes = parsed
+                self.themesLoading = false
+                if self.activeSection == .themes {
+                    self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
                 }
-            } else {
-                DispatchQueue.main.async { self.themesLoading = false }
             }
-        }.resume()
+        }
     }
 
     // MARK: - Navigation
@@ -1319,24 +1263,25 @@ extension AnimeDetailViewController {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
         let typeLabel = UILabel()
-        typeLabel.text = theme.type
+        typeLabel.text = theme.slug?.uppercased() ?? theme.type?.uppercased() ?? ""
         typeLabel.font = .nunito(ofSize: 12, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
 
-        let songLabel = UILabel()
         let songTitle = NSMutableAttributedString(
-            string: theme.songTitle,
+            string: theme.song?.title ?? "Unknown",
             attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white])
-        if !theme.artists.isEmpty {
+        let artistNames = theme.song?.artists?.compactMap { $0.name }.joined(separator: ", ") ?? ""
+        if !artistNames.isEmpty {
             songTitle.append(NSAttributedString(
                 string: " by ",
                 attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
             songTitle.append(NSAttributedString(
-                string: theme.artists,
+                string: artistNames,
                 attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))
         }
+        let songLabel = UILabel()
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
         songLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1355,19 +1300,20 @@ extension AnimeDetailViewController {
 
         let accentColor = currentAnimeAccent
 
-        for entry in theme.entries {
+        for entry in (theme.animethemeentries ?? []) {
             let row = UIView()
             row.translatesAutoresizingMaskIntoConstraints = false
 
             let verLabel = UILabel()
-            verLabel.text = "v\(entry.version)"
+            verLabel.text = "v\(entry.version ?? 1)"
             verLabel.font = .nunito(ofSize: 12)
             verLabel.textColor = UIColor(white: 0.5, alpha: 1)
             verLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
-            epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
+            let eps = entry.episodes ?? ""
+            epLabel.text = eps.isEmpty ? "" : "Episodes \(eps)"
             epLabel.font = .nunito(ofSize: 12)
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1382,7 +1328,8 @@ extension AnimeDetailViewController {
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
-            if let urlStr = entry.videoURL {
+            let videoLink = entry.videos?.last?.link
+            if let urlStr = videoLink {
                 playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
                 objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             } else {

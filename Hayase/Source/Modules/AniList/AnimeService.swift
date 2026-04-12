@@ -77,12 +77,53 @@ struct AnimeStatusCount {
     let amount: Int
 }
 
-/// A single entry from AniList's airingSchedules — carries the actual airing episode
-/// number and precise air time alongside the media item.
 struct AiringScheduleEntry {
     let episode:  Int
     let airingAt: Date
     let media:    AnimeItem
+}
+
+// MARK: - Forum thread model
+
+struct AniListThread {
+    let id: Int
+    let title: String
+    let viewCount: Int
+    let replyCount: Int
+    let likeCount: Int
+    let isLocked: Bool
+    let createdAt: TimeInterval
+    let userName: String?
+    let avatarURL: String?
+    let categories: [String]
+
+    init?(dict: [String: Any]) {
+        guard let id = dict["id"] as? Int else { return nil }
+        self.id = id
+        self.title = dict["title"] as? String ?? "Thread \(id)"
+        self.viewCount = dict["viewCount"] as? Int ?? 0
+        self.replyCount = dict["replyCount"] as? Int ?? 0
+        self.likeCount = dict["likeCount"] as? Int ?? 0
+        self.isLocked = dict["isLocked"] as? Bool ?? false
+        self.createdAt = dict["createdAt"] as? TimeInterval ?? 0
+        let user = dict["user"] as? [String: Any]
+        self.userName = user?["name"] as? String
+        let avatar = user?["avatar"] as? [String: Any]
+        self.avatarURL = avatar?["large"] as? String
+        let cats = dict["categories"] as? [[String: Any]] ?? []
+        self.categories = cats.compactMap { $0["name"] as? String }.filter { $0 != "Anime" }
+    }
+
+    var sinceString: String {
+        let diff = Date().timeIntervalSince1970 - createdAt
+        switch diff {
+        case ..<60:        return "just now"
+        case ..<3600:      return "\(Int(diff/60))m ago"
+        case ..<86400:     return "\(Int(diff/3600))h ago"
+        case ..<2592000:   return "\(Int(diff/86400))d ago"
+        default:           return "\(Int(diff/2592000))mo ago"
+        }
+    }
 }
 
 public class AnimeService: NSObject {
@@ -1581,6 +1622,37 @@ public class AnimeService: NSObject {
 
             let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
             completion(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
+        }.resume()
+    }
+
+    // MARK: - Forum threads
+
+    func fetchForumThreads(mediaID: Int, completion: @escaping ([AniListThread]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+
+        let query = """
+        query($id:Int){Page(perPage:20){threads(mediaCategoryId:$id,sort:CREATED_AT_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
+        """
+        let body: [String: Any] = ["query": query, "variables": ["id": mediaID]]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            completion([]); return
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
+                  let rawThreads = page["threads"] as? [[String: Any]] else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
+            DispatchQueue.main.async { completion(parsed) }
         }.resume()
     }
 }
