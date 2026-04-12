@@ -823,7 +823,7 @@ extension AnimeDetailViewController {
                 self.resolveParentID(format: fmt) { [weak self] parentID in
                     guard let self = self else { return }
                     if let parentID = parentID {
-                        AnimeService.sharedAnimeService.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                        AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
                             guard let self = self else { return }
 
                             var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
@@ -878,7 +878,7 @@ extension AnimeDetailViewController {
             completion(nil)
             return
         }
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] rels in
+        AniListClient.shared.fetchDetailForItem(id: id) { [weak self] rels in
             self?.animeItem?.relations = rels
             self?.relations = rels
             let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in

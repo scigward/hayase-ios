@@ -291,7 +291,7 @@ final class ExtensionSearchViewController: UIViewController {
         if isRegular, let anilistID = animeItem?.id {
             // iPad — fetch ani.zip Fanart/Poster, fall back to AniList banner → cover
             let bannerFallback = animeItem?.bannerURL ?? animeItem?.coverURL
-            AnimeService.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
+            AniListClient.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
                 let urlStr = fanartURL ?? bannerFallback
                 guard let urlStr, let url = URL(string: urlStr) else { return }
                 if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {

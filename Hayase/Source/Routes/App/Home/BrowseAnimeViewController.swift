@@ -592,7 +592,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         let bannerFallback = item.bannerURL ?? item.coverURL
         // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
         // fall back to AniList banner. Single image load = no visible flicker/swap.
-        AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
+        AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             let urlStr = fanartURL ?? bannerFallback
             guard let urlStr, let url = URL(string: urlStr) else {
                 DispatchQueue.main.async { biv.image = nil }
@@ -635,7 +635,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         clearlogoTask?.cancel()
         clearlogoTask = nil
         let itemID = item.id
-        AnimeService.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
+        AniListClient.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
             guard let self = self else { return }
             // Make sure we're still displaying the same item (rotation may have advanced)
             guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
@@ -1623,10 +1623,10 @@ class BrowseAnimeViewController: UIViewController {
     private func setupNotifications() {
         NotificationCenter.default.addObserver(self,
             selector: #selector(handleDidUpdate),
-            name: NSNotification.Name(AnimeService.LocalAnimeDidUpdateNotification), object: nil)
+            name: NSNotification.Name(AniListClient.LocalAnimeDidUpdateNotification), object: nil)
         NotificationCenter.default.addObserver(self,
             selector: #selector(handleUpdateFailed),
-            name: NSNotification.Name(AnimeService.LocalAnimeUpdateFailedNotification), object: nil)
+            name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: nil)
     }
 
     // MARK: - Data Loading
@@ -1644,7 +1644,7 @@ class BrowseAnimeViewController: UIViewController {
         // Fetch banner items separately with SCORE_DESC — matches Hayase banner.svelte:
         //   client.search({ sort: ['SCORE_DESC'], perPage: 5, season: currentSeason,
         //                   seasonYear: currentYear, statusNot: ['NOT_YET_RELEASED'] })
-        AnimeService.sharedAnimeService.fetchBannerItems { [weak self] bannerResults in
+        AniListClient.shared.fetchBannerItems { [weak self] bannerResults in
             guard let self = self else { return }
             if !bannerResults.isEmpty {
                 self.bannerItems = bannerResults
@@ -1657,7 +1657,7 @@ class BrowseAnimeViewController: UIViewController {
             }
         }
 
-        AnimeService.sharedAnimeService.fetchHomeSections { [weak self] fetchedSections in
+        AniListClient.shared.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
 
             // If banner didn't load from the separate SCORE_DESC query, fall back to first section
@@ -1686,7 +1686,7 @@ class BrowseAnimeViewController: UIViewController {
                 if !ids.continueIDs.isEmpty {
                     group.enter()
                     let cappedIDs = Array(ids.continueIDs.prefix(50))
-                    AnimeService.sharedAnimeService.fetchSectionByIDs(cappedIDs) { items in
+                    AniListClient.shared.fetchSectionByIDs(cappedIDs) { items in
                         if !items.isEmpty {
                             syncQueue.sync {
                                 personalSections.append((index: 0,
@@ -1701,7 +1701,7 @@ class BrowseAnimeViewController: UIViewController {
                 // Desktop: client.search({ ids: planningIDs, status: ['FINISHED', 'RELEASING'], sort: ['START_DATE_DESC'] })
                 if !ids.planningIDs.isEmpty {
                     group.enter()
-                    AnimeService.sharedAnimeService.fetchSectionByIDsFiltered(
+                    AniListClient.shared.fetchSectionByIDsFiltered(
                         ids.planningIDs,
                         status: ["FINISHED", "RELEASING"]
                     ) { items in
@@ -1719,7 +1719,7 @@ class BrowseAnimeViewController: UIViewController {
                 // Desktop: client.search({ ids: sequelIDs, status: ['FINISHED', 'RELEASING'], onList: false })
                 if !ids.sequelIDs.isEmpty {
                     group.enter()
-                    AnimeService.sharedAnimeService.fetchSectionByIDsFiltered(
+                    AniListClient.shared.fetchSectionByIDsFiltered(
                         ids.sequelIDs,
                         status: ["FINISHED", "RELEASING"],
                         onList: false
@@ -2061,7 +2061,7 @@ extension BrowseAnimeViewController: UISearchResultsUpdating {
             self.lastSearchString = text
             self.loadingIndicator.startAnimating()
             self.emptyLabel.isHidden = true
-            AnimeService.sharedAnimeService.UpdateTempAnimesWithSearchString(text)
+            AniListClient.shared.UpdateTempAnimesWithSearchString(text)
         }
     }
 }

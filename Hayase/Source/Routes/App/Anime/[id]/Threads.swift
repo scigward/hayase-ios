@@ -222,7 +222,7 @@ extension AnimeDetailViewController {
         threadsLoading = true
         tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
 
-        AnimeService.sharedAnimeService.fetchForumThreads(mediaID: id) { [weak self] parsed in
+        AniListClient.shared.threads(mediaID: id) { [weak self] parsed in
             guard let self else { return }
             self.threads = parsed
             self.threadsLoading = false

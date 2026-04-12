@@ -885,7 +885,7 @@ final class MiniPlayerManager {
         close()
 
         // Fetch the AnimeItem so the search VC has full metadata for queries.
-        AnimeService.sharedAnimeService.fetchAnimeByIds([anilistID]) { [weak self] items in
+        AniListClient.shared.fetchAnimeByIds([anilistID]) { [weak self] items in
             guard let animeItem = items.first else { return }
             DispatchQueue.main.async {
                 self?.presentSearchVC(animeItem: animeItem, episode: episode)

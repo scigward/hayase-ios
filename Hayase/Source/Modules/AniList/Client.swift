@@ -6,4 +6,666 @@
 //  Mirrors: src/lib/modules/anilist/client.ts
 //
 
-import Foundation
+import UIKit
+import CoreData
+
+// MARK: - AniListClient
+
+public final class AniListClient: NSObject {
+
+    static let shared = AniListClient()
+
+    private let graphQLEndpoint = "https://graphql.anilist.co"
+
+    // MARK: - Notifications (iOS-specific, for CoreData sync)
+
+    static let LocalAnimeWillUpdateNotification = "LocalAnimeWillUpdateNotification"
+    static let LocalAnimeDidUpdateNotification  = "LocalAnimeDidUpdateNotification"
+    static let LocalAnimeUpdateFailedNotification = "LocalAnimeUpdateFailedNotification"
+
+    var insertIndexForTempEntries = 0
+
+    enum AniListError: Error {
+        case errorSavingCoreData
+        case emptyResult
+    }
+
+    // MARK: - Private networking
+
+    private func graphQLRequest(query: String, variables: [String: Any]? = nil, completion: @escaping ([AniListMedia]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        var body: [String: Any] = ["query": query]
+        if let variables = variables { body["variables"] = variables }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
+                print("Error getting anime data: \(error)")
+                return
+            }
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media, !mediaList.isEmpty else {
+                let err = NSError(domain: "AniListClient", code: 4, userInfo: nil)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: err)
+                }
+                return
+            }
+            completion(mediaList)
+        }.resume()
+    }
+
+    /// Adds an auth header if the user is logged in.
+    private func authorizedRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    // MARK: - CoreData (legacy, iOS-specific)
+
+    func UpdateTempWithAiringAnimes() {
+        ClearTempAnimes()
+        var variables: [String: Any] = [:]
+        if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
+        graphQLRequest(query: AniListQueries.airingAnime, variables: variables.isEmpty ? nil : variables) { mediaList in
+            DispatchQueue.main.async {
+                do {
+                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                } catch let error {
+                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
+            }
+        }
+    }
+
+    func UpdateTempAnimesWithSearchString(_ searchStr: String) {
+        ClearTempAnimes()
+        var variables: [String: Any] = ["search": searchStr]
+        if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
+        graphQLRequest(query: AniListQueries.searchLegacy, variables: variables) { mediaList in
+            DispatchQueue.main.async {
+                do {
+                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                } catch let error {
+                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+                }
+            }
+        }
+    }
+
+    private func UpdateLocalAnimes(_ mediaList: [AniListMedia], isTemp: Bool) throws {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetchRequest = NSFetchRequest<Animes>(entityName: Animes.entityName)
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "animeAnilistId", ascending: true)]
+        fetchRequest.predicate = NSPredicate(format: "animeStatus == %@", "RELEASING")
+        let fetchedAnimes = (try? context.fetch(fetchRequest)) ?? []
+
+        NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeWillUpdateNotification), object: self)
+
+        for media in mediaList {
+            guard let anilistId = media.id else { continue }
+            var targetAnime: Animes
+            if let foundIndex = fetchedAnimes.firstIndex(where: { $0.animeAnilistId?.intValue == anilistId }) {
+                targetAnime = fetchedAnimes[foundIndex]
+            } else {
+                guard let newAnime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as? Animes else { continue }
+                targetAnime = newAnime
+                targetAnime.animeAnilistId = NSNumber(value: anilistId)
+            }
+            targetAnime.animeImgL = media.coverImage?.large
+            targetAnime.animeImgM = media.coverImage?.medium
+            targetAnime.animeImgS = media.bannerImage
+            targetAnime.animePopularity = media.popularity.map { NSNumber(value: $0) }
+            targetAnime.animeScore = media.averageScore.map { NSNumber(value: $0) }
+            targetAnime.animeStatus = media.status
+            targetAnime.animeTitleEnglish = media.title?.english ?? media.title?.romaji
+            targetAnime.animeTitleJapanese = media.title?.romaji
+            targetAnime.animeTotalEps = media.episodes.map { NSNumber(value: $0) }
+            targetAnime.animeDescription = AniListUtil.stripHTML(media.description ?? "")
+            targetAnime.animeNextEps = media.nextAiringEpisode?.episode.map { NSNumber(value: $0) }
+            if let timeUntilAiring = media.nextAiringEpisode?.timeUntilAiring {
+                targetAnime.animeNextEpsTime = Date(timeIntervalSinceNow: Double(timeUntilAiring))
+            }
+            targetAnime.animeFlagTemp = NSNumber(value: isTemp)
+            targetAnime.animeOrder = NSNumber(value: insertIndexForTempEntries)
+            insertIndexForTempEntries += 1
+        }
+
+        do {
+            try context.save()
+        } catch {
+            print("Error saving new anime information")
+            throw AniListError.errorSavingCoreData
+        }
+
+        NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeDidUpdateNotification), object: self)
+    }
+
+    func ClearTempAnimes() {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let request = NSFetchRequest<NSFetchRequestResult>(entityName: Animes.entityName)
+        request.predicate = NSPredicate(format: "animeFlagTemp == YES")
+        context.deleteAllData(request)
+        insertIndexForTempEntries = 0
+    }
+
+    // MARK: - Banner (banner.svelte)
+
+    func fetchBannerItems(completion: @escaping ([AnimeItem]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        let season = AniListUtil.currentSeason()
+        let year = AniListUtil.currentYear()
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        var variables: [String: Any] = [
+            "sort": ["SCORE_DESC"],
+            "season": season,
+            "seasonYear": year,
+            "statusNot": ["NOT_YET_RELEASED"]
+        ]
+        if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
+        let body: [String: Any] = ["query": AniListQueries.banner, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
+    // MARK: - Home sections (home/+page.svelte)
+
+    func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
+        let season = AniListUtil.currentSeason()
+        let year = AniListUtil.currentYear()
+        let configs: [(title: String, variables: [String: Any])] = [
+            ("Popular This Season", ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year]),
+            ("Trending Now",        ["sort": ["TRENDING_DESC"]]),
+            ("All Time Popular",    ["sort": ["POPULARITY_DESC"]]),
+            ("Romance",             ["sort": ["TRENDING_DESC"], "genre": "Romance"]),
+            ("Action",              ["sort": ["TRENDING_DESC"], "genre": "Action"]),
+            ("Adventure",           ["sort": ["TRENDING_DESC"], "genre": "Adventure"]),
+            ("Fantasy",             ["sort": ["TRENDING_DESC"], "genre": "Fantasy"]),
+        ]
+
+        let group = DispatchGroup()
+        let syncQueue = DispatchQueue(label: "com.hayase.homeSections")
+        var results = [HomeSectionData?](repeating: nil, count: configs.count)
+
+        for (index, config) in configs.enumerated() {
+            group.enter()
+            fetchSectionItems(variables: config.variables) { items in
+                var sectionData = HomeSectionData(title: config.title, items: items)
+                sectionData.filterGenre = config.variables["genre"] as? String
+                sectionData.filterSort = (config.variables["sort"] as? [String])?.first
+                syncQueue.sync { results[index] = sectionData }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion(results.compactMap { $0 })
+        }
+    }
+
+    private func fetchSectionItems(variables: [String: Any], completion: @escaping ([AnimeItem]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = authorizedRequest(url: url)
+        var vars = variables
+        if let nsfw = AniListUtil.nsfwGenreFilter { vars["nsfw"] = nsfw }
+        var body: [String: Any] = ["query": AniListQueries.homeSection]
+        body["variables"] = vars
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                completion([])
+                return
+            }
+            let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
+            completion(items)
+        }.resume()
+    }
+
+    // MARK: - Fetch by IDs
+
+    func fetchSectionByIDs(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = authorizedRequest(url: url)
+        let body: [String: Any] = ["query": AniListQueries.idIn, "variables": ["idIn": ids]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            var itemMap: [Int: AnimeItem] = [:]
+            for media in mediaList {
+                if let item = AniListUtil.animeItem(from: media) {
+                    itemMap[item.id] = item
+                }
+            }
+            let ordered = ids.compactMap { itemMap[$0] }
+            DispatchQueue.main.async { completion(ordered) }
+        }.resume()
+    }
+
+    func fetchSectionByIDsFiltered(_ ids: [Int],
+                                   status: [String]? = nil,
+                                   onList: Bool? = nil,
+                                   completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = authorizedRequest(url: url)
+        var variables: [String: Any] = ["idIn": ids]
+        if let status = status { variables["status"] = status }
+        if let onList = onList { variables["onList"] = onList }
+        let body: [String: Any] = ["query": AniListQueries.idInFiltered, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let mediaList = response.data?.Page?.media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
+    // MARK: - Search (matches client.ts search())
+
+    func searchAnimeItems(title: String?,
+                          genres: [String],
+                          formats: [String],
+                          statuses: [String],
+                          sort: String,
+                          seasonYear: Int? = nil,
+                          season: String? = nil,
+                          page: Int,
+                          completion: @escaping ([AnimeItem], Bool) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
+        var request = authorizedRequest(url: url)
+        var variables: [String: Any] = ["sort": [sort], "page": page]
+        if let t = title, !t.isEmpty { variables["search"] = t }
+        if !genres.isEmpty   { variables["genre_in"] = genres }
+        if !formats.isEmpty  { variables["format_in"] = formats }
+        if !statuses.isEmpty { variables["status_in"] = statuses }
+        if let y = seasonYear { variables["seasonYear"] = y }
+        if let s = season { variables["season"] = s }
+        if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
+        let body: [String: Any] = ["query": AniListQueries.search, "variables": variables]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let pageData = response.data?.Page else {
+                DispatchQueue.main.async { completion([], false) }
+                return
+            }
+            let hasNext = pageData.pageInfo?.hasNextPage ?? false
+            let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
+            DispatchQueue.main.async { completion(items, hasNext) }
+        }.resume()
+    }
+
+    // MARK: - Fetch by IDs (single / trace.moe)
+
+    func fetchAnimeByIds(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = authorizedRequest(url: url)
+        let body: [String: Any] = ["query": AniListQueries.byIds, "variables": ["ids": ids]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                  let pageData = response.data?.Page else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
+            DispatchQueue.main.async { completion(items) }
+        }.resume()
+    }
+
+    // MARK: - Detail (relations)
+
+    func fetchDetailForItem(id: Int, completion: @escaping ([AnimeRelation]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": AniListQueries.detail, "variables": ["id": id]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(AniListDetailResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+
+            let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge -> AnimeRelation? in
+                guard let type = edge.relationType, let node = edge.node, let nid = node.id else { return nil }
+                let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
+                if skip.contains(type) { return nil }
+                let relItem = AnimeItem(
+                    id: nid,
+                    titleEnglish: node.title?.english,
+                    titleRomaji: node.title?.romaji,
+                    coverURL: node.coverImage?.large,
+                    score: node.averageScore,
+                    status: node.status,
+                    episodes: node.episodes,
+                    bannerURL: nil,
+                    genres: [],
+                    description: nil,
+                    coverColor: node.coverImage?.color)
+                return AnimeRelation(relationType: type, media: relItem)
+            }
+
+            DispatchQueue.main.async { completion(relations) }
+        }.resume()
+    }
+
+    // MARK: - Staff + Stats
+
+    func fetchStaffAndStats(id: Int,
+                            completion: @escaping ([AnimeStaffMember], [AnimeScorePoint], [AnimeStatusCount]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([], [], []); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": AniListQueries.staffStats, "variables": ["id": id]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(StaffStatsResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                DispatchQueue.main.async { completion([], [], []) }
+                return
+            }
+            let staff: [AnimeStaffMember] = (media.staff?.edges ?? []).compactMap { edge in
+                guard let node = edge.node, let name = node.name?.full else { return nil }
+                return AnimeStaffMember(name: name, imageURL: node.image?.medium, role: edge.role ?? "")
+            }
+            let scores: [AnimeScorePoint] = (media.stats?.scoreDistribution ?? []).compactMap { d in
+                guard let s = d.score, let a = d.amount else { return nil }
+                return AnimeScorePoint(score: s, amount: a)
+            }.sorted { $0.score < $1.score }
+            let statuses: [AnimeStatusCount] = (media.stats?.statusDistribution ?? []).compactMap { d in
+                guard let s = d.status, let a = d.amount else { return nil }
+                return AnimeStatusCount(status: s, amount: a)
+            }
+            DispatchQueue.main.async { completion(staff, scores, statuses) }
+        }.resume()
+    }
+
+    // MARK: - Trailer + Genres
+
+    func fetchTrailerAndGenres(id: Int, completion: @escaping (_ trailerYouTubeID: String?, _ genres: [String], _ malId: Int?) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil, [], nil); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": AniListQueries.trailerGenres, "variables": ["id": id]])
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let media = ((json["data"] as? [String: Any])?["Media"]) as? [String: Any] else {
+                DispatchQueue.main.async { completion(nil, [], nil) }
+                return
+            }
+            let genres = media["genres"] as? [String] ?? []
+            let malId = (media["idMal"] as? NSNumber)?.intValue
+            var trailerID: String? = nil
+            if let trailer = media["trailer"] as? [String: Any],
+               (trailer["site"] as? String)?.lowercased() == "youtube" {
+                trailerID = trailer["id"] as? String
+            }
+            DispatchQueue.main.async { completion(trailerID, genres, malId) }
+        }.resume()
+    }
+
+    // MARK: - Forum threads (matches client.ts threads())
+
+    func threads(mediaID: Int, completion: @escaping ([AniListThread]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
+        let body: [String: Any] = ["query": AniListQueries.threads, "variables": ["id": mediaID]]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            completion([]); return
+        }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
+                  let rawThreads = page["threads"] as? [[String: Any]] else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
+            DispatchQueue.main.async { completion(parsed) }
+        }.resume()
+    }
+
+    // MARK: - Airing schedule
+
+    func fetchAiringForMonth(_ month: Date, completion: @escaping ([AiringScheduleEntry]) -> Void) {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
+        let comps = cal.dateComponents([.year, .month], from: month)
+        guard let monthStart = cal.date(from: comps),
+              let monthEnd = cal.date(byAdding: DateComponents(month: 1), to: monthStart) else {
+            completion([]); return
+        }
+        let from = Int(monthStart.timeIntervalSince1970)
+        let to = Int(monthEnd.timeIntervalSince1970) - 1
+        collectAiringPages(from: from, to: to, page: 1, accumulated: [], completion: completion)
+    }
+
+    private func collectAiringPages(from: Int, to: Int, page: Int,
+                                    accumulated: [AiringScheduleEntry],
+                                    completion: @escaping ([AiringScheduleEntry]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(accumulated); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = [
+            "query": AniListQueries.airingMonth,
+            "variables": ["from": from, "to": to, "page": page]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            guard let self = self,
+                  let data = data,
+                  let resp = try? JSONDecoder().decode(AiringSchedulePagedResponse.self, from: data),
+                  let pageData = resp.data?.Page else {
+                DispatchQueue.main.async { completion(accumulated) }
+                return
+            }
+            let entries: [AiringScheduleEntry] = (pageData.airingSchedules ?? []).compactMap { sched in
+                guard let epNum = sched.episode,
+                      let atUnix = sched.airingAt,
+                      let media = sched.media,
+                      let id = media.id else { return nil }
+                let item = AnimeItem(
+                    id: id,
+                    titleEnglish: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    coverURL: media.coverImage?.large,
+                    score: media.averageScore,
+                    status: media.status,
+                    episodes: media.episodes,
+                    bannerURL: nil,
+                    genres: [],
+                    description: nil,
+                    coverColor: media.coverImage?.color)
+                return AiringScheduleEntry(
+                    episode: epNum,
+                    airingAt: Date(timeIntervalSince1970: Double(atUnix)),
+                    media: item)
+            }
+            let all = accumulated + entries
+            if pageData.pageInfo?.hasNextPage == true {
+                self.collectAiringPages(from: from, to: to, page: page + 1, accumulated: all, completion: completion)
+            } else {
+                DispatchQueue.main.async { completion(all) }
+            }
+        }.resume()
+    }
+
+    // MARK: - Per-media airing schedule
+
+    func fetchMediaAiringSchedule(anilistID: Int, completion: @escaping (MediaScheduleResult?) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body: [String: Any] = ["query": AniListQueries.mediaSchedule, "variables": ["id": anilistID]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let resp = try? JSONDecoder().decode(MediaScheduleResponse.self, from: data),
+                  let media = resp.data?.Media else {
+                completion(nil)
+                return
+            }
+
+            var schedule: [Int: Date] = [:]
+            let allNodes = (media.aired?.n ?? []) + (media.notaired?.n ?? [])
+            for node in allNodes {
+                guard let ep = node.e, let at = node.a else { continue }
+                if schedule[ep] == nil {
+                    schedule[ep] = Date(timeIntervalSince1970: Double(at))
+                }
+            }
+
+            let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
+            completion(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
+        }.resume()
+    }
+
+    // MARK: - ani.zip image cache (Fanart + Clearlogo)
+
+    private static var _fanartURLs:      [Int: String] = [:]
+    private static var _clearlogoURLs:   [Int: String] = [:]
+    private static var _fanartFetched:   Set<Int>      = []
+    private static var _fanartCallbacks: [Int: [(String?) -> Void]] = [:]
+    private static let _fanartQueue = DispatchQueue(label: "com.hayase.fanartcache", attributes: .concurrent)
+
+    static func fetchFanartURL(anilistID: Int, completion: @escaping (String?) -> Void) {
+        _fanartQueue.async(flags: .barrier) {
+            if _fanartFetched.contains(anilistID) {
+                let url = _fanartURLs[anilistID]
+                DispatchQueue.main.async { completion(url) }
+                return
+            }
+            if _fanartCallbacks[anilistID] != nil {
+                _fanartCallbacks[anilistID]?.append(completion)
+                return
+            }
+            _fanartCallbacks[anilistID] = [completion]
+            _fetchAniZipImages(anilistID: anilistID)
+        }
+    }
+
+    static func fetchClearlogoURL(anilistID: Int, completion: @escaping (String?) -> Void) {
+        _fanartQueue.async(flags: .barrier) {
+            if _fanartFetched.contains(anilistID) {
+                let url = _clearlogoURLs[anilistID]
+                DispatchQueue.main.async { completion(url) }
+                return
+            }
+            if _fanartCallbacks[anilistID] != nil {
+                _fanartCallbacks[anilistID]?.append({ _ in
+                    _fanartQueue.async {
+                        let url = _clearlogoURLs[anilistID]
+                        DispatchQueue.main.async { completion(url) }
+                    }
+                })
+                return
+            }
+            _fanartCallbacks[anilistID] = [{ _ in
+                _fanartQueue.async {
+                    let url = _clearlogoURLs[anilistID]
+                    DispatchQueue.main.async { completion(url) }
+                }
+            }]
+            _fetchAniZipImages(anilistID: anilistID)
+        }
+    }
+
+    private static func _fetchAniZipImages(anilistID: Int) {
+        var comps = URLComponents(string: "https://api.ani.zip/mappings")
+        comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
+        guard let url = comps?.url else {
+            _fanartQueue.async(flags: .barrier) {
+                let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                _fanartFetched.insert(anilistID)
+                cbs.forEach { cb in DispatchQueue.main.async { cb(nil) } }
+            }
+            return
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            var fanartURL: String? = nil
+            var clearlogoURL: String? = nil
+            if let data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let images = json["images"] as? [[String: Any]] {
+                fanartURL = images.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
+                           ?? images.first(where: { ($0["coverType"] as? String) == "Poster" })?["url"] as? String
+                clearlogoURL = images.first(where: { ($0["coverType"] as? String) == "Clearlogo" })?["url"] as? String
+            }
+            _fanartQueue.async(flags: .barrier) {
+                let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
+                _fanartFetched.insert(anilistID)
+                if let fanartURL { _fanartURLs[anilistID] = fanartURL }
+                if let clearlogoURL { _clearlogoURLs[anilistID] = clearlogoURL }
+                cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
+            }
+        }.resume()
+    }
+}

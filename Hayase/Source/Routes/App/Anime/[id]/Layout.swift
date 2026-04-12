@@ -833,7 +833,7 @@ final class AnimeInfoHeaderView: UIView {
         trailerButton.isHidden = item.trailerYouTubeID == nil
 
         let bannerFallback = item.bannerURL ?? item.coverURL
-        AnimeService.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
+        AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             guard let self else { return }
             let urlStr = fanartURL ?? bannerFallback
             self.displayedBannerURL = urlStr

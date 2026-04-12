@@ -387,7 +387,7 @@ extension AnimeDetailViewController {
         else { id = animeItem?.id }
         guard let anilistId = id else { return }
 
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] rels in
+        AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
             guard let self = self else { return }
             self.relations = rels
             if !rels.isEmpty {
@@ -396,7 +396,7 @@ extension AnimeDetailViewController {
         }
 
         if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {
-            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
+            AniListClient.shared.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
                 guard let self else { return }
                 let needsGenres = self.animeItem == nil || self.animeItem?.genres.isEmpty == true
                 if needsGenres {
