@@ -796,6 +796,21 @@ extension AnimeDetailViewController {
         }
     }
 
+    /// Compute episode count matching web's `episodes(media)` utility (src/lib/modules/anilist/util.ts).
+    /// Falls back to airing schedule data + user progress when `media.episodes` is nil (airing anime).
+    private func computeEpisodeCount(schedResult: MediaScheduleResult?, anilistEpisodes: Int?) -> Int? {
+        // If AniList provides a confirmed episode count, use it (matches web: if (media.episodes) return media.episodes)
+        if let eps = anilistEpisodes { return eps }
+
+        // Fallback: max(last aired episode, last upcoming episode, user progress)
+        // Matches web: Math.max(upcoming, past, progress)
+        let schedule = schedResult?.schedule ?? [:]
+        let lastAired = schedule.keys.max() ?? 0
+        let progress = animeItem?.mediaListEntry?.progress ?? 0
+        let best = max(lastAired, progress)
+        return best > 0 ? best : nil
+    }
+
     func fetchEpisodes() {
         let anilistId: Int?
         if let entity = animeEntity {
@@ -827,6 +842,7 @@ extension AnimeDetailViewController {
                             guard let self = self else { return }
 
                             var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
+                            let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
 
                             if alSchedule[1] == nil {
                                 let item = self.animeItem
@@ -850,7 +866,7 @@ extension AnimeDetailViewController {
                             AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
                                 guard let self = self else { return }
                                 let finalResponse = parentResponse ?? response
-                                self.processEpisodeResponse(finalResponse, anilistEpisodes: anilistEpisodes,
+                                self.processEpisodeResponse(finalResponse, anilistEpisodes: resolvedCount,
                                                             anilistId: id, alSchedule: alSchedule)
                             }
                         }
@@ -861,7 +877,19 @@ extension AnimeDetailViewController {
                 return
             }
 
-            self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+            // For ALL anime: if anilistEpisodes is nil (airing/new anime), fetch airing schedule
+            // to compute episode count from aired/notaired data, matching web's episodes() fallback.
+            if anilistEpisodes == nil {
+                AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                    guard let self = self else { return }
+                    let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
+                    let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
+                    self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
+                                                anilistId: id, alSchedule: alSchedule)
+                }
+            } else {
+                self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+            }
         }
     }
 
