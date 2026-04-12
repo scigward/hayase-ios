@@ -829,8 +829,15 @@ extension AnimeDetailViewController {
 
         let format = animeItem?.format
 
-        AniZipService.shared.episodes(anilistID: id) { [weak self] response in
-            guard let self = self, let response = response else { return }
+        AniZipService.shared.episodes(anilistID: id) { [weak self] anizipResponse in
+            guard let self = self else { return }
+
+            // If anizip has no data for this anime (e.g. brand new airing anime), create an
+            // empty response so episodes can still be built from the AniList airing schedule.
+            // Matches web: makeEpisodeList(media, eps) handles eps=null gracefully.
+            let response = anizipResponse ?? AniZipEpisodesResponse(
+                titles: nil, episodes: nil, episodeCount: nil,
+                specialCount: nil, images: nil, mappings: nil)
 
             let hasAnidbId = response.mappings?.anidb_id != nil
 
@@ -871,7 +878,18 @@ extension AnimeDetailViewController {
                             }
                         }
                     } else {
-                        self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+                        // No parent found - still try airing schedule for episode count
+                        if anilistEpisodes == nil {
+                            AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                                guard let self = self else { return }
+                                let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
+                                let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
+                                self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
+                                                            anilistId: id, alSchedule: alSchedule)
+                            }
+                        } else {
+                            self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+                        }
                     }
                 }
                 return
@@ -1045,13 +1063,18 @@ extension AnimeDetailViewController {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let imageURL = ep?.image
             let airDateRaw = ep?.airdate ?? ep?.airDate
-            let airDate: Date? = airDateRaw.flatMap { raw in
-                if let d = ISO8601DateFormatter().date(from: raw) { return d }
-                let fmt = DateFormatter()
-                fmt.dateFormat = "yyyy-MM-dd"
-                fmt.locale = Locale(identifier: "en_US_POSIX")
-                return fmt.date(from: raw)
-            }
+            let airDate: Date? = {
+                // First try anizip's airdate
+                if let raw = airDateRaw {
+                    if let d = ISO8601DateFormatter().date(from: raw) { return d }
+                    let fmt = DateFormatter()
+                    fmt.dateFormat = "yyyy-MM-dd"
+                    fmt.locale = Locale(identifier: "en_US_POSIX")
+                    if let d = fmt.date(from: raw) { return d }
+                }
+                // Fallback to AniList airing schedule date (matches web's airingAt ?? airdate)
+                return alSchedule?[episode]
+            }()
             let runtime = ep?.length ?? ep?.runtime ?? 0
             let rating: Double? = ep?.rating.flatMap(Double.init)
 
