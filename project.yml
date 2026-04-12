@@ -37,10 +37,9 @@ targets:
       - path: Hayase/Source
       - path: Hayase/Hayase-Bridging-Header.h
       - path: CoreDataService/Source
-      - path: Hayase/Resources/Model.xcdatamodeld
-      - path: Hayase/Resources/Assets.xcassets
-      - path: Hayase/Resources/Base.lproj
-      - path: Hayase/Resources/Fonts
+      - path: Hayase/Resources
+        excludes:
+          - Info.plist
     settings:
       base:
         INFOPLIST_FILE: Hayase/Resources/Info.plist
@@ -76,6 +75,8 @@ targets:
             rsync -av --delete "${SRC}" "${DEST}/"
             find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "Headers" -type d -exec rm -rf {} + 2>/dev/null || true
             find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "PrivateHeaders" -type d -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/LibTorrent.framework" -maxdepth 1 -name "Modules" -type d -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/LibTorrent.framework" -name "*.tbd" -delete 2>/dev/null || true
             if [ "${CODE_SIGNING_REQUIRED}" = "YES" ] && [ -n "${CODE_SIGN_IDENTITY}" ]; then
               codesign --force --sign "${CODE_SIGN_IDENTITY}" "${DEST}/LibTorrent.framework"
             fi
