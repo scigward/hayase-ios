@@ -139,15 +139,33 @@ extension TorrentResult {
         self.link      = rawLink
         self.hash      = rawHash
         self.id        = dict["id"] as? Int
-        self.seeders   = (dict["seeders"]   as? NSNumber)?.intValue ?? 0
-        self.leechers  = (dict["leechers"]  as? NSNumber)?.intValue ?? 0
-        self.downloads = (dict["downloads"] as? NSNumber)?.intValue ?? 0
+        // Extensions may return numeric fields as either JSON numbers (NSNumber)
+        // or strings ("42"). Handle both to avoid silently dropping seeders/leechers
+        // to 0 — which causes wrong counts displayed in ExtensionSearchView.
+        self.seeders   = Self.parseIntValue(dict["seeders"])
+        self.leechers  = Self.parseIntValue(dict["leechers"])
+        self.downloads = Self.parseIntValue(dict["downloads"])
         self.accuracy  = (dict["accuracy"]  as? String) ?? "low"
-        self.size      = Int64((dict["size"] as? NSNumber)?.doubleValue ?? 0)
+        self.size      = Self.parseInt64Value(dict["size"])
         self.type      = dict["type"] as? String
         if let dateStr = dict["date"] as? String {
             self.date = ISO8601DateFormatter().date(from: dateStr)
         }
+    }
+
+    /// Parse a value that may be NSNumber (JSON number) or String (some extensions
+    /// return numeric fields as strings). Returns 0 for nil/unparseable.
+    private static func parseIntValue(_ value: Any?) -> Int {
+        if let n = value as? NSNumber { return n.intValue }
+        if let s = value as? String { return Int(s) ?? Int(Double(s) ?? 0) }
+        return 0
+    }
+
+    /// Parse a value that may be NSNumber or String into Int64 (for byte sizes).
+    private static func parseInt64Value(_ value: Any?) -> Int64 {
+        if let n = value as? NSNumber { return n.int64Value }
+        if let s = value as? String { return Int64(s) ?? Int64(Double(s) ?? 0) }
+        return 0
     }
 }
 

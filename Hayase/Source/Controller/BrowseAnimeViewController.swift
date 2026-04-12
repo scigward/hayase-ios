@@ -10,35 +10,53 @@
 import UIKit
 import CoreData
 
+// MARK: - Shared color constants (same values as AnimeDetailViewController)
+// Page background: web --background: hsl(240 10% 3.9%) = #09090b
+private let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
+
 // MARK: - BannerGradientView
 
 private final class BannerGradientView: UIView {
-    private let gradient = CAGradientLayer()
+    private let radialGradient = CAGradientLayer()
+    private let bottomGradient = CAGradientLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Matches Hayase's banner-image.svelte radial-gradient for mobile:
-        //   radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        // Approximated as a linear gradient: light in the center-upper area, darkening at bottom.
-        // Bottom stop uses --background (white: 0.04) instead of pure black so the banner edge
-        // blends invisibly into the app background and no cut-off seam is visible.
-        let bgColor = UIColor(white: 0.04, alpha: 1) // --background dark, same as app bg
-        gradient.colors = [
-            UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
-            UIColor.black.withAlphaComponent(0.16).cgColor, // ~40% — still light center
-            UIColor.black.withAlphaComponent(0.50).cgColor, // ~65% — starts darkening
-            bgColor.cgColor,                                 // bottom — blends into app bg
+        // Web: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // On mobile: centered at 50% 34.97%
+        // Core Animation radial gradient: center at startPoint, edge at endPoint
+        radialGradient.type = .radial
+        radialGradient.colors = [
+            UIColor.black.withAlphaComponent(0.16).cgColor, // center: rgba(0,0,0,0.16) at 30.56%
+            UIColor.black.withAlphaComponent(0.16).cgColor,
+            UIColor.black.withAlphaComponent(1.0).cgColor,  // edge: rgba(0,0,0,1) at 100%
         ]
-        gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
-        layer.addSublayer(gradient)
+        radialGradient.locations = [0.0, 0.3056, 1.0]
+        // startPoint = center of radial (normalized) — ~55% x, 35% y
+        radialGradient.startPoint = CGPoint(x: 0.55, y: 0.35)
+        // endPoint defines the edge of the gradient ellipse — 75% width, 65% height
+        radialGradient.endPoint = CGPoint(x: 0.55 + 0.75, y: 0.35 + 0.65)
+        layer.addSublayer(radialGradient)
+
+        // Additional bottom fade from black to --background so the banner edge
+        // blends seamlessly into the app background (#09090b)
+        bottomGradient.colors = [
+            UIColor.clear.cgColor,
+            hayasePageBackground.cgColor,
+        ]
+        bottomGradient.locations = [0.0, 1.0]
+        // Only covers the bottom 20% of the banner
+        layer.addSublayer(bottomGradient)
     }
 
     required init?(coder: NSCoder) { super.init(coder: coder) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        gradient.frame = bounds
+        radialGradient.frame = bounds
+        // Bottom gradient: covers bottom 20% of the view
+        let bottomH = bounds.height * 0.20
+        bottomGradient.frame = CGRect(x: 0, y: bounds.height - bottomH, width: bounds.width, height: bottomH)
     }
 }
 
@@ -59,9 +77,11 @@ private final class BannerGradientView: UIView {
 private final class FeaturedBannerCell: UICollectionViewCell {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
-    // Banner height: 70% of screen height — matches Hayase's banner-image.svelte
-    // `h-[70vh] md:h-[80vh]` (70vh on mobile). Content sits at bottom of the tall banner.
-    static let bannerHeight: CGFloat = UIScreen.main.bounds.height * 0.70
+    // Banner height: 70% on iPhone, 80% on iPad — matches web h-[70vh] md:h-[80vh]
+    // viewHeight should be the VC's view.bounds.height for multi-window correctness.
+    static func bannerHeight(isRegular: Bool, viewHeight: CGFloat) -> CGFloat {
+        return viewHeight * (isRegular ? 0.80 : 0.70)
+    }
 
     var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
 
@@ -74,6 +94,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     var onFavorite: ((AnimeItem) -> Void)?
     /// Callback fired when the user taps the bookmark button.
     var onBookmark: ((AnimeItem) -> Void)?
+    /// Callback for badge tap: passes filter type and value for search navigation.
+    /// Filter types: "format", "status", "season", "score"
+    var onBadgeTapped: ((_ filterType: String, _ value: String, _ value2: String?) -> Void)?
+    /// Callback for genre tap: passes the genre name for search navigation.
+    var onGenreTapped: ((_ genre: String) -> Void)?
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
@@ -100,17 +125,21 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
-    // Title: font-black text-3xl line-clamp-2 text-white text-shadow-lg text-center (mobile)
+    // Title: font-black text-3xl lg:text-4xl line-clamp-2 text-white text-shadow-lg
+    //   max-w-[85%] leading-tight text-balance text-center (mobile) lg:text-left
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 28, weight: .black)
+        // text-3xl = 1.875rem = 30pt on mobile (iPad uses 36pt set in applyLayoutForSizeClass)
+        l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
-        l.textAlignment = .center  // Hayase mobile: text-center items-center
+        l.textAlignment = .center
         l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
+    // max-w-[85%] constraint for title — activated in setup
+    private var titleMaxWidthConstraint: NSLayoutConstraint!
 
     // Clearlogo: transparent title art from ani.zip (coverType == "Clearlogo").
     // Matches Hayase full-banner.svelte: displays logo image when available, hides titleLabel.
@@ -127,32 +156,37 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return iv
     }()
 
-    // Badge row: hidden on mobile (Hayase: `hidden sm:flex`) — only shown on ≥640px screens.
-    // On iPhone this is always hidden. Kept for iPad or larger screens.
+    // Badge row: hidden on iPhone (web: `hidden sm:flex gap-2`), visible on iPad
+    // Each badge: rounded px-3.5 h-7 text-sm !text-custom bg-primary/10 font-bold
     private let badgeStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 6
+        sv.spacing = 8  // gap-2 = 0.5rem = 8pt
         sv.alignment = .center
-        sv.isHidden = true // hidden on mobile — matches Hayase `hidden sm:flex`
+        // Will be toggled in applyLayoutForSizeClass
         return sv
     }()
 
-    // Description: text-white/70 text-xs line-clamp-2 text-center text-shadow-lg (centered on mobile)
+    // Description: text-white/70 text-xs lg:text-sm
+    //   text-center lg:text-right text-shadow-lg max-w-[90%] lg:max-w-[75%] pt-3
+    //   line-clamp-2 (mobile) lg:line-clamp-3 (iPad)
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 11)
+        // text-xs = 0.75rem = 12pt (iPad uses 14pt set in applyLayoutForSizeClass)
+        l.font = .nunito(ofSize: 12)
         l.textColor = UIColor.white.withAlphaComponent(0.7)
-        l.numberOfLines = 2
-        l.textAlignment = .center  // Hayase mobile: text-center
-        l.shadowColor = UIColor.black.withAlphaComponent(0.5) // text-shadow-lg
+        l.numberOfLines = 2  // line-clamp-2 (mobile default; iPad overrides to 3)
+        l.textAlignment = .center
+        l.shadowColor = UIColor.black.withAlphaComponent(0.5)
         l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
+    // max-w-[90%] mobile, max-w-[75%] iPad constraint for description
+    private var descriptionMaxWidthConstraint: NSLayoutConstraint!
 
-    // Play button: bg-custom text-contrast — matches Hayase PlayButton
-    // Shows "Watch Now" / "Continue" / "Rewatch" based on status (defaults to "Watch Now")
-    // Hayase: size='default' (h-9 px-4 py-2), rounded-md (6pt), font-bold
+    // Play button: bg-custom text-contrast — matches web PlayButton in banner
+    // Web: size='default' (h-9 px-4 py-2), base text-sm font-medium + class font-bold
+    // So: h-9 = 36pt, text-sm = 14pt, font-bold override, rounded-md (6pt)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
@@ -160,7 +194,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
-        b.titleLabel?.font = .nunito(ofSize: 15, weight: .bold)
+        b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
         b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
         b.clipsToBounds = true
         return b
@@ -199,6 +233,33 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return sv
     }()
 
+    // Genre buttons row — iPad only (web: hidden lg:flex, bottom-right of banner)
+    // Shows genre pill buttons matching web full-banner.svelte genres row
+    private let genresStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 8  // gap-2 = 0.5rem = 8pt
+        sv.alignment = .center
+        sv.isHidden = true // shown on iPad only
+        return sv
+    }()
+
+    // MARK: iPad two-column layout
+    // Web: grid grid-cols-1 lg:grid-cols-2 — left column has title/badges/buttons,
+    // right column has description/genres. On iPhone everything is single column centered.
+
+    // The main content stack wrapping left + right columns (horizontal on iPad)
+    private let columnsStack = UIStackView()
+    // Left column: clearlogo/title, badges, buttons
+    private let leftColumn = UIStackView()
+    // Right column: description, genres (iPad only)
+    private let rightColumn = UIStackView()
+
+    // Stored constraints toggled between iPhone/iPad layouts
+    // Clearlogo uses width constraints (web: w-[30rem] = 480pt on iPad, capped for mobile)
+    private var clearlogoWidthCompact: NSLayoutConstraint!
+    private var clearlogoWidthRegular: NSLayoutConstraint!
+
     // MARK: Init
 
     override init(frame: CGRect) {
@@ -229,43 +290,85 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             contentView.addSubview($0)
         }
 
-        // Button row: [Play (grow)  Favorite  Bookmark] — matches Hayase PlayButton/FavoriteButton/BookmarkButton
-        // Hayase: flex flex-row w-[280px] max-w-full
-        // Play: mr-2 (8pt), Fav: ml-2 (8pt) → 16pt gap between Play and Fav
-        // Bookmark: ml-2 (8pt) → 8pt gap between Fav and Bookmark
+        // Button row: [Play (grow)  Favorite  Bookmark] — matches web PlayButton/FavoriteButton/BookmarkButton
+        // Web: flex flex-row w-[280px] max-w-full
         let buttonRow = UIStackView(arrangedSubviews: [playButton, favoriteButton, bookmarkButton])
         buttonRow.axis = .horizontal
-        buttonRow.spacing = 8  // base spacing: ml-2 between Fav and Bookmark
+        buttonRow.spacing = 8
         buttonRow.alignment = .center
         buttonRow.distribution = .fill
         buttonRow.setCustomSpacing(16, after: playButton)  // Play mr-2 + Fav ml-2 = 16pt
-        // Play button grows to fill remaining space (Hayase: grow class)
         playButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         favoriteButton.setContentHuggingPriority(.required, for: .horizontal)
         bookmarkButton.setContentHuggingPriority(.required, for: .horizontal)
         favoriteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         bookmarkButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        // Wire play button tap → callback to parent VC for navigation
         playButton.addTarget(self, action: #selector(playButtonTapped), for: .touchUpInside)
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
 
-        // Text stack: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel]
-        // Clearlogo replaces title visually — only one is visible at a time.
-        // Hayase mobile: items-center text-center (centered on mobile)
-        // Hayase gap-4 = 16pt between items in content column
-        let textStack = UIStackView(arrangedSubviews: [clearlogoImageView, titleLabel, badgeStack, buttonRow, descriptionLabel])
-        textStack.axis = .vertical
-        textStack.spacing = 16  // Hayase: gap-4 = 1rem = 16pt
-        textStack.alignment = .center  // Hayase mobile: items-center
-        // Description has pt-3 (12pt) top padding in Hayase (separate column stacks below)
-        textStack.setCustomSpacing(12, after: buttonRow)
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(textStack)
+        // Left column: clearlogo/title → badges → buttons
+        // Web: w-full flex flex-col items-center text-center lg:items-start lg:text-left justify-end gap-4
+        leftColumn.axis = .vertical
+        leftColumn.spacing = 16  // gap-4
+        leftColumn.alignment = .center  // will be .leading on iPad
+        // Add a small spacer to push clearlogo/title slightly lower
+        let logoTopSpacer = UIView()
+        logoTopSpacer.translatesAutoresizingMaskIntoConstraints = false
+        logoTopSpacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        leftColumn.addArrangedSubview(logoTopSpacer)
+        leftColumn.setCustomSpacing(0, after: logoTopSpacer)
+        leftColumn.addArrangedSubview(clearlogoImageView)
+        leftColumn.addArrangedSubview(titleLabel)
+        leftColumn.addArrangedSubview(badgeStack)
+        leftColumn.addArrangedSubview(buttonRow)
+        // On iPhone, description goes in the left column (below buttons)
+        leftColumn.addArrangedSubview(descriptionLabel)
+        leftColumn.setCustomSpacing(12, after: buttonRow) // pt-3 before description
+
+        // Right column: description + genres (iPad only)
+        // Web: flex flex-col self-end lg:items-end items-center lg:pr-5 w-full min-w-0
+        // description has pt-3 (12pt top), genres have pt-4 (16pt top) — both are individual padding
+        rightColumn.axis = .vertical
+        rightColumn.spacing = 0  // no gap between children — pt-3/pt-4 are on elements themselves
+        rightColumn.alignment = .trailing  // lg:items-end
+        rightColumn.isHidden = true  // shown on iPad only
+
+        // Genres go in the right column on iPad
+        rightColumn.addArrangedSubview(genresStack)
+
+        // Two-column wrapper: horizontal on iPad, vertical (single-col) on iPhone
+        // Web: grid grid-cols-1 lg:grid-cols-2 mt-auto w-full max-h-full
+        columnsStack.axis = .vertical  // will be .horizontal on iPad
+        columnsStack.spacing = 0
+        columnsStack.alignment = .fill
+        columnsStack.distribution = .fillEqually
+        columnsStack.addArrangedSubview(leftColumn)
+        columnsStack.addArrangedSubview(rightColumn)
+        columnsStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(columnsStack)
 
         dotsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dotsStack)
+
+        // Clearlogo constraints: WIDTH-based like web w-[30rem] (480pt)
+        // Web: image is inside a w-[900px] max-w-[85%] parent, so effectively limited to 85% of column
+        // iPhone: capped at ~250pt width; iPad: up to 480pt (w-[30rem])
+        clearlogoWidthCompact = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 250)
+        clearlogoWidthRegular = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
+
+        // Also limit clearlogo to 85% of columnsStack width (matches web max-w-[85%] parent)
+        let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
+            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.85)
+
+        // Title max-width: web max-w-[85%] — relative to columnsStack width
+        titleMaxWidthConstraint = titleLabel.widthAnchor.constraint(
+            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.85)
+        // Description max-width: web max-w-[90%] on mobile, max-w-[75%] on iPad
+        // Start with 90% (iPhone), toggled in applyLayoutForSizeClass
+        descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
+            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.90)
 
         NSLayoutConstraint.activate([
             backgroundImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -278,20 +381,17 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            // Dots centered at bottom — Hayase: each dot has pb-4 (16pt bottom padding)
             dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
 
-            // Text stack centered above dots — Hayase: each dot has pt-2 (8pt top padding)
-            textStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            textStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
+            columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            columnsStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
 
-            // Clearlogo: max height 60pt (scaled from Hayase's w-[30rem] for mobile),
-            // natural aspect ratio preserved via .scaleAspectFit
-            clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 60),
+            titleMaxWidthConstraint,
+            descriptionMaxWidthConstraint,
+            clearlogoMaxWidthPct,
 
-            // Play button row: w-[280px] max-w-full (Hayase)
             buttonRow.widthAnchor.constraint(equalToConstant: 280),
             playButton.heightAnchor.constraint(equalToConstant: 36),
             favoriteButton.widthAnchor.constraint(equalToConstant: 36),
@@ -299,6 +399,86 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             bookmarkButton.widthAnchor.constraint(equalToConstant: 36),
             bookmarkButton.heightAnchor.constraint(equalToConstant: 36),
         ])
+
+        // Apply initial layout (will be called again on trait changes via didMoveToWindow)
+        applyLayoutForSizeClass(isRegular: false)
+    }
+
+    // MARK: - Adaptive Layout
+
+    /// Switches between iPhone (compact) and iPad (regular) layouts.
+    /// iPhone: single column, centered, badges hidden, description below buttons
+    /// iPad: two columns, left-aligned left col, right-aligned right col, badges visible
+    func applyLayoutForSizeClass(isRegular: Bool) {
+        if isRegular {
+            // iPad layout — web lg: breakpoint
+            columnsStack.axis = .horizontal
+            columnsStack.spacing = 0
+            // Web: right column has self-end — aligns to bottom of the grid row
+            columnsStack.alignment = .bottom
+            leftColumn.alignment = .leading       // lg:items-start
+            titleLabel.textAlignment = .left       // lg:text-left
+            titleLabel.font = .nunito(ofSize: 36, weight: .black) // lg:text-4xl = 2.25rem = 36pt
+            descriptionLabel.textAlignment = .right // lg:text-right
+            badgeStack.isHidden = false            // sm:flex — visible on iPad
+            // Move description to right column
+            leftColumn.removeArrangedSubview(descriptionLabel)
+            descriptionLabel.removeFromSuperview()
+            rightColumn.insertArrangedSubview(descriptionLabel, at: 0)
+            rightColumn.isHidden = false
+            // pt-4 = 16pt spacing between description and genres in right column
+            rightColumn.setCustomSpacing(16, after: descriptionLabel)
+            // Clearlogo sizing: web w-[30rem] = 480pt
+            clearlogoWidthCompact.isActive = false
+            clearlogoWidthRegular.isActive = true
+            // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
+            descriptionLabel.numberOfLines = 3
+            descriptionLabel.font = .nunito(ofSize: 14)
+            // Description max-width: lg:max-w-[75%] of right column
+            descriptionMaxWidthConstraint.isActive = false
+            descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
+                lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.375) // 75% of right column (37.5% of full width, since columns are 50/50)
+            descriptionMaxWidthConstraint.isActive = true
+            // Column padding: lg:pl-5 = 20pt left, lg:pr-5 = 20pt right
+            columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+            columnsStack.isLayoutMarginsRelativeArrangement = true
+        } else {
+            // iPhone layout — web mobile
+            columnsStack.axis = .vertical
+            columnsStack.spacing = 0
+            columnsStack.alignment = .fill
+            leftColumn.alignment = .center         // items-center
+            titleLabel.textAlignment = .center      // text-center
+            titleLabel.font = .nunito(ofSize: 30, weight: .black) // text-3xl = 1.875rem = 30pt
+            descriptionLabel.textAlignment = .center // text-center
+            badgeStack.isHidden = true             // hidden on mobile
+            // Move description back to left column (below buttons)
+            rightColumn.removeArrangedSubview(descriptionLabel)
+            descriptionLabel.removeFromSuperview()
+            leftColumn.addArrangedSubview(descriptionLabel)
+            rightColumn.isHidden = true
+            genresStack.isHidden = true
+            // Clearlogo sizing: smaller on iPhone
+            clearlogoWidthRegular.isActive = false
+            clearlogoWidthCompact.isActive = true
+            // Description: text-xs (0.75rem = 12pt), line-clamp-2
+            descriptionLabel.numberOfLines = 2
+            descriptionLabel.font = .nunito(ofSize: 12)
+            // Description max-width: max-w-[90%]
+            descriptionMaxWidthConstraint.isActive = false
+            descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
+                lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.90)
+            descriptionMaxWidthConstraint.isActive = true
+            columnsStack.directionalLayoutMargins = .zero
+            columnsStack.isLayoutMarginsRelativeArrangement = false
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        applyLayoutForSizeClass(isRegular: isRegular)
     }
 
     // MARK: Configuration
@@ -317,17 +497,21 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard currentIndex < items.count else { return }
         let item = items[currentIndex]
         let block = {
-            // Reset title/clearlogo — will be resolved by loadClearlogo
+            // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
+            // Web: {#await episodesCached()} shows nothing while loading, then clearlogo or text.
             self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
-            self.titleLabel.isHidden = false
+            self.titleLabel.isHidden = true
             self.clearlogoImageView.isHidden = true
             self.clearlogoImageView.image = nil
-            self.descriptionLabel.text = item.description
-            self.descriptionLabel.isHidden = item.description?.isEmpty ?? true
-            self.updateBadges(for: item)
-            self.updateDots()
+            // Web desc(): defaults to "No description available." when empty/null
+            let descText = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.descriptionLabel.text = (descText?.isEmpty ?? true) ? "No description available." : descText
+            self.descriptionLabel.isHidden = false
             // Play button bg-custom: use coverImage.color as background (Hayase --custom var)
             let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
+            self.updateBadges(for: item, customColor: customColor)
+            self.updateGenres(for: item, customColor: customColor)
+            self.updateDots()
             self.playButton.backgroundColor = customColor
             // Determine text contrast (Hayase: text-contrast — black or white based on luminance)
             let textColor = Self.contrastColor(for: customColor)
@@ -456,7 +640,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Make sure we're still displaying the same item (rotation may have advanced)
             guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
             guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
-                // No clearlogo — keep text title visible (already the default)
+                // No clearlogo available — show text title as fallback
+                DispatchQueue.main.async {
+                    guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
+                    UIView.animate(withDuration: 0.3) {
+                        self.titleLabel.isHidden = false
+                    }
+                }
                 return
             }
             // Check image cache first
@@ -466,7 +656,18 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             }
             let captured = urlStr
             self.clearlogoTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
+                guard let data, let image = UIImage(data: data) else {
+                    // Download failed — show text title as fallback
+                    DispatchQueue.main.async {
+                        guard let self,
+                              self.currentIndex < self.items.count,
+                              self.items[self.currentIndex].id == itemID else { return }
+                        UIView.animate(withDuration: 0.3) {
+                            self.titleLabel.isHidden = false
+                        }
+                    }
+                    return
+                }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
                     self?.showClearlogo(image, forItemID: itemID)
@@ -486,31 +687,153 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
     }
 
-    private func updateBadges(for item: AnimeItem) {
+    private func updateBadges(for item: AnimeItem, customColor: UIColor) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        var texts: [String] = []
-        // full-banner.svelte: of(current) ?? duration(current) ?? 'N/A', format, status, score
-        if let eps = item.episodes, eps > 0 { texts.append("\(eps) eps") }
-        if let fmt = item.format { texts.append(fmt.capitalized) }
-        if let st = item.status {
-            switch st {
-            case "RELEASING": texts.append("Airing")
-            case "FINISHED": texts.append("Finished")
-            case "NOT_YET_RELEASED": texts.append("Upcoming")
-            default: texts.append(st.replacingOccurrences(of: "_", with: " ").capitalized)
-            }
+
+        // Prepare badge data: (text, textColor, filterType, filterValue, filterValue2)
+        // Web: of(current) ?? duration(current) ?? 'N/A', format, status, season?, score?
+        // filterType: nil = not tappable, "format"/"status"/"season"/"score" = tappable
+        var badges: [(String, UIColor, String?, String?, String?)] = []
+
+        // First badge: episode count or duration or 'N/A' — not tappable (web: plain div, no Button)
+        if let eps = item.episodes, eps > 1 {
+            badges.append(("\(eps) Episodes", customColor, nil, nil, nil))
+        } else if let dur = item.duration, dur > 0 {
+            badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor, nil, nil, nil))
+        } else {
+            badges.append(("N/A", customColor, nil, nil, nil))
         }
-        if let score = item.score, score > 0 { texts.append(String(format: "%.0f%%", score)) }
-        for text in texts.prefix(4) {
+
+        // Format badge: FORMAT_MAP matching web — tappable
+        if let fmt = item.format {
+            let fmtMap: [String: String] = [
+                "TV": "TV Series", "TV_SHORT": "TV Short", "MOVIE": "Movie",
+                "SPECIAL": "Special", "OVA": "OVA", "ONA": "ONA", "MUSIC": "Music"]
+            badges.append((fmtMap[fmt] ?? fmt.capitalized, customColor, "format", fmt, nil))
+        }
+
+        // Status badge: STATUS_MAP matching web — tappable
+        if let st = item.status {
+            let stMap: [String: String] = [
+                "RELEASING": "Releasing", "FINISHED": "Finished",
+                "NOT_YET_RELEASED": "Not Yet Released",
+                "CANCELLED": "Cancelled", "HIATUS": "Hiatus"]
+            badges.append((stMap[st] ?? st.capitalized, customColor, "status", st, nil))
+        }
+
+        // Season badge (if available) — tappable, passes season + year
+        if let season = item.season, let year = item.year {
+            badges.append(("\(season.capitalized) \(year)", customColor, "season", season, String(year)))
+        }
+
+        // Score badge: color-coded text per getTextColorForRating — tappable (sorts by SCORE_DESC)
+        if let score = item.score, score > 0 {
+            let scoreColor: UIColor
+            if score >= 75 {
+                scoreColor = UIColor(red: 21/255.0, green: 128/255.0, blue: 61/255.0, alpha: 1) // text-green-700
+            } else if score >= 65 {
+                scoreColor = UIColor(red: 251/255.0, green: 146/255.0, blue: 60/255.0, alpha: 1) // text-orange-400
+            } else {
+                scoreColor = UIColor(red: 239/255.0, green: 68/255.0, blue: 68/255.0, alpha: 1) // text-red-500
+            }
+            badges.append((String(format: "%.0f%%", score), scoreColor, "score", "SCORE_DESC", nil))
+        }
+
+        for (text, textColor, filterType, filterValue, filterValue2) in badges {
+            // Web: rounded px-3.5 h-7 text-sm !text-custom bg-primary/10 font-bold inline-flex items-center
+            let pill = UIView()
+            pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
+            pill.layer.cornerRadius = 4  // rounded = 0.25rem = 4pt
+            pill.clipsToBounds = true
+            pill.translatesAutoresizingMaskIntoConstraints = false
+
             let l = UILabel()
-            l.text = "  \(text)  "
-            l.font = .nunito(ofSize: 11, weight: .bold)
-            // bg-primary/10 in dark = white/10%
-            l.backgroundColor = UIColor.white.withAlphaComponent(0.10)
-            l.textColor = .white
-            l.layer.cornerRadius = 4
-            l.clipsToBounds = true
-            badgeStack.addArrangedSubview(l)
+            l.text = text
+            l.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
+            l.textColor = textColor
+            l.translatesAutoresizingMaskIntoConstraints = false
+            pill.addSubview(l)
+
+            NSLayoutConstraint.activate([
+                pill.heightAnchor.constraint(equalToConstant: 28), // h-7 = 1.75rem = 28pt
+                l.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14), // px-3.5 = 0.875rem = 14pt
+                l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
+                l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            ])
+            // Make tappable badges respond to taps (format, status, season, score)
+            if let filterType = filterType, let filterValue = filterValue {
+                pill.isUserInteractionEnabled = true
+                let tap = BadgeTapGesture(target: self, action: #selector(badgePillTapped(_:)))
+                tap.filterType = filterType
+                tap.filterValue = filterValue
+                tap.filterValue2 = filterValue2
+                pill.addGestureRecognizer(tap)
+            }
+            badgeStack.addArrangedSubview(pill)
+        }
+    }
+
+    /// Custom UITapGestureRecognizer that carries badge filter metadata.
+    private class BadgeTapGesture: UITapGestureRecognizer {
+        var filterType: String = ""
+        var filterValue: String = ""
+        var filterValue2: String?
+    }
+
+    @objc private func badgePillTapped(_ gesture: BadgeTapGesture) {
+        onBadgeTapped?(gesture.filterType, gesture.filterValue, gesture.filterValue2)
+    }
+
+    /// Custom UITapGestureRecognizer that carries genre name.
+    private class GenreTapGesture: UITapGestureRecognizer {
+        var genre: String = ""
+    }
+
+    @objc private func genrePillTapped(_ gesture: GenreTapGesture) {
+        onGenreTapped?(gesture.genre)
+    }
+
+    /// Populates the genre pill buttons on iPad (web: hidden lg:flex, right column of banner).
+    /// Each pill matches web: variant='ghost' !text-custom bg-primary/10 h-7 font-bold rounded
+    private func updateGenres(for item: AnimeItem, customColor: UIColor) {
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        guard traitCollection.horizontalSizeClass == .regular else {
+            genresStack.isHidden = true
+            return
+        }
+        let genres = item.genres.prefix(5)
+        guard !genres.isEmpty else {
+            genresStack.isHidden = true
+            return
+        }
+        genresStack.isHidden = false
+        for genre in genres {
+            // Web: variant='ghost' !text-custom h-7 text-nowrap bg-primary/10 font-bold rounded
+            let pill = UIView()
+            pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
+            pill.layer.cornerRadius = 4  // rounded = 4pt
+            pill.clipsToBounds = true
+            pill.translatesAutoresizingMaskIntoConstraints = false
+
+            let l = UILabel()
+            l.text = genre
+            l.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
+            l.textColor = customColor  // !text-custom — cover color
+            l.translatesAutoresizingMaskIntoConstraints = false
+            pill.addSubview(l)
+
+            NSLayoutConstraint.activate([
+                pill.heightAnchor.constraint(equalToConstant: 28), // h-7 = 28pt
+                l.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14), // px-3.5
+                l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
+                l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            ])
+            // Make genre pill tappable — navigates to search with genre filter
+            pill.isUserInteractionEnabled = true
+            let tap = GenreTapGesture(target: self, action: #selector(genrePillTapped(_:)))
+            tap.genre = genre
+            pill.addGestureRecognizer(tap)
+            genresStack.addArrangedSubview(pill)
         }
     }
 
@@ -693,7 +1016,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.transform = .identity
             return
         }
-        let scale = 1.0 + overscroll / FeaturedBannerCell.bannerHeight
+        let scale = 1.0 + overscroll / bounds.height
         // Scale up from center-top so the bottom stays anchored and the image grows upward
         let yShift = -overscroll / 2.0
         backgroundImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
@@ -852,6 +1175,112 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }
 }
 
+// MARK: - SkeletonBannerCell
+// Matches Hayase's banner/skeleton-banner.svelte:
+// Full-height cell with placeholder bars at bottom-left (pl-5 pb-5 justify-end flex-col)
+// All bars: bg-primary/5 animate-pulse rounded
+
+private final class SkeletonBannerCell: UICollectionViewCell {
+    static let reuseID = "SkeletonBannerCell"
+
+    private var shimmerViews: [UIView] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        // Web skeleton-banner.svelte layout (bottom-aligned, left-padded):
+        // h-6 w-[500px]        – title bar
+        // h-1.5 w-[250px] my-5 – spacer
+        // h-2.5 w-[450px] mb-2 – description line 1
+        // h-2.5 w-[350px] mb-2 – description line 2
+        // h-2.5 w-[300px] mb-2 – description line 3
+        // h-2.5 w-[250px] mb-2 – description line 4
+        // h-1.5 w-[150px] my-3 – spacer
+        // h-6 w-[160px] mb-4   – button placeholder
+
+        let bars: [(height: CGFloat, width: CGFloat)] = [
+            (24, 500),   // title: h-6 = 24pt, w-[500px] (capped by parent)
+            (6, 250),    // spacer: h-1.5 = 6pt
+            (10, 450),   // desc 1: h-2.5 = 10pt
+            (10, 350),   // desc 2
+            (10, 300),   // desc 3
+            (10, 250),   // desc 4
+            (6, 150),    // spacer: h-1.5 = 6pt
+            (24, 160),   // button: h-6 = 24pt
+        ]
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        for (i, bar) in bars.enumerated() {
+            let container = UIView()
+            container.backgroundColor = .black
+            container.layer.cornerRadius = 4
+            container.clipsToBounds = true
+
+            let shimmer = UIView()
+            shimmer.backgroundColor = UIColor.white.withAlphaComponent(0.05) // bg-primary/5
+            shimmer.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(shimmer)
+
+            container.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(container)
+            NSLayoutConstraint.activate([
+                container.heightAnchor.constraint(equalToConstant: bar.height),
+                container.widthAnchor.constraint(equalToConstant: bar.width),
+                shimmer.topAnchor.constraint(equalTo: container.topAnchor),
+                shimmer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                shimmer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                shimmer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+
+            shimmerViews.append(shimmer)
+
+            // Spacing after each bar to match web CSS margins
+            // Web: title(mb-1) → spacer1(my-5) → desc lines(mb-2) → spacer2(my-3) → button(mb-4)
+            switch i {
+            case 0: stack.setCustomSpacing(24, after: container) // title mb-1(4) + spacer my-5 top(20) = 24
+            case 1: stack.setCustomSpacing(20, after: container) // spacer my-5 bottom = 20
+            case 2, 3, 4: stack.setCustomSpacing(8, after: container) // desc lines mb-2 = 8
+            case 5: stack.setCustomSpacing(20, after: container) // desc4 mb-2(8) + spacer2 my-3 top(12) = 20
+            case 6: stack.setCustomSpacing(12, after: container) // spacer2 my-3 bottom = 12
+            default: break // button: mb-4 + trailing empty div mb-3 = bottom padding
+            }
+        }
+
+        // Pin stack to bottom-left with pl-5 (20pt) pb-5 (20pt) padding
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
+        ])
+
+        startPulse()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func startPulse() {
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.05
+        pulse.toValue = 0.12
+        pulse.duration = 1.0
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        shimmerViews.forEach { $0.layer.add(pulse, forKey: "pulse") }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+    }
+}
+
 // MARK: - SectionHeaderView
 // Matches Hayase home page: font-semibold text-lg text-muted-foreground + "View More" text-xs
 
@@ -862,17 +1291,19 @@ private final class SectionHeaderView: UICollectionReusableView {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        // Hayase: font-semibold text-lg leading-none
+        // Web: font-semibold text-lg leading-none text-muted-foreground
+        // text-lg = 1.125rem = 18pt, --muted-foreground dark: hsl(240 5% 64.9%) ≈ #a3a3ab
         l.font = .nunito(ofSize: 18, weight: .semibold)
-        l.textColor = UIColor(white: 0.65, alpha: 1) // text-muted-foreground dark
+        l.textColor = UIColor(red: 163/255.0, green: 163/255.0, blue: 171/255.0, alpha: 1) // hsl(240 5% 64.9%)
         return l
     }()
 
     private lazy var viewMoreButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("View More", for: .normal)
-        b.titleLabel?.font = .nunito(ofSize: 12) // text-xs
-        b.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
+        // Web: ml-auto text-xs = 0.75rem = 12pt
+        b.titleLabel?.font = .nunito(ofSize: 12)
+        b.setTitleColor(UIColor(red: 163/255.0, green: 163/255.0, blue: 171/255.0, alpha: 1), for: .normal)
         b.addTarget(self, action: #selector(viewMoreTapped), for: .touchUpInside)
         return b
     }()
@@ -992,6 +1423,20 @@ class BrowseAnimeViewController: UIViewController {
         })
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.horizontalSizeClass != previousTraitCollection?.horizontalSizeClass else { return }
+        // Update banner cell layout for new size class
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        if let bannerCell = collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell {
+            bannerCell.applyLayoutForSizeClass(isRegular: isRegular)
+        }
+        // Refresh the home layout (banner height changes between iPhone 70% and iPad 80%)
+        if !isSearching {
+            collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
+        }
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         // With contentInsetAdjustmentBehavior = .never, manually account for the tab bar
@@ -1013,7 +1458,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
-        collectionView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark: hsl(240,10%,3.9%)
+        collectionView.backgroundColor = hayasePageBackground // --background: hsl(240 10% 3.9%) = #09090b
         // .never so the banner extends behind the status bar — matching Hayase's
         // `position:absolute; top:0; left:0; h-[80vh]` banner image on home
         collectionView.contentInsetAdjustmentBehavior = .never
@@ -1029,6 +1474,8 @@ class BrowseAnimeViewController: UIViewController {
         // Skeleton shimmer cells (shown while home sections are loading)
         collectionView.register(SkeletonPosterCell.self,
                                 forCellWithReuseIdentifier: SkeletonPosterCell.reuseID)
+        collectionView.register(SkeletonBannerCell.self,
+                                forCellWithReuseIdentifier: SkeletonBannerCell.reuseID)
         // Section headers (sections 1..n when home)
         collectionView.register(SectionHeaderView.self,
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -1045,6 +1492,9 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeHomeLayout() -> UICollectionViewLayout {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let viewH = view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height
+        let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular, viewHeight: viewH)
         return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
             if sectionIndex == 0 {
                 // Featured hero banner — full-width, bannerHeight tall, no orthogonal scroll
@@ -1053,7 +1503,7 @@ class BrowseAnimeViewController: UIViewController {
                                       heightDimension: .fractionalHeight(1.0)))
                 let group = NSCollectionLayoutGroup.vertical(
                     layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                                      heightDimension: .absolute(FeaturedBannerCell.bannerHeight)),
+                                      heightDimension: .absolute(computedBannerHeight)),
                     subitems: [item])
                 let bannerSection = NSCollectionLayoutSection(group: group)
                 // Explicit .zero so no additional insets are added.
@@ -1066,19 +1516,24 @@ class BrowseAnimeViewController: UIViewController {
                 // No header supplementary for section 0
             }
             // Sections 1..n: horizontal-scroll poster rows (Hayase small.svelte card ratio)
+            // Web: each card has p-4 (16pt) all around. Card content is w-[9.5rem] (152pt).
+            // So each card's outer slot = 152 + 32 = 184pt. Gap between covers = 32pt.
+            let itemW = PosterLayout.width + 32  // 152 + 32 = 184pt total slot width
             let item = NSCollectionLayoutItem(
-                layoutSize: .init(widthDimension: .absolute(PosterLayout.width),
+                layoutSize: .init(widthDimension: .absolute(itemW),
                                   heightDimension: .absolute(PosterLayout.height)))
-            // 16pt trailing gap between cards (matches Hayase small.svelte p-4 outer padding)
-            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
+            // 32pt trailing inset: content renders in left 152pt, gap on right
+            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 32)
             let group = NSCollectionLayoutGroup.horizontal(
-                layoutSize: .init(widthDimension: .estimated(PosterLayout.width),
+                layoutSize: .init(widthDimension: .estimated(itemW),
                                   heightDimension: .absolute(PosterLayout.height)),
                 subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
             section.orthogonalScrollingBehavior = .continuous
-            // px-4 = 16pt leading, pt-5 top handled in header height, bottom 24pt breathing room
-            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 24, trailing: 0)
+            // Section leading = web first card's p-4 left (16pt)
+            // Section trailing = 0 (last card's 32pt trailing inset provides right padding)
+            // pb-5 = 20pt bottom (web scroll container -mb-5 pb-5)
+            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 20, trailing: 0)
             // Header: pt-5 (20pt top) + text-lg (18pt) + 10pt bottom = 48pt total
             let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
                                                     heightDimension: .absolute(48))
@@ -1386,6 +1841,10 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         // Skeleton mode: shimmer placeholders while sections load
         if isLoadingSections {
+            if indexPath.section == 0 {
+                return collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SkeletonBannerCell.reuseID, for: indexPath)
+            }
             return collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
         }
@@ -1416,6 +1875,16 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                         AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING")
                     }
                 }
+            }
+            // Wire badge taps → navigate to Search tab with the appropriate filter
+            cell.onBadgeTapped = { [weak self] filterType, value, value2 in
+                guard let self else { return }
+                self.navigateToSearch(filterType: filterType, value: value, value2: value2)
+            }
+            // Wire genre taps → navigate to Search tab with genre filter
+            cell.onGenreTapped = { [weak self] genre in
+                guard let self else { return }
+                self.navigateToSearch(genre: genre)
             }
             return cell
         }
@@ -1525,9 +1994,47 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             bannerCell.applyScrollFade(offsetY)
         }
     }
-}
 
-// MARK: - UISearchResultsUpdating
+    // MARK: - Navigate to Search with filters
+
+    /// Navigate to Search tab with a genre filter. Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
+    private func navigateToSearch(genre: String) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        searchVC.prefillSearchExtended(genre: genre)
+        tabBarController?.selectedIndex = 1
+    }
+
+    /// Navigate to Search tab with a badge filter. filterType: "format", "status", "season", "score"
+    private func navigateToSearch(filterType: String, value: String, value2: String?) {
+        guard let controllers = tabBarController?.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tabBarController?.selectedIndex = 1
+            return
+        }
+        switch filterType {
+        case "format":
+            searchVC.prefillSearchExtended(format: value)
+        case "status":
+            searchVC.prefillSearchExtended(status: value)
+        case "season":
+            let year = value2.flatMap { Int($0) }
+            searchVC.prefillSearchExtended(season: value, seasonYear: year)
+        case "score":
+            searchVC.prefillSearchExtended(sort: value)
+        default:
+            break
+        }
+        tabBarController?.selectedIndex = 1
+    }
+}
 
 extension BrowseAnimeViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
