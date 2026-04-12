@@ -8,7 +8,7 @@
 
 import Foundation
 
-// MARK: - AnimeThemes API Response
+// MARK: - Response
 
 struct AnimeThemesResponse: Codable {
     let anime: [AnimeThemesAnime]?

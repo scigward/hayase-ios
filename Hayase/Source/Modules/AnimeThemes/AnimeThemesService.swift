@@ -5,9 +5,6 @@
 //  AnimeThemes API client — fetches OP/ED themes from animethemes.moe.
 //  Mirrors: src/lib/modules/animethemes/index.ts
 //
-//  Provides theme lookup by AniList external ID with the exact same API
-//  query parameters and field selections as the web interface.
-//
 
 import Foundation
 
@@ -15,11 +12,9 @@ final class AnimeThemesService {
     static let shared = AnimeThemesService()
     private init() {}
 
-    /// Fetches anime themes (OP/ED) from animethemes.moe by AniList ID.
-    /// Mirrors `themes()` from animethemes/index.ts — uses exact same API
-    /// endpoint with identical field filters and includes.
+    // MARK: - Themes
+
     func themes(anilistID: Int, completion: @escaping (AnimeThemesResponse?) -> Void) {
-        // Exact query from interface: animethemes/index.ts themes()
         var components = URLComponents(string: "https://api.animethemes.moe/anime/")!
         components.percentEncodedQuery = [
             "fields%5Baudio%5D=id,basename,link,size",

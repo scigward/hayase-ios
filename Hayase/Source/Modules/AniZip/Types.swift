@@ -11,7 +11,7 @@ import Foundation
 // MARK: - Image
 
 struct AniZipImage: Codable {
-    let coverType: String?   // "Banner", "Poster", "Fanart", "Clearlogo"
+    let coverType: String?
     let url: String?
 }
 
