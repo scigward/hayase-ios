@@ -88,10 +88,17 @@ import LibTorrent
 /// ensuring continuous progress.
 ///
 /// ## Additional: MKV Metadata Pieces
-/// Head/tail pieces always get priority 7 + tight deadlines for MKV container
-/// metadata (SeekHead/Info/Tracks at head, Cues/seek-index at tail). This is
-/// specific to video streaming and has no WebTorrent equivalent — WebTorrent
-/// doesn't need container metadata pre-fetching because browsers handle this.
+/// Head pieces receive priority 7 + tight deadlines so the MKV SeekHead,
+/// Info (duration), and Tracks elements are available immediately when MPV
+/// opens the stream. Tail pieces receive priority 7 with NO deadlines —
+/// they download ahead of background pieces without triggering
+/// cancel_non_critical() at startup. Setting tight deadlines on tail pieces
+/// at startup caused severe streaming latency: combined head+tail deadline
+/// pieces (~12 simultaneously) took ~1.2 s to download at 5 MB/s, exceeding
+/// the ~500 ms deadline window and creating constant churn that delayed
+/// playback to ~700 MB downloaded. WebTorrent/torrent-piece never pre-marks
+/// tail pieces critical; only the 1–2-piece critical window at the current
+/// playback position carries tight deadlines.
 ///
 /// ## Seek Behavior
 /// On seek: all deadlines cleared atomically via `clearPieceDeadlines()`, old
@@ -656,17 +663,30 @@ final class TorrentStreamer {
         }
     }
 
-    /// Requests the last few pieces of the file with tight deadlines.
+    /// Requests the last few pieces of the file at elevated priority (7).
     /// MKV containers store their Cues (seek index) and subtitle track index
     /// near the end. Without these, MPV cannot seek to arbitrary positions
     /// and cannot discover subtitle tracks until the entire file is downloaded.
+    ///
+    /// NO deadlines are set here intentionally. Tight deadlines (≤360 ms)
+    /// would trigger libtorrent's cancel_non_critical() at startup — before
+    /// peers are fully connected — cancelling all in-flight forward downloads
+    /// and splitting bandwidth across head + tail deadline pieces at once.
+    /// With 4+ head + 8 tail = 12 simultaneous deadline pieces, combined
+    /// download time (~1.2 s at 5 MB/s) exceeds the deadline window and
+    /// causes constant churn that blocks initial playback.
+    ///
+    /// This mirrors WebTorrent's torrent-piece approach: only the playback-
+    /// critical window (1–2 pieces at the current position) ever carries
+    /// tight deadlines. Tail pieces use elevated priority so they download
+    /// ahead of background (priority 1) pieces without disrupting the
+    /// critical window. When the player actually seeks or MPV makes a Range
+    /// request to the tail, LocalStreamServer.applyPriorityBoost sets tight
+    /// deadlines reactively on exactly the pieces needed at that moment.
     private func requestTailPieces() {
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in tailStart...endPiece {
-            torrentHandle.setPiecePriority(piece, priority: 7) // top priority
-            let offset = Int32(piece - tailStart)
-            let deadline = criticalDeadlineBase + offset * criticalDeadlineStep
-            torrentHandle.setPieceDeadline(piece, deadline: deadline)
+            torrentHandle.setPiecePriority(piece, priority: 7)
         }
     }
 

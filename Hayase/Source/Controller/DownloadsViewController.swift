@@ -34,7 +34,7 @@ class DownloadsViewController: UIViewController {
 
     private let pageTitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 22, weight: .bold)
+        l.font = .nunito(ofSize: 22, weight: .bold)
         l.textColor = .label
         l.text = "Torrent Client"
         return l
@@ -42,7 +42,7 @@ class DownloadsViewController: UIViewController {
 
     private let pageSubtitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .regular)
+        l.font = .nunito(ofSize: 14, weight: .regular)
         l.textColor = .secondaryLabel
         l.text = "Monitor your torrents, and configure settings for your torrent client."
         l.numberOfLines = 0
@@ -67,7 +67,7 @@ class DownloadsViewController: UIViewController {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = .label
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail
@@ -76,7 +76,7 @@ class DownloadsViewController: UIViewController {
 
     private let statusBadge: TorrentPillBadge = {
         let l = TorrentPillBadge(horizontalPadding: 10, verticalPadding: 4)
-        l.font = .systemFont(ofSize: 12, weight: .bold)
+        l.font = .nunito(ofSize: 12, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
         return l
@@ -93,7 +93,7 @@ class DownloadsViewController: UIViewController {
 
     private let bigPercentLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = .label
         return l
     }()
@@ -138,7 +138,7 @@ class DownloadsViewController: UIViewController {
     private let filesSearchField: UITextField = {
         let tf = UITextField()
         tf.placeholder = "Search by File Name..."
-        tf.font = .systemFont(ofSize: 14)
+        tf.font = .nunito(ofSize: 14)
         tf.borderStyle = .none
         tf.backgroundColor = .secondarySystemBackground
         tf.layer.cornerRadius = 6
@@ -179,7 +179,7 @@ class DownloadsViewController: UIViewController {
     private let librarySearchField: UITextField = {
         let tf = UITextField()
         tf.placeholder = "Search by Torrent Name..."
-        tf.font = .systemFont(ofSize: 14)
+        tf.font = .nunito(ofSize: 14)
         tf.borderStyle = .none
         tf.backgroundColor = .secondarySystemBackground
         tf.layer.cornerRadius = 6
@@ -200,7 +200,7 @@ class DownloadsViewController: UIViewController {
     private var selectedLibraryHashes: Set<String> = []
     private let librarySelectionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13)
+        l.font = .nunito(ofSize: 13)
         l.textColor = .secondaryLabel
         l.text = "0 of 0 row(s) selected."
         l.textAlignment = .right
@@ -213,7 +213,7 @@ class DownloadsViewController: UIViewController {
         let l = UILabel()
         l.text = "No active downloads"
         l.textColor = .secondaryLabel
-        l.font = .systemFont(ofSize: 17)
+        l.font = .nunito(ofSize: 17)
         l.textAlignment = .center
         l.isHidden = true
         return l
@@ -441,7 +441,7 @@ class DownloadsViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setTitle(title, for: .normal)
         btn.contentHorizontalAlignment = .leading
-        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
         btn.layer.cornerRadius = 6
         btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         btn.tag = tag
@@ -792,7 +792,7 @@ class DownloadsViewController: UIViewController {
 
         let dlIcon = makeIcon("arrow.down.to.line", tint: .label, size: 20)
         let progressTitle = UILabel()
-        progressTitle.font = .systemFont(ofSize: 24, weight: .bold)
+        progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
         progressTitle.textColor = .label
 
@@ -868,7 +868,7 @@ class DownloadsViewController: UIViewController {
         let iconView = makeIcon("network", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Protocol Status"
-        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.font = .nunito(ofSize: 24, weight: .bold)
         title.textColor = .label
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
@@ -906,19 +906,19 @@ class DownloadsViewController: UIViewController {
 
         let headerLabel = UILabel()
         headerLabel.text = header
-        headerLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        headerLabel.font = .nunito(ofSize: 14, weight: .medium)
         headerLabel.textColor = .label
         col.addArrangedSubview(headerLabel)
 
         for (name, desc, dot) in rows {
             let nameLabel = UILabel()
             nameLabel.text = name
-            nameLabel.font = .systemFont(ofSize: 13, weight: .regular)
+            nameLabel.font = .nunito(ofSize: 13, weight: .regular)
             nameLabel.textColor = .label
 
             let descLabel = UILabel()
             descLabel.text = desc
-            descLabel.font = .systemFont(ofSize: 10, weight: .regular)
+            descLabel.font = .nunito(ofSize: 10, weight: .regular)
             descLabel.textColor = .secondaryLabel
             descLabel.numberOfLines = 2
 
@@ -1140,7 +1140,7 @@ class DownloadsViewController: UIViewController {
         let iconView = makeIcon(icon, tint: .label, size: 20)
         let titleLabel = UILabel()
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 24, weight: .bold)
         titleLabel.textColor = .label
 
         let titleRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -1173,7 +1173,7 @@ class DownloadsViewController: UIViewController {
         let iconView = makeIcon(item.icon, tint: item.color, size: 14)
         let titleLabel = UILabel()
         titleLabel.text = item.title
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.font = .nunito(ofSize: 13, weight: .medium)
         titleLabel.textColor = .secondaryLabel
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -1181,7 +1181,7 @@ class DownloadsViewController: UIViewController {
         topRow.spacing = 4
         topRow.alignment = .center
 
-        item.label.font = .systemFont(ofSize: 24, weight: .bold)
+        item.label.font = .nunito(ofSize: 24, weight: .bold)
         item.label.adjustsFontSizeToFitWidth = true
         item.label.minimumScaleFactor = 0.5
 
@@ -1204,7 +1204,7 @@ class DownloadsViewController: UIViewController {
 
         let titleLabel = UILabel()
         titleLabel.text = item.title
-        titleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        titleLabel.font = .nunito(ofSize: 12, weight: .regular)
         titleLabel.textColor = .secondaryLabel
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
@@ -1212,7 +1212,7 @@ class DownloadsViewController: UIViewController {
         topRow.spacing = 4
         topRow.alignment = .center
 
-        item.label.font = .systemFont(ofSize: 14, weight: .medium)
+        item.label.font = .nunito(ofSize: 14, weight: .medium)
         item.label.adjustsFontSizeToFitWidth = true
         item.label.minimumScaleFactor = 0.6
 
@@ -1249,12 +1249,12 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.textLabel?.text = "No files downloaded yet."
                 cell.textLabel?.textAlignment = .center
                 cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.textLabel?.font = .nunito(ofSize: 14)
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as! FileEntryTableCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
             guard indexPath.row < filteredFileEntries.count else { return cell }
             let entry = filteredFileEntries[indexPath.row]
             let isStreaming = selectedHandle?.snapshot.isSequential == true
@@ -1267,12 +1267,12 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.textLabel?.text = "No peers connected yet."
                 cell.textLabel?.textAlignment = .center
                 cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.textLabel?.font = .nunito(ofSize: 14)
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: PeerInfoCell.reuseID, for: indexPath) as! PeerInfoCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
             guard indexPath.row < peerInfos.count else { return cell }
             cell.configure(peer: peerInfos[indexPath.row])
             return cell
@@ -1282,12 +1282,12 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 cell.textLabel?.text = "No torrents downloaded yet."
                 cell.textLabel?.textAlignment = .center
                 cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .systemFont(ofSize: 14)
+                cell.textLabel?.font = .nunito(ofSize: 14)
                 cell.selectionStyle = .none
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as! LibraryColumnCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
             cell.configure(handle: entry.handle, entity: entry.entity)
@@ -1376,7 +1376,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         for (title, fixedWidth) in columns {
             let label = UILabel()
             label.text = title
-            label.font = .systemFont(ofSize: 12, weight: .medium)
+            label.font = .nunito(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabel
             if let w = fixedWidth {
                 label.widthAnchor.constraint(equalToConstant: w).isActive = true
@@ -1437,7 +1437,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             let btn = UIButton(type: .system)
             btn.tag = sortCol.rawValue
             btn.setTitle(displayTitle, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
+            btn.titleLabel?.font = .nunito(ofSize: 12, weight: .medium)
             btn.setTitleColor(isActive ? .label : .secondaryLabel, for: .normal)
             btn.contentHorizontalAlignment = .left
             btn.addTarget(self, action: #selector(fileColumnHeaderTapped(_:)), for: .touchUpInside)
@@ -1504,7 +1504,7 @@ final class FileEntryTableCell: UITableViewCell {
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = .label
         l.textAlignment = .left
         return l
@@ -1521,7 +1521,7 @@ final class FileEntryTableCell: UITableViewCell {
 
     private let progressLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
+        l.font = .nunito(ofSize: 10)
         l.textColor = .secondaryLabel
         l.textAlignment = .center
         return l
@@ -1529,7 +1529,7 @@ final class FileEntryTableCell: UITableViewCell {
 
     private let streamsLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = .label
         l.textAlignment = .left
         return l
@@ -1602,7 +1602,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     private let seriesLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = .label
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail
@@ -1613,7 +1613,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     private let episodeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = .secondaryLabel
         l.textAlignment = .left
         return l
@@ -1621,7 +1621,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     private let filesLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = .label
         l.textAlignment = .left
         return l
@@ -1629,7 +1629,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = .label
         l.textAlignment = .left
         return l
@@ -1637,7 +1637,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     private let statusLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12, weight: .medium)
+        l.font = .nunito(ofSize: 12, weight: .medium)
         l.textAlignment = .center
         l.layer.cornerRadius = 4
         l.clipsToBounds = true
@@ -1740,7 +1740,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let clientLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = .label
         l.lineBreakMode = .byTruncatingTail
         return l
@@ -1748,7 +1748,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let progressLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11)
+        l.font = .nunito(ofSize: 11)
         l.textColor = .label
         l.textAlignment = .left
         return l
@@ -1756,7 +1756,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let dlSpeedLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
+        l.font = .nunito(ofSize: 10)
         l.textColor = .label
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
@@ -1766,7 +1766,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let ulSpeedLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
+        l.font = .nunito(ofSize: 10)
         l.textColor = .label
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
@@ -1776,7 +1776,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let downloadedLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
+        l.font = .nunito(ofSize: 10)
         l.textColor = .label
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
@@ -1786,7 +1786,7 @@ final class PeerInfoCell: UITableViewCell {
 
     private let uploadedLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 10)
+        l.font = .nunito(ofSize: 10)
         l.textColor = .label
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true

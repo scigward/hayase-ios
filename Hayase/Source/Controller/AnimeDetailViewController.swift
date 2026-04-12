@@ -18,34 +18,49 @@ struct AniZipEpisode {
     let title: String       // English title, or "Episode N" fallback
     let overview: String
     let imageURL: String?
-    let airDate: String?
+    let airDate: Date?
     let runtime: Int        // minutes; 0 if unknown
     let rating: Double?     // from ani.zip "rating" field (e.g. "8.9256") — shown as ★ badge
     let isFiller: Bool      // from ani.zip "filler" field — yellow ring + Filler badge
 }
 
-// MARK: - EpisodeCell
-// Matches Hayase's EpisodesList.svelte exactly:
-// • bg-neutral-950 (#0a0a0a) card, rounded-md (8pt), max-h-28 (112pt)
-// • Image: left 50%, max-w-52 (208pt) — 16:9 aspect inside
-// • Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
-// • Title: font-bold text-[12.8px] — "{episode}. {title}"
-// • Progress: h-0.5 (2pt) bg-custom (blue approximation) when in progress
-// • Summary: text-[9.6px] text-muted-foreground (#a1a1aa)
-// • Airdate: text-[9.6px] pt-2
+// MARK: - PaddedLabel
+/// UILabel subclass that supports content edge insets (mirrors CSS padding).
+private final class PaddedLabel: UILabel {
+    var contentInsets = UIEdgeInsets.zero
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
+    }
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let s = super.sizeThatFits(size)
+        return CGSize(width: s.width + contentInsets.left + contentInsets.right,
+                      height: s.height + contentInsets.top + contentInsets.bottom)
+    }
+}
 
-private final class EpisodeCell: UITableViewCell {
-    static let reuseID = "AniDetailEpCell"
+// MARK: - Shared color constants
+// Page background: web --background: hsl(240 10% 3.9%) = #09090b
+// Card background: web bg-neutral-950 = #0a0a0a — but that's only 1/255 different from page bg,
+// invisible on OLED. We use #141414 to match the VISUAL contrast seen on LCD web displays.
+private let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
+private let hayaseCardBackground = UIColor(white: 20/255.0, alpha: 1) // #141414
 
-    // bg-neutral-950 = #0a0a0a
-    private let cardView: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(white: 0.039, alpha: 1) // neutral-950
-        v.layer.cornerRadius = 8  // rounded-md
-        v.clipsToBounds = true
-        return v
-    }()
+// MARK: - EpisodeCardView
+// Reusable card view extracted from EpisodeCell. Contains all the episode card content
+// (thumbnail, badges, labels, progress bar). Used by both EpisodeCell (single-column)
+// and EpisodePairCell (two-column iPad grid).
 
+private final class EpisodeCardView: UIView {
+
+    var onTap: ((Int) -> Void)?
+    private var episodeNumber: Int = 0
+
+    // Card background — uses #141414 for OLED visibility (web bg-neutral-950 is imperceptible on OLED)
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -54,92 +69,99 @@ private final class EpisodeCell: UITableViewCell {
         return iv
     }()
 
-    // Runtime badge: absolute bottom-left, bg-neutral-900/80, text-[9.6px]
-    private let runtimeBadge: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.98, alpha: 1) // text-secondary-foreground
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
-        l.clipsToBounds = true
-        l.isHidden = true
-        return l
-    }()
-
-    // Rating badge: absolute bottom-right of thumb, ★ + rating value
-    // Mirrors Hayase EpisodesList: <Star class='text-yellow-400' />  {rating}
-    private let ratingBadge: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
+    private let runtimeBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8) // bg-neutral-900/80
-        l.layer.cornerRadius = 3
-        l.clipsToBounds = true
-        l.isHidden = true
-        return l
-    }()
-
-    // Filler badge: absolute bottom-right of card content, bg-yellow-400, rounded-tl
-    // Mirrors Hayase: <div class='rounded-tl bg-yellow-400 absolute bottom-0 right-0'>Filler</div>
-    private let fillerBadge: UILabel = {
-        let l = UILabel()
-        l.text = "  Filler  "
-        l.font = .systemFont(ofSize: 9.6, weight: .bold)
-        l.textColor = UIColor(white: 0.04, alpha: 1)  // text-primary-foreground (dark)
-        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1) // yellow-400
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
         l.layer.cornerRadius = 4
-        l.layer.maskedCorners = [.layerMinXMinYCorner] // rounded-tl only
         l.clipsToBounds = true
         l.isHidden = true
         return l
     }()
 
-    // Title: font-bold text-[12.8px] line-clamp-1
+    private let ratingBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.98, alpha: 1)
+        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
+        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
+        l.layer.cornerRadius = 4
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+
+    private let fillerBadge: PaddedLabel = {
+        let l = PaddedLabel()
+        l.text = "Filler"
+        l.font = .nunito(ofSize: 9.6, weight: .bold)
+        l.textColor = UIColor(white: 0.04, alpha: 1)
+        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1)
+        l.contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        l.layer.cornerRadius = 4
+        l.layer.maskedCorners = [.layerMinXMinYCorner]
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+
     private let numberLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12.8, weight: .bold)
+        l.font = .nunito(ofSize: 12.8, weight: .bold)
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
 
-    // Progress bar: h-0.5 (2pt) bg-custom — shown when episode in progress
     private let progressBar: UIView = {
         let outer = UIView()
-        outer.backgroundColor = UIColor(white: 0.16, alpha: 1) // track = neutral-800
+        outer.backgroundColor = UIColor(white: 0.16, alpha: 1)
         return outer
     }()
     private let progressFill: UIView = {
         let v = UIView()
-        v.backgroundColor = .white   // approximates bg-custom (cover color)
+        v.backgroundColor = .white
         return v
     }()
     private var progressFillWidthConstraint: NSLayoutConstraint?
-    /// Stored fraction for deferred layout — updated in layoutSubviews once bounds are valid.
     private var savedProgressFraction: Double = 0
 
-    // Summary: text-[9.6px] text-muted-foreground
     private let overviewLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 3
         return l
     }()
 
-    // Airdate: text-[9.6px]
     private let metaLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0)
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = .white  // web: inherits text-secondary-foreground (white), same as episode title
         return l
+    }()
+
+    static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        f.dateTimeStyle = .numeric
+        f.locale = Locale(identifier: "en")
+        return f
     }()
 
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    // Constraints for toggling thumbnail visibility (web: {#if image} conditional rendering)
+    private var textLeadingToThumb: NSLayoutConstraint!
+    private var textLeadingToCard: NSLayoutConstraint!
+    private var thumbWidthPreferred: NSLayoutConstraint!
+    private var thumbMaxWidth: NSLayoutConstraint!
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         setup()
     }
 
@@ -149,20 +171,17 @@ private final class EpisodeCell: UITableViewCell {
     }
 
     private func setup() {
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(cardView)
+        backgroundColor = hayaseCardBackground
+        layer.cornerRadius = 6
+        clipsToBounds = true
 
         [thumbImageView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            cardView.addSubview($0)
+            addSubview($0)
         }
         fillerBadge.translatesAutoresizingMaskIntoConstraints = false
-        cardView.addSubview(fillerBadge)
+        addSubview(fillerBadge)
 
-        // Progress bar: thin 2pt line
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         progressFill.translatesAutoresizingMaskIntoConstraints = false
         progressBar.addSubview(progressFill)
@@ -174,71 +193,87 @@ private final class EpisodeCell: UITableViewCell {
             progressFill.leadingAnchor.constraint(equalTo: progressBar.leadingAnchor),
         ])
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, metaLabel])
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+        spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, metaLabel])
         textStack.axis = .vertical
         textStack.spacing = 4
+        textStack.setCustomSpacing(8, after: numberLabel)
         textStack.translatesAutoresizingMaskIntoConstraints = false
-        cardView.addSubview(textStack)
+        addSubview(textStack)
 
-        // Thumbnail width: w-1/2 (50%) up to max-w-52 (208pt) — prevents oversized thumbs on iPad.
-        let thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: cardView.widthAnchor, multiplier: 0.5)
-        thumbWidthPreferred.priority = .defaultHigh
-        let episodeThumbnailMaxWidth: CGFloat = 208  // Hayase EpisodesList.svelte: max-w-52 = 208pt
+        thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
+        thumbWidthPreferred.priority = UILayoutPriority(999)
+        let episodeThumbnailMaxWidth: CGFloat = 208
+        thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth)
+
+        // Two text-stack leading constraints: one anchored to thumb (with image),
+        // one anchored to card edge (no image). Web: {#if image} conditionally
+        // removes the thumbnail div entirely — text takes full width when no image.
+        textLeadingToThumb = textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16)
+        textLeadingToCard = textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16) // px-4
+        textLeadingToThumb.isActive = true   // default: thumb visible
+        textLeadingToCard.isActive = false
 
         NSLayoutConstraint.activate([
-            // Card: margin 6pt top/bottom, 16pt left/right
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-            // max-h-28 = 112pt — fixed height for consistent thumbnail sizes across all episode cards
-            cardView.heightAnchor.constraint(equalToConstant: 112),
+            heightAnchor.constraint(equalToConstant: 112),
 
-            // Thumbnail: left side, w-1/2 (50% — matches Hayase EpisodesList.svelte `w-1/2 shrink-0`),
-            // capped at max-w-52 (208pt) so it doesn't stretch across the full width on iPad.
-            thumbImageView.topAnchor.constraint(equalTo: cardView.topAnchor),
-            thumbImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
-            thumbImageView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            thumbImageView.topAnchor.constraint(equalTo: topAnchor),
+            thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             thumbWidthPreferred,
-            thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth),
+            thumbMaxWidth,
 
-            // Runtime badge: bottom-left of thumb
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Rating badge: bottom-right of thumb (Hayase: absolute bottom-1 right-1)
             ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
             ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
-            // Text stack: right of thumbnail, with 16pt padding
-            textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -8),
-            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -8),
+            textLeadingToThumb,
+            textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
-            // Progress bar height: h-0.5 = 2pt
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 
-            // Filler badge: absolute bottom-right of card (rounded-tl only — set via maskedCorners)
-            fillerBadge.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
-            fillerBadge.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            fillerBadge.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fillerBadge.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        addGestureRecognizer(tap)
     }
 
-    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0) {
+    @objc private func cardTapped() {
+        onTap?(episodeNumber)
+    }
+
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
+                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
+        episodeNumber = episode.number
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
 
-        // Dim episodes that have been watched on AniList (matches desktop's opacity treatment
-        // for completed episodes: reduced opacity on card)
-        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress
-        cardView.alpha = isWatchedOnAniList ? 0.5 : 1.0
+        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
+        thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
+        alpha = 1.0
 
-        // Progress bar (Hayase EpisodesList watchProgress indicator)
-        if anilistID > 0,
+        progressFill.backgroundColor = accentColor
+
+        let showFullBar = isWatchedOnAniList || isListCompleted
+        if showFullBar {
+            progressBar.backgroundColor = accentColor
+            progressBar.isHidden = false
+            savedProgressFraction = 1.0
+            setNeedsLayout()
+        } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
+            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
             progressBar.isHidden = false
             savedProgressFraction = saved.fraction
             setNeedsLayout()
@@ -248,30 +283,32 @@ private final class EpisodeCell: UITableViewCell {
         }
 
         if let date = episode.airDate {
-            metaLabel.text = date
+            metaLabel.text = EpisodeCardView.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
             metaLabel.isHidden = false
         } else {
             metaLabel.isHidden = true
         }
 
         if episode.runtime > 0 {
-            runtimeBadge.text = " \(episode.runtime)m "
+            runtimeBadge.text = "\(episode.runtime)m"
             runtimeBadge.isHidden = false
         } else {
             runtimeBadge.isHidden = true
         }
 
-        // Rating badge: ★ icon (yellow) + rating value — Hayase EpisodesList.svelte
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
-            let padded = NSMutableAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 9.6)])
-            padded.append(NSAttributedString(string: "★ ", attributes: [
-                .foregroundColor: UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), // yellow-400
-                .font: UIFont.systemFont(ofSize: 9.6)
-            ]))
-            padded.append(NSAttributedString(string: "\(ratingStr) ", attributes: [
+            let starAttachment = NSTextAttachment()
+            let starCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular)
+            if let starImg = UIImage(systemName: "star.fill", withConfiguration: starCfg)?
+                .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
+                starAttachment.image = starImg
+                starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)
+            }
+            let padded = NSMutableAttributedString(attachment: starAttachment)
+            padded.append(NSAttributedString(string: " \(ratingStr)", attributes: [
                 .foregroundColor: UIColor(white: 0.98, alpha: 1),
-                .font: UIFont.systemFont(ofSize: 9.6)
+                .font: UIFont.nunito(ofSize: 9.6)
             ]))
             ratingBadge.attributedText = padded
             ratingBadge.isHidden = false
@@ -279,15 +316,18 @@ private final class EpisodeCell: UITableViewCell {
             ratingBadge.isHidden = true
         }
 
-        // Filler: yellow ring (ring-yellow-400 ring-1) + "Filler" badge
-        // Mirrors Hayase: filler && '!ring-yellow-400 ring-1' on card + <div class='rounded-tl bg-yellow-400'>Filler</div>
+        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
         if episode.isFiller {
-            cardView.layer.borderWidth = 1
-            cardView.layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor // yellow-400
+            layer.borderWidth = 1
+            layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor
             fillerBadge.isHidden = false
+        } else if isTarget {
+            layer.borderWidth = 1
+            layer.borderColor = accentColor.cgColor
+            fillerBadge.isHidden = true
         } else {
-            cardView.layer.borderWidth = 0
-            cardView.layer.borderColor = UIColor.clear.cgColor
+            layer.borderWidth = 0
+            layer.borderColor = UIColor.clear.cgColor
             fillerBadge.isHidden = true
         }
 
@@ -295,6 +335,17 @@ private final class EpisodeCell: UITableViewCell {
         thumbImageView.image = nil
         imageTask?.cancel()
         imageTask = nil
+
+        // Web: {#if image} — only render thumbnail div when image URL exists.
+        // When no image, hide the thumbnail area entirely and let text take full width.
+        let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
+        thumbImageView.isHidden = !hasImage
+        runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
+        ratingBadge.isHidden = !hasImage || episode.rating == nil
+        thumbWidthPreferred.isActive = hasImage
+        thumbMaxWidth.isActive = hasImage
+        textLeadingToThumb.isActive = hasImage
+        textLeadingToCard.isActive = !hasImage
 
         if let urlStr = episode.imageURL, let url = URL(string: urlStr) {
             let captured = urlStr
@@ -314,39 +365,461 @@ private final class EpisodeCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Update progress fill width once bounds are known (avoids async timing issue)
         guard !progressBar.isHidden, progressBar.bounds.width > 0 else { return }
         progressFillWidthConstraint?.constant = progressBar.bounds.width * CGFloat(savedProgressFraction)
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
+    func reset() {
         imageTask?.cancel()
         imageTask = nil
         currentImageURL = nil
         thumbImageView.image = nil
+        thumbImageView.isHidden = false
+        // Restore default thumb-visible layout
+        thumbWidthPreferred.isActive = true
+        thumbMaxWidth.isActive = true
+        textLeadingToThumb.isActive = true
+        textLeadingToCard.isActive = false
         numberLabel.text = nil
         overviewLabel.text = nil
         metaLabel.text = nil
         runtimeBadge.isHidden = true
         ratingBadge.isHidden = true
         fillerBadge.isHidden = true
-        cardView.layer.borderWidth = 0
-        cardView.layer.borderColor = UIColor.clear.cgColor
-        cardView.alpha = 1.0
+        layer.borderWidth = 0
+        layer.borderColor = UIColor.clear.cgColor
+        alpha = 1.0
+        thumbImageView.alpha = 1.0
         progressBar.isHidden = true
+        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
+        episodeNumber = 0
+        onTap = nil
+    }
+}
+
+// MARK: - EpisodeCell
+// Single-column episode cell wrapping an EpisodeCardView.
+
+private final class EpisodeCell: UITableViewCell {
+    static let reuseID = "AniDetailEpCell"
+
+    let cardView = EpisodeCardView()
+    private var cardLeadingConstraint: NSLayoutConstraint?
+    private var cardTrailingConstraint: NSLayoutConstraint?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(cardView)
+
+        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            cardLeadingConstraint!,
+            cardTrailingConstraint!,
+        ])
+    }
+
+    func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
+                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
+        cardView.configure(with: episode, anilistID: anilistID, anilistProgress: anilistProgress,
+                           accentColor: accentColor, isListCompleted: isListCompleted)
+    }
+
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        let sidePad: CGFloat = isRegular ? 68 : 12
+        cardLeadingConstraint?.constant = sidePad
+        cardTrailingConstraint?.constant = -sidePad
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        cardView.reset()
+    }
+}
+
+// MARK: - EpisodePairCell
+// Two-column episode cell for iPad landscape. Each row contains up to 2 EpisodeCardViews
+// in a horizontal stack, matching the web grid: grid-cols-[repeat(auto-fit,minmax(500px,1fr))]
+// with gap-x-4 (16pt) and px-3 (12pt) card wrappers.
+
+private final class EpisodePairCell: UITableViewCell {
+    static let reuseID = "EpisodePairCell"
+
+    let leftCard = EpisodeCardView()
+    let rightCard = EpisodeCardView()
+    var onTapEpisode: ((Int) -> Void)?
+
+    private let stack = UIStackView()
+    private let leftContainer = UIView()
+    private let rightContainer = UIView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 16 // gap-x-4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        leftCard.translatesAutoresizingMaskIntoConstraints = false
+        rightCard.translatesAutoresizingMaskIntoConstraints = false
+
+        leftContainer.addSubview(leftCard)
+        rightContainer.addSubview(rightCard)
+        stack.addArrangedSubview(leftContainer)
+        stack.addArrangedSubview(rightContainer)
+        contentView.addSubview(stack)
+
+        // 56pt leading/trailing (xl:px-14), 14pt top/bottom (gap-y-7 / 2)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            // Each card has px-3 (12pt) inset within its container
+            leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
+            leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
+            leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12),
+            leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12),
+            rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
+            rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
+            rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12),
+            rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12),
+        ])
+    }
+
+    func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
+                   accentColor: UIColor, isListCompleted: Bool) {
+        leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
+                           accentColor: accentColor, isListCompleted: isListCompleted)
+        leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
+
+        if let right = right {
+            rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
+                                accentColor: accentColor, isListCompleted: isListCompleted)
+            rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
+            rightContainer.isHidden = false
+        } else {
+            rightCard.reset()
+            rightContainer.isHidden = true
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        leftCard.reset()
+        rightCard.reset()
+        rightContainer.isHidden = false
+        onTapEpisode = nil
+    }
+}
+
+// MARK: - PaginationBarView
+// Matches Hayase's Pagination.svelte + EpisodesList.svelte pagination bar exactly:
+// • "Showing X to Y of Z episodes" label (desktop-only on web, always shown here)
+// • Chevron left/right buttons (ghost variant)
+// • Numbered page buttons with ellipsis (outline for active, ghost for others)
+// • siblingCount = 1, edgeSize = 4
+
+private final class PaginationBarView: UIView {
+
+    var onPageChange: ((Int) -> Void)?
+
+    private(set) var currentPage: Int = 1
+    private(set) var totalPages: Int = 1
+    private var totalCount: Int = 0
+    private var perPage: Int = 16
+
+    private let infoLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 13)
+        l.textColor = UIColor(white: 0.63, alpha: 1) // text-muted-foreground
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let prevButton: UIButton = {
+        let b = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        b.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        b.tintColor = .white
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return b
+    }()
+
+    private let nextButton: UIButton = {
+        let b = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        b.setImage(UIImage(systemName: "chevron.right", withConfiguration: config), for: .normal)
+        b.tintColor = .white
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return b
+    }()
+
+    private let pageStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 2
+        sv.alignment = .center
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    private let controlsStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 2
+        sv.alignment = .center
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    /// Stored leading/trailing constraints for adaptive iPad padding.
+    private var infoLeadingConstraint: NSLayoutConstraint?
+    private var controlsTrailingConstraint: NSLayoutConstraint?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+
+        prevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
+        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+
+        controlsStack.addArrangedSubview(prevButton)
+        controlsStack.addArrangedSubview(pageStack)
+        controlsStack.addArrangedSubview(nextButton)
+
+        addSubview(infoLabel)
+        addSubview(controlsStack)
+
+        infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+
+        NSLayoutConstraint.activate([
+            infoLeadingConstraint!,
+            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            controlsTrailingConstraint!,
+            controlsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            controlsStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
+            controlsStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+        ])
+    }
+
+    /// Updates horizontal padding to match the content area for the current size class.
+    /// iPhone: 16pt; iPad: xl:px-14 (56pt) to align with episode cards.
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        let sidePad: CGFloat = isRegular ? 56 : 16
+        infoLeadingConstraint?.constant = sidePad
+        controlsTrailingConstraint?.constant = -sidePad
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(currentPage: Int, totalCount: Int, perPage: Int) {
+        self.currentPage = currentPage
+        self.totalCount = totalCount
+        self.perPage = perPage
+        self.totalPages = max(1, Int(ceil(Double(totalCount) / Double(perPage))))
+        rebuild()
+    }
+
+    // MARK: - Pagination algorithm (matches Pagination.svelte)
+
+    private struct PageItem {
+        let page: Int
+        let isEllipsis: Bool
+    }
+
+    private func computePages() -> [PageItem] {
+        let siblingCount = 1
+        let edgeSize = 4 * siblingCount
+        let tp = totalPages
+
+        let startPage = max(1, tp - currentPage < edgeSize ? tp - edgeSize : currentPage - siblingCount)
+        let endPage = min(tp, currentPage < edgeSize ? 1 + edgeSize : currentPage + siblingCount)
+
+        var items: [PageItem] = []
+
+        if startPage > 1 {
+            items.append(PageItem(page: 1, isEllipsis: false))
+            if startPage > 2 {
+                items.append(PageItem(page: startPage - 1, isEllipsis: true))
+            }
+        }
+
+        for i in startPage...endPage {
+            items.append(PageItem(page: i, isEllipsis: false))
+        }
+
+        if endPage < tp {
+            if endPage < tp - 1 {
+                items.append(PageItem(page: endPage + 1, isEllipsis: true))
+            }
+            items.append(PageItem(page: tp, isEllipsis: false))
+        }
+
+        return items
+    }
+
+    private func rebuild() {
+        // Update info label: "Showing X to Y of Z episodes"
+        let rangeStart = (currentPage - 1) * perPage
+        let rangeEnd = min(currentPage * perPage, totalCount)
+        let boldAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.nunito(ofSize: 13, weight: .bold),
+            .foregroundColor: UIColor(white: 0.63, alpha: 1)
+        ]
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.nunito(ofSize: 13),
+            .foregroundColor: UIColor(white: 0.63, alpha: 1)
+        ]
+        let str = NSMutableAttributedString()
+        str.append(NSAttributedString(string: "Showing ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(rangeStart + 1)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " to ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(rangeEnd)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " of ", attributes: normalAttrs))
+        str.append(NSAttributedString(string: "\(totalCount)", attributes: boldAttrs))
+        str.append(NSAttributedString(string: " episodes", attributes: normalAttrs))
+        infoLabel.attributedText = str
+
+        // Update buttons
+        prevButton.isEnabled = currentPage > 1
+        prevButton.alpha = currentPage > 1 ? 1.0 : 0.35
+        nextButton.isEnabled = currentPage < totalPages
+        nextButton.alpha = currentPage < totalPages ? 1.0 : 0.35
+
+        // Rebuild page number buttons
+        pageStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let pages = computePages()
+        for item in pages {
+            if item.isEllipsis {
+                let label = UILabel()
+                label.text = "..."
+                label.font = .nunito(ofSize: 13)
+                label.textColor = UIColor(white: 0.63, alpha: 1)
+                label.textAlignment = .center
+                label.widthAnchor.constraint(equalToConstant: 36).isActive = true
+                label.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                pageStack.addArrangedSubview(label)
+            } else {
+                let btn = UIButton(type: .system)
+                btn.setTitle("\(item.page)", for: .normal)
+                btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+                btn.tag = item.page
+                btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
+                btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                btn.layer.cornerRadius = 6
+                btn.clipsToBounds = true
+                btn.addTarget(self, action: #selector(pageTapped(_:)), for: .touchUpInside)
+
+                if item.page == currentPage {
+                    // variant='outline' — border with transparent bg
+                    btn.layer.borderWidth = 1
+                    btn.layer.borderColor = UIColor(white: 0.27, alpha: 1).cgColor // border color
+                    btn.setTitleColor(.white, for: .normal)
+                    btn.backgroundColor = .clear
+                } else {
+                    // variant='ghost'
+                    btn.layer.borderWidth = 0
+                    btn.setTitleColor(UIColor(white: 0.63, alpha: 1), for: .normal)
+                    btn.backgroundColor = .clear
+                }
+
+                pageStack.addArrangedSubview(btn)
+            }
+        }
+
+        // On narrow screens (iPhone), hide page numbers, show info in center
+        // Web hides page numbers on mobile and shows info text between chevrons
+        let isNarrow = (superview?.frame.width ?? UIScreen.main.bounds.width) < 600
+        pageStack.isHidden = isNarrow
+        infoLabel.isHidden = isNarrow
+
+        // On narrow: insert info label between chevrons if not already
+        if isNarrow {
+            // Add a compact info label in the controls stack
+            if controlsStack.arrangedSubviews.count == 3 {
+                let compactInfo = UILabel()
+                compactInfo.font = .nunito(ofSize: 13)
+                compactInfo.textColor = UIColor(white: 0.63, alpha: 1)
+                compactInfo.textAlignment = .center
+                compactInfo.attributedText = str
+                compactInfo.tag = 999
+                compactInfo.translatesAutoresizingMaskIntoConstraints = false
+                controlsStack.insertArrangedSubview(compactInfo, at: 2) // between pageStack and nextButton
+            } else if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) as? UILabel {
+                compact.attributedText = str
+            }
+        } else {
+            // Remove compact info if switching to wide
+            if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) {
+                controlsStack.removeArrangedSubview(compact)
+                compact.removeFromSuperview()
+            }
+        }
+    }
+
+    @objc private func prevTapped() {
+        guard currentPage > 1 else { return }
+        onPageChange?(currentPage - 1)
+    }
+
+    @objc private func nextTapped() {
+        guard currentPage < totalPages else { return }
+        onPageChange?(currentPage + 1)
+    }
+
+    @objc private func pageTapped(_ sender: UIButton) {
+        let page = sender.tag
+        guard page >= 1, page <= totalPages, page != currentPage else { return }
+        onPageChange?(page)
     }
 }
 
 // MARK: - HorizontalCardsCell
 // A UITableViewCell containing a horizontal UICollectionView.
-// tag 100 → Relations, tag 200 → Characters, tag 300 → Staff.
+// tag 100 → Relations, tag 300 → Staff.
 
 private final class HorizontalCardsCell: UITableViewCell {
     static let relationsReuseID  = "HorizontalRelationsCell"
-    static let charactersReuseID = "HorizontalCharactersCell"
     static let staffReuseID      = "HorizontalStaffCell"
 
     let collectionView: UICollectionView
@@ -374,6 +847,15 @@ private final class HorizontalCardsCell: UITableViewCell {
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Updates collection view section insets to match the content area padding.
+    /// iPhone: 16pt; iPad: xl:px-14 (56pt) to align with header content.
+    func applyPaddingForSizeClass(isRegular: Bool) {
+        if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
+            let sidePad: CGFloat = isRegular ? 56 : 16
+            layout.sectionInset = UIEdgeInsets(top: 0, left: sidePad, bottom: 0, right: sidePad)
+        }
+    }
 }
 
 // MARK: - RelationCardCell
@@ -392,7 +874,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -400,7 +882,7 @@ private final class RelationCardCell: UICollectionViewCell {
 
     private let typeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
+        l.font = .nunito(ofSize: 8, weight: .medium)
         l.textColor = .white
         l.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.85)
         l.layer.cornerRadius = 3
@@ -470,94 +952,6 @@ private final class RelationCardCell: UICollectionViewCell {
     }
 }
 
-// MARK: - CharacterCardCell
-
-private final class CharacterCardCell: UICollectionViewCell {
-    static let reuseID = "CharacterCardCell"
-
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
-        iv.layer.cornerRadius = 6
-        return iv
-    }()
-
-    private let nameLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
-        l.textColor = .label
-        l.numberOfLines = 2
-        return l
-    }()
-
-    private let roleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 8, weight: .medium)
-        l.textColor = .secondaryLabel
-        l.numberOfLines = 1
-        return l
-    }()
-
-    private var imageTask: URLSessionDataTask?
-    private var currentURL: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        let stack = UIStackView(arrangedSubviews: [nameLabel, roleLabel])
-        stack.axis = .vertical
-        stack.spacing = 2
-        [imageView, stack].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 1.35),
-
-            stack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 4),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(with character: AnimeCharacter) {
-        nameLabel.text = character.name
-        roleLabel.text = character.role.capitalized
-        loadImage(from: character.imageURL)
-    }
-
-    private func loadImage(from urlString: String?) {
-        imageTask?.cancel(); imageTask = nil
-        currentURL = urlString
-        imageView.image = nil
-        guard let urlString = urlString, let url = URL(string: urlString) else { return }
-        let captured = urlString
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                if self?.currentURL == captured {
-                    UIView.transition(with: self?.imageView ?? UIImageView(),
-                                      duration: 0.2, options: .transitionCrossDissolve,
-                                      animations: { self?.imageView.image = img })
-                }
-            }
-        }
-        imageTask?.resume()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageTask?.cancel(); imageTask = nil; currentURL = nil
-        imageView.image = nil; nameLabel.text = nil; roleLabel.text = nil
-    }
-}
-
 // MARK: - StaffCardCell (anime/[id]/staff.svelte)
 
 private final class StaffCardCell: UICollectionViewCell {
@@ -574,7 +968,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9, weight: .semibold)
+        l.font = .nunito(ofSize: 9, weight: .semibold)
         l.textColor = .label
         l.numberOfLines = 2
         return l
@@ -582,7 +976,7 @@ private final class StaffCardCell: UICollectionViewCell {
 
     private let roleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 8)
+        l.font = .nunito(ofSize: 8)
         l.textColor = .secondaryLabel
         l.numberOfLines = 1
         return l
@@ -676,7 +1070,7 @@ private final class ScoreBarChartView: UIView {
             bar.translatesAutoresizingMaskIntoConstraints = false
             let lbl = UILabel()
             lbl.text = "\(point.score)"
-            lbl.font = .systemFont(ofSize: 7)
+            lbl.font = .nunito(ofSize: 7)
             lbl.textColor = .tertiaryLabel
             lbl.textAlignment = .center
             lbl.translatesAutoresizingMaskIntoConstraints = false
@@ -713,7 +1107,7 @@ private final class StatsCell: UITableViewCell {
     private func makeTitle(_ text: String) -> UILabel {
         let l = UILabel()
         l.text = text
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.font = .nunito(ofSize: 14, weight: .semibold)
         l.textColor = .label
         return l
     }
@@ -750,7 +1144,7 @@ private final class StatsCell: UITableViewCell {
             let name = status.status.replacingOccurrences(of: "_", with: " ").capitalized
             let nameLabel = UILabel()
             nameLabel.text = name
-            nameLabel.font = .systemFont(ofSize: 11)
+            nameLabel.font = .nunito(ofSize: 11)
             nameLabel.textColor = .label
             nameLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
             let progress = UIProgressView(progressViewStyle: .default)
@@ -759,7 +1153,7 @@ private final class StatsCell: UITableViewCell {
             progress.trackTintColor = .systemGray5
             let countLabel = UILabel()
             countLabel.text = "\(status.amount)"
-            countLabel.font = .systemFont(ofSize: 11)
+            countLabel.font = .nunito(ofSize: 11)
             countLabel.textColor = .secondaryLabel
             countLabel.textAlignment = .right
             countLabel.widthAnchor.constraint(equalToConstant: 52).isActive = true
@@ -799,6 +1193,76 @@ private final class StatsCell: UITableViewCell {
 //   --muted-foreground: hsl(240 5% 64.9%) = #a1a1aa
 //   --secondary:        hsl(240 3.7% 15.9%) = #27272a
 
+// MARK: - ChipWrapView
+// Used on iPad (regular horizontal size class) to replicate the web's
+// `md:flex-wrap md:justify-start` genre layout — chips wrap to new rows
+// when they exceed the container width.  On iPhone the existing horizontal
+// scroll view is used instead.
+private final class ChipWrapView: UIView {
+    let interItemSpacing: CGFloat = 8
+    let lineSpacing: CGFloat = 8
+    let chipHeight: CGFloat = 28
+
+    private var chipWidths: [CGFloat] = []
+
+    func setChips(_ newChips: [UIView]) {
+        subviews.forEach { $0.removeFromSuperview() }
+        chipWidths = newChips.map { widthForChip($0) }
+        newChips.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+            addSubview($0)
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    private func widthForChip(_ chip: UIView) -> CGFloat {
+        if let btn = chip as? UIButton {
+            let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
+            let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
+            let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            let hPad = btn.contentEdgeInsets.left + btn.contentEdgeInsets.right
+            return textW + (hPad > 0 ? hPad : 32)  // px-4 = 16pt each side
+        }
+        return chip.intrinsicContentSize.width
+    }
+
+    private func computeHeight(for width: CGFloat) -> CGFloat {
+        guard !chipWidths.isEmpty, width > 0 else { return chipWidths.isEmpty ? 0 : chipHeight }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for w in chipWidths {
+            if x > 0 && x + w > width { x = 0; y += chipHeight + lineSpacing }
+            x += w + interItemSpacing
+        }
+        return y + chipHeight
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let h = bounds.width > 0
+            ? computeHeight(for: bounds.width)
+            : (chipWidths.isEmpty ? 0 : chipHeight)
+        return CGSize(width: UIView.noIntrinsicMetric, height: max(h, chipWidths.isEmpty ? 0 : chipHeight))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let chips = subviews
+        guard !chips.isEmpty, bounds.width > 0 else { return }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for (i, chip) in chips.enumerated() {
+            let w = i < chipWidths.count ? chipWidths[i] : widthForChip(chip)
+            if x > 0 && x + w > bounds.width { x = 0; y += chipHeight + lineSpacing }
+            chip.frame = CGRect(x: x, y: y, width: w, height: chipHeight)
+            x += w + interItemSpacing
+        }
+        let newH = y + chipHeight
+        if abs(newH - intrinsicContentSize.height) > 0.5 {
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
+        }
+    }
+}
+
 private final class AnimeInfoHeaderView: UIView {
     // Callbacks
     var onShare: (() -> Void)?
@@ -807,10 +1271,44 @@ private final class AnimeInfoHeaderView: UIView {
     var onEntryEditor: (() -> Void)?
     var onFavorite: (() -> Void)?
     var onBookmark: (() -> Void)?
+    var onOpenAniList: (() -> Void)?
+    var onOpenMAL: (() -> Void)?
+    /// Callback for genre chip tap — passes genre name for search navigation.
+    var onGenreTapped: ((String) -> Void)?
+    /// Callback for badge pill tap — passes filter type and value for search navigation.
+    var onBadgeTapped: ((String, String) -> Void)?
+
+    /// Accent colour from the current anime's coverImage — used to tint active fav/bookmark icons.
+    /// Mirrors Hayase's `select:!text-custom` on FavoriteButton / BookmarkButton.
+    private var storedAccentColor: UIColor = .white
 
     private var anilistId: Int?
+    /// MAL ID — populated from AniList's `idMal` field. Used for the MAL button link on iPad.
+    fileprivate var malId: Int?
     /// The banner URL currently displayed (fanart > AniList banner > cover).
     private(set) var displayedBannerURL: String?
+
+    // MARK: - Stored layout references for iPad/iPhone switching
+    private var coverAndTextColumn: UIStackView!
+    private var textColumn: UIStackView!
+    private var actionsRow: UIStackView!
+    private var contentStack: UIStackView!
+    private var playCombo: UIStackView!
+
+    /// Width limiter for content on wide screens — matches web max-w-[1600px]
+    private var contentMaxWidthConstraint: NSLayoutConstraint?
+    /// Content top offset switches between compact (-200) and regular (-260) to match web md:pt-32
+    private var contentTopConstraint: NSLayoutConstraint?
+
+    /// Flexible spacer added to the trailing end of actionsRow on iPad.
+    /// Absorbs extra horizontal space so buttons pack to the left (web: md:justify-start).
+    private let actionsTrailingSpacer: UIView = {
+        let v = UIView()
+        // Lowest possible hugging — this view stretches before anything else.
+        v.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
+        v.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
+        return v
+    }()
 
     // MARK: - Color constants matching Hayase dark theme
     private static let mutedFg      = UIColor(white: 0.649, alpha: 1.0) // --muted-foreground
@@ -837,7 +1335,7 @@ private final class AnimeInfoHeaderView: UIView {
         let v = UIView()
         v.isUserInteractionEnabled = false
         let gradient = CAGradientLayer()
-        let bgColor = UIColor(white: 0.04, alpha: 1)   // --background dark, same as app bg
+        let bgColor = hayasePageBackground
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor, // top edge
             UIColor.black.withAlphaComponent(0.16).cgColor, // ~25% — center of radial (light)
@@ -856,7 +1354,7 @@ private final class AnimeInfoHeaderView: UIView {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
-        iv.layer.cornerRadius = 6   // rounded = 0.375rem ≈ 6pt
+        iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
         return iv
     }()
 
@@ -864,7 +1362,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h2: font-light text-muted-foreground text-base (mobile) line-clamp-1 — ABOVE h1
     private let romajiLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .light)  // text-base = 16px on mobile
+        l.font = .nunito(ofSize: 16, weight: .light)  // text-base = 16px on mobile
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 1
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -876,7 +1374,7 @@ private final class AnimeInfoHeaderView: UIView {
     // h1: font-black text-3xl text-white line-clamp-2
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 30, weight: .black)
+        l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
         // Resist vertical compression above autoresizing-mask priority (750)
@@ -885,11 +1383,12 @@ private final class AnimeInfoHeaderView: UIView {
         return l
     }()
 
-    // Badges row — bg-primary/10 pills. horizontal stack (scrollable)
+    // Badges row — bg-custom pills. horizontal stack (scrollable)
+    // Web: gap-2 (8pt) between badges
     private let badgesStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 6
+        sv.spacing = 8  // gap-2
         sv.alignment = .center
         return sv
     }()
@@ -903,7 +1402,7 @@ private final class AnimeInfoHeaderView: UIView {
     // Description: font-light text-sm text-muted-foreground line-clamp-4
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .light)
+        l.font = .nunito(ofSize: 14, weight: .light)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 4
         return l
@@ -915,13 +1414,22 @@ private final class AnimeInfoHeaderView: UIView {
     // AniList/MAL buttons: hidden md:flex (desktop only — hidden on iOS)
 
     // Play button: bg-custom text-contrast, rounded-r-none (right side is EntryEditor)
+    // Web: PlayButton size='default' → font-bold, Play fill icon (0.8rem ≈ 13pt), mr-2 (8pt) gap, text-sm (14px)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setTitle("▶  Watch Now", for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setTitle("Watch Now", for: .normal)
         b.tintColor = .black
+        b.setTitleColor(.black, for: .normal)
         b.backgroundColor = .white
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
-        b.layer.cornerRadius = 8
+        b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)  // text-sm = 14px
+        // Web: px-4 (16pt) horizontal padding + 4pt compensation for icon/title edge inset shifts
+        b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
+        // mr-2 (8pt) spacing between icon and text
+        b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner] // rounded-r-none
         b.layer.masksToBounds = true
         return b
@@ -931,10 +1439,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Matches Hayase EntryEditor.svelte trigger: rounded-l-none bg-custom-400 select:!bg-custom-700
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "pencil.line"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "pencil.line")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1) // lighter variant of accent (custom-400)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // rounded-l-none
         b.layer.masksToBounds = true
         return b
@@ -944,10 +1453,11 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <FavoriteButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "heart"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "heart")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
@@ -956,34 +1466,93 @@ private final class AnimeInfoHeaderView: UIView {
     // Hayase: <BookmarkButton {media} variant='secondary' size='icon' class='select:!text-custom' />
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "bookmark"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary #27272a
-        b.layer.cornerRadius = 8  // rounded-md
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
 
     // Share button: variant='secondary' size='icon', hidden min-[380px]:flex
+    // TransitionButton: shows Share2 (Lucide) normally, flashes a checkmark briefly after tap.
+    // arrowshape.turn.up.right is the closest SF Symbol to Lucide's Share2 fork icon.
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        b.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         return b
     }()
 
     // Trailer button: hidden min-[380px]:flex (shown only when trailer available)
     private let trailerButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "film"), for: .normal)
-        b.tintColor = .white
+        let b = UIButton(type: .custom)
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        // Use UIButton(type: .custom) + alwaysOriginal to avoid tintColor rendering issues
+        // that affect .system buttons which start as isHidden = true.
+        let iconName = "clapperboard.fill"  // available iOS 16+; "film" used as safe fallback
+        let symName: String
+        if #available(iOS 16.0, *) {
+            symName = iconName
+        } else {
+            symName = "film"
+        }
+        let img = UIImage(systemName: symName, withConfiguration: iconCfg)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        b.setImage(img, for: .normal)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        b.layer.cornerRadius = 8
+        b.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
         b.layer.masksToBounds = true
         b.isHidden = true
+        return b
+    }()
+
+    // AniList button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    // Uses the same AniListIconView from TrackerIcons (matching the accounts tab in settings)
+    private let anilistButton: UIButton = {
+        let b = UIButton(type: .custom)
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 6
+        b.layer.masksToBounds = true
+        b.isHidden = true  // hidden on mobile, shown on iPad
+        // Add AniListIconView as a centered subview
+        let icon = AniListIconView(frame: .zero)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
+        b.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
+        ])
+        return b
+    }()
+
+    // MAL button: hidden md:flex — shown only on iPad (regular horizontal size class)
+    // Uses the same MALIconView from TrackerIcons (matching the accounts tab in settings)
+    private let malButton: UIButton = {
+        let b = UIButton(type: .custom)
+        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.layer.cornerRadius = 6
+        b.layer.masksToBounds = true
+        b.isHidden = true  // hidden on mobile, shown on iPad when MAL ID available
+        // Add MALIconView as a centered subview
+        let icon = MALIconView(frame: .zero)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
+        b.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.centerXAnchor.constraint(equalTo: b.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: b.centerYAnchor),
+        ])
         return b
     }()
 
@@ -1002,8 +1571,13 @@ private final class AnimeInfoHeaderView: UIView {
         return sv
     }()
 
-    // Genres container — holds genresScrollView centered; hidden when no genres
+    // Genres container — holds either genresScrollView (compact) or chipWrapView (regular)
     private let genresContainer = UIView()
+    // ChipWrapView: used on iPad (regular horizontal size class) — wraps chips across rows
+    private let chipWrapView = ChipWrapView()
+    // Constraints toggled by applyGenresLayout() — created once in setup()
+    private var genresContainerHeightConstraint: NSLayoutConstraint?
+    private var chipWrapBottomConstraint: NSLayoutConstraint?
 
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
@@ -1021,21 +1595,12 @@ private final class AnimeInfoHeaderView: UIView {
     }
 
     // MARK: - Layout
-    // Matches Hayase +layout.svelte mobile layout exactly:
-    // • flex-col items-center (vertical, centered)
-    // • Cover 180×256 on top
-    // • Text centered below: romaji (h2), title (h1)
-    // • Badges: hidden on mobile (hidden md:flex)
-    // • Description: hidden on mobile (md:block hidden)
-    // • Buttons: Bookmark → Favorite → [Play + EntryEditor] → Share → Trailer
-    // • Genres centered
+    // Matches Hayase +layout.svelte layout:
+    // • iPhone (compact): flex-col items-center (vertical, centered), badges/description hidden
+    // • iPad (regular): flex-row items-end (cover left, text right), badges/description visible
 
     private func setup() {
-        backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
-
-        // Badges & description HIDDEN on mobile — Hayase: hidden md:flex / md:block hidden
-        badgesScrollView.isHidden = true
-        descriptionLabel.isHidden = true
+        backgroundColor = hayasePageBackground
 
         // Genres scrollview (centered on mobile)
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1049,62 +1614,76 @@ private final class AnimeInfoHeaderView: UIView {
             genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
         ])
 
-        // Text labels: centered on mobile (Hayase: text-center md:text-start)
-        romajiLabel.textAlignment = .center
-        titleLabel.textAlignment = .center
+        // Badges inside scrollview
+        badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
+        badgesStack.translatesAutoresizingMaskIntoConstraints = false
+        badgesScrollView.addSubview(badgesStack)
+        NSLayoutConstraint.activate([
+            badgesStack.topAnchor.constraint(equalTo: badgesScrollView.topAnchor),
+            badgesStack.bottomAnchor.constraint(equalTo: badgesScrollView.bottomAnchor),
+            badgesStack.leadingAnchor.constraint(equalTo: badgesScrollView.leadingAnchor),
+            badgesStack.trailingAnchor.constraint(equalTo: badgesScrollView.trailingAnchor),
+            badgesStack.heightAnchor.constraint(equalTo: badgesScrollView.heightAnchor),
+        ])
 
-        // Text column: [romajiLabel, titleLabel] — gap-1.5 (6pt)
-        // Hayase: flex flex-col gap-1.5 text-center
-        let textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel])
+        // Text column: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel]
+        // Badges and description are hidden on iPhone (hidden md:flex / md:block hidden)
+        textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel])
         textColumn.axis = .vertical
-        textColumn.spacing = 6
-        textColumn.alignment = .fill  // fill so labels can center their text
+        textColumn.spacing = 6   // gap-1.5
+        textColumn.alignment = .fill
 
-        // Cover + text: VERTICAL on mobile (Hayase: flex-col items-center)
-        // gap-4 (16pt) between items in the text section, gap-5 (20pt) between cover and text
-        let coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
+        // Cover + text
+        coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
         coverAndTextColumn.axis = .vertical
-        coverAndTextColumn.spacing = 16  // gap-4 (items-center flex-col gap-4)
-        coverAndTextColumn.alignment = .center  // items-center
+        coverAndTextColumn.spacing = 16
+        coverAndTextColumn.alignment = .center
 
-        // Action buttons: Hayase mobile order (≥380px):
-        // BookmarkButton(-order-2) → FavoriteButton(-order-1) → [Play + EntryEditor] → Share → Trailer
+        // Action buttons
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         entryEditorButton.addTarget(self, action: #selector(entryEditorTapped), for: .touchUpInside)
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
+        anilistButton.addTarget(self, action: #selector(anilistTapped), for: .touchUpInside)
+        malButton.addTarget(self, action: #selector(malTapped), for: .touchUpInside)
 
-        // Play + EntryEditor combo (Hayase: flex w-[180px], play rounded-r-none + editor rounded-l-none)
-        let playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
+        // Play + EntryEditor combo
+        playCombo = UIStackView(arrangedSubviews: [playButton, entryEditorButton])
         playCombo.axis = .horizontal
-        playCombo.spacing = 0  // flush — play rounded-r-none, editor rounded-l-none
+        playCombo.spacing = 0
         playCombo.alignment = .fill
+        playCombo.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        playCombo.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        // Hayase mobile: gap-2 (8pt), items-center, justify-center, overflow-x-clip, [&>*]:flex-shrink-0
-        let actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton])
+        // Actions row — initial mobile order; applyLayoutForSizeClass() reorders for iPad
+        actionsRow = UIStackView(arrangedSubviews: [bookmarkButton, favoriteButton, playCombo, shareButton, trailerButton, anilistButton, malButton])
         actionsRow.axis = .horizontal
         actionsRow.spacing = 8  // gap-2
         actionsRow.alignment = .fill
 
-        // Genres: gap-2, items-center, justify-center (centered on mobile)
-        // Wrap genres scroll in centered container
+        // Genres container
         genresContainer.addSubview(genresScrollView)
+        chipWrapView.translatesAutoresizingMaskIntoConstraints = false
+        genresContainer.addSubview(chipWrapView)
         NSLayoutConstraint.activate([
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
-            genresScrollView.widthAnchor.constraint(lessThanOrEqualTo: genresContainer.widthAnchor),
+            genresScrollView.widthAnchor.constraint(equalTo: genresContainer.widthAnchor),
+            chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
+            chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
+            chipWrapView.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
         ])
+        genresContainerHeightConstraint = genresContainer.heightAnchor.constraint(equalToConstant: 28)
+        chipWrapBottomConstraint = chipWrapView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor)
 
-        // Main content: [coverAndTextColumn, actionsRow, genresContainer]
-        // Hayase: gap-6 (24pt) between major sections, px-3 (12pt) horizontal padding
-        let contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
+        // Main content stack
+        contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
         contentStack.axis = .vertical
         contentStack.spacing = 24  // gap-6
         contentStack.isLayoutMarginsRelativeArrangement = true
-        // Hayase: px-3 (12pt) horizontal padding, pt-4 (16pt) top, pb-0 bottom (tabBarContainer has own padding)
         contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
 
         [bannerImageView, bannerGradientView, contentStack].forEach {
@@ -1125,7 +1704,7 @@ private final class AnimeInfoHeaderView: UIView {
             bannerGradientView.trailingAnchor.constraint(equalTo: bannerImageView.trailingAnchor),
             bannerGradientView.bottomAnchor.constraint(equalTo: bannerImageView.bottomAnchor),
 
-            // Cover: w-[180px] h-[256px] — exact Hayase dimensions
+            // Cover: w-[180px] h-[256px]
             coverImageView.widthAnchor.constraint(equalToConstant: 180),
             coverImageView.heightAnchor.constraint(equalToConstant: 256),
 
@@ -1136,30 +1715,222 @@ private final class AnimeInfoHeaderView: UIView {
             entryEditorButton.widthAnchor.constraint(equalToConstant: 36),
             shareButton.widthAnchor.constraint(equalToConstant: 36),
             trailerButton.widthAnchor.constraint(equalToConstant: 36),
+            anilistButton.widthAnchor.constraint(equalToConstant: 36),
+            malButton.widthAnchor.constraint(equalToConstant: 36),
 
-            // Play combo: w-[180px] on ≥380px screens (Hayase: min-[380px]:w-[180px])
-            playCombo.widthAnchor.constraint(equalToConstant: 180),
+            // Play combo: max width 180pt, flex-shrinks on narrow screens
+            playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
 
-            // Genres scrollview height = 28pt (h-7)
-            genresContainer.heightAnchor.constraint(equalToConstant: 28),
+            // Badges scroll view: h-6 (24pt)
+            badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
+        ])
 
-            // Hayase: text column has w-full so it fills the parent width even
-            // though the parent (coverAndTextColumn) uses items-center (.center).
-            // Without this, textColumn takes its intrinsic width (the text's
-            // natural width), which may exceed the screen width for long titles.
-            // The label then computes 1-line intrinsic height, the header is
-            // sized too short, and the title gets clipped.
-            textColumn.widthAnchor.constraint(equalTo: coverAndTextColumn.widthAnchor),
-
-            // Content stack: overlaps banner so cover image sits within banner area.
-            // Hayase: content starts at pt-4 + pt-12 = 64pt from scroll top, but on iOS we
-            // need clearance below the nav bar (~88pt). Overlap -200 puts content at 100pt
-            // from top, with 16pt margin → cover at 116pt (within the 300pt banner).
-            contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        // Content stack positioning — managed constraint for compact/regular switching
+        contentTopConstraint = contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200)
+        contentTopConstraint?.isActive = true
+        // Center horizontally and constrain max width to 1600pt (web: max-w-[1600px])
+        contentMaxWidthConstraint = contentStack.widthAnchor.constraint(lessThanOrEqualToConstant: 1600)
+        contentMaxWidthConstraint?.isActive = true
+        // Prefer full width; breaks only when max-width takes over
+        let fullWidth = contentStack.widthAnchor.constraint(equalTo: widthAnchor)
+        fullWidth.priority = .defaultHigh  // breaks when maxWidth constraint activates
+        fullWidth.isActive = true
+        NSLayoutConstraint.activate([
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        // textColumn width must match parent for proper label wrapping.
+        // On compact (vertical), it matches coverAndTextColumn width.
+        // On regular (horizontal), textColumn fills remaining space via .fill alignment.
+        textColumnWidthConstraint = textColumn.widthAnchor.constraint(equalTo: coverAndTextColumn.widthAnchor)
+        textColumnWidthConstraint?.isActive = true
+
+        // Apply initial layout based on current trait collection
+        applyLayoutForSizeClass()
+    }
+
+    /// Constraint toggled between compact/regular — only active on compact (vertical) layout.
+    private var textColumnWidthConstraint: NSLayoutConstraint?
+
+    // MARK: - Adaptive layout (iPhone compact vs iPad regular)
+
+    /// Switches the entire header layout between compact (iPhone) and regular (iPad) mode.
+    /// Compact: cover on top, text centered below, badges/description hidden, mobile button order.
+    /// Regular: cover on left, text right (bottom-aligned), badges/description visible, desktop button order.
+    /// Matches web +layout.svelte: all responsive classes (md:*, xl:*).
+    private func applyLayoutForSizeClass() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+
+        // --- Content top offset ---
+        // Web: pt-4 (16pt) on mobile, md:pt-32 (128pt) on desktop.
+        // The content overlaps into the banner. On desktop the overlap is deeper.
+        contentTopConstraint?.constant = isRegular ? -260 : -200
+
+        // --- Genres layout ---
+        genresScrollView.isHidden = isRegular
+        chipWrapView.isHidden = !isRegular
+        genresContainerHeightConstraint?.isActive = !isRegular
+        chipWrapBottomConstraint?.isActive = isRegular
+
+        // --- Cover + text axis ---
+        // Web: flex-col md:flex-row w-full items-center md:items-end gap-5 pt-12
+        if isRegular {
+            coverAndTextColumn.axis = .horizontal
+            coverAndTextColumn.spacing = 20  // gap-5
+            coverAndTextColumn.alignment = .bottom  // md:items-end
+        } else {
+            coverAndTextColumn.axis = .vertical
+            coverAndTextColumn.spacing = 16  // gap-4 (via items-center flex-col)
+            coverAndTextColumn.alignment = .center  // items-center
+        }
+
+        // --- Text column alignment & spacing ---
+        // Web: flex flex-col gap-1.5 text-center md:text-start w-full
+        // The inner text div has w-full, so children fill the container width.
+        // UIKit equivalent: .fill alignment + textAlignment for visual alignment.
+        if isRegular {
+            textColumn.alignment = .fill  // w-full — labels fill available width; textAlignment handles left-alignment
+            textColumn.spacing = 6  // gap-1.5 (inner)
+            // md:pt-1 (4pt) before badges, md:pt-2 (8pt) before description
+            textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
+            textColumn.setCustomSpacing(14, after: badgesScrollView) // gap-1.5 + md:pt-2
+        } else {
+            textColumn.alignment = .fill  // items-center (labels center their text)
+            textColumn.spacing = 6
+            textColumn.setCustomSpacing(6, after: titleLabel)
+            textColumn.setCustomSpacing(6, after: badgesScrollView)
+        }
+
+        // --- Text alignment ---
+        // Web: text-center md:text-start
+        romajiLabel.textAlignment = isRegular ? .left : .center
+        titleLabel.textAlignment = isRegular ? .left : .center
+        descriptionLabel.textAlignment = isRegular ? .left : .center
+
+        // --- Font sizes ---
+        // Web: text-base md:text-lg (romaji), text-3xl md:text-4xl (title)
+        // Web: text-sm md:text-md (description), text-base (badges on desktop)
+        romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
+        titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
+        descriptionLabel.font = isRegular ? .nunito(ofSize: 16, weight: .light) : .nunito(ofSize: 14, weight: .light)
+
+        // --- Badges & description visibility ---
+        // Web: hidden md:flex / md:block hidden
+        badgesScrollView.isHidden = !isRegular
+        descriptionLabel.isHidden = !isRegular
+
+        // --- textColumn width constraint ---
+        // On compact, textColumn.width == coverAndTextColumn.width (needed for label wrapping with .center alignment).
+        // On regular, coverAndTextColumn uses .fill alignment inside horizontal axis, so disable the constraint.
+        textColumnWidthConstraint?.isActive = !isRegular
+
+        // --- Content stack padding ---
+        // Web: px-3 (12pt) on mobile, xl:px-14 (56pt) on desktop
+        let hPad: CGFloat = isRegular ? 56 : 12
+        contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
+
+        // --- Action button order ---
+        // Remove spacer from superview first (removeArrangedSubview doesn't remove from superview)
+        actionsTrailingSpacer.removeFromSuperview()
+        for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
+
+        if isRegular {
+            // Desktop order: PlayCombo (md:mr-3) → Favorite → Bookmark → Share → Trailer → AniList → MAL → Spacer
+            // Web: md:justify-start md:self-start — spacer absorbs trailing space
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            actionsRow.addArrangedSubview(actionsTrailingSpacer)
+            // Web: md:mr-3 (12pt extra right margin) on play combo
+            actionsRow.setCustomSpacing(20, after: playCombo) // 8 (gap-2) + 12 (md:mr-3)
+            // Show AniList/MAL on iPad (hidden md:flex)
+            anilistButton.isHidden = false
+            malButton.isHidden = (malId == nil)
+        } else {
+            // Mobile order (≥380px): Bookmark(-order-2) → Favorite(-order-1) → PlayCombo → Share → Trailer
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            anilistButton.isHidden = true
+            malButton.isHidden = true
+        }
+
+        // --- Banner gradient ---
+        // Web mobile: radial-gradient(75% 65% at 50% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // Web desktop: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
+        // We approximate with CAGradientLayer — on desktop shift the center-point right (59% vs 50%)
+        if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
+            let bgColor = hayasePageBackground
+            if isRegular {
+                // Desktop radial-gradient emulation: less darkening at top-right, more at bottom/edges
+                gradientLayer.type = .radial
+                gradientLayer.startPoint = CGPoint(x: 0.59, y: 0.35) // radial center offset right
+                gradientLayer.endPoint = CGPoint(x: 1.35, y: 1.0)    // ellipse extent
+                gradientLayer.colors = [
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    bgColor.cgColor,
+                ]
+                gradientLayer.locations = [0.0, 0.31, 1.0]
+            } else {
+                // Mobile: linear top-to-bottom (approximates radial at 50%)
+                gradientLayer.type = .axial
+                gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+                gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+                gradientLayer.colors = [
+                    UIColor.black.withAlphaComponent(0.40).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.16).cgColor,
+                    UIColor.black.withAlphaComponent(0.50).cgColor,
+                    bgColor.cgColor,
+                ]
+                gradientLayer.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
+            }
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        let currentSC = traitCollection.horizontalSizeClass
+        if previousTraitCollection?.horizontalSizeClass != currentSC {
+            lastAppliedSizeClass = currentSC
+            applyLayoutForSizeClass()
+            // Force an immediate layout pass so the parent table view cell
+            // picks up the new intrinsic height on the next measurement.
+            setNeedsLayout()
+            layoutIfNeeded()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    /// Tracks which size class the layout was last configured for.
+    /// Prevents redundant calls to applyLayoutForSizeClass() while ensuring
+    /// the layout is always applied at least once after the view enters the window.
+    private var lastAppliedSizeClass: UIUserInterfaceSizeClass?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // When the view first enters a window, traitCollection becomes valid.
+        // Re-apply layout in case setup() ran with .unspecified size class.
+        if window != nil {
+            let currentSC = traitCollection.horizontalSizeClass
+            if lastAppliedSizeClass != currentSC {
+                lastAppliedSizeClass = currentSC
+                applyLayoutForSizeClass()
+                setNeedsLayout()
+                layoutIfNeeded()
+                invalidateIntrinsicContentSize()
+            }
+        }
     }
 
     override func layoutSubviews() {
@@ -1169,59 +1940,105 @@ private final class AnimeInfoHeaderView: UIView {
             gradientLayer.frame = bannerGradientView.bounds
         }
 
-        // Tell multi-line labels the maximum width they may use when
-        // computing their intrinsic content size.  This is needed because
-        // coverAndTextColumn uses .center alignment, which does not impose
-        // a width on arranged subviews the way .fill does.  The explicit
-        // textColumn width constraint handles the *layout*, but
-        // preferredMaxLayoutWidth is what UILabel reads when Auto Layout
-        // calls intrinsicContentSize — without it the label can still
-        // report a single-line height.
-        let maxW = bounds.width - 24   // contentStack 12-pt left + right margins
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let hPad: CGFloat = isRegular ? 56 : 12  // xl:px-14 = 56pt on desktop
+        // Content width limited by max-w-[1600px] on iPad
+        let effectiveWidth = isRegular ? min(bounds.width, 1600) : bounds.width
+        let maxW: CGFloat
+        if isRegular {
+            // On iPad with horizontal layout, the text column occupies the space
+            // to the right of the cover (180pt + spacing 20pt).
+            maxW = effectiveWidth - 2 * hPad - 180 - 20
+        } else {
+            maxW = effectiveWidth - 2 * hPad
+        }
         if maxW > 0 {
             titleLabel.preferredMaxLayoutWidth = maxW
             romajiLabel.preferredMaxLayoutWidth = maxW
+            descriptionLabel.preferredMaxLayoutWidth = maxW
         }
     }
 
-    /// Pre-set preferredMaxLayoutWidth on title/romaji labels so that
-    /// the constraint engine uses correct multi-line intrinsic heights
-    /// on the very first layout pass.  Without this, the labels start
-    /// with preferredMaxLayoutWidth = 0, which makes intrinsicContentSize
-    /// return a single-line height; the header is then measured too short
-    /// and the title text is clipped.
     func updateLabelWidths(forContainerWidth width: CGFloat) {
-        let maxW = width - 24   // contentStack 12-pt left + right margins
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let hPad: CGFloat = isRegular ? 56 : 12  // xl:px-14 = 56pt on desktop
+        let effectiveWidth = isRegular ? min(width, 1600) : width
+        let maxW: CGFloat
+        if isRegular {
+            maxW = effectiveWidth - 2 * hPad - 180 - 20
+        } else {
+            maxW = effectiveWidth - 2 * hPad
+        }
         guard maxW > 0 else { return }
         titleLabel.preferredMaxLayoutWidth = maxW
         romajiLabel.preferredMaxLayoutWidth = maxW
-        // Explicitly invalidate so the constraint engine picks up the
-        // updated intrinsic sizes during the next layout pass.
+        descriptionLabel.preferredMaxLayoutWidth = maxW
         titleLabel.invalidateIntrinsicContentSize()
         romajiLabel.invalidateIntrinsicContentSize()
+        descriptionLabel.invalidateIntrinsicContentSize()
     }
 
     // MARK: - Actions
 
-    @objc private func shareTapped()       { onShare?() }
-    @objc private func trailerTapped()     { onPlayTrailer?() }
-    @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { onEntryEditor?() }
-    @objc private func favoriteTapped()    { onFavorite?() }
-    @objc private func bookmarkTapped()    { onBookmark?() }
-
-    /// Updates favorite/bookmark button icons to show filled/unfilled state.
-    /// Matches interface: FavoriteButton fills heart when fav(media) is true,
-    /// BookmarkButton fills bookmark when list(media) is truthy.
-    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
-        let heartName = isFavorite ? "heart.fill" : "heart"
-        favoriteButton.setImage(UIImage(systemName: heartName), for: .normal)
-
-        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
-        bookmarkButton.setImage(UIImage(systemName: bookmarkName), for: .normal)
+    /// Spring-bounce animation on icon buttons — matches Hayase's `animated-icon` press feedback.
+    private func animateTap(_ button: UIButton) {
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
+            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
+                           options: [], animations: {
+                button.transform = .identity
+            })
+        }
     }
 
-    // MARK: - Overscroll Zoom (matches homepage FeaturedBannerCell)
+    @objc private func shareTapped() {
+        animateTap(shareButton)
+        // TransitionButton: flash checkmark briefly after tap, then restore share icon.
+        // Matches Hayase's TransitionButton (duration=300ms + 500ms = ~800ms total).
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        shareButton.setImage(UIImage(systemName: "checkmark")?.withConfiguration(cfg), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.shareButton.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(cfg), for: .normal)
+        }
+        onShare?()
+    }
+    @objc private func trailerTapped()     { animateTap(trailerButton);     onPlayTrailer?() }
+    @objc private func playTapped()        { onWatch?() }
+    @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
+    @objc private func favoriteTapped()    { animateTap(favoriteButton);    onFavorite?() }
+    @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
+    @objc private func anilistTapped()     { animateTap(anilistButton);     onOpenAniList?() }
+    @objc private func malTapped()         { animateTap(malButton);         onOpenMAL?() }
+
+    /// Updates favorite/bookmark button icons to show filled/unfilled state.
+    /// Mirrors interface: FavoriteButton fills heart + turns accent when fav(media) is true,
+    /// BookmarkButton fills bookmark + turns accent when list(media) is truthy (`select:!text-custom`).
+    func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let heartName = isFavorite ? "heart.fill" : "heart"
+        favoriteButton.setImage(UIImage(systemName: heartName)?.withConfiguration(cfg), for: .normal)
+        favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
+
+        let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
+        bookmarkButton.setImage(UIImage(systemName: bookmarkName)?.withConfiguration(cfg), for: .normal)
+        bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
+    }
+
+    /// Updates play button label based on AniList watch status.
+    /// Mirrors PlayButton.svelte: "Continue" (CURRENT/REPEATING/PAUSED), "Rewatch" (COMPLETED), "Watch Now" (else).
+    func updatePlayButtonTitle(listStatus: String?) {
+        let text: String
+        switch listStatus {
+        case "CURRENT", "REPEATING", "PAUSED": text = "Continue"
+        case "COMPLETED":                       text = "Rewatch"
+        default:                                text = "Watch Now"
+        }
+        playButton.setTitle(text, for: .normal)
+    }
+
+
 
     /// Applies pull-down zoom effect on the banner, identical to the homepage banner.
     func applyOverscrollZoom(_ overscroll: CGFloat) {
@@ -1263,8 +2080,9 @@ private final class AnimeInfoHeaderView: UIView {
         genresContainer.isHidden = true
 
         // Description: font-light text-sm text-muted-foreground
+        // Web desc(): defaults to "No description available." when empty/null
         let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
 
         trailerButton.isHidden = true
 
@@ -1279,6 +2097,7 @@ private final class AnimeInfoHeaderView: UIView {
 
     func configure(with item: AnimeItem) {
         anilistId = item.id
+        malId = item.malId
 
         let english = item.titleEnglish
         let romaji  = item.titleRomaji
@@ -1293,29 +2112,48 @@ private final class AnimeInfoHeaderView: UIView {
         // bg-custom text-contrast (luminance-based black/white text)
         let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
+        storedAccentColor = accent
         playButton.backgroundColor = accent
         playButton.tintColor = contrast
-        // EntryEditor: bg-custom-400 (lighter variant of accent)
-        entryEditorButton.backgroundColor = accent.withAlphaComponent(0.7)
+        playButton.setTitleColor(contrast, for: .normal)
+        // EntryEditor: bg-custom-400 = hsl(from var(--custom) h s 60%)
+        // Keep the accent's hue + saturation, but force lightness to 60%.
+        // Convert HSB → HSL, set L=0.6, convert HSL → HSB for UIColor.
+        var hue: CGFloat = 0, satHSB: CGFloat = 0, briHSB: CGFloat = 0
+        accent.getHue(&hue, saturation: &satHSB, brightness: &briHSB, alpha: nil)
+        let l = (2.0 - satHSB) * briHSB / 2.0
+        let s = l == 0 || l == 1 ? 0 : satHSB * briHSB / (l < 0.5 ? 2.0 * l : 2.0 - 2.0 * l)
+        let targetL: CGFloat = 0.6
+        let bNew = targetL + s * min(targetL, 1.0 - targetL)
+        let sNew: CGFloat = bNew > 0 ? 2.0 * (bNew - targetL) / bNew : 0
+        let lighter = UIColor(hue: hue, saturation: sNew, brightness: bNew, alpha: 1)
+        entryEditorButton.backgroundColor = lighter
         entryEditorButton.tintColor = contrast
+
+        // Build season string matching web season() + CSS capitalize: "Spring 2024" (capitalized season + year)
+        let seasonStr: String? = {
+            let szn = item.season?.capitalized  // AniList WINTER→Winter, SPRING→Spring etc.
+            let yr = item.year ?? item.startYear
+            let parts = [szn, yr.map { String($0) }].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }()
 
         rebuildBadges(score:    item.score,
                       status:   item.status,
                       episodes: item.episodes,
                       nextEp:   nil,
                       format:   item.format,
-                      season:   nil,
+                      season:   seasonStr,
+                      duration: item.duration,
+                      progress: item.mediaListEntry?.progress,
                       accent:   accent,
                       contrastColor: contrast)
 
-        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for genre in item.genres.prefix(8) {
-            genresStack.addArrangedSubview(makeGenreChip(text: genre))
-        }
-        genresContainer.isHidden = item.genres.isEmpty
+        setGenres(item.genres.prefix(8).map { String($0) })
 
+        // Web desc(): defaults to "No description available." when empty/null
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? nil : desc
+        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
 
         // Trailer button: show when YouTube trailer ID available
         trailerButton.isHidden = item.trailerYouTubeID == nil
@@ -1359,71 +2197,257 @@ private final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Helpers
 
-    /// Builds the badges row matching Hayase's +layout.svelte badge pills.
-    /// Badges: duration/eps, format, status, season, score — all bg-custom (accent), rounded, font-bold h-6
+    /// Builds the badges row matching web +layout.svelte badge pills.
+    /// Web badge order: of(media) ?? duration(media) ?? 'N/A', format(media), status(media), season(media), averageScore
+    /// All badges: rounded px-3.5 font-bold bg-custom text-contrast h-6 py-0 text-base
+    /// Score badge uses rating-specific colour: green ≥75, orange ≥65, red otherwise (getBGColorForRating).
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
                                 nextEp: Int?, format: String?, season: String?,
+                                duration: Int? = nil, progress: Int? = nil,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        // duration/eps badge
-        if let eps = episodes, eps > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "\(eps) eps", accent: accent, contrast: contrastColor))
-        } else if let next = nextEp, next > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: "Ep \(next) airing", accent: accent, contrast: contrastColor))
-        }
-        // format badge
-        if let fmt = format {
-            let display = fmt == "TV_SHORT" ? "TV Short" : fmt.replacingOccurrences(of: "_", with: " ").capitalized
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
-        }
-        // status badge
-        if let st = status {
-            let display: String
-            switch st {
-            case "RELEASING":        display = "Airing"
-            case "FINISHED":         display = "Finished"
-            case "NOT_YET_RELEASED": display = "Upcoming"
-            default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
+
+        // Badge 1: of(media) ?? duration(media) ?? 'N/A'
+        // Web of(): if eps == 1 or nil → nil. If progress && progress != eps → "X / Y Episodes". Else "Y Episodes".
+        // Fallback: duration(media) → "X Minutes", then "N/A"
+        let badge1Text: String
+        if let eps = episodes, eps > 1 {
+            if let prog = progress, prog > 0, prog != eps {
+                badge1Text = "\(prog) / \(eps) Episodes"
+            } else {
+                badge1Text = "\(eps) Episodes"
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor))
+        } else if let dur = duration, dur > 0 {
+            badge1Text = "\(dur) Minute\(dur > 1 ? "s" : "")"
+        } else {
+            badge1Text = "N/A"
         }
-        // score badge
+        badgesStack.addArrangedSubview(makeBadge(text: badge1Text, accent: accent, contrast: contrastColor))
+
+        // Badge 2: format(media) — web FORMAT_MAP
+        // Web always shows this badge, returning 'N/A' when format is null.
+        do {
+            let display: String
+            if let fmt = format {
+                switch fmt {
+                case "TV":       display = "TV Series"
+                case "TV_SHORT": display = "TV Short"
+                case "MOVIE":    display = "Movie"
+                case "SPECIAL":  display = "Special"
+                case "OVA":      display = "OVA"
+                case "ONA":      display = "ONA"
+                case "MUSIC":    display = "Music"
+                default:         display = fmt.replacingOccurrences(of: "_", with: " ").capitalized
+                }
+            } else {
+                display = "N/A"
+            }
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                                         filterType: format != nil ? "format" : nil,
+                                                         filterValue: format))
+        }
+
+        // Badge 3: status(media) — tappable — web STATUS_MAP
+        // Web always shows this badge, returning 'N/A' when status is null.
+        do {
+            let display: String
+            if let st = status {
+                switch st {
+                case "RELEASING":        display = "Releasing"
+                case "NOT_YET_RELEASED": display = "Not Yet Released"
+                case "FINISHED":         display = "Finished"
+                case "CANCELLED":        display = "Cancelled"
+                case "HIATUS":           display = "Hiatus"
+                default:                 display = st.replacingOccurrences(of: "_", with: " ").capitalized
+                }
+            } else {
+                display = "N/A"
+            }
+            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                                      filterType: status != nil ? "status" : nil,
+                                                      filterValue: status))
+        }
+
+        // Badge 4: season(media) — web: "Spring 2024" (CSS capitalize on lowercase season + year)
+        if let szn = season, !szn.isEmpty {
+            badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor,
+                                                      filterType: "season", filterValue: szn))
+        }
+
+        // Badge 5: averageScore — tappable — web uses getBGColorForRating for bg colour
+        // Exact Tailwind values: green-700 #15803d, orange-400 #fb923c, red-400 #f87171
         if let sc = score, sc > 0 {
-            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc), accent: accent, contrast: contrastColor))
+            let scoreBG: UIColor
+            let scoreInt = Int(sc)
+            if scoreInt >= 75 {
+                scoreBG = UIColor(red: 21/255.0, green: 128/255.0, blue: 61/255.0, alpha: 1) // green-700 #15803d
+            } else if scoreInt >= 65 {
+                scoreBG = UIColor(red: 251/255.0, green: 146/255.0, blue: 60/255.0, alpha: 1) // orange-400 #fb923c
+            } else {
+                scoreBG = UIColor(red: 248/255.0, green: 113/255.0, blue: 113/255.0, alpha: 1) // red-400 #f87171
+            }
+            // Web: text-contrast (cover-color based), not hardcoded white
+            // Web: tappable, navigates to search sorted by SCORE_DESC
+            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc),
+                                                      accent: scoreBG,
+                                                      contrast: contrastColor,
+                                                      filterType: "score",
+                                                      filterValue: "SCORE_DESC"))
         }
     }
 
-    /// Badge pill: bg-custom (accent colour, mirrors Hayase --custom) rounded px-3.5 font-bold h-6 text-contrast
+    /// Badge pill matching web +layout.svelte:
+    /// `rounded px-3.5 font-bold bg-custom select:!bg-custom-600 text-contrast h-6 py-0 text-base`
+    /// Tappable badges use BadgeButton (UIButton subclass) for press feedback:
+    /// on press, bg darkens to `bg-custom-600` (matching web select:!bg-custom-600).
+    /// Non-tappable badges (first badge) use PaddedLabel (no interaction).
+    /// Height constrained to h-6 (24pt).
     private func makeBadge(text: String,
                             accent: UIColor = .white,
-                            contrast: UIColor = UIColor(white: 0.07, alpha: 1)) -> UILabel {
-        let l = UILabel()
-        l.text = "  \(text)  "
-        l.font = .systemFont(ofSize: 12, weight: .bold)
-        l.textColor = contrast
-        l.backgroundColor = accent
-        l.layer.cornerRadius = 4   // rounded
-        l.clipsToBounds = true
-        l.setContentHuggingPriority(.required, for: .horizontal)
-        return l
+                            contrast: UIColor = UIColor(white: 0.07, alpha: 1),
+                            filterType: String? = nil,
+                            filterValue: String? = nil) -> UIView {
+        // Badges are only visible on iPad (regular) — hidden md:flex — so always use the
+        // desktop font size (text-base = 16pt). Using traitCollection here is unreliable because
+        // badges may be built before the view enters the window hierarchy, when
+        // horizontalSizeClass can still be .unspecified.
+        if let filterType = filterType, let filterValue = filterValue {
+            // Tappable badge: use BadgeButton for press highlight (select:!bg-custom-600)
+            let btn = BadgeButton(type: .custom)
+            btn.setTitle(text, for: .normal)
+            btn.titleLabel?.font = .nunito(ofSize: 16, weight: .bold)  // text-base font-bold
+            btn.setTitleColor(contrast, for: .normal)
+            btn.normalBgColor = accent
+            // bg-custom-600: darken the accent color by reducing brightness ~25%
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            accent.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            btn.highlightedBgColor = UIColor(hue: h, saturation: min(s * 1.1, 1), brightness: max(b * 0.75, 0), alpha: a)
+            btn.backgroundColor = accent
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)  // px-3.5
+            btn.layer.cornerRadius = 4   // rounded = 0.25rem
+            btn.clipsToBounds = true
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            btn.heightAnchor.constraint(equalToConstant: 24).isActive = true  // h-6
+            btn.setContentHuggingPriority(.required, for: .horizontal)
+            btn.setContentCompressionResistancePriority(.required, for: .horizontal)
+            btn.filterType = filterType
+            btn.filterValue = filterValue
+            btn.addTarget(self, action: #selector(detailBadgeTapped(_:)), for: .touchUpInside)
+            return btn
+        } else {
+            // Non-tappable badge (e.g. episode count / duration): plain label, no interaction
+            let l = PaddedLabel()
+            l.text = text
+            l.font = .nunito(ofSize: 16, weight: .bold)
+            l.textColor = contrast
+            l.backgroundColor = accent
+            l.contentInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+            l.layer.cornerRadius = 4
+            l.clipsToBounds = true
+            l.textAlignment = .center
+            l.setContentHuggingPriority(.required, for: .horizontal)
+            l.setContentCompressionResistancePriority(.required, for: .horizontal)
+            l.translatesAutoresizingMaskIntoConstraints = false
+            l.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            return l
+        }
+    }
+
+    /// UIButton subclass for info badge pills with press highlight feedback.
+    /// On press: bg darkens to highlightedBgColor (matching web select:!bg-custom-600).
+    /// On release: bg restores to normalBgColor.
+    private class BadgeButton: UIButton {
+        var normalBgColor: UIColor = .white
+        var highlightedBgColor: UIColor = .gray
+        var filterType: String = ""
+        var filterValue: String = ""
+
+        override var isHighlighted: Bool {
+            didSet {
+                UIView.animate(withDuration: 0.15) {
+                    self.backgroundColor = self.isHighlighted ? self.highlightedBgColor : self.normalBgColor
+                }
+            }
+        }
+    }
+
+    @objc private func detailBadgeTapped(_ sender: BadgeButton) {
+        onBadgeTapped?(sender.filterType, sender.filterValue)
+    }
+
+    // Populate both genresStack (compact scroll) and chipWrapView (regular wrap).
+    private func setGenres(_ genres: [String]) {
+        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // chipWrapView uses frame-based layout — give it plain UIButtons without AL constraints
+        let wrapChips: [UIView] = genres.map { genre in
+            let btn = UIButton(type: .custom)
+            btn.setTitle(genre, for: .normal)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            btn.setTitleColor(.white, for: .normal)
+            btn.setTitleColor(storedAccentColor, for: .highlighted)  // select:!text-custom
+            btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+            btn.layer.cornerRadius = 6
+            btn.layer.masksToBounds = true
+            // Tappable: navigate to search with genre filter
+            btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
+            return btn
+        }
+        for genre in genres {
+            genresStack.addArrangedSubview(makeGenreChip(text: genre))
+        }
+        chipWrapView.setChips(wrapChips)
+        genresContainer.isHidden = genres.isEmpty
+    }
+
+    /// Called by the VC when AniList data is fetched for a CoreData-opened anime.
+    /// Shows the trailer button and genre chips that weren't available from CoreData.
+    func updateGenresAndTrailer(genres: [String], trailerYouTubeID: String?) {
+        setGenres(genres)
+        trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
+    /// Shows/hides the trailer button without touching genres.
+    func updateTrailerButton(trailerYouTubeID: String?) {
+        trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
+    /// Show/hide the MAL button based on malId availability and size class.
+    /// On iPad (regular), the button is shown when malId is non-nil.
+    /// On iPhone (compact), it's always hidden.
+    func updateMALButtonVisibility() {
+        if traitCollection.horizontalSizeClass == .regular {
+            malButton.isHidden = (malId == nil)
+        } else {
+            malButton.isHidden = true
+        }
     }
 
     /// Genre chip: variant='secondary' h-7 (28pt) text-nowrap rounded-md
-    /// bg-secondary (#27272a), text-secondary-foreground (white)
+    /// bg-secondary (#27272a), text-secondary-foreground (white), px-4 (16pt) — matches interface
+    /// On press: text becomes accent color (select:!text-custom)
+    /// Tappable: navigates to search with genre filter matching web on:click
     private func makeGenreChip(text: String) -> UIView {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .custom)
         btn.setTitle(text, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         btn.setTitleColor(.white, for: .normal)
+        btn.setTitleColor(storedAccentColor, for: .highlighted)  // select:!text-custom
         btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1) // --secondary
-        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6  // rounded-md
         btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 28).isActive = true // h-7
         btn.setContentHuggingPriority(.required, for: .horizontal)
+        btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
         return btn
+    }
+
+    @objc private func genreChipTapped(_ sender: UIButton) {
+        guard let genre = sender.title(for: .normal) else { return }
+        onGenreTapped?(genre)
     }
 
     private func loadImage(from urlString: String?,
@@ -1452,32 +2476,43 @@ private final class AnimeInfoHeaderView: UIView {
 }
 
 // MARK: - HTabBar
-// Custom horizontal tab bar matching Hayase's tabs-list.svelte shape exactly.
+// Custom tab bar matching Hayase's tabs-list.svelte + tabs-trigger.svelte.
 // Container: bg-muted (#27272a), rounded-lg (8pt), p-1 (4pt padding).
-// Each tab: rounded-md (6pt), active = accent bg + contrast text, inactive = muted text.
-// Shape is NOT a pill — iOS UISegmentedControl has cornerRadius = height/2 (pill).
-// HTabBar uses cornerRadius = 8 (rounded-lg) on container, 6 (rounded-md) on tabs.
+// Each tab: rounded-md (6pt), active = accent bg + contrast text + font-bold,
+//           inactive = muted text + font-medium.
+// Web +page.svelte: orientation = $breakpoints.xs ? 'horizontal' : 'vertical'
+//   → iPhone (< 480px): vertical (flex-col gap-1 max-w-72 w-full)
+//   → iPad (≥ 480px):   horizontal (h-9 items-center justify-center)
+// Tab triggers: px-8 (32pt) py-1 (4pt) text-sm (14px) rounded-md (6pt)
 
 private final class HTabBar: UIView {
     var onChange: ((Int) -> Void)?
     var selectedIndex: Int = 0 { didSet { updateSelection() } }
     var accentColor: UIColor = UIColor(white: 0.98, alpha: 1) { didSet { updateSelection() } }
 
-    private let scrollView: UIScrollView = {
-        let sv = UIScrollView()
-        sv.showsHorizontalScrollIndicator = false
-        sv.bounces = false
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
+    /// Switches between vertical (iPhone) and horizontal (iPad) layout.
+    /// iPhone: vertical stack, full-width buttons, flex-col gap-1
+    /// iPad: horizontal inline, h-9, items-center
+    var isVertical: Bool = true {
+        didSet {
+            guard oldValue != isVertical else { return }
+            applyOrientation()
+        }
+    }
+
     private let stack: UIStackView = {
         let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.spacing = 2
+        sv.axis = .vertical  // default = vertical (iPhone)
+        sv.spacing = 4       // gap-1 = 4pt
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
     private var buttons: [UIButton] = []
+
+    /// Height constraint for horizontal mode (h-9 = 36pt), deactivated in vertical mode.
+    private var horizontalHeightConstraint: NSLayoutConstraint?
+    /// Stack height == self height minus p-1 insets; only active in horizontal mode.
+    private var stackHeightConstraint: NSLayoutConstraint?
 
     init(titles: [String]) {
         super.init(frame: .zero)
@@ -1486,27 +2521,23 @@ private final class HTabBar: UIView {
         layer.cornerRadius = 8   // rounded-lg
         clipsToBounds = true
 
-        addSubview(scrollView)
-        scrollView.addSubview(stack)
+        addSubview(stack)
 
+        // Stack pinned with p-1 (4pt) insets on all sides
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
 
         for (i, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+            // text-sm = 14px, font-medium (inactive default)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            // px-8 (32pt) py-1 (4pt) — matches web trigger overrides
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 32, bottom: 4, right: 32)
             btn.layer.cornerRadius = 6   // rounded-md
             btn.clipsToBounds = true
             btn.tag = i
@@ -1515,19 +2546,28 @@ private final class HTabBar: UIView {
             buttons.append(btn)
         }
         updateSelection()
+        applyOrientation()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Natural width = sum of all button intrinsic widths + inter-button spacing + 8pt
-    /// scrollView insets (4pt each side).  This lets Auto Layout size the muted container
-    /// to fit its content rather than stretching it to the full available width, so the
-    /// dark bg ends right after the last tab button on both iPhone and iPad.
+    /// Calculates intrinsic content size based on orientation.
+    /// Vertical: width = widest button + 8pt insets, height = sum of button heights + spacing + 8pt
+    /// Horizontal: width = sum of button widths + spacing + 8pt, height = noIntrinsicMetric (set by constraint)
     override var intrinsicContentSize: CGSize {
-        let totalButtonWidth = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
-        let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
-        let width = totalButtonWidth + totalSpacing + 8   // 8 = 2 × 4pt scrollView insets
-        return CGSize(width: width, height: UIView.noIntrinsicMetric)
+        if isVertical {
+            let maxButtonWidth = buttons.reduce(CGFloat(0)) { max($0, $1.intrinsicContentSize.width) }
+            let totalButtonHeight = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.height }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = maxButtonWidth + 8     // 2 × 4pt p-1 insets
+            let height = totalButtonHeight + totalSpacing + 8
+            return CGSize(width: width, height: height)
+        } else {
+            let totalButtonWidth = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = totalButtonWidth + totalSpacing + 8
+            return CGSize(width: width, height: UIView.noIntrinsicMetric)
+        }
     }
 
     @objc private func tabTapped(_ sender: UIButton) {
@@ -1544,11 +2584,37 @@ private final class HTabBar: UIView {
             if i == selectedIndex {
                 btn.backgroundColor = accentColor
                 btn.setTitleColor(contrastColor, for: .normal)
+                // data-[state=active]:font-bold
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
             } else {
                 btn.backgroundColor = .clear
-                btn.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal) // text-muted-foreground
+                btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
+                // font-medium (inactive)
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
             }
         }
+    }
+
+    /// Configures stack axis, spacing, and constraints for vertical/horizontal mode.
+    private func applyOrientation() {
+        if isVertical {
+            // Web: flex-col gap-1 max-w-72 w-full
+            stack.axis = .vertical
+            stack.spacing = 4  // gap-1 = 4pt
+            horizontalHeightConstraint?.isActive = false
+            stackHeightConstraint?.isActive = false
+        } else {
+            // Web: h-9 items-center justify-center, inline-flex
+            stack.axis = .horizontal
+            stack.spacing = 0  // Horizontal mode: no explicit gap between tabs; p-1 container insets provide visual separation
+            // h-9 = 36pt total height (includes p-1 insets)
+            if horizontalHeightConstraint == nil {
+                horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
+            }
+            horizontalHeightConstraint?.isActive = true
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 }
 
@@ -1565,12 +2631,33 @@ class AnimeDetailViewController: UIViewController {
     private var isOnList = false
     private var episodes: [AniZipEpisode] = []
     private var anilistProgress: Int = 0  // mediaListEntry.progress from AniList
+    private var currentListStatus: String?             // mediaListEntry.status from AniList
+    private var currentAnimeAccent: UIColor = .white  // cached accent for episode progress bars
     private var relations: [AnimeRelation] = []
-    private var characters: [AnimeCharacter] = []
     private var staff: [AnimeStaffMember] = []
     private var scoreDistribution: [AnimeScorePoint] = []
     private var statusDistribution: [AnimeStatusCount] = []
     private var episodeFetchTask: URLSessionDataTask?
+
+    // Episode pagination — matches Hayase's EpisodesList.svelte (perPage = 16)
+    private let episodesPerPage = 16
+    private var currentEpisodePage: Int = 1
+    private var paginatedEpisodes: [AniZipEpisode] {
+        let start = (currentEpisodePage - 1) * episodesPerPage
+        let end = min(start + episodesPerPage, episodes.count)
+        guard start < episodes.count else { return [] }
+        return Array(episodes[start..<end])
+    }
+    private var totalEpisodePages: Int {
+        max(1, Int(ceil(Double(episodes.count) / Double(episodesPerPage))))
+    }
+    private lazy var paginationBar: PaginationBarView = {
+        let bar = PaginationBarView()
+        bar.onPageChange = { [weak self] page in
+            self?.setEpisodePage(page)
+        }
+        return bar
+    }()
 
     // Threads (AniList forum) and Themes (animethemes.moe)
     private var threads: [AniListThread] = []
@@ -1583,7 +2670,8 @@ class AnimeDetailViewController: UIViewController {
 
     // Custom HTabBar — replaces UISegmentedControl.
     // Shape: bg-muted container rounded-lg (8pt), tabs rounded-md (6pt). NOT a pill.
-    // Position: full-width with 16pt horizontal inset (reverted from centered).
+    // Web +page.svelte: vertical on iPhone (< 480px), horizontal on iPad (≥ 480px).
+    // Container: justify-center on iPhone, md:justify-start on iPad.
     private lazy var tabBar: HTabBar = {
         let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes"])
         bar.onChange = { [weak self] index in
@@ -1593,30 +2681,134 @@ class AnimeDetailViewController: UIViewController {
         return bar
     }()
 
+    /// Constraints toggled between iPhone/iPad tab bar layout.
+    /// iPhone (vertical): centered, max-w-72, no leading pin
+    /// iPad (horizontal): leading-pinned, shrink-to-fit, height=36
+    private var tabBarCenterXConstraint: NSLayoutConstraint?
+    private var tabBarLeadingConstraint: NSLayoutConstraint?
+    private var tabBarMaxWidthConstraint: NSLayoutConstraint?
+    private var tabBarWidthFillConstraint: NSLayoutConstraint?
+    private var tabBarTrailingConstraint: NSLayoutConstraint?
+
     private lazy var tabBarContainer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        v.backgroundColor = hayasePageBackground
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(tabBar)
-        // tabBar is pinned to the leading edge and capped at the trailing edge.
-        // intrinsicContentSize makes it shrink-to-fit the buttons; lessThanOrEqualTo
-        // allows it to grow up to the full available width when tabs overflow (scrollable).
+
+        // Always-active constraints: top/bottom padding
+        // top = 24pt matches gap-6 from web's main container spacing (same as between genres and buttons)
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 8),
+            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
             tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
-            tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
-            // lessThanOrEqualTo: lets tabBar shrink to its intrinsicContentSize (buttons only),
-            // while still allowing it to grow up to the full width when tabs overflow (scrollable).
-            tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16),
-            tabBar.heightAnchor.constraint(equalToConstant: 36), // h-9 = 36pt
         ])
+
+        // iPhone (vertical): centered, max-w-72 (288pt), w-full (up to max)
+        // Web: <div class='flex justify-center md:justify-start'>
+        //      <Tabs.List> → flex-col gap-1 max-w-72 w-full
+        tabBarCenterXConstraint = tabBar.centerXAnchor.constraint(equalTo: v.centerXAnchor)
+        tabBarMaxWidthConstraint = tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 288) // max-w-72
+        // Fill width minus padding (soft, breaks if maxWidth is smaller)
+        tabBarWidthFillConstraint = tabBar.widthAnchor.constraint(equalTo: v.widthAnchor, constant: -32)
+        tabBarWidthFillConstraint?.priority = .defaultHigh
+
+        // iPad (horizontal): leading-pinned, shrink-to-fit
+        // Web: md:justify-start → leading alignment, xl:px-14 (56pt) padding
+        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 56)
+        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -56)
+
         return v
     }()
+
+    /// Applies the correct tab bar orientation and container layout for the current size class.
+    /// Called from viewDidLoad, viewWillTransition, or when size class changes.
+    private func applyTabBarLayoutForSizeClass() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+
+        // Toggle HTabBar orientation
+        tabBar.isVertical = !isRegular
+
+        if isRegular {
+            // iPad: horizontal tabs, left-aligned (md:justify-start)
+            tabBarCenterXConstraint?.isActive = false
+            tabBarMaxWidthConstraint?.isActive = false
+            tabBarWidthFillConstraint?.isActive = false
+            tabBarLeadingConstraint?.isActive = true
+            tabBarTrailingConstraint?.isActive = true
+        } else {
+            // iPhone: vertical tabs, centered (justify-center), max-w-72
+            tabBarLeadingConstraint?.isActive = false
+            tabBarTrailingConstraint?.isActive = false
+            tabBarCenterXConstraint?.isActive = true
+            tabBarMaxWidthConstraint?.isActive = true
+            tabBarWidthFillConstraint?.isActive = true
+        }
+    }
 
     // Section indices — section 0 holds the header (banner + cover + text + tab bar);
     // sections 1–4 match Hayase +page.svelte tabs: Episodes | Relations | Threads | Themes.
     private enum Section: Int, CaseIterable {
-        case header = 0, episodes, relations, threads, themes
+        case header = 0, episodes, episodePagination, relations, threads, themes
+    }
+
+    // MARK: - Search navigation helpers
+
+    /// Navigate to Search tab with a genre filter.
+    /// Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
+    private func navigateToSearchTab(genre: String) {
+        // Capture both references before any navigation — popToRootViewController removes self
+        // from the nav stack, setting self.navigationController = nil, which makes
+        // self.tabBarController return nil afterward.
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tbc?.selectedIndex = 1
+            return
+        }
+        let nav = navigationController
+        searchVC.prefillSearchExtended(genre: genre)
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
+    }
+
+    /// Navigate to Search tab with a badge filter (format, status, season, score).
+    private func navigateToSearchTab(filterType: String, value: String) {
+        // Capture both references before any navigation — popToRootViewController removes self
+        // from the nav stack, setting self.navigationController = nil, which makes
+        // self.tabBarController return nil afterward.
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tbc?.selectedIndex = 1
+            return
+        }
+        let nav = navigationController
+        switch filterType {
+        case "format":
+            searchVC.prefillSearchExtended(format: value)
+        case "status":
+            searchVC.prefillSearchExtended(status: value)
+        case "season":
+            // Season badge text is like "Spring 2024" — parse season and year
+            let parts = value.components(separatedBy: " ")
+            if parts.count == 2, let year = Int(parts[1]) {
+                searchVC.prefillSearchExtended(season: parts[0].uppercased(), seasonYear: year)
+            } else {
+                searchVC.prefillSearchExtended(season: value.uppercased())
+            }
+        case "score":
+            searchVC.prefillSearchExtended(sort: value)
+        default:
+            break
+        }
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
     }
 
     // MARK: - Lifecycle
@@ -1626,10 +2818,11 @@ class AnimeDetailViewController: UIViewController {
         // Hayase anime/[id]/+layout.svelte has no navigation title — info is shown in the header
         title = nil
         navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        view.backgroundColor = hayasePageBackground
 
         setupTableView()
         setupHeaderView()
+        applyTabBarLayoutForSizeClass()
         fetchEpisodes()
         fetchRelationsAndCharacters()
         fetchAniListProgress()
@@ -1659,6 +2852,53 @@ class AnimeDetailViewController: UIViewController {
         nb?.tintColor = nil
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            applyTabBarLayoutForSizeClass()
+            // Reload all sections so cells pick up the new iPad/iPhone padding
+            tableView.reloadData()
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        // Column count may change on rotation or Stage Manager resize even without a size class change
+        coordinator.animate(alongsideTransition: { _ in
+            self.tableView.reloadData()
+        })
+    }
+
+    // MARK: - iPad two-column grid helpers
+
+    /// Web grid constants matching `grid-cols-[repeat(auto-fit,minmax(500px,1fr))]`:
+    private static let gridOuterPad: CGFloat = 56    // xl:px-14 — outer padding on each side
+    private static let gridMinColWidth: CGFloat = 500 // minmax(500px, 1fr)
+    private static let episodeGap: CGFloat = 16       // gap-x-4 between episode columns
+    private static let threadGap: CGFloat = 40        // gap-x-10 between thread columns
+
+    /// Number of columns for the episodes grid. Two columns when table width ≥ 1128pt
+    /// (2 × 500pt min-col + 16pt gap-x-4 + 2 × 56pt xl:px-14 outer padding).
+    private var episodeColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap {
+            return 2
+        }
+        return 1
+    }
+
+    /// Number of columns for the threads grid. Two columns when table width ≥ 1152pt
+    /// (2 × 500pt min-col + 40pt gap-x-10 + 2 × 56pt xl:px-14 outer padding).
+    private var threadColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.threadGap {
+            return 2
+        }
+        return 1
+    }
+
 
     // MARK: - Setup
 
@@ -1668,12 +2908,15 @@ class AnimeDetailViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
+        tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
+        tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PaginationCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
-        tableView.backgroundColor = UIColor(white: 0.04, alpha: 1) // --background dark
+        tableView.backgroundColor = hayasePageBackground
         // Eliminate automatic section header/footer spacing that causes expanding gaps
         // between the tab bar and content cells (iOS 15+ adds ~22pt per section by default).
         if #available(iOS 15.0, *) {
@@ -1704,6 +2947,7 @@ class AnimeDetailViewController: UIViewController {
             // Apply coverImage.color as the active tab tint color.
             if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
                 tabBar.accentColor = accent
+                currentAnimeAccent = accent
             }
         } else {
             headerView.configure(with: animeEntity)
@@ -1759,6 +3003,30 @@ class AnimeDetailViewController: UIViewController {
         headerView.onEntryEditor = { [weak self] in
             self?.showEntryEditor()
         }
+        headerView.onOpenAniList = { [weak self] in
+            guard let self = self else { return }
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            guard let id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+        headerView.onOpenMAL = { [weak self] in
+            guard let self = self else { return }
+            guard let malId = self.headerView?.malId,
+                  let url = URL(string: "https://myanimelist.net/anime/\(malId)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+
+        // Wire genre chip taps → navigate to Search tab with genre filter
+        headerView.onGenreTapped = { [weak self] genre in
+            self?.navigateToSearchTab(genre: genre)
+        }
+
+        // Wire badge pill taps → navigate to Search tab with appropriate filter
+        headerView.onBadgeTapped = { [weak self] filterType, value in
+            self?.navigateToSearchTab(filterType: filterType, value: value)
+        }
 
         // Header view + tab bar are embedded in a regular table cell (section 0)
         // instead of tableHeaderView.  This eliminates the TAMIC conflict that
@@ -1788,7 +3056,7 @@ class AnimeDetailViewController: UIViewController {
         editorVC.currentEntry = currentEntry
         editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
         editorVC.coverURL = animeItem?.coverURL
-        editorVC.bannerURL = headerView?.displayedBannerURL ?? animeItem?.bannerURL
+        editorVC.bannerURL = animeItem?.bannerURL
 
         editorVC.onSave = { [weak self] in
             self?.fetchAniListProgress()
@@ -1796,18 +3064,16 @@ class AnimeDetailViewController: UIViewController {
         }
         editorVC.onDelete = { [weak self] in
             self?.anilistProgress = 0
+            self?.currentListStatus = nil
             self?.isOnList = false
             self?.tableView.reloadData()
             self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
+            self?.headerView?.updatePlayButtonTitle(listStatus: nil)
         }
 
-        editorVC.modalPresentationStyle = .pageSheet
-        if #available(iOS 15.0, *) {
-            if let sheet = editorVC.sheetPresentationController {
-                sheet.detents = [.medium(), .large()]
-                sheet.prefersGrabberVisible = true
-            }
-        }
+        // Web: shadcn Dialog — centered overlay with max-w-3xl, max-h-[80%], rounded-lg
+        editorVC.modalPresentationStyle = .custom
+        editorVC.transitioningDelegate = editorVC
         present(editorVC, animated: true)
     }
 
@@ -1891,6 +3157,12 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async {
                 guard self.anilistProgress != newProgress else { return }
                 self.anilistProgress = newProgress
+                // Auto-navigate to the page containing the user's current episode (matches web)
+                // Web: Math.floor(progress / perPage) + 1
+                if newProgress > 0 {
+                    let desiredPage = newProgress / self.episodesPerPage + 1
+                    self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
+                }
                 self.tableView.reloadData()
             }
         }
@@ -1909,8 +3181,10 @@ class AnimeDetailViewController: UIViewController {
         AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
             DispatchQueue.main.async {
                 self?.isOnList = entry != nil
+                self?.currentListStatus = entry?.status
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
+                self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
             }
         }
     }
@@ -2035,7 +3309,7 @@ class AnimeDetailViewController: UIViewController {
             completion(nil)
             return
         }
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] relations in
             // fetchDetailForItem calls back on main queue
             self?.animeItem?.relations = relations
             self?.relations = relations
@@ -2126,10 +3400,12 @@ class AnimeDetailViewController: UIViewController {
         guard count > 0 else {
             // count == 0 → empty episode list (same as Hayase loop not executing)
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = []
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = []
+                self.currentEpisodePage = 1
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
             return
@@ -2178,7 +3454,14 @@ class AnimeDetailViewController: UIViewController {
             let overview = (info["overview"] as? String ?? info["summary"] as? String ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let imageURL = info["image"] as? String
-            let airDate = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDateRaw = info["airdate"] as? String ?? info["airDate"] as? String
+            let airDate: Date? = airDateRaw.flatMap { raw in
+                if let d = ISO8601DateFormatter().date(from: raw) { return d }
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                fmt.locale = Locale(identifier: "en_US_POSIX")
+                return fmt.date(from: raw)
+            }
             let runtime = (info["length"] as? NSNumber)?.intValue ?? (info["runtime"] as? NSNumber)?.intValue ?? 0
             let ratingRaw = info["rating"]
             let rating: Double? = (ratingRaw as? NSNumber)?.doubleValue
@@ -2201,10 +3484,15 @@ class AnimeDetailViewController: UIViewController {
                               rating: ep.rating, isFiller: fillerSet.contains(ep.number))
             }
             DispatchQueue.main.async { [weak self] in
-                self?.episodes = finalEpisodes
-                self?.tableView.reloadSections(IndexSet(integer: Section.episodes.rawValue), with: .fade)
+                guard let self = self else { return }
+                self.episodes = finalEpisodes
+                // Clamp page to new total to avoid stale page index crash
+                if self.currentEpisodePage > self.totalEpisodePages {
+                    self.currentEpisodePage = 1
+                }
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
                 if let bannerURL = anizipBannerURL {
-                    self?.headerView.updateBanner(from: bannerURL)
+                    self.headerView.updateBanner(from: bannerURL)
                 }
             }
         }
@@ -2262,11 +3550,42 @@ class AnimeDetailViewController: UIViewController {
         else { id = animeItem?.id }
         guard let anilistId = id else { return }
 
-        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations, _ in
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] relations in
             guard let self = self else { return }
             self.relations = relations
             if !relations.isEmpty {
                 self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            }
+        }
+
+        // Fetch trailer + genres + MAL ID from AniList when they aren't already available.
+        // CoreData entries never have trailer/genres; AnimeItems from relation cards
+        // also lack trailer data because the relations query doesn't include it.
+        if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {
+            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
+                guard let self else { return }
+                // Only update genres if the header doesn't already have them
+                // (e.g. from the AnimeItem configure path).
+                let needsGenres = self.animeItem == nil || self.animeItem?.genres.isEmpty == true
+                if needsGenres {
+                    self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
+                } else if let trailerID {
+                    // Just show the trailer button
+                    self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
+                }
+                // Store the trailer ID on the item so the onPlayTrailer closure
+                // (which reads self.animeItem?.trailerYouTubeID) picks it up.
+                // Safe because animeItem is a `var` struct property on this class.
+                self.animeItem?.trailerYouTubeID = trailerID
+
+                // Set MAL ID on the header so the MAL button becomes visible (iPad).
+                // This is needed for the CoreData path where AnimeItem doesn't exist yet,
+                // and also for relation-card AnimeItems that don't carry malId.
+                if let malId, self.headerView?.malId == nil {
+                    self.headerView?.malId = malId
+                    self.animeItem?.malId = malId
+                    self.headerView?.updateMALButtonVisibility()
+                }
             }
         }
     }
@@ -2274,8 +3593,10 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Tab bar
 
     private func tabChanged(to index: Int) {
-        // Tab bar indices (0–3) map to content sections (1–4) since section 0 is the header.
-        guard let sec = Section(rawValue: index + 1) else { return }
+        // Tab bar indices: 0=Episodes 1=Relations 2=Threads 3=Themes
+        // Section enum:    header=0, episodes=1, episodePagination=2, relations=3, threads=4, themes=5
+        let sectionMap: [Int: Section] = [0: .episodes, 1: .relations, 2: .threads, 3: .themes]
+        guard let sec = sectionMap[index] else { return }
         activeSection = sec
         // Only reload content sections — header (section 0) never changes.
         let contentRange = Section.episodes.rawValue..<Section.allCases.count
@@ -2283,6 +3604,14 @@ class AnimeDetailViewController: UIViewController {
         // Lazy-fetch threads/themes on first tap
         if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
         if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
+    }
+
+    private func setEpisodePage(_ page: Int) {
+        let clamped = min(max(1, page), totalEpisodePages)
+        guard clamped != currentEpisodePage else { return }
+        currentEpisodePage = clamped
+        let sectionsToReload = IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue])
+        tableView.reloadSections(sectionsToReload, with: .automatic)
     }
 
     // MARK: - Threads (AniList forum)
@@ -2362,12 +3691,45 @@ class AnimeDetailViewController: UIViewController {
 
     // MARK: - Navigation
 
-    /// Push the extension-based torrent search screen for the given episode number.
+    /// Present the extension-based torrent search screen for the given episode.
+    /// Always presented modally (matching web's Dialog.Root — never page navigation):
+    ///   • iPad (regular size class): .custom with BottomDialogPresentationController
+    ///     — bottom-anchored sheet, max-w-5xl (1024pt), top-rounded 12px, bottom-square,
+    ///     border on top/left/right, dim overlay, tap-outside-to-dismiss.
+    ///   • iPhone (compact size class): .fullScreen (web Dialog.Content h-full w-full)
     private func openExtensionSearch(episode: Int) {
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
         searchVC.initialEpisode = episode
-        navigationController?.pushViewController(searchVC, animated: true)
+
+        if traitCollection.horizontalSizeClass == .regular {
+            // iPad: custom bottom-anchored dialog matching web Dialog.Content exactly.
+            // Uses BottomDialogPresentationController for frame positioning, dimming,
+            // corner radius, and border — all matching the web's CSS.
+            searchVC.modalPresentationStyle = .custom
+            searchVC.transitioningDelegate = searchVC
+        } else {
+            // iPhone: full-screen overlay (web Dialog.Content h-full w-full).
+            // .fullScreen is the most reliable presentation on iPhone — unlike
+            // .pageSheet it never silently fails in deep VC hierarchies (nav →
+            // tab → presented chains).  The web dialog is also effectively
+            // full-screen on mobile (max-h calc(100% - 1rem) ≈ 100%).
+            searchVC.modalPresentationStyle = .fullScreen
+        }
+
+        // Start from the window's root VC (usually UITabBarController) so we
+        // traverse the FULL presentation chain.  Starting from `self` (a child
+        // pushed inside UINavigationController) can miss modals that were
+        // presented by parent containers, causing present() to silently fail.
+        guard var presenter = view.window?.rootViewController else {
+            // Defensive fallback: if the window is somehow nil, try self.
+            self.present(searchVC, animated: true)
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(searchVC, animated: true)
     }
 }
 
@@ -2381,11 +3743,19 @@ extension AnimeDetailViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .header:    return 1
-        case .episodes:  return activeSection == .episodes  ? episodes.count : 0
+        case .episodes:
+            if activeSection != .episodes { return 0 }
+            let cols = episodeColumnCount
+            return (paginatedEpisodes.count + cols - 1) / cols
+        case .episodePagination:
+            // Show pagination bar when episodes tab is active and there are more than 1 page
+            return (activeSection == .episodes && totalEpisodePages > 1) ? 1 : 0
         case .relations: return (activeSection == .relations && !relations.isEmpty) ? 1 : 0
         case .threads:
             if activeSection != .threads { return 0 }
-            return threadsLoading ? 1 : max(threads.count, 1)  // 1 for loading/empty state
+            if threadsLoading || threads.isEmpty { return 1 }
+            let cols = threadColumnCount
+            return (threads.count + cols - 1) / cols
         case .themes:
             if activeSection != .themes { return 0 }
             return themesLoading ? 1 : max(themes.count, 1)
@@ -2423,18 +3793,67 @@ extension AnimeDetailViewController: UITableViewDataSource {
                     tabBarContainer.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
                     tabBarContainer.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
                 ])
+                // Apply tab bar layout NOW — the lazy var init above created the constraint
+                // references (tabBarCenterXConstraint etc.) that were still nil when
+                // applyTabBarLayoutForSizeClass() ran earlier in viewDidLoad().
+                applyTabBarLayoutForSizeClass()
             }
             // Pre-set label widths so auto layout computes correct multi-line heights
             headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
             return cell
 
         case .episodes:
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
-                return UITableViewCell()
-            }
+            let cols = episodeColumnCount
             let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
-            cell.configure(with: episodes[indexPath.row], anilistID: currentAnilistID, anilistProgress: anilistProgress)
+            let isCompleted = currentListStatus == "COMPLETED"
+            if cols >= 2 {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: EpisodePairCell.reuseID, for: indexPath) as? EpisodePairCell else {
+                    return UITableViewCell()
+                }
+                let leftIdx = indexPath.row * 2
+                let rightIdx = leftIdx + 1
+                let leftEp = paginatedEpisodes[leftIdx]
+                let rightEp = rightIdx < paginatedEpisodes.count ? paginatedEpisodes[rightIdx] : nil
+                cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
+                               anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
+                               isListCompleted: isCompleted)
+                cell.onTapEpisode = { [weak self] epNumber in
+                    self?.openExtensionSearch(episode: epNumber)
+                }
+                return cell
+            } else {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
+                    return UITableViewCell()
+                }
+                let ep = paginatedEpisodes[indexPath.row]
+                cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
+                               accentColor: currentAnimeAccent, isListCompleted: isCompleted)
+                cell.cardView.onTap = { [weak self] epNumber in
+                    self?.openExtensionSearch(episode: epNumber)
+                }
+                cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
+                return cell
+            }
+
+        case .episodePagination:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "PaginationCell", for: indexPath)
+            cell.backgroundColor = .clear
+            cell.contentView.backgroundColor = .clear
+            cell.selectionStyle = .none
+            if paginationBar.superview !== cell.contentView {
+                paginationBar.translatesAutoresizingMaskIntoConstraints = false
+                cell.contentView.addSubview(paginationBar)
+                NSLayoutConstraint.activate([
+                    paginationBar.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+                    paginationBar.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+                    paginationBar.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+                    paginationBar.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+                ])
+            }
+            paginationBar.configure(currentPage: currentEpisodePage, totalCount: episodes.count, perPage: episodesPerPage)
+            paginationBar.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
             return cell
 
         case .relations:
@@ -2446,12 +3865,35 @@ extension AnimeDetailViewController: UITableViewDataSource {
             cell.collectionView.delegate = self
             cell.collectionView.register(RelationCardCell.self,
                                          forCellWithReuseIdentifier: RelationCardCell.reuseID)
+            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
             cell.collectionView.reloadData()
             return cell
 
         case .threads:
-            let cell = makeThreadCell(for: indexPath)
-            return cell
+            let cols = threadColumnCount
+            if cols >= 2 && !threadsLoading && !threads.isEmpty {
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: ThreadPairCell.reuseID, for: indexPath) as? ThreadPairCell else {
+                    return UITableViewCell()
+                }
+                let accentColor = animeItem.flatMap { item in
+                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
+                let leftIdx = indexPath.row * 2
+                let rightIdx = leftIdx + 1
+                let leftThread = threads[leftIdx]
+                let rightThread = rightIdx < threads.count ? threads[rightIdx] : nil
+                cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
+                cell.onTapThread = { [weak self] threadID in
+                    guard let self = self else { return }
+                    guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
+                    let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                    self.navigationController?.pushViewController(threadVC, animated: true)
+                }
+                return cell
+            } else {
+                let cell = makeThreadCell(for: indexPath)
+                return cell
+            }
 
         case .themes:
             let cell = makeThemeCell(for: indexPath)
@@ -2514,8 +3956,13 @@ extension AnimeDetailViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         switch Section(rawValue: indexPath.section) {
         case .episodes:
-            openExtensionSearch(episode: indexPath.row + 1)
+            // In two-column mode, taps are handled by EpisodePairCell's onTapEpisode closure
+            if episodeColumnCount >= 2 { break }
+            let ep = paginatedEpisodes[indexPath.row]
+            openExtensionSearch(episode: ep.number)
         case .threads:
+            // In two-column mode, taps are handled by ThreadPairCell's onTapThread closure
+            if threadColumnCount >= 2 { break }
             guard !threadsLoading, !threads.isEmpty else { return }
             let thread = threads[indexPath.row]
             let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
@@ -2533,7 +3980,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch collectionView.tag {
         case 100: return relations.count
-        case 200: return characters.count
         case 300: return staff.count
         default:  return 0
         }
@@ -2547,12 +3993,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
                 withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
             else { return UICollectionViewCell() }
             cell.configure(with: relations[indexPath.item])
-            return cell
-        case 200:
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: CharacterCardCell.reuseID, for: indexPath) as? CharacterCardCell
-            else { return UICollectionViewCell() }
-            cell.configure(with: characters[indexPath.item])
             return cell
         case 300:
             guard let cell = collectionView.dequeueReusableCell(
@@ -2576,6 +4016,209 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
             withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
         detailVC.animeItem = relation.media
         navigationController?.pushViewController(detailVC, animated: true)
+    }
+}
+
+// MARK: - ThreadCardView
+// Reusable thread card view used by both makeThreadCell (single-column) and
+// ThreadPairCell (two-column iPad grid). Matches the web thread card layout.
+
+private final class ThreadCardView: UIView {
+
+    var onTap: ((Int) -> Void)?
+    private var threadID: Int = 0
+
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12.8, weight: .bold)
+        l.textColor = .white
+        l.numberOfLines = 1
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let statsLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.6, alpha: 1)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return l
+    }()
+
+    private let footerLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 9.6)
+        l.textColor = UIColor(white: 0.5, alpha: 1)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let badgeStack: UIStackView = {
+        let s = UIStackView()
+        s.axis = .horizontal
+        s.spacing = 8
+        s.translatesAutoresizingMaskIntoConstraints = false
+        return s
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = hayaseCardBackground
+        layer.cornerRadius = 6
+        clipsToBounds = true
+
+        addSubview(titleLabel)
+        addSubview(statsLabel)
+        addSubview(footerLabel)
+        addSubview(badgeStack)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+
+            statsLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            statsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+
+            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+
+            badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
+            badgeStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        addGestureRecognizer(tap)
+    }
+
+    @objc private func cardTapped() {
+        onTap?(threadID)
+    }
+
+    func configure(with thread: AniListThread, accentColor: UIColor) {
+        threadID = thread.id
+        titleLabel.text = thread.title
+        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
+
+        var footerParts = [thread.sinceString]
+        if let name = thread.userName { footerParts.append("by \(name)") }
+        footerLabel.text = footerParts.joined(separator: " · ")
+
+        // Clear old badges
+        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let contrastColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+        for cat in thread.categories.prefix(3) {
+            let badge = ThreadBadgeLabel()
+            badge.text = cat
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
+            badge.textColor = contrastColor
+            badge.backgroundColor = accentColor
+            badge.layer.cornerRadius = 4
+            badge.clipsToBounds = true
+            badge.textAlignment = .center
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badgeStack.addArrangedSubview(badge)
+        }
+    }
+
+    func reset() {
+        titleLabel.text = nil
+        statsLabel.text = nil
+        footerLabel.text = nil
+        badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        threadID = 0
+        onTap = nil
+    }
+}
+
+// MARK: - ThreadPairCell
+// Two-column thread cell for iPad landscape. Matches web grid:
+// grid-cols-[repeat(auto-fit,minmax(500px,1fr))] with gap-x-10 (40pt).
+// Thread cards sit directly in grid cells (no px-3 wrapper).
+
+private final class ThreadPairCell: UITableViewCell {
+    static let reuseID = "ThreadPairCell"
+
+    let leftCard = ThreadCardView()
+    let rightCard = ThreadCardView()
+    var onTapThread: ((Int) -> Void)?
+
+    private let stack = UIStackView()
+    private let rightContainer = UIView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 40 // gap-x-10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        leftCard.translatesAutoresizingMaskIntoConstraints = false
+        rightCard.translatesAutoresizingMaskIntoConstraints = false
+
+        rightContainer.addSubview(rightCard)
+        stack.addArrangedSubview(leftCard)
+        stack.addArrangedSubview(rightContainer)
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            // Right card fills its container (no px-3 wrapper for threads)
+            rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
+            rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
+            rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor),
+            rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
+        ])
+    }
+
+    func configure(left: AniListThread, right: AniListThread?, accentColor: UIColor) {
+        leftCard.configure(with: left, accentColor: accentColor)
+        leftCard.onTap = { [weak self] id in self?.onTapThread?(id) }
+
+        if let right = right {
+            rightCard.configure(with: right, accentColor: accentColor)
+            rightCard.onTap = { [weak self] id in self?.onTapThread?(id) }
+            rightContainer.isHidden = false
+        } else {
+            rightCard.reset()
+            rightContainer.isHidden = true
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        leftCard.reset()
+        rightCard.reset()
+        rightContainer.isHidden = false
+        onTapThread = nil
     }
 }
 
@@ -2663,7 +4306,7 @@ extension AnimeDetailViewController {
         let label = UILabel()
         label.text = loading ? "Loading…" : text
         label.textColor = UIColor(white: loading ? 0.7 : 0.5, alpha: 1)
-        label.font = .systemFont(ofSize: 14)
+        label.font = .nunito(ofSize: 14)
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(label)
@@ -2686,17 +4329,18 @@ extension AnimeDetailViewController {
         cell.backgroundColor = .clear
         cell.selectionStyle = .default
 
-        // bg-neutral-950 card
+        // bg-neutral-950 card — web: rounded-md (6pt), max-h-28 (112pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
-        card.layer.cornerRadius = 8
+        card.backgroundColor = hayaseCardBackground
+        card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
+        card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
         // Title
         let titleLabel = UILabel()
         titleLabel.text = thread.title
-        titleLabel.font = .systemFont(ofSize: 12.8, weight: .bold)
+        titleLabel.font = .nunito(ofSize: 12.8, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2704,7 +4348,7 @@ extension AnimeDetailViewController {
         // Stats row: ♥ likes  👁 views  💬 replies
         let statsLabel = UILabel()
         statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
-        statsLabel.font = .systemFont(ofSize: 9.6)
+        statsLabel.font = .nunito(ofSize: 9.6)
         statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2713,21 +4357,21 @@ extension AnimeDetailViewController {
         var footerParts = [thread.sinceString]
         if let name = thread.userName { footerParts.append("by \(name)") }
         footerLabel.text = footerParts.joined(separator: " · ")
-        footerLabel.font = .systemFont(ofSize: 9.6)
+        footerLabel.font = .nunito(ofSize: 9.6)
         footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Category badges
+        // Category badges — web: inline-flex flex-wrap gap-2
         let accentColor = animeItem.flatMap { item in
             ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
         let badgeStack = UIStackView()
         badgeStack.axis = .horizontal
-        badgeStack.spacing = 4
+        badgeStack.spacing = 8  // gap-2 = 8pt
         badgeStack.translatesAutoresizingMaskIntoConstraints = false
         for cat in thread.categories.prefix(3) {
             let badge = ThreadBadgeLabel()
             badge.text = cat
-            badge.font = .systemFont(ofSize: 9.6, weight: .bold)
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
             badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             badge.backgroundColor = accentColor
             badge.layer.cornerRadius = 4
@@ -2743,25 +4387,33 @@ extension AnimeDetailViewController {
         card.addSubview(badgeStack)
         statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
-            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
-            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+        // Thread card side padding: 16pt on iPhone, xl:px-14 (56pt) on iPad — matches parent container
+        let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
 
+        NSLayoutConstraint.activate([
+            // gap-y-7 = 28pt gap between cards → 14pt top + 14pt bottom per cell
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+            // max-h-28 = 112pt max card height
+            card.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+
+            // Web inner: py-3 (12pt top/bottom) px-4 (16pt left/right)
             titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
 
             statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
 
-            footerLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            // Footer pushed to bottom (mt-auto)
+            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             footerLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
 
             badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
-            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
         ])
         return cell
     }
@@ -2780,17 +4432,19 @@ extension AnimeDetailViewController {
         cell.backgroundColor = .clear
         cell.selectionStyle = .none
 
-        // bg-neutral-950 card
+        // bg-neutral-950 card — web: rounded-md (6pt)
         let card = UIView()
-        card.backgroundColor = UIColor(white: 0.039, alpha: 1)
-        card.layer.cornerRadius = 8
+        card.backgroundColor = hayaseCardBackground
+        card.layer.cornerRadius = 6  // rounded-md = 0.375rem = 6pt
+        card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
         // Vertical stack inside card: header row + entry rows
+        // Web: gap-4 = 16pt, text-xs base
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 16  // gap-4 = 16pt
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(stack)
 
@@ -2800,7 +4454,7 @@ extension AnimeDetailViewController {
 
         let typeLabel = UILabel()
         typeLabel.text = theme.type
-        typeLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        typeLabel.font = .nunito(ofSize: 12, weight: .bold)  // text-xs = 0.75rem = 12pt
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
@@ -2808,14 +4462,14 @@ extension AnimeDetailViewController {
         let songLabel = UILabel()
         let songTitle = NSMutableAttributedString(
             string: theme.songTitle,
-            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white])
+            attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white])  // text-base font-bold
         if !theme.artists.isEmpty {
             songTitle.append(NSAttributedString(
                 string: " by ",
-                attributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+                attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))  // text-xs font-medium
             songTitle.append(NSAttributedString(
                 string: theme.artists,
-                attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: UIColor.white]))
+                attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))  // text-base font-bold (same as song title)
         }
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
@@ -2834,8 +4488,7 @@ extension AnimeDetailViewController {
         stack.addArrangedSubview(headerRow)
 
         // -- Version rows --
-        let accentColor = animeItem.flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
-            ?? UIColor(red: 0.24, green: 0.71, blue: 0.95, alpha: 1)
+        let accentColor = currentAnimeAccent
 
         for entry in theme.entries {
             let row = UIView()
@@ -2843,24 +4496,27 @@ extension AnimeDetailViewController {
 
             let verLabel = UILabel()
             verLabel.text = "v\(entry.version)"
-            verLabel.font = .systemFont(ofSize: 11)
+            verLabel.font = .nunito(ofSize: 12)  // text-xs = 12pt
             verLabel.textColor = UIColor(white: 0.5, alpha: 1)
             verLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
             epLabel.text = entry.episodes.isEmpty ? "" : "Episodes \(entry.episodes)"
-            epLabel.font = .systemFont(ofSize: 11)
+            epLabel.font = .nunito(ofSize: 12)  // text-xs = 12pt
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            playBtn.setTitle("▶", for: .normal)
-            playBtn.titleLabel?.font = .systemFont(ofSize: 11, weight: .bold)
-            playBtn.setTitleColor(ExtensionSearchViewController.luminanceContrastColor(for: accentColor), for: .normal)
+            // Web: size='icon-sm' → h-[1.6rem] w-[1.6rem] = 25.6px ≈ 26pt
+            // icon: iconSizes['icon-sm'] = '0.7rem' ≈ 11pt, Play fill='currentColor'
+            // class='rounded-full bg-custom text-contrast'
+            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+            playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
+            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
-            playBtn.layer.cornerRadius = 12
+            playBtn.layer.cornerRadius = 13  // fully circular (26/2), web rounded-full
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)
 
@@ -2881,21 +4537,26 @@ extension AnimeDetailViewController {
                 playBtn.leadingAnchor.constraint(greaterThanOrEqualTo: epLabel.trailingAnchor, constant: 8),
                 playBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor),
                 playBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-                playBtn.widthAnchor.constraint(equalToConstant: 24),
-                playBtn.heightAnchor.constraint(equalToConstant: 24),
+                playBtn.widthAnchor.constraint(equalToConstant: 26),
+                playBtn.heightAnchor.constraint(equalToConstant: 26),
             ])
             stack.addArrangedSubview(row)
         }
 
+        // Theme card side padding: 16pt on iPhone, xl:px-14 (56pt) on iPad — matches parent container
+        let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+
         NSLayoutConstraint.activate([
+            // gap-2 = 8pt between theme cards (4+4)
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
-            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: themeSidePad),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -themeSidePad),
+            // Web: px-7 (28pt) py-4 (16pt) internal card padding
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -28),
         ])
         return cell
     }
@@ -2917,8 +4578,8 @@ private var themeURLKey = "themeURL"
 /// add visual padding around text — we must override `drawText(in:)` and
 /// `intrinsicContentSize` to properly inset badge text inside its background.
 private final class ThreadBadgeLabel: UILabel {
-    let hPad: CGFloat = 6   // horizontal padding
-    let vPad: CGFloat = 2   // vertical padding
+    let hPad: CGFloat = 12  // px-3 = 12pt horizontal padding
+    let vPad: CGFloat = 2   // py-0.5 = 2pt vertical padding
 
     override var intrinsicContentSize: CGSize {
         let base = super.intrinsicContentSize

@@ -145,7 +145,7 @@ class SearchViewController: UIViewController {
     private static let mutedFg      = UIColor(red: 0.631, green: 0.631, blue: 0.667, alpha: 1)
     private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
     private static let chipBg       = UIColor(red: 0.98,  green: 0.98,  blue: 0.98,  alpha: 1)
-    private static let chipFg       = UIColor(red: 0.059, green: 0.059, blue: 0.078, alpha: 1)
+    private static let chipFg       = UIColor(red: 24.0/255.0, green: 24.0/255.0, blue: 27.0/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
 
     // MARK: - Filter state
     // Hayase: genres / formats / status multi-select; year / season / sort single-select
@@ -164,6 +164,8 @@ class SearchViewController: UIViewController {
     private var currentPage  = 1
     private var hasNextPage  = true
     private var isFetching   = false
+    /// When true, show skeleton placeholder cells instead of real results (matches web fetching state)
+    private var isShowingSkeleton = true
     /// Incremented on every reset fetch. Allows in-flight callbacks from a prior fetch to be
     /// discarded when a newer reset (e.g. from a View More prefill) has already started.
     private var fetchRequestID = 0
@@ -246,7 +248,14 @@ class SearchViewController: UIViewController {
         }
         if let pending = pendingPrefill {
             pendingPrefill = nil
-            applyPrefill(genre: pending.genre, sort: pending.sort)
+            let ext = pendingExtended
+            pendingExtended = nil
+            applyPrefillExtended(genre: pending.genre,
+                                 format: ext?.format,
+                                 status: ext?.status,
+                                 season: ext?.season,
+                                 seasonYear: ext?.seasonYear,
+                                 sort: pending.sort)
         }
     }
 
@@ -272,7 +281,38 @@ class SearchViewController: UIViewController {
         else { pendingPrefill = (genre: genre, sort: sort) }
     }
 
+    /// Extended prefill matching web `goto('/app/search', { state: { search: { ... } } })`.
+    /// Accepts optional genre, format, status, season + year, sort filters.
+    func prefillSearchExtended(genre: String? = nil,
+                               format: String? = nil,
+                               status: String? = nil,
+                               season: String? = nil,
+                               seasonYear: Int? = nil,
+                               sort: String? = nil) {
+        if isViewLoaded {
+            applyPrefillExtended(genre: genre, format: format, status: status,
+                                 season: season, seasonYear: seasonYear, sort: sort)
+        } else {
+            // Store for later
+            pendingPrefill = (genre: genre, sort: sort)
+            pendingExtended = (format: format, status: status,
+                               season: season, seasonYear: seasonYear)
+        }
+    }
+
+    private var pendingExtended: (format: String?, status: String?,
+                                  season: String?, seasonYear: Int?)?
+
     private func applyPrefill(genre: String?, sort: String?) {
+        applyPrefillExtended(genre: genre, sort: sort)
+    }
+
+    private func applyPrefillExtended(genre: String? = nil,
+                                      format: String? = nil,
+                                      status: String? = nil,
+                                      season: String? = nil,
+                                      seasonYear: Int? = nil,
+                                      sort: String? = nil) {
         selectedGenres = []; selectedYear = nil; selectedSeason = nil
         selectedFormats = []; selectedStatuses = []
         selectedSort = "TRENDING_DESC"; activeChipEntries = []
@@ -280,6 +320,27 @@ class SearchViewController: UIViewController {
             selectedGenres = [genre]
             let name = FilterType.genre.options.first { $0.apiValue == genre }?.displayName ?? genre
             activeChipEntries.append((label: name, type: .genre, apiValue: genre))
+        }
+        if let format = format {
+            selectedFormats = [format]
+            let name = FilterType.format.options.first { $0.apiValue == format }?.displayName ?? format
+            activeChipEntries.append((label: name, type: .format, apiValue: format))
+        }
+        if let status = status {
+            selectedStatuses = [status]
+            let name = FilterType.status.options.first { $0.apiValue == status }?.displayName ?? status
+            activeChipEntries.append((label: name, type: .status, apiValue: status))
+        }
+        if let season = season {
+            selectedSeason = season
+            let name = FilterType.season.options.first { $0.apiValue == season }?.displayName ?? season.capitalized
+            activeChipEntries.append((label: name, type: .season, apiValue: season))
+        }
+        if let seasonYear = seasonYear {
+            let yearStr = String(seasonYear)
+            selectedYear = yearStr
+            let name = FilterType.year.options.first { $0.apiValue == yearStr }?.displayName ?? yearStr
+            activeChipEntries.append((label: name, type: .year, apiValue: yearStr))
         }
         if let sort = sort, sort != "TRENDING_DESC" { selectedSort = sort }
         refreshFilterPickers(); rebuildActiveChips(); updateBoltTint()
@@ -304,10 +365,10 @@ class SearchViewController: UIViewController {
     private func setupHeaderView() {
         headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = Self.bgBlack
+        headerView.backgroundColor = Self.bgBlack  // web: sticky header is bg-black
         view.addSubview(headerView)
-        // Pin to view.topAnchor (not safeArea) so black bg fills behind the status bar,
-        // exactly like Hayase's sticky `bg-black` header that starts at the very top.
+        // Pin to view.topAnchor (not safeArea) so bg fills behind the status bar,
+        // matching the collection view background color for a seamless appearance.
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -323,7 +384,7 @@ class SearchViewController: UIViewController {
     private func setupTitleRow() {
         titleLabel = UILabel()
         titleLabel.text = "Title"
-        titleLabel.font = .boldSystemFont(ofSize: 20) // text-xl font-bold
+        titleLabel.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold
         titleLabel.textColor = .white
 
         searchInputRow = UIView()
@@ -339,7 +400,7 @@ class SearchViewController: UIViewController {
             string: "Any",
             attributes: [.foregroundColor: Self.mutedFg.withAlphaComponent(0.5)])
         searchField.textColor = .white
-        searchField.font = .systemFont(ofSize: 15)
+        searchField.font = .nunito(ofSize: 15)
         let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
         let iconImageView = UIImageView(
             image: UIImage(systemName: "magnifyingglass")?
@@ -463,7 +524,7 @@ class SearchViewController: UIViewController {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = type.label
-        label.font = .boldSystemFont(ofSize: 20) // text-xl font-bold mb-1 ml-1
+        label.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold mb-1 ml-1
         label.textColor = .white
         container.addSubview(label)
 
@@ -472,8 +533,10 @@ class SearchViewController: UIViewController {
         picker.backgroundColor = Self.bgBackground
         picker.layer.cornerRadius = 8; picker.layer.masksToBounds = true
         picker.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        picker.setTitleColor(.white, for: .normal)
-        picker.titleLabel?.font = .systemFont(ofSize: 14)
+        // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
+        let isPlaceholder = pickerTitle(for: type) == "Any" || pickerTitle(for: type) == "Accuracy"
+        picker.setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
+        picker.titleLabel?.font = .nunito(ofSize: 14)
         picker.titleLabel?.lineBreakMode = .byTruncatingTail
         picker.contentHorizontalAlignment = .left
         picker.setTitle(pickerTitle(for: type), for: .normal)
@@ -678,7 +741,11 @@ class SearchViewController: UIViewController {
         let panelTypes = FilterType.allCases.filter { $0 != .trace }
         for (i, type) in panelTypes.enumerated() {
             guard i < filterPickerButtons.count else { continue }
-            filterPickerButtons[i].setTitle(pickerTitle(for: type), for: .normal)
+            let title = pickerTitle(for: type)
+            filterPickerButtons[i].setTitle(title, for: .normal)
+            // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
+            let isPlaceholder = title == "Any" || title == "Accuracy"
+            filterPickerButtons[i].setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
         }
     }
 
@@ -721,11 +788,11 @@ class SearchViewController: UIViewController {
     private func makeActiveChip(label: String, type: FilterType, apiValue: String) -> UIView {
         let container = UIView()
         container.backgroundColor = Self.chipBg
-        container.layer.cornerRadius = 12; container.layer.masksToBounds = true
+        container.layer.cornerRadius = 6; container.layer.masksToBounds = true  // rounded-md = 0.375rem ≈ 6pt
 
         let titleLabel = UILabel()
         titleLabel.text = label
-        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.font = .nunito(ofSize: 12, weight: .semibold)  // text-xs font-semibold
         titleLabel.textColor = Self.chipFg
 
         let xButton = UIButton(type: .system)
@@ -776,6 +843,8 @@ class SearchViewController: UIViewController {
         collectionView.delegate = self; collectionView.dataSource = self
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
+        collectionView.register(SkeletonSearchCell.self,
+                                forCellWithReuseIdentifier: SkeletonSearchCell.reuseID)
         collectionView.keyboardDismissMode = .onDrag
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -816,7 +885,7 @@ class SearchViewController: UIViewController {
         view.addSubview(loadingIndicator)
 
         emptyLabel = UILabel()
-        emptyLabel.textColor = Self.mutedFg; emptyLabel.font = .systemFont(ofSize: 16)
+        emptyLabel.textColor = Self.mutedFg; emptyLabel.font = .nunito(ofSize: 16)
         emptyLabel.textAlignment = .center; emptyLabel.numberOfLines = 0
         emptyLabel.isHidden = true; emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(emptyLabel)
@@ -848,7 +917,12 @@ class SearchViewController: UIViewController {
         }
         guard !isFetching, hasNextPage else { return }
         isFetching = true
-        if reset { loadingIndicator.startAnimating(); emptyLabel.isHidden = true }
+        if reset {
+            // Show skeleton placeholders instead of spinner (matches web fetching → SkeletonCard)
+            isShowingSkeleton = true
+            collectionView.reloadData()
+            emptyLabel.isHidden = true
+        }
         let myRequestID = fetchRequestID
 
         AnimeService.sharedAnimeService.searchAnimeItems(
@@ -865,6 +939,7 @@ class SearchViewController: UIViewController {
             guard let self = self, self.fetchRequestID == myRequestID else { return }
             if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
             self.hasNextPage = hasNext; self.currentPage += 1; self.isFetching = false
+            self.isShowingSkeleton = false
             self.loadingIndicator.stopAnimating(); self.collectionView.reloadData()
             self.emptyLabel.isHidden = !self.animeResults.isEmpty
             if self.animeResults.isEmpty {
@@ -886,7 +961,8 @@ class SearchViewController: UIViewController {
         guard !isTracing else { return }
         isTracing = true
         cameraButton.tintColor = Self.activeBlue   // blue tint while loading
-        loadingIndicator.startAnimating()
+        isShowingSkeleton = true
+        collectionView.reloadData()
         emptyLabel.isHidden = true
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -912,7 +988,7 @@ class SearchViewController: UIViewController {
                 guard let self = self else { return }
                 self.isTracing = false
                 self.cameraButton.tintColor = Self.mutedFg
-                self.loadingIndicator.stopAnimating()
+                self.isShowingSkeleton = false
 
                 guard let data = data,
                       let resp = try? JSONDecoder().decode(TraceMoeResponse.self, from: data),
@@ -960,7 +1036,9 @@ class SearchViewController: UIViewController {
     private func finishTrace(success: Bool) {
         isTracing = false
         cameraButton.tintColor = Self.mutedFg
+        isShowingSkeleton = false
         loadingIndicator.stopAnimating()
+        collectionView.reloadData()
         guard !success else { return }
         emptyLabel.isHidden = !animeResults.isEmpty
         let alert = UIAlertController(
@@ -976,7 +1054,8 @@ class SearchViewController: UIViewController {
     private func fetchResultsByIds(_ ids: [Int]) {
         guard !isFetching else { return }
         isFetching = true
-        loadingIndicator.startAnimating()
+        isShowingSkeleton = true
+        collectionView.reloadData()
         emptyLabel.isHidden = true
 
         AnimeService.sharedAnimeService.fetchAnimeByIds(ids) { [weak self] items in
@@ -985,6 +1064,7 @@ class SearchViewController: UIViewController {
             self.hasNextPage = false
             self.currentPage = 2
             self.isFetching = false
+            self.isShowingSkeleton = false
             self.loadingIndicator.stopAnimating()
             self.collectionView.reloadData()
             self.emptyLabel.isHidden = !items.isEmpty
@@ -997,10 +1077,18 @@ class SearchViewController: UIViewController {
 
 extension SearchViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
-                        numberOfItemsInSection section: Int) -> Int { animeResults.count }
+                        numberOfItemsInSection section: Int) -> Int {
+        // Web: shows 50 SkeletonCard while fetching; we show enough to fill the visible area
+        if isShowingSkeleton { return 50 }
+        return animeResults.count
+    }
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        if isShowingSkeleton {
+            return collectionView.dequeueReusableCell(
+                withReuseIdentifier: SkeletonSearchCell.reuseID, for: indexPath)
+        }
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
@@ -1014,6 +1102,7 @@ extension SearchViewController: UICollectionViewDataSource {
 extension SearchViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
+        guard !isShowingSkeleton else { return }
         let item = animeResults[indexPath.item]
         guard let vc = storyboard?.instantiateViewController(withIdentifier: "AnimeDetailVC")
                 as? AnimeDetailViewController else { return }
@@ -1060,5 +1149,128 @@ extension SearchViewController: UIImagePickerControllerDelegate, UINavigationCon
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
+    }
+}
+
+// MARK: - SkeletonSearchCell
+// Matches web skeleton.svelte: same structure as homepage SkeletonPosterCell
+// but used in the search grid layout (2-col iPhone / 4-col iPad).
+// • w-[9.5rem] item, aspect-ratio 152/290
+// • h-[13.5rem] cover: bg-black rounded + bg-primary/5 animate-pulse
+// • h-2 w-28 title bar: bg-black rounded + bg-primary/5 animate-pulse
+// • h-2 w-20 meta bar: bg-black rounded + bg-primary/5 animate-pulse
+
+private final class SkeletonSearchCell: UICollectionViewCell {
+    static let reuseID = "SkeletonSearchCell"
+
+    private let coverPlaceholder: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 4
+        v.clipsToBounds = true
+        return v
+    }()
+    private let coverShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        return v
+    }()
+
+    private let titleBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 2
+        v.clipsToBounds = true
+        return v
+    }()
+    private let titleShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        return v
+    }()
+
+    private let metaBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        v.layer.cornerRadius = 2
+        v.clipsToBounds = true
+        return v
+    }()
+    private let metaShimmer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        return v
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        coverShimmer.translatesAutoresizingMaskIntoConstraints = false
+        coverPlaceholder.addSubview(coverShimmer)
+        NSLayoutConstraint.activate([
+            coverShimmer.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
+            coverShimmer.leadingAnchor.constraint(equalTo: coverPlaceholder.leadingAnchor),
+            coverShimmer.trailingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor),
+            coverShimmer.bottomAnchor.constraint(equalTo: coverPlaceholder.bottomAnchor),
+        ])
+
+        titleShimmer.translatesAutoresizingMaskIntoConstraints = false
+        titleBar.addSubview(titleShimmer)
+        NSLayoutConstraint.activate([
+            titleShimmer.topAnchor.constraint(equalTo: titleBar.topAnchor),
+            titleShimmer.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor),
+            titleShimmer.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor),
+            titleShimmer.bottomAnchor.constraint(equalTo: titleBar.bottomAnchor),
+        ])
+
+        metaShimmer.translatesAutoresizingMaskIntoConstraints = false
+        metaBar.addSubview(metaShimmer)
+        NSLayoutConstraint.activate([
+            metaShimmer.topAnchor.constraint(equalTo: metaBar.topAnchor),
+            metaShimmer.leadingAnchor.constraint(equalTo: metaBar.leadingAnchor),
+            metaShimmer.trailingAnchor.constraint(equalTo: metaBar.trailingAnchor),
+            metaShimmer.bottomAnchor.constraint(equalTo: metaBar.bottomAnchor),
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titleBar, metaBar])
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.setCustomSpacing(16, after: coverPlaceholder) // mt-4
+        stack.setCustomSpacing(8, after: titleBar)          // mt-2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            coverPlaceholder.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
+
+            titleBar.heightAnchor.constraint(equalToConstant: 8),
+            titleBar.widthAnchor.constraint(equalToConstant: 112),
+
+            metaBar.heightAnchor.constraint(equalToConstant: 8),
+            metaBar.widthAnchor.constraint(equalToConstant: 80),
+        ])
+
+        startPulse()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func startPulse() {
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.05
+        pulse.toValue = 0.12
+        pulse.duration = 1.0
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        [coverShimmer, titleShimmer, metaShimmer].forEach { $0.layer.add(pulse, forKey: "pulse") }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
     }
 }

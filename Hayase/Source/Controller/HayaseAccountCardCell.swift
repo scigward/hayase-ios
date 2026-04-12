@@ -69,7 +69,7 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14) // text-sm
+        l.font = .nunito(ofSize: 14) // text-sm
         l.textColor = .white
         l.numberOfLines = 1
         return l
@@ -77,7 +77,7 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     private let serviceLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 9) // text-[9px]
+        l.font = .nunito(ofSize: 9) // text-[9px]
         l.textColor = mutedFg // text-muted-foreground
         l.numberOfLines = 1
         return l
@@ -90,7 +90,7 @@ final class HayaseAccountCardCell: UITableViewCell {
     private let loginButton: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("Login", for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        b.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
         b.setTitleColor(.white, for: .normal)
         b.backgroundColor = UIColor(red: 38/255, green: 38/255, blue: 38/255, alpha: 1) // Hayase variant='secondary'
         b.layer.cornerRadius = 6
@@ -119,7 +119,7 @@ final class HayaseAccountCardCell: UITableViewCell {
     private let syncLabel: UILabel = {
         let l = UILabel()
         l.text = "Enable Sync"
-        l.font = .systemFont(ofSize: 13)
+        l.font = .nunito(ofSize: 13)
         l.textColor = .white
         l.translatesAutoresizingMaskIntoConstraints = false
         return l

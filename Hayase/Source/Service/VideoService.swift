@@ -272,7 +272,8 @@ public class VideoService: NSObject {
         let headPieceCount = max(1, min(8, Self.headByteTarget / pl))
         let tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
-        // Head pieces (MKV SeekHead/Info/Tracks)
+        // Head pieces (MKV SeekHead/Info/Tracks) — tight deadlines so MPV
+        // can parse the header immediately when it opens the HTTP stream.
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
         for piece in beginPiece...headEnd {
             handle.setPiecePriority(piece, priority: 7)
@@ -280,15 +281,19 @@ public class VideoService: NSObject {
             handle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        // Tail pieces (MKV Cues/seek index)
+        // Tail pieces (MKV Cues/seek index) — priority 7 only, NO deadlines.
+        // Tight deadlines on tail pieces at startup trigger cancel_non_critical()
+        // which cancels in-flight head piece downloads, splitting bandwidth
+        // across head+tail and delaying initial playback (see TorrentStreamer
+        // requestTailPieces() comment for the full analysis). Priority 7
+        // ensures tail pieces download before background pieces without
+        // disrupting the critical head window.
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
         for piece in tailStart...endPiece {
             handle.setPiecePriority(piece, priority: 7)
-            let deadline = Self.metadataDeadlineBase + Int32(piece - tailStart) * Self.metadataDeadlineStep
-            handle.setPieceDeadline(piece, deadline: deadline)
         }
 
-        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd), tail=\(tailStart)–\(endPiece) (pieceLen=\(pl))")
+        print("VideoService: requested metadata pieces for file \(fileIndex): head=\(beginPiece)–\(headEnd) (deadline), tail=\(tailStart)–\(endPiece) (priority only, pieceLen=\(pl))")
     }
 
     // MARK: - File type helpers

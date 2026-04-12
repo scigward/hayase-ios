@@ -164,15 +164,11 @@ final class ExtensionService {
     // MARK: - ConfigManager.setEnabled / setOption
 
     func setEnabled(_ enabled: Bool, for id: String) {
-        if options[id] != nil {
-            options[id]!.enabled = enabled
-        }
+        options[id]?.enabled = enabled
     }
 
     func setOption(_ value: AnyCodableValue, key: String, for id: String) {
-        if options[id] != nil {
-            options[id]!.options[key] = value
-        }
+        options[id]?.options[key] = value
     }
 
     // MARK: - ConfigManager.update (mirrors storage.ts update())
@@ -487,41 +483,92 @@ final class ExtensionService {
             throw ExtensionError.callFailed(msgs)
         }
 
-        return dedupe(all)
+        let deduped = dedupe(all)
+
+        // Mirrors web: `navigator.onLine ? await this.updatePeerCounts(deduped) : deduped`
+        // Scrape live tracker peer counts to get accurate seeders/leechers/downloads.
+        return await updatePeerCounts(deduped)
+    }
+
+    // MARK: - Update peer counts (mirrors web extensions.updatePeerCounts)
+
+    /// Scrape HTTP tracker for live peer counts and overwrite extension-reported values.
+    /// Mirrors web's `updatePeerCounts()` in extensions.ts:
+    ///   for (const { hash, complete, downloaded, incomplete } of updated) {
+    ///     found.downloads = Number(downloaded)
+    ///     found.leechers = Number(incomplete)
+    ///     found.seeders = Number(complete)
+    ///   }
+    private func updatePeerCounts(_ entries: [TorrentResult]) async -> [TorrentResult] {
+        guard !entries.isEmpty else { return entries }
+
+        let hashes = entries.map(\.hash)
+
+        let scraped = await TrackerScrapeService.scrape(hashes: hashes)
+
+        guard !scraped.isEmpty else { return entries }
+
+        var updated = entries
+        for scrapeResult in scraped {
+            guard let idx = updated.firstIndex(where: { $0.hash == scrapeResult.hash }) else { continue }
+            updated[idx].seeders   = scrapeResult.complete
+            updated[idx].leechers  = scrapeResult.incomplete
+            updated[idx].downloads = scrapeResult.downloaded
+        }
+        return updated
     }
 
     // MARK: - Dedupe (mirrors Extensions.dedupe)
 
+    /// Mirrors web extensions.dedupe() exactly.
+    /// - seeders/leechers: first non-zero wins (||=), values ≥ 30 000 are treated as bogus → 0
+    /// - downloads/size/date: first non-zero/non-nil wins (||=)
+    /// - id: first non-nil wins (??=)
+    /// - type: best > alt > batch priority (lower index wins)
     private func dedupe(_ entries: [TorrentResult]) -> [TorrentResult] {
         let accuracyRank = ["high": 0, "medium": 1, "low": 2]
+        let typeRank     = ["best": 0, "alt": 1, "batch": 2]
         var seen: [String: TorrentResult] = [:]
         for entry in entries {
             if var existing = seen[entry.hash] {
                 // Merge extension IDs
                 existing.extensionIds.formUnion(entry.extensionIds)
-                // Take better accuracy
+                // Take better accuracy (lower rank = better)
                 let eRank = accuracyRank[entry.accuracy]    ?? 2
                 let xRank = accuracyRank[existing.accuracy] ?? 2
                 if eRank < xRank { existing.accuracy = entry.accuracy }
                 // Prefer longer title
                 if entry.title.count > existing.title.count { existing.title = entry.title }
-                existing.link      = existing.link.isEmpty      ? entry.link      : existing.link
-                existing.seeders   = existing.seeders   == 0    ? entry.seeders   : existing.seeders
-                existing.leechers  = existing.leechers  == 0    ? entry.leechers  : existing.leechers
-                existing.downloads = existing.downloads == 0    ? entry.downloads : existing.downloads
-                existing.size      = existing.size      == 0    ? entry.size      : existing.size
-                if existing.type == nil { existing.type = entry.type }
+                // link: first non-empty wins (??=)
+                if existing.link.isEmpty { existing.link = entry.link }
+                // id: first non-nil wins (??=)
+                if existing.id == nil { existing.id = entry.id }
+                // seeders/leechers: first non-zero wins, ≥30000 treated as bogus (web ||= with guard)
+                if existing.seeders == 0 {
+                    existing.seeders = entry.seeders >= 30_000 ? 0 : entry.seeders
+                }
+                if existing.leechers == 0 {
+                    existing.leechers = entry.leechers >= 30_000 ? 0 : entry.leechers
+                }
+                // downloads/size: first non-zero wins (||=)
+                if existing.downloads == 0 { existing.downloads = entry.downloads }
+                if existing.size      == 0 { existing.size      = entry.size }
+                // date: first non-nil wins (||=)
+                if existing.date == nil { existing.date = entry.date }
+                // type: best > alt > batch — lower index wins
+                // Web: (rank(entry) <= rank(dupe) ? entry.type : dupe.type) ?? entry.type ?? dupe.type
+                let eTypeRank = typeRank[entry.type    ?? "best"] ?? 0
+                let xTypeRank = typeRank[existing.type ?? "best"] ?? 0
+                let chosen = eTypeRank <= xTypeRank ? entry.type : existing.type
+                existing.type = chosen ?? entry.type ?? existing.type
                 seen[entry.hash] = existing
             } else {
                 seen[entry.hash] = entry
             }
         }
-        // Sort: high accuracy first, then by seeders descending
-        return seen.values.sorted {
-            let r0 = accuracyRank[$0.accuracy] ?? 2
-            let r1 = accuracyRank[$1.accuracy] ?? 2
-            return r0 == r1 ? $0.seeders > $1.seeders : r0 < r1
-        }
+        // Web returns Object.values(deduped) — no sorting here.
+        // Sorting happens later in filterAndSortResults().
+        return Array(seen.values)
     }
 
     // MARK: - Internal: CodeManager methods

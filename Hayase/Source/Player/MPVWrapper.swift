@@ -195,12 +195,21 @@ final class MPVWrapper {
         // Setting demuxer sub-options via runtime "set" commands may fail
         // silently because mpv_command_async ignores errors (reply_id=0).
         //
-        // probe-video-duration=yes: Makes MPV seek to the end of the file
-        // to read the Cues element (seek index + accurate duration). Without
-        // this, MPV defaults to "no" and the video duration is unknown until
-        // the file is nearly fully downloaded. The LocalStreamServer will
-        // block the tail-end Range request until those pieces are available.
-        checkError(mpv_set_option_string(handle, "demuxer-mkv-probe-video-duration", "yes"))
+        // probe-video-duration: MPV's default is "no". We leave it at "no"
+        // here so that HTTP streaming (LocalStreamServer) NEVER causes MPV
+        // to seek to the tail of the file. When probe=yes, MPV makes a
+        // separate Range request to the end of the file to read the MKV
+        // Cues element; the LocalStreamServer blocks that request until the
+        // tail pieces are downloaded. Combined with tight-deadline head
+        // pieces this splits bandwidth across 12+ simultaneous deadline
+        // pieces, causing constant cancel_non_critical() churn and
+        // requiring ~50-100% of the file to be downloaded before playback
+        // starts (observed: 700 MB vs WebTorrent desktop's 70-100 MB).
+        //
+        // Duration is still available from the MKV Info element in the
+        // first 1-2 pieces (no seek needed). For local files the preset
+        // in loadVideoURL() explicitly sets probe=yes, which is safe
+        // because the file is already fully on disk.
 
         // subtitle-preroll=yes: Makes MPV read subtitle data from before
         // the seek target, so subtitles are visible immediately after seeking
@@ -756,12 +765,28 @@ final class MPVWrapper {
     
     // MARK: - Subtitle Controls
     
-    func getSubtitleTracks() -> [[String: Any]] {
+    /// Returns subtitle tracks with language codes.
+    ///
+    /// When `mkvFileURL` is provided, the MKV header is parsed with
+    /// `matroska-swift` to extract the Language element directly from each
+    /// subtitle TrackEntry. This is more reliable than MPV's `lang` property
+    /// which can be missing during streaming or for certain muxing tools.
+    ///
+    /// Fallback chain per track: matroska-swift → MPV lang → MPV demux-lang → title parsing.
+    func getSubtitleTracks(mkvFileURL: URL? = nil) -> [[String: Any]] {
         guard let handle = mpv else {
             Logger.shared.log("getSubtitleTracks: mpv handle is nil", type: "Warn")
             return []
         }
         var tracks: [[String: Any]] = []
+
+        // Parse MKV header for authoritative language data (cached internally)
+        let mkvLanguages: [Int: String]
+        if let fileURL = mkvFileURL {
+            mkvLanguages = MatroskaMetadataService.shared.subtitleLanguages(for: fileURL)
+        } else {
+            mkvLanguages = [:]
+        }
         
         var trackCount: Int64 = 0
         getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
@@ -779,10 +804,13 @@ final class MPVWrapper {
                 track["title"] = title
             }
             
-            // Language detection: try lang → demux-lang → parse from title
-            if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
+            // Language detection: matroska-swift → MPV lang → demux-lang → title parse
+            // Skip "und" (undetermined) at every level so the next source gets a chance.
+            if let mkvLang = mkvLanguages[Int(trackId)], mkvLang != "und" {
+                track["lang"] = mkvLang
+            } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang"), lang != "und" {
                 track["lang"] = lang
-            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
+            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang"), demuxLang != "und" {
                 track["lang"] = demuxLang
             } else if let title = track["title"] as? String {
                 if let parsed = Self.parseLanguageFromTitle(title) {

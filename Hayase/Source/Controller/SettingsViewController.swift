@@ -118,10 +118,22 @@ class SettingsViewController: UIViewController {
     /// Width constraint on the table header container — updated in viewDidLayoutSubviews
     /// so the header always matches the actual table view width (fixes iPad split-view sizing).
     private var headerWidthConstraint: NSLayoutConstraint?
+    /// Reentrancy guard: prevents `viewDidLayoutSubviews` from re-setting
+    /// `tableView.tableHeaderView` while a `reloadData()` is in progress.
+    /// Setting the header triggers a layout pass, which re-enters
+    /// `viewDidLayoutSubviews`, and can confuse UIKit's internal state
+    /// tracking — causing "invalid number of rows in section" crashes.
+    private var isUpdatingHeader = false
 
-    /// Sections filtered to the currently selected tab.
-    private var visibleSections: [Section] {
-        allSections.filter { $0.tab == selectedTab }
+    /// Cached snapshot of sections for the currently selected tab.
+    /// Stored (not computed) so that UIKit's data-source calls always see
+    /// a stable row/section count between reloadData() calls.
+    private lazy var visibleSections: [Section] = allSections.filter { $0.tab == selectedTab }
+
+    /// Re-caches `visibleSections` from `selectedTab`.
+    /// Call this right before every `reloadData()` / `reloadRows(…)`.
+    private func refreshVisibleSections() {
+        visibleSections = allSections.filter { $0.tab == selectedTab }
     }
 
     // MARK: - Option lists (matching Hayase src/lib/modules/settings/util.ts)
@@ -362,6 +374,7 @@ class SettingsViewController: UIViewController {
         // Recalculate table header height after layout, and keep its width pinned to the
         // actual table view width (important on iPad where the table may be narrower than the
         // screen, e.g. in split-view multitasking).
+        guard !isUpdatingHeader else { return }
         guard let header = tableView.tableHeaderView else { return }
         let tableWidth = tableView.bounds.width
         guard tableWidth > 0 else { return }
@@ -371,8 +384,10 @@ class SettingsViewController: UIViewController {
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
         if header.frame.size.height != size.height {
+            isUpdatingHeader = true
             header.frame.size.height = size.height
             tableView.tableHeaderView = header
+            isUpdatingHeader = false
         }
     }
 
@@ -387,7 +402,7 @@ class SettingsViewController: UIViewController {
         // Subtitle: "Manage your app settings, preferences and accounts."
         let subtitle = UILabel()
         subtitle.text = "Manage your app settings, preferences and accounts."
-        subtitle.font = .systemFont(ofSize: 14)
+        subtitle.font = .nunito(ofSize: 14)
         subtitle.textColor = mutedFg
         subtitle.numberOfLines = 0
 
@@ -403,7 +418,7 @@ class SettingsViewController: UIViewController {
         // Version info: matches Hayase sidebar footer
         let versionLabel = UILabel()
         versionLabel.text = "Hayase v\(appVersion())"
-        versionLabel.font = .systemFont(ofSize: 12, weight: .light)
+        versionLabel.font = .nunito(ofSize: 12, weight: .light)
         versionLabel.textColor = mutedFg
 
         // Stack: subtitle → separator → tabGrid → version
@@ -477,7 +492,7 @@ class SettingsViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setTitle(tab.title, for: .normal)
         btn.contentHorizontalAlignment = .leading
-        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
         btn.layer.cornerRadius = 6   // rounded-md
         btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         btn.tag = tab.rawValue
@@ -500,29 +515,49 @@ class SettingsViewController: UIViewController {
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
 
-        // Determine animation direction based on tab index
-        let goingRight = tab.rawValue > selectedTab.rawValue
+        // 1. Snapshot the OLD table content *before* mutating anything.
+        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
+
+        // 2. Update model state + tab-button appearance + reload.
+        //    ALL of this must happen with ZERO animation/transaction context.
+        //    Even UIButton.backgroundColor changes create an implicit
+        //    CATransaction; if reloadData() fires within that transaction,
+        //    UIKit treats it as an incremental (animated) update and applies
+        //    row-count consistency checks — crashing with "invalid number of
+        //    rows in section N" whenever the section/row structure changes.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
         selectedTab = tab
 
-        // Animate tab button appearance
-        UIView.animate(withDuration: 0.2) {
-            for btn in self.tabButtons {
-                self.updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
-            }
+        for btn in tabButtons {
+            updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
         }
 
-        // Crossfade table content with a subtle slide
-        let transition = CATransition()
-        transition.type = .push
-        transition.subtype = goingRight ? .fromRight : .fromLeft
-        transition.duration = 0.25
-        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        tableView.layer.add(transition, forKey: "tabSwitch")
-        tableView.reloadData()
+        // Refresh the cached section array and reload.
+        refreshVisibleSections()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+        }
 
-        // Scroll to top when switching tabs
         if !visibleSections.isEmpty {
             tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        }
+
+        CATransaction.commit()
+
+        // 3. Overlay the old-content snapshot and crossfade it out to
+        //    reveal the freshly-reloaded table underneath.  The animation
+        //    only touches the snapshot (a plain UIView), not the table, so
+        //    it cannot interfere with UIKit's internal bookkeeping.
+        if let snapshot = snapshot {
+            snapshot.frame = tableView.frame
+            tableView.superview?.addSubview(snapshot)
+            UIView.animate(withDuration: 0.25, animations: {
+                snapshot.alpha = 0
+            }) { _ in
+                snapshot.removeFromSuperview()
+            }
         }
     }
 
@@ -560,7 +595,7 @@ class SettingsViewController: UIViewController {
         for option in options {
             let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
                 UserDefaults.standard.set(option.key, forKey: key)
-                self?.tableView.reloadRows(at: [indexPath], with: .fade)
+                self?.tableView.reloadRows(at: [indexPath], with: .none)
             }
             if option.key == currentKey {
                 action.setValue(true, forKey: "checked")
@@ -605,7 +640,7 @@ class SettingsViewController: UIViewController {
             } else {
                 UserDefaults.standard.set(text, forKey: key)
             }
-            self?.tableView.reloadRows(at: [indexPath], with: .fade)
+            self?.tableView.reloadRows(at: [indexPath], with: .none)
             self?.applyTorrentSettingsIfNeeded(forKey: key)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -621,7 +656,7 @@ class SettingsViewController: UIViewController {
                                           message: "This will reset ALL settings and data to their default values. This cannot be undone.",
                                           preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in
-                let domain = Bundle.main.bundleIdentifier!
+                guard let domain = Bundle.main.bundleIdentifier else { return }
                 UserDefaults.standard.removePersistentDomain(forName: domain)
                 UserDefaults.standard.synchronize()
             })
@@ -645,16 +680,18 @@ extension SettingsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int { visibleSections.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        visibleSections[section].rows.count
+        guard section >= 0, section < visibleSections.count else { return 0 }
+        return visibleSections[section].rows.count
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard section >= 0, section < visibleSections.count else { return nil }
         // Hayase: <div class='font-weight-bold text-xl font-bold'>Section Name</div>
         let container = UIView()
         container.backgroundColor = .clear
         let label = UILabel()
         label.text = visibleSections[section].header
-        label.font = .systemFont(ofSize: 20, weight: .bold)
+        label.font = .nunito(ofSize: 20, weight: .bold)
         label.textColor = .white
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
@@ -672,11 +709,15 @@ extension SettingsViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else {
+            return UITableViewCell()
+        }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .toggle(let key, let def):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as! HayaseSettingToggleCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as? HayaseSettingToggleCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description,
                            key: key, defaultValue: def)
             cell.onToggled = { [weak self] toggledKey in
@@ -685,14 +726,14 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .value(let val):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: val, isLink: false)
             cell.backgroundColor = bgColor
             return cell
         case .selectable(let key, let options, let defaultKey):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let storedKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
             let displayValue = options.first(where: { $0.key == storedKey })?.label ?? storedKey
             cell.configure(title: row.title, description: row.description, value: displayValue, isLink: false)
@@ -700,8 +741,8 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .editableNumber(let key, let defaultValue, let suffix, _, _):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
             let display = suffix.isEmpty ? stored : "\(stored) \(suffix)"
             cell.configure(title: row.title, description: row.description, value: display, isLink: false)
@@ -709,27 +750,27 @@ extension SettingsViewController: UITableViewDataSource {
             cell.backgroundColor = bgColor
             return cell
         case .link:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
             cell.backgroundColor = bgColor
             return cell
         case .navigate:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.accessoryType = .disclosureIndicator
             cell.backgroundColor = bgColor
             return cell
         case .action:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as! HayaseSettingValueCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
             cell.backgroundColor = bgColor
             return cell
         case .account(let tracker):
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as! HayaseAccountCardCell
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as? HayaseAccountCardCell else { return UITableViewCell() }
             cell.configure(tracker: tracker, parentVC: self)
             cell.backgroundColor = bgColor
             return cell
@@ -743,6 +784,8 @@ extension SettingsViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else { return }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         switch row.kind {
         case .link(let urlStr):
@@ -770,17 +813,18 @@ extension SettingsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard indexPath.section >= 0, indexPath.section < visibleSections.count,
+              indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else { return 80 }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         if case .account = row.kind { return 140 }
         return 80
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        // Subtle fade-in for each cell as it appears
-        cell.alpha = 0
-        UIView.animate(withDuration: 0.25, delay: 0.02 * Double(indexPath.row), options: .curveEaseOut) {
-            cell.alpha = 1
-        }
+        // No-op — UIView.animate here creates implicit CATransactions that
+        // cause reloadData() during tab switches to be treated as an
+        // incremental update, crashing with "invalid number of rows in
+        // section N" when the section/row structure changes between tabs.
     }
 }
 
@@ -811,14 +855,14 @@ final class HayaseSettingToggleCell: UITableViewCell {
     }()
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .bold)    // font-bold
+        l.font = .nunito(ofSize: 15, weight: .bold)    // font-bold
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)                   // text-xs = 12px
+        l.font = .nunito(ofSize: 12)                   // text-xs = 12px
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // text-muted-foreground
         l.numberOfLines = 0
         return l
@@ -910,21 +954,21 @@ final class HayaseSettingValueCell: UITableViewCell {
     }()
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .bold)
+        l.font = .nunito(ofSize: 15, weight: .bold)
         l.textColor = .white
         l.numberOfLines = 1
         return l
     }()
     private let descLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
+        l.font = .nunito(ofSize: 12)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.numberOfLines = 0
         return l
     }()
     private let valueLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 14)
+        l.font = .nunito(ofSize: 14)
         l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
         l.setContentHuggingPriority(.required, for: .horizontal)
         l.setContentCompressionResistancePriority(.required, for: .horizontal)
