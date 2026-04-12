@@ -8,66 +8,135 @@ import UIKit
 // MARK: - HTabBar
 
 final class HTabBar: UIView {
-
     var onChange: ((Int) -> Void)?
-    var accentColor: UIColor = .white {
-        didSet { updateSelection() }
-    }
-    var isVertical = false {
-        didSet { stack.axis = isVertical ? .vertical : .horizontal }
+    var selectedIndex: Int = 0 { didSet { updateSelection() } }
+    var accentColor: UIColor = UIColor(white: 0.98, alpha: 1) { didSet { updateSelection() } }
+
+    /// Switches between vertical (iPhone) and horizontal (iPad) layout.
+    /// iPhone: vertical stack, full-width buttons, flex-col gap-1
+    /// iPad: horizontal inline, h-9, items-center
+    var isVertical: Bool = true {
+        didSet {
+            guard oldValue != isVertical else { return }
+            applyOrientation()
+        }
     }
 
+    private let stack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical  // default = vertical (iPhone)
+        sv.spacing = 4       // gap-1 = 4pt
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
     private var buttons: [UIButton] = []
-    private var selectedIndex = 0
-    private let stack = UIStackView()
+
+    /// Height constraint for horizontal mode (h-9 = 36pt), deactivated in vertical mode.
+    private var horizontalHeightConstraint: NSLayoutConstraint?
+    /// Stack height == self height minus p-1 insets; only active in horizontal mode.
+    private var stackHeightConstraint: NSLayoutConstraint?
 
     init(titles: [String]) {
         super.init(frame: .zero)
-        stack.axis = .horizontal
-        stack.spacing = 0
-        stack.distribution = .fillEqually
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
-        layer.cornerRadius = 6
-        clipsToBounds = true
+        // bg-muted = #27272a (neutral-800)
         backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-        heightAnchor.constraint(equalToConstant: 36).isActive = true
+        layer.cornerRadius = 8   // rounded-lg
+        clipsToBounds = true
+
+        addSubview(stack)
+
+        // Stack pinned with p-1 (4pt) insets on all sides
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),       // p-1
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
 
         for (i, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
-            btn.titleLabel?.font = .nunito(ofSize: 13, weight: .bold)
+            // text-sm = 14px, font-medium (inactive default)
+            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            // px-8 (32pt) py-1 (4pt) — matches web trigger overrides
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 32, bottom: 4, right: 32)
+            btn.layer.cornerRadius = 6   // rounded-md
+            btn.clipsToBounds = true
             btn.tag = i
-            btn.addTarget(self, action: #selector(tapped(_:)), for: .touchUpInside)
+            btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
             stack.addArrangedSubview(btn)
             buttons.append(btn)
         }
         updateSelection()
+        applyOrientation()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func tapped(_ sender: UIButton) {
+    /// Calculates intrinsic content size based on orientation.
+    /// Vertical: width = widest button + 8pt insets, height = sum of button heights + spacing + 8pt
+    /// Horizontal: width = sum of button widths + spacing + 8pt, height = noIntrinsicMetric (set by constraint)
+    override var intrinsicContentSize: CGSize {
+        if isVertical {
+            let maxButtonWidth = buttons.reduce(CGFloat(0)) { max($0, $1.intrinsicContentSize.width) }
+            let totalButtonHeight = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.height }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = maxButtonWidth + 8     // 2 × 4pt p-1 insets
+            let height = totalButtonHeight + totalSpacing + 8
+            return CGSize(width: width, height: height)
+        } else {
+            let totalButtonWidth = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
+            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+            let width = totalButtonWidth + totalSpacing + 8
+            return CGSize(width: width, height: UIView.noIntrinsicMetric)
+        }
+    }
+
+    @objc private func tabTapped(_ sender: UIButton) {
         selectedIndex = sender.tag
-        updateSelection()
-        onChange?(selectedIndex)
+        onChange?(sender.tag)
     }
 
     private func updateSelection() {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        accentColor.getRed(&r, green: &g, blue: &b, alpha: nil)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let contrastColor: UIColor = luminance > 0.5 ? UIColor(white: 0.04, alpha: 1) : .white
         for (i, btn) in buttons.enumerated() {
-            let isSelected = i == selectedIndex
-            btn.backgroundColor = isSelected ? accentColor : .clear
-            btn.setTitleColor(
-                isSelected ? ExtensionSearchViewController.luminanceContrastColor(for: accentColor) : .white,
-                for: .normal)
-            btn.titleLabel?.font = .nunito(ofSize: 13, weight: isSelected ? .heavy : .bold)
+            if i == selectedIndex {
+                btn.backgroundColor = accentColor
+                btn.setTitleColor(contrastColor, for: .normal)
+                // data-[state=active]:font-bold
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+            } else {
+                btn.backgroundColor = .clear
+                btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
+                // font-medium (inactive)
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+            }
         }
+    }
+
+    /// Configures stack axis, spacing, and constraints for vertical/horizontal mode.
+    private func applyOrientation() {
+        if isVertical {
+            // Web: flex-col gap-1 max-w-72 w-full
+            stack.axis = .vertical
+            stack.spacing = 4  // gap-1 = 4pt
+            horizontalHeightConstraint?.isActive = false
+            stackHeightConstraint?.isActive = false
+        } else {
+            // Web: h-9 items-center justify-center, inline-flex
+            stack.axis = .horizontal
+            stack.spacing = 0  // Horizontal mode: no explicit gap between tabs; p-1 container insets provide visual separation
+            // h-9 = 36pt total height (includes p-1 insets)
+            if horizontalHeightConstraint == nil {
+                horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
+            }
+            horizontalHeightConstraint?.isActive = true
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 }
 
