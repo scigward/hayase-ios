@@ -1515,7 +1515,7 @@ final class TorrentResultCell: UITableViewCell {
     /// Web: rounded px-3 py-1 border text-[.7rem] — proper 12px/4px insets, 4px radius, 1px border.
     private static func makeBadgeLabel() -> PaddedLabel {
         let l = PaddedLabel()
-        l.textInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
+        l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
         l.font = .nunito(ofSize: 11)  // text-[.7rem] = 11.2px ≈ 11pt, normal weight
         l.layer.cornerRadius = 4      // rounded (0.25rem = 4px)
         l.clipsToBounds = true
@@ -1669,7 +1669,7 @@ final class TorrentResultCell: UITableViewCell {
         termsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for term in TitleUtils.sanitise(title).reversed() {
             let l = PaddedLabel()
-            l.textInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
+            l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
             l.text = term.text
             l.font = .nunito(ofSize: 11, weight: .bold)  // text-[.7rem] font-bold
             // Use Rec.601 brightness to pick contrasting text colour (mirrors web text-contrast-filter)
@@ -1722,28 +1722,6 @@ private extension UIColor {
         getRed(&r, green: &g, blue: &b, alpha: &a)
         let brightness = r * 0.299 + g * 0.587 + b * 0.114
         return brightness > 0.502
-    }
-}
-
-// MARK: - PaddedLabel (proper px-3 py-1 insets matching web badge padding)
-
-/// UILabel subclass that adds internal padding (web px-3 py-1) instead of space-character hacks.
-private final class PaddedLabel: UILabel {
-    var textInsets = UIEdgeInsets.zero
-
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: textInsets))
-    }
-
-    override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(width: size.width + textInsets.left + textInsets.right,
-                      height: size.height + textInsets.top + textInsets.bottom)
-    }
-
-    override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
-        let insetBounds = bounds.inset(by: textInsets)
-        return super.textRect(forBounds: insetBounds, limitedToNumberOfLines: numberOfLines)
     }
 }
 

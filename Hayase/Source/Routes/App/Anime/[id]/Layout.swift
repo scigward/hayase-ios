@@ -9,7 +9,8 @@ import ObjectiveC
 
 // MARK: - Color constants
 
-let hayasePageBackground = UIColor(red: 0.047, green: 0.047, blue: 0.055, alpha: 1.0)
+// --background: hsl(240 10% 3.9%) = #09090b
+let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
 let hayaseCardBackground = UIColor(red: 0.031, green: 0.031, blue: 0.039, alpha: 1.0)
 
 // MARK: - PaddedLabel
@@ -35,6 +36,11 @@ final class PaddedLabel: UILabel {
             height: max(0, size.height - contentInsets.top - contentInsets.bottom)))
         return CGSize(width: base.width + contentInsets.left + contentInsets.right,
                       height: base.height + contentInsets.top + contentInsets.bottom)
+    }
+
+    override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
+        let insetBounds = bounds.inset(by: contentInsets)
+        return super.textRect(forBounds: insetBounds, limitedToNumberOfLines: numberOfLines)
     }
 }
 

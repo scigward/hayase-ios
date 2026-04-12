@@ -10,10 +10,6 @@
 import UIKit
 import CoreData
 
-// MARK: - Shared color constants (same values as AnimeDetailViewController)
-// Page background: web --background: hsl(240 10% 3.9%) = #09090b
-private let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
-
 // MARK: - BannerGradientView
 
 private final class BannerGradientView: UIView {
