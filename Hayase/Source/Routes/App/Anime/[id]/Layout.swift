@@ -4,6 +4,8 @@
 //
 
 import UIKit
+import SafariServices
+import ObjectiveC
 
 // MARK: - Color constants
 
@@ -1098,5 +1100,476 @@ final class AnimeInfoHeaderView: UIView {
             }
         }
         task?.resume()
+    }
+}
+
+// MARK: - AnimeDetailViewController
+
+class AnimeDetailViewController: UIViewController {
+
+    var animeEntity: Animes?
+    var animeItem: AnimeItem?
+
+    var tableView: UITableView!
+    var headerView: AnimeInfoHeaderView!
+    var isFavorite = false
+    var isOnList = false
+    var episodes: [AniZipEpisode] = []
+    var anilistProgress: Int = 0
+    var currentListStatus: String?
+    var currentAnimeAccent: UIColor = .white
+    var relations: [AnimeRelation] = []
+    var staff: [AnimeStaffMember] = []
+    var scoreDistribution: [AnimeScorePoint] = []
+    var statusDistribution: [AnimeStatusCount] = []
+
+    let episodesPerPage = 16
+    var currentEpisodePage: Int = 1
+    var paginatedEpisodes: [AniZipEpisode] {
+        let start = (currentEpisodePage - 1) * episodesPerPage
+        let end = min(start + episodesPerPage, episodes.count)
+        guard start < episodes.count else { return [] }
+        return Array(episodes[start..<end])
+    }
+    var totalEpisodePages: Int {
+        max(1, Int(ceil(Double(episodes.count) / Double(episodesPerPage))))
+    }
+    lazy var paginationBar: PaginationBarView = {
+        let bar = PaginationBarView()
+        bar.onPageChange = { [weak self] page in
+            self?.setEpisodePage(page)
+        }
+        return bar
+    }()
+
+    var threads: [AniListThread] = []
+    var themes: [AnimeThemesTheme] = []
+    var threadsLoading = false
+    var themesLoading = false
+
+    var activeSection: Section = .episodes
+
+    lazy var tabBar: HTabBar = {
+        let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes"])
+        bar.onChange = { [weak self] index in
+            self?.tabChanged(to: index)
+        }
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        return bar
+    }()
+
+    var tabBarCenterXConstraint: NSLayoutConstraint?
+    var tabBarLeadingConstraint: NSLayoutConstraint?
+    var tabBarMaxWidthConstraint: NSLayoutConstraint?
+    var tabBarWidthFillConstraint: NSLayoutConstraint?
+    var tabBarTrailingConstraint: NSLayoutConstraint?
+
+    lazy var tabBarContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = hayasePageBackground
+        tabBar.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(tabBar)
+
+        NSLayoutConstraint.activate([
+            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
+            tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+        ])
+
+        tabBarCenterXConstraint = tabBar.centerXAnchor.constraint(equalTo: v.centerXAnchor)
+        tabBarMaxWidthConstraint = tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 288)
+        tabBarWidthFillConstraint = tabBar.widthAnchor.constraint(equalTo: v.widthAnchor, constant: -32)
+        tabBarWidthFillConstraint?.priority = .defaultHigh
+
+        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 56)
+        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -56)
+
+        return v
+    }()
+
+    func applyTabBarLayoutForSizeClass() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+
+        tabBar.isVertical = !isRegular
+
+        if isRegular {
+            tabBarCenterXConstraint?.isActive = false
+            tabBarMaxWidthConstraint?.isActive = false
+            tabBarWidthFillConstraint?.isActive = false
+            tabBarLeadingConstraint?.isActive = true
+            tabBarTrailingConstraint?.isActive = true
+        } else {
+            tabBarLeadingConstraint?.isActive = false
+            tabBarTrailingConstraint?.isActive = false
+            tabBarCenterXConstraint?.isActive = true
+            tabBarMaxWidthConstraint?.isActive = true
+            tabBarWidthFillConstraint?.isActive = true
+        }
+    }
+
+    enum Section: Int, CaseIterable {
+        case header = 0, episodes, episodePagination, relations, threads, themes
+    }
+
+    static let gridOuterPad: CGFloat = 56
+    static let gridMinColWidth: CGFloat = 500
+    static let episodeGap: CGFloat = 16
+    static let threadGap: CGFloat = 40
+
+    var episodeColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap {
+            return 2
+        }
+        return 1
+    }
+
+    var threadColumnCount: Int {
+        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        if traitCollection.horizontalSizeClass == .regular
+            && gridWidth >= 2 * Self.gridMinColWidth + Self.threadGap {
+            return 2
+        }
+        return 1
+    }
+
+    // MARK: - Search navigation helpers
+
+    func navigateToSearchTab(genre: String) {
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tbc?.selectedIndex = 1
+            return
+        }
+        let nav = navigationController
+        searchVC.prefillSearchExtended(genre: genre)
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
+    }
+
+    func navigateToSearchTab(filterType: String, value: String) {
+        let tbc = tabBarController
+        guard let tbc,
+              let controllers = tbc.viewControllers,
+              controllers.count > 1,
+              let navController = controllers[1] as? UINavigationController,
+              let searchVC = navController.viewControllers.first as? SearchViewController else {
+            tbc?.selectedIndex = 1
+            return
+        }
+        let nav = navigationController
+        switch filterType {
+        case "format":
+            searchVC.prefillSearchExtended(format: value)
+        case "status":
+            searchVC.prefillSearchExtended(status: value)
+        case "season":
+            let parts = value.components(separatedBy: " ")
+            if parts.count == 2, let year = Int(parts[1]) {
+                searchVC.prefillSearchExtended(season: parts[0].uppercased(), seasonYear: year)
+            } else {
+                searchVC.prefillSearchExtended(season: value.uppercased())
+            }
+        case "score":
+            searchVC.prefillSearchExtended(sort: value)
+        default:
+            break
+        }
+        nav?.popToRootViewController(animated: false)
+        tbc.selectedIndex = 1
+    }
+
+    // MARK: - Lifecycle
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = nil
+        navigationItem.largeTitleDisplayMode = .never
+        view.backgroundColor = hayasePageBackground
+
+        setupTableView()
+        setupHeaderView()
+        applyTabBarLayoutForSizeClass()
+        fetchEpisodes()
+        fetchRelationsAndCharacters()
+        fetchAniListProgress()
+        refreshButtonStates()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        let nb = navigationController?.navigationBar
+        nb?.setBackgroundImage(UIImage(), for: .default)
+        nb?.shadowImage = UIImage()
+        nb?.tintColor = .white
+
+        fetchAniListProgress()
+        refreshButtonStates()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        let nb = navigationController?.navigationBar
+        nb?.setBackgroundImage(nil, for: .default)
+        nb?.shadowImage = nil
+        nb?.tintColor = nil
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            applyTabBarLayoutForSizeClass()
+            tableView.reloadData()
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.tableView.reloadData()
+        })
+    }
+
+    // MARK: - Setup
+
+    func setupTableView() {
+        tableView = UITableView(frame: view.bounds, style: .plain)
+        tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
+        tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
+        tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
+        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PaginationCell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 100
+        tableView.separatorStyle = .none
+        tableView.backgroundColor = hayasePageBackground
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
+        tableView.estimatedSectionHeaderHeight = 0
+        tableView.estimatedSectionFooterHeight = 0
+        tableView.contentInsetAdjustmentBehavior = .never
+        let tabBarH = tabBarController?.tabBar.frame.height ?? 83
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
+        tableView.scrollIndicatorInsets = tableView.contentInset
+        tableView.clipsToBounds = false
+        view.clipsToBounds = true
+        view.addSubview(tableView)
+    }
+
+    func setupHeaderView() {
+        headerView = AnimeInfoHeaderView()
+        if let item = animeItem {
+            headerView.configure(with: item)
+            if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
+                tabBar.accentColor = accent
+                currentAnimeAccent = accent
+            }
+        } else {
+            headerView.configure(with: animeEntity)
+        }
+        headerView.onFavorite = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            AniListTracking.shared.toggleFavourite(mediaID: item.id) { [weak self] _ in
+                self?.refreshButtonStates()
+            }
+        }
+
+        headerView.onBookmark = { [weak self] in
+            guard let self, let item = self.animeItem else { return }
+            if self.isOnList {
+                AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+                    if let listID = entry?.listID {
+                        AniListTracking.shared.deleteEntry(listID: listID) { [weak self] _ in
+                            self?.refreshButtonStates()
+                        }
+                    }
+                }
+            } else {
+                AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING") { [weak self] _ in
+                    self?.refreshButtonStates()
+                }
+            }
+        }
+
+        headerView.onShare = { [weak self] in
+            guard let self = self else { return }
+            let title = self.animeItem?.titleEnglish ?? self.animeItem?.titleRomaji
+                ?? self.animeEntity?.animeTitleEnglish ?? self.animeEntity?.animeTitleJapanese
+                ?? "Anime"
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            var items: [Any] = [title]
+            if let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") {
+                items.append(url)
+            }
+            let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            activity.popoverPresentationController?.sourceView = self.view
+            self.present(activity, animated: true)
+        }
+        headerView.onPlayTrailer = { [weak self] in
+            guard let self = self,
+                  let trailerID = self.animeItem?.trailerYouTubeID,
+                  let url = URL(string: "https://www.youtube.com/watch?v=\(trailerID)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+        headerView.onWatch = { [weak self] in
+            self?.openExtensionSearch(episode: 1)
+        }
+        headerView.onEntryEditor = { [weak self] in
+            self?.showEntryEditor()
+        }
+        headerView.onOpenAniList = { [weak self] in
+            guard let self = self else { return }
+            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
+            guard let id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+        headerView.onOpenMAL = { [weak self] in
+            guard let self = self else { return }
+            guard let malId = self.headerView?.malId,
+                  let url = URL(string: "https://myanimelist.net/anime/\(malId)") else { return }
+            let safari = SFSafariViewController(url: url)
+            self.present(safari, animated: true)
+        }
+
+        headerView.onGenreTapped = { [weak self] genre in
+            self?.navigateToSearchTab(genre: genre)
+        }
+
+        headerView.onBadgeTapped = { [weak self] filterType, value in
+            self?.navigateToSearchTab(filterType: filterType, value: value)
+        }
+    }
+
+    // MARK: - AniList Entry Editor
+
+    func showEntryEditor() {
+        guard let item = animeItem else { return }
+
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.presentEntryEditorSheet(mediaID: item.id, currentEntry: entry, totalEpisodes: item.episodes)
+            }
+        }
+    }
+
+    private func presentEntryEditorSheet(mediaID: Int, currentEntry: AnimeItem.MediaListEntry?, totalEpisodes: Int?) {
+        let editorVC = EntryEditorViewController()
+        editorVC.mediaID = mediaID
+        editorVC.totalEpisodes = totalEpisodes
+        editorVC.currentEntry = currentEntry
+        editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
+        editorVC.coverURL = animeItem?.coverURL
+        editorVC.bannerURL = animeItem?.bannerURL
+
+        editorVC.onSave = { [weak self] in
+            self?.fetchAniListProgress()
+            self?.refreshButtonStates()
+        }
+        editorVC.onDelete = { [weak self] in
+            self?.anilistProgress = 0
+            self?.currentListStatus = nil
+            self?.isOnList = false
+            self?.tableView.reloadData()
+            self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
+            self?.headerView?.updatePlayButtonTitle(listStatus: nil)
+        }
+
+        editorVC.modalPresentationStyle = .custom
+        editorVC.transitioningDelegate = editorVC
+        present(editorVC, animated: true)
+    }
+
+    // MARK: - AniList progress & button state
+
+    func fetchAniListProgress() {
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        AniListTracking.shared.fetchProgress(anilistID: id) { [weak self] progress in
+            guard let self = self else { return }
+            let newProgress = progress ?? 0
+            DispatchQueue.main.async {
+                guard self.anilistProgress != newProgress else { return }
+                self.anilistProgress = newProgress
+                if newProgress > 0 {
+                    let desiredPage = newProgress / self.episodesPerPage + 1
+                    self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
+                }
+                self.tableView.reloadData()
+            }
+        }
+    }
+
+    func refreshButtonStates() {
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        AniListTracking.shared.checkIsFavourite(mediaID: id) { [weak self] isFav in
+            DispatchQueue.main.async {
+                self?.isFavorite = isFav
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
+            }
+        }
+        AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
+            DispatchQueue.main.async {
+                self?.isOnList = entry != nil
+                self?.currentListStatus = entry?.status
+                self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
+                                                     isOnList: self?.isOnList ?? false)
+                self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
+            }
+        }
+    }
+
+    // MARK: - Tab bar
+
+    func tabChanged(to index: Int) {
+        let sectionMap: [Int: Section] = [0: .episodes, 1: .relations, 2: .threads, 3: .themes]
+        guard let sec = sectionMap[index] else { return }
+        activeSection = sec
+        let contentRange = Section.episodes.rawValue..<Section.allCases.count
+        tableView.reloadSections(IndexSet(integersIn: contentRange), with: .automatic)
+        if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
+        if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
+    }
+
+    func setEpisodePage(_ page: Int) {
+        let clamped = min(max(1, page), totalEpisodePages)
+        guard clamped != currentEpisodePage else { return }
+        currentEpisodePage = clamped
+        let sectionsToReload = IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue])
+        tableView.reloadSections(sectionsToReload, with: .automatic)
+    }
+
+    // MARK: - Navigation
+
+    func openExtensionSearch(episode: Int) {
+        let searchVC = ExtensionSearchViewController()
+        searchVC.animeItem = animeItem
+        searchVC.initialEpisode = episode
+
+        if traitCollection.horizontalSizeClass == .regular {
+            searchVC.modalPresentationStyle = .custom
+            searchVC.transitioningDelegate = searchVC
+        } else {
+            searchVC.modalPresentationStyle = .fullScreen
+        }
+
+        guard var presenter = view.window?.rootViewController else {
+            self.present(searchVC, animated: true)
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(searchVC, animated: true)
     }
 }

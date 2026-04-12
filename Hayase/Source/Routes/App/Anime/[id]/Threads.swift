@@ -212,3 +212,135 @@ final class ThreadPairCell: UITableViewCell {
         onTapThread = nil
     }
 }
+
+// MARK: - Thread fetching
+
+extension AnimeDetailViewController {
+
+    func fetchThreads() {
+        guard let id = animeItem?.id else { return }
+        threadsLoading = true
+        tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
+
+        AnimeService.sharedAnimeService.fetchForumThreads(mediaID: id) { [weak self] parsed in
+            guard let self else { return }
+            self.threads = parsed
+            self.threadsLoading = false
+            if self.activeSection == .threads {
+                self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)
+            }
+        }
+    }
+
+    func makeThreadCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cols = threadColumnCount
+        if cols >= 2 && !threadsLoading && !threads.isEmpty {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ThreadPairCell.reuseID, for: indexPath) as? ThreadPairCell else {
+                return UITableViewCell()
+            }
+            let accentColor = animeItem.flatMap { item in
+                ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
+            let leftIdx = indexPath.row * 2
+            let rightIdx = leftIdx + 1
+            let leftThread = threads[leftIdx]
+            let rightThread = rightIdx < threads.count ? threads[rightIdx] : nil
+            cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
+            cell.onTapThread = { [weak self] threadID in
+                guard let self = self else { return }
+                guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
+                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                self.navigationController?.pushViewController(threadVC, animated: true)
+            }
+            return cell
+        }
+
+        if threadsLoading || threads.isEmpty {
+            return makeEmptyStateCell(
+                text: "No threads found.",
+                loading: threadsLoading)
+        }
+        let thread = threads[indexPath.row]
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .default
+
+        let card = UIView()
+        card.backgroundColor = hayaseCardBackground
+        card.layer.cornerRadius = 6
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(card)
+
+        let titleLabel = UILabel()
+        titleLabel.text = thread.title
+        titleLabel.font = .nunito(ofSize: 12.8, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.numberOfLines = 1
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let statsLabel = UILabel()
+        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
+        statsLabel.font = .nunito(ofSize: 9.6)
+        statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
+        statsLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let footerLabel = UILabel()
+        var footerParts = [thread.sinceString]
+        if let name = thread.userName { footerParts.append("by \(name)") }
+        footerLabel.text = footerParts.joined(separator: " · ")
+        footerLabel.font = .nunito(ofSize: 9.6)
+        footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        footerLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let accentColor = animeItem.flatMap { item in
+            ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
+        let badgeStack = UIStackView()
+        badgeStack.axis = .horizontal
+        badgeStack.spacing = 8
+        badgeStack.translatesAutoresizingMaskIntoConstraints = false
+        for cat in thread.categories.prefix(3) {
+            let badge = ThreadBadgeLabel()
+            badge.text = cat
+            badge.font = .nunito(ofSize: 9.6, weight: .bold)
+            badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+            badge.backgroundColor = accentColor
+            badge.layer.cornerRadius = 4
+            badge.clipsToBounds = true
+            badge.textAlignment = .center
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badgeStack.addArrangedSubview(badge)
+        }
+
+        card.addSubview(titleLabel)
+        card.addSubview(statsLabel)
+        card.addSubview(footerLabel)
+        card.addSubview(badgeStack)
+        statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
+            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+            card.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+
+            titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+
+            statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+
+            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
+            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            footerLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+
+            badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
+            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+        ])
+        return cell
+    }
+}

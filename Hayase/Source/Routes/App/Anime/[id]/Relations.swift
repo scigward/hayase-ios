@@ -362,3 +362,56 @@ final class StatsCell: UITableViewCell {
         }
     }
 }
+
+// MARK: - Relations fetching
+
+extension AnimeDetailViewController {
+
+    func makeRelationsCell(for indexPath: IndexPath) -> UITableViewCell {
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: HorizontalCardsCell.relationsReuseID,
+            for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }
+        cell.collectionView.tag = 100
+        cell.collectionView.dataSource = self
+        cell.collectionView.delegate = self
+        cell.collectionView.register(RelationCardCell.self,
+                                     forCellWithReuseIdentifier: RelationCardCell.reuseID)
+        cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
+        cell.collectionView.reloadData()
+        return cell
+    }
+
+    func fetchRelationsAndCharacters() {
+        let id: Int?
+        if let entity = animeEntity { id = entity.animeAnilistId?.intValue }
+        else { id = animeItem?.id }
+        guard let anilistId = id else { return }
+
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: anilistId) { [weak self] rels in
+            guard let self = self else { return }
+            self.relations = rels
+            if !rels.isEmpty {
+                self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            }
+        }
+
+        if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {
+            AnimeService.sharedAnimeService.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
+                guard let self else { return }
+                let needsGenres = self.animeItem == nil || self.animeItem?.genres.isEmpty == true
+                if needsGenres {
+                    self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
+                } else if let trailerID {
+                    self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
+                }
+                self.animeItem?.trailerYouTubeID = trailerID
+
+                if let malId, self.headerView?.malId == nil {
+                    self.headerView?.malId = malId
+                    self.animeItem?.malId = malId
+                    self.headerView?.updateMALButtonVisibility()
+                }
+            }
+        }
+    }
+}

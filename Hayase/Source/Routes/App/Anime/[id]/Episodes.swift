@@ -22,7 +22,7 @@ struct AniZipEpisode {
 
 struct FilteredEpisode {
     let key: String
-    let info: [String: Any]
+    let entry: AniZipEpisodeEntry
     let airdatems: Double?
     let anidbEid: Int?
 }
@@ -753,5 +753,344 @@ final class PaginationBarView: UIView {
         let page = sender.tag
         guard page >= 1, page <= totalPages, page != currentPage else { return }
         onPageChange?(page)
+    }
+}
+
+// MARK: - Episode fetching
+
+extension AnimeDetailViewController {
+
+    func makeEpisodeCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cols = episodeColumnCount
+        let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
+        let isCompleted = currentListStatus == "COMPLETED"
+        if cols >= 2 {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: EpisodePairCell.reuseID, for: indexPath) as? EpisodePairCell else {
+                return UITableViewCell()
+            }
+            let leftIdx = indexPath.row * 2
+            let rightIdx = leftIdx + 1
+            let leftEp = paginatedEpisodes[leftIdx]
+            let rightEp = rightIdx < paginatedEpisodes.count ? paginatedEpisodes[rightIdx] : nil
+            cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
+                           anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
+                           isListCompleted: isCompleted)
+            cell.onTapEpisode = { [weak self] epNumber in
+                self?.openExtensionSearch(episode: epNumber)
+            }
+            return cell
+        } else {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
+                return UITableViewCell()
+            }
+            let ep = paginatedEpisodes[indexPath.row]
+            cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
+                           accentColor: currentAnimeAccent, isListCompleted: isCompleted)
+            cell.cardView.onTap = { [weak self] epNumber in
+                self?.openExtensionSearch(episode: epNumber)
+            }
+            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
+            return cell
+        }
+    }
+
+    func fetchEpisodes() {
+        let anilistId: Int?
+        if let entity = animeEntity {
+            anilistId = entity.animeAnilistId?.intValue
+        } else {
+            anilistId = animeItem?.id
+        }
+        guard let id = anilistId else { return }
+
+        let anilistEpisodes: Int?
+        if let entity = animeEntity {
+            anilistEpisodes = entity.animeTotalEps?.intValue
+        } else {
+            anilistEpisodes = animeItem?.episodes
+        }
+
+        let format = animeItem?.format
+
+        AniZipService.shared.episodes(anilistID: id) { [weak self] response in
+            guard let self = self, let response = response else { return }
+
+            let hasAnidbId = response.mappings?.anidb_id != nil
+
+            if !hasAnidbId, let fmt = format, ["SPECIAL", "OVA", "ONA"].contains(fmt) {
+                self.resolveParentID(format: fmt) { [weak self] parentID in
+                    guard let self = self else { return }
+                    if let parentID = parentID {
+                        AnimeService.sharedAnimeService.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                            guard let self = self else { return }
+
+                            var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
+
+                            if alSchedule[1] == nil {
+                                let item = self.animeItem
+                                let allTitles = [item?.titleEnglish, item?.titleRomaji].compactMap { $0 }
+                                let singleEp = self.isSingleEpisode(
+                                    format: fmt, titles: allTitles,
+                                    synonyms: item?.synonyms ?? [],
+                                    duration: item?.duration, episodes: anilistEpisodes)
+                                if singleEp, let sd = schedResult?.startDate,
+                                   let y = sd.year {
+                                    let m = sd.month ?? 1
+                                    let d = sd.day ?? 1
+                                    var comps = DateComponents()
+                                    comps.year = y; comps.month = m; comps.day = d
+                                    if let date = Calendar(identifier: .gregorian).date(from: comps) {
+                                        alSchedule[1] = date
+                                    }
+                                }
+                            }
+
+                            AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
+                                guard let self = self else { return }
+                                let finalResponse = parentResponse ?? response
+                                self.processEpisodeResponse(finalResponse, anilistEpisodes: anilistEpisodes,
+                                                            anilistId: id, alSchedule: alSchedule)
+                            }
+                        }
+                    } else {
+                        self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+                    }
+                }
+                return
+            }
+
+            self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
+        }
+    }
+
+    private func resolveParentID(format: String, completion: @escaping (Int?) -> Void) {
+        if let item = animeItem, !item.relations.isEmpty {
+            let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
+                item.relations.first { $0.relationType == relType }?.media.id
+            }.first
+            completion(parentID)
+            return
+        }
+
+        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue else {
+            completion(nil)
+            return
+        }
+        AnimeService.sharedAnimeService.fetchDetailForItem(id: id) { [weak self] rels in
+            self?.animeItem?.relations = rels
+            self?.relations = rels
+            let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
+                rels.first { $0.relationType == relType }?.media.id
+            }.first
+            completion(parentID)
+        }
+    }
+
+    private func isMovie(format: String?, titles: [String], synonyms: [String], duration: Int?, episodes: Int?) -> Bool {
+        if format == "MOVIE" { return true }
+        let allNames = titles + synonyms
+        if allNames.contains(where: { $0.lowercased().contains("movie") }) { return true }
+        return (duration ?? 0) > 80 && episodes == 1
+    }
+
+    private func isSingleEpisode(format: String?, titles: [String], synonyms: [String], duration: Int?, episodes: Int?) -> Bool {
+        let movie = isMovie(format: format, titles: titles, synonyms: synonyms, duration: duration, episodes: episodes)
+        return episodes == 1 || (movie && episodes == nil)
+    }
+
+    private func episodeByAirDate(
+        alDate: Date?,
+        filtered: [String: FilteredEpisode],
+        episode: Int
+    ) -> FilteredEpisode? {
+        guard let alDate = alDate else {
+            return filtered["\(episode)"]
+        }
+        let alMs = alDate.timeIntervalSince1970 * 1000
+
+        var closest: [FilteredEpisode] = []
+        var closestDist = Double.infinity
+        for entry in filtered.values {
+            guard let ms = entry.airdatems else { continue }
+            let dist = abs(ms - alMs)
+            if dist < closestDist {
+                closestDist = dist
+                closest = [entry]
+            } else if dist == closestDist {
+                closest.append(entry)
+            }
+        }
+
+        guard !closest.isEmpty else { return filtered["\(episode)"] }
+
+        return closest.min(by: {
+            abs(Int($0.key) ?? 0 - episode) < abs(Int($1.key) ?? 0 - episode)
+        })
+    }
+
+    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
+                                        alSchedule: [Int: Date]? = nil) {
+        let episodesDict = response.episodes ?? [:]
+        let episodesResCount = response.episodeCount
+        let specialCount = response.specialCount ?? 0
+
+        let count = anilistEpisodes ?? episodesResCount ?? 0
+
+        var filtered: [String: FilteredEpisode] = [:]
+        for (key, ep) in episodesDict {
+            let airdate = ep.airdate ?? ep.airDate
+            var airdatems: Double? = nil
+            if let airdate = airdate {
+                if let d = ISO8601DateFormatter().date(from: airdate) {
+                    airdatems = d.timeIntervalSince1970 * 1000
+                } else {
+                    let fmt = DateFormatter()
+                    fmt.dateFormat = "yyyy-MM-dd"
+                    fmt.locale = Locale(identifier: "en_US_POSIX")
+                    if let d = fmt.date(from: airdate) {
+                        airdatems = d.timeIntervalSince1970 * 1000
+                    }
+                }
+            }
+            filtered[key] = FilteredEpisode(key: key, entry: ep, airdatems: airdatems, anidbEid: ep.anidbEid)
+        }
+
+        let hasSpecial = specialCount > 0
+        let hasCountMatch = (anilistEpisodes ?? 0) == (episodesResCount ?? 0)
+
+        let now = Date().timeIntervalSince1970 * 1000
+
+        var anizipBannerURL: String? = nil
+        if let images = response.images {
+            let fanart = images.first(where: { $0.coverType == "Fanart" })?.url
+            let poster = images.first(where: { $0.coverType == "Poster" })?.url
+            anizipBannerURL = fanart ?? poster
+        }
+
+        var parsed: [AniZipEpisode] = []
+        guard count > 0 else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.episodes = []
+                self.currentEpisodePage = 1
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
+                if let bannerURL = anizipBannerURL {
+                    self.headerView.updateBanner(from: bannerURL)
+                }
+            }
+            return
+        }
+
+        for episode in 1...count {
+            let hasEpisode = episodesDict["\(episode)"] != nil
+
+            let needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
+
+            let resolvedEntry: FilteredEpisode?
+            if needsValidation {
+                let alDate = alSchedule?[episode]
+                resolvedEntry = self.episodeByAirDate(alDate: alDate, filtered: filtered, episode: episode)
+
+                if let resolved = resolvedEntry {
+                    var keysToRemove: [String] = []
+                    for (key, entry) in filtered {
+                        if let eid = entry.anidbEid, let resolvedEid = resolved.anidbEid, eid == resolvedEid {
+                            keysToRemove.append(key)
+                        } else if let entryMs = entry.airdatems, entryMs < (resolved.airdatems ?? now) {
+                            keysToRemove.append(key)
+                        }
+                    }
+                    for key in keysToRemove {
+                        filtered.removeValue(forKey: key)
+                    }
+                }
+            } else {
+                resolvedEntry = filtered["\(episode)"]
+            }
+
+            let ep = resolvedEntry?.entry
+            let titles = ep?.title ?? [:]
+            let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
+            let overview = (ep?.overview ?? ep?.summary ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let imageURL = ep?.image
+            let airDateRaw = ep?.airdate ?? ep?.airDate
+            let airDate: Date? = airDateRaw.flatMap { raw in
+                if let d = ISO8601DateFormatter().date(from: raw) { return d }
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                fmt.locale = Locale(identifier: "en_US_POSIX")
+                return fmt.date(from: raw)
+            }
+            let runtime = ep?.length ?? ep?.runtime ?? 0
+            let rating: Double? = ep?.rating.flatMap(Double.init)
+
+            parsed.append(AniZipEpisode(
+                number: episode,
+                title: title.isEmpty ? "Episode \(episode)" : title,
+                overview: overview, imageURL: imageURL, airDate: airDate,
+                runtime: runtime, rating: rating, isFiller: false))
+        }
+
+        AnimeDetailViewController.loadFillerSet(for: anilistId) { fillerSet in
+            let finalEpisodes = parsed.map { ep in
+                AniZipEpisode(number: ep.number, title: ep.title, overview: ep.overview,
+                              imageURL: ep.imageURL, airDate: ep.airDate, runtime: ep.runtime,
+                              rating: ep.rating, isFiller: fillerSet.contains(ep.number))
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.episodes = finalEpisodes
+                if self.currentEpisodePage > self.totalEpisodePages {
+                    self.currentEpisodePage = 1
+                }
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
+                if let bannerURL = anizipBannerURL {
+                    self.headerView.updateBanner(from: bannerURL)
+                }
+            }
+        }
+    }
+
+    // MARK: - Filler cache
+
+    private static var _fillerMap: [Int: Set<Int>] = [:]
+    private static var _fillerMapLoaded = false
+    private static var _fillerMapCallbacks: [([Int: Set<Int>]) -> Void] = []
+    private static let _fillerQueue = DispatchQueue(label: "com.nyais.fillerCache")
+
+    static func loadFillerSet(for anilistId: Int, completion: @escaping (Set<Int>) -> Void) {
+        _fillerQueue.async {
+            if _fillerMapLoaded {
+                let set = _fillerMap[anilistId] ?? []
+                completion(set)
+                return
+            }
+            let isFirst = _fillerMapCallbacks.isEmpty
+            _fillerMapCallbacks.append { map in completion(map[anilistId] ?? []) }
+            guard isFirst else { return }
+
+            let url = URL(string: "https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json")!
+            URLSession.shared.dataTask(with: url) { data, _, _ in
+                var map: [Int: Set<Int>] = [:]
+                if let data = data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    for (key, val) in json {
+                        if let aid = Int(key), let raw = val as? [Any] {
+                            map[aid] = Set(raw.compactMap { ($0 as? NSNumber)?.intValue })
+                        }
+                    }
+                }
+                _fillerQueue.async {
+                    let callbacks = _fillerMapCallbacks
+                    _fillerMap = map
+                    _fillerMapLoaded = true
+                    _fillerMapCallbacks = []
+                    for cb in callbacks { cb(map) }
+                }
+            }.resume()
+        }
     }
 }
