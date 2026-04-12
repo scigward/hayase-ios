@@ -11,7 +11,7 @@ import ObjectiveC
 
 // --background: hsl(240 10% 3.9%) = #09090b
 let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
-let hayaseCardBackground = UIColor(red: 0.031, green: 0.031, blue: 0.039, alpha: 1.0)
+let hayaseCardBackground = UIColor(white: 20/255.0, alpha: 1) // #141414
 
 // MARK: - PaddedLabel
 
@@ -47,51 +47,67 @@ final class PaddedLabel: UILabel {
 // MARK: - ChipWrapView
 
 final class ChipWrapView: UIView {
+    let interItemSpacing: CGFloat = 8
+    let lineSpacing: CGFloat = 8
+    let chipHeight: CGFloat = 28
 
-    private var chipViews: [UIView] = []
-    var chipHeight: CGFloat = 28
-    var horizontalSpacing: CGFloat = 8
-    var verticalSpacing: CGFloat = 8
+    private var chipWidths: [CGFloat] = []
 
-    func setChips(_ views: [UIView]) {
-        chipViews.forEach { $0.removeFromSuperview() }
-        chipViews = views
-        for v in views { addSubview(v) }
-        setNeedsLayout()
+    func setChips(_ newChips: [UIView]) {
+        subviews.forEach { $0.removeFromSuperview() }
+        chipWidths = newChips.map { widthForChip($0) }
+        newChips.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+            addSubview($0)
+        }
         invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    private func widthForChip(_ chip: UIView) -> CGFloat {
+        if let btn = chip as? UIButton {
+            let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
+            let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
+            let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            let hPad = btn.contentEdgeInsets.left + btn.contentEdgeInsets.right
+            return textW + (hPad > 0 ? hPad : 32)  // px-4 = 16pt each side
+        }
+        return chip.intrinsicContentSize.width
+    }
+
+    private func computeHeight(for width: CGFloat) -> CGFloat {
+        guard !chipWidths.isEmpty, width > 0 else { return chipWidths.isEmpty ? 0 : chipHeight }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for w in chipWidths {
+            if x > 0 && x + w > width { x = 0; y += chipHeight + lineSpacing }
+            x += w + interItemSpacing
+        }
+        return y + chipHeight
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let h = bounds.width > 0
+            ? computeHeight(for: bounds.width)
+            : (chipWidths.isEmpty ? 0 : chipHeight)
+        return CGSize(width: UIView.noIntrinsicMetric, height: max(h, chipWidths.isEmpty ? 0 : chipHeight))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        for chip in chipViews {
-            let size = chip.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: chipHeight))
-            let w = size.width
-            if x + w > bounds.width && x > 0 {
-                x = 0
-                y += chipHeight + verticalSpacing
-            }
+        let chips = subviews
+        guard !chips.isEmpty, bounds.width > 0 else { return }
+        var x: CGFloat = 0, y: CGFloat = 0
+        for (i, chip) in chips.enumerated() {
+            let w = i < chipWidths.count ? chipWidths[i] : widthForChip(chip)
+            if x > 0 && x + w > bounds.width { x = 0; y += chipHeight + lineSpacing }
             chip.frame = CGRect(x: x, y: y, width: w, height: chipHeight)
-            x += w + horizontalSpacing
+            x += w + interItemSpacing
         }
-    }
-
-    override var intrinsicContentSize: CGSize {
-        guard !chipViews.isEmpty else { return CGSize(width: UIView.noIntrinsicMetric, height: 0) }
-        let maxW = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        for chip in chipViews {
-            let size = chip.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: chipHeight))
-            let w = size.width
-            if x + w > maxW && x > 0 {
-                x = 0
-                y += chipHeight + verticalSpacing
-            }
-            x += w + horizontalSpacing
+        let newH = y + chipHeight
+        if abs(newH - intrinsicContentSize.height) > 0.5 {
+            invalidateIntrinsicContentSize()
+            superview?.setNeedsLayout()
         }
-        return CGSize(width: UIView.noIntrinsicMetric, height: y + chipHeight)
     }
 }
 
@@ -117,7 +133,7 @@ final class AnimeInfoHeaderView: UIView {
     var displayedBannerURL: String?
     var storedAccentColor: UIColor = .white
 
-    static let bannerHeight: CGFloat = 350
+    static let bannerHeight: CGFloat = 400
 
     // MARK: - Stacks
 
@@ -128,7 +144,8 @@ final class AnimeInfoHeaderView: UIView {
     private var playCombo: UIStackView!
     private let actionsTrailingSpacer: UIView = {
         let v = UIView()
-        v.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
+        v.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
+        v.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
         return v
     }()
 
@@ -152,7 +169,7 @@ final class AnimeInfoHeaderView: UIView {
         gradient.type = .axial
         gradient.startPoint = CGPoint(x: 0.5, y: 0.0)
         gradient.endPoint = CGPoint(x: 0.5, y: 1.0)
-        let bgColor = UIColor(red: 0.047, green: 0.047, blue: 0.055, alpha: 1.0)
+        let bgColor = hayasePageBackground
         gradient.colors = [
             UIColor.black.withAlphaComponent(0.40).cgColor,
             UIColor.black.withAlphaComponent(0.16).cgColor,
@@ -171,8 +188,8 @@ final class AnimeInfoHeaderView: UIView {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 6
-        iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
+        iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
         return iv
     }()
 
@@ -182,8 +199,8 @@ final class AnimeInfoHeaderView: UIView {
         let l = UILabel()
         l.font = .nunito(ofSize: 16, weight: .light)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
-        l.numberOfLines = 0
-        l.textAlignment = .center
+        l.numberOfLines = 1
+        l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         l.isHidden = true
         return l
     }()
@@ -192,8 +209,8 @@ final class AnimeInfoHeaderView: UIView {
         let l = UILabel()
         l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
-        l.numberOfLines = 0
-        l.textAlignment = .center
+        l.numberOfLines = 2
+        l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         return l
     }()
 
@@ -409,7 +426,8 @@ final class AnimeInfoHeaderView: UIView {
 
         textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel])
         textColumn.axis = .vertical
-        textColumn.spacing = 6
+        textColumn.spacing = 6   // gap-1.5
+        textColumn.alignment = .fill
 
         coverAndTextColumn = UIStackView(arrangedSubviews: [coverImageView, textColumn])
         coverAndTextColumn.axis = .vertical
@@ -535,11 +553,11 @@ final class AnimeInfoHeaderView: UIView {
 
         if isRegular {
             textColumn.alignment = .fill
-            textColumn.spacing = 8
-            textColumn.setCustomSpacing(8, after: titleLabel)
-            textColumn.setCustomSpacing(8, after: badgesScrollView)
+            textColumn.spacing = 6   // gap-1.5
+            textColumn.setCustomSpacing(10, after: titleLabel)       // gap-1.5 + md:pt-1
+            textColumn.setCustomSpacing(14, after: badgesScrollView) // gap-1.5 + md:pt-2
         } else {
-            textColumn.alignment = .center
+            textColumn.alignment = .fill  // items-center (labels center their text)
             textColumn.spacing = 6
             textColumn.setCustomSpacing(6, after: titleLabel)
             textColumn.setCustomSpacing(6, after: badgesScrollView)
