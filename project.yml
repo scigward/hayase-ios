@@ -28,10 +28,6 @@ packages:
     url: https://github.com/daltoniam/Starscream.git
     from: "4.0.8"
 
-projectReferences:
-  LibTorrent:
-    path: Component/LibTorrent-Swift/LibTorrent.xcodeproj
-
 targets:
   Hayase:
     type: application
@@ -58,8 +54,8 @@ targets:
         HEADER_SEARCH_PATHS:
           - "$(SDKROOT)/usr/include/libxml2"
     dependencies:
-      - target: LibTorrent
-        project: LibTorrent
+      - framework: LibTorrent.framework
+        implicit: true
         embed: true
       - sdk: libz.tbd
       - package: OpenSSL
