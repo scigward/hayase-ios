@@ -127,6 +127,19 @@ struct AniZipEpisodesResponse: Codable {
     let images: [AniZipImage]?
     let mappings: AniZipMappings?
 
+    /// Memberwise initializer — needed because the custom Codable init(from:) suppresses
+    /// Swift's auto-synthesized memberwise initializer.
+    init(titles: [String: String]?, episodes: [String: AniZipEpisodeEntry]?,
+         episodeCount: Int?, specialCount: Int?,
+         images: [AniZipImage]?, mappings: AniZipMappings?) {
+        self.titles       = titles
+        self.episodes     = episodes
+        self.episodeCount = episodeCount
+        self.specialCount = specialCount
+        self.images       = images
+        self.mappings     = mappings
+    }
+
     // Custom decoder: decodes episodes entry-by-entry, silently skipping any
     // entry that fails to decode (e.g. unexpected field types), so one malformed
     // episode never wipes out the entire episodes dict.
