@@ -6,6 +6,7 @@ options:
 
 settings:
   base:
+    SDKROOT: iphoneos
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
     CLANG_ENABLE_MODULES: YES
@@ -37,7 +38,6 @@ targets:
       - path: Hayase/Hayase-Bridging-Header.h
       - path: CoreDataService/Source
       - path: Hayase/Resources/Model.xcdatamodeld
-    resources:
       - path: Hayase/Resources/Assets.xcassets
       - path: Hayase/Resources/Base.lproj
       - path: Hayase/Resources/Fonts
