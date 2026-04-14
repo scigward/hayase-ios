@@ -422,7 +422,7 @@ final class ScheduleViewController: UIViewController {
         isFetching = true
         spinner.startAnimating()
 
-        AnimeService.sharedAnimeService.fetchAiringForMonth(month) { [weak self] entries in
+        AniListClient.shared.fetchAiringForMonth(month) { [weak self] entries in
             guard let self = self else { return }
             self.isFetching = false
             self.spinner.stopAnimating()

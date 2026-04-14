@@ -1,5 +1,5 @@
 //
-//  HayaseAccountCardCell.swift
+//  AccountCardCell.swift
 //  Hayase
 //
 //  A UITableViewCell that mirrors Hayase's account card layout from

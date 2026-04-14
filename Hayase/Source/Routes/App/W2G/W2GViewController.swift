@@ -710,7 +710,7 @@ extension W2GViewController {
         // Mirrors web: `const media = (await client.single(mediaId)).data?.Media`
         // Fetch AniList info first (if we have an ID), then add the torrent.
         if anilistID > 0 {
-            AnimeService.sharedAnimeService.fetchAnimeByIds([anilistID]) { [weak self] items in
+            AniListClient.shared.fetchAnimeByIds([anilistID]) { [weak self] items in
                 guard let self else { return }
                 self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: items.first, hud: hud)
             }
