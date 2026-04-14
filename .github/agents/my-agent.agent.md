@@ -4,8 +4,8 @@
 # To make this agent available, merge this file into the default repository branch.
 # For format details, see: https://gh.io/customagents/config
 
-name:
-description:
+name: scig
+description: Hayase iOS port agent
 ---
 
 # My Agent
@@ -57,6 +57,8 @@ volume.svelte
 wrapper.svelte
 ```
 So what this means is that you HAVE to preserve an identical repository architecture of interface here.
+
+Though please note that there are exceptions, Because the hayase web Interface app is designed to run for desktop and Android devices, So we have to remove some features because they aren't possible on iOS devices, That said, We've currently ported basically everything except some small features we still haven't worked to port yet.
 
 2: When working with UI you HAVE to read the "https://github.com/hayase-app/interface" source code and match the same identical interface UI here in swift with EVERY single detail preserved and identically replicated in swift, No features added and no features removed, Perfect identical preservation.
 
