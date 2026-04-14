@@ -925,7 +925,7 @@ class SearchViewController: UIViewController {
         }
         let myRequestID = fetchRequestID
 
-        AnimeService.sharedAnimeService.searchAnimeItems(
+        AniListClient.shared.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
             genres: selectedGenres,
             formats: selectedFormats,
@@ -1058,7 +1058,7 @@ class SearchViewController: UIViewController {
         collectionView.reloadData()
         emptyLabel.isHidden = true
 
-        AnimeService.sharedAnimeService.fetchAnimeByIds(ids) { [weak self] items in
+        AniListClient.shared.fetchAnimeByIds(ids) { [weak self] items in
             guard let self = self else { return }
             self.animeResults = items
             self.hasNextPage = false
