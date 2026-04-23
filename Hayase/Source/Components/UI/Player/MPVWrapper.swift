@@ -221,7 +221,7 @@ final class MPVWrapper {
             guard let handle = self.mpv else { return }
 
             self.apply(commands: preset.commands, on: handle)
-            self.commandSync(handle, ["stop"])
+            self.command(handle, ["stop"])
 
 
             self.updateHTTPHeaders(headers)
