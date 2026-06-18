@@ -86,4 +86,57 @@ enum AniListUtil {
         }
         return item
     }
+
+    static func animeItem(from media: AniListResolverMediaResponse.ResolverMedia) -> AnimeItem? {
+        guard let id = media.id else { return nil }
+        let desc = media.description.map { stripHTML($0) }
+        let trailerID = (media.trailer?.site?.lowercased() == "youtube") ? media.trailer?.id : nil
+        var item = AnimeItem(
+            id: id,
+            titleEnglish: media.title?.english,
+            titleRomaji: media.title?.romaji,
+            coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+            score: media.averageScore,
+            status: media.status,
+            episodes: media.episodes,
+            bannerURL: media.bannerImage,
+            genres: media.genres ?? [],
+            description: desc,
+            synonyms: media.synonyms ?? [],
+            year: media.seasonYear,
+            startYear: media.startDate?.year,
+            season: media.season,
+            format: media.format,
+            duration: media.duration,
+            trailerYouTubeID: trailerID,
+            favourites: media.favourites,
+            coverColor: media.coverImage?.color,
+            malId: media.idMal)
+
+        item.relations = (media.relations?.edges ?? []).compactMap { edge in
+            guard let type = edge.relationType,
+                  let node = edge.node,
+                  let nodeID = node.id else { return nil }
+            let relation = AnimeItem(
+                id: nodeID,
+                titleEnglish: node.title?.english,
+                titleRomaji: node.title?.romaji,
+                coverURL: node.coverImage?.large ?? node.coverImage?.medium,
+                score: node.averageScore,
+                status: node.status,
+                episodes: node.episodes,
+                bannerURL: nil,
+                genres: [],
+                description: nil,
+                synonyms: [],
+                year: node.seasonYear,
+                startYear: nil,
+                season: node.season,
+                format: node.format,
+                coverColor: node.coverImage?.color)
+            return AnimeRelation(relationType: type, media: relation)
+        }
+
+        return item
+    }
 }

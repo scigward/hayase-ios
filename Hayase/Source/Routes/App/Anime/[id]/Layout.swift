@@ -9,9 +9,9 @@ import ObjectiveC
 
 // MARK: - Color constants
 
-// --background: hsl(240 10% 3.9%) = #09090b
-let hayasePageBackground = UIColor(red: 9/255.0, green: 9/255.0, blue: 11/255.0, alpha: 1)
-let hayaseCardBackground = UIColor(white: 20/255.0, alpha: 1) // #141414
+// interface Default / Blackout theme tokens.
+let hayasePageBackground = UIColor.HayaseTheme.background
+let hayaseCardBackground = UIColor.HayaseTheme.card
 
 // MARK: - PaddedLabel
 

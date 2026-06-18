@@ -35,7 +35,7 @@ private final class BannerGradientView: UIView {
         layer.addSublayer(radialGradient)
 
         // Additional bottom fade from black to --background so the banner edge
-        // blends seamlessly into the app background (#09090b)
+        // blends seamlessly into the app background.
         bottomGradient.colors = [
             UIColor.clear.cgColor,
             hayasePageBackground.cgColor,
@@ -1454,7 +1454,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
-        collectionView.backgroundColor = hayasePageBackground // --background: hsl(240 10% 3.9%) = #09090b
+        collectionView.backgroundColor = hayasePageBackground
         // .never so the banner extends behind the status bar — matching Hayase's
         // `position:absolute; top:0; left:0; h-[80vh]` banner image on home
         collectionView.contentInsetAdjustmentBehavior = .never

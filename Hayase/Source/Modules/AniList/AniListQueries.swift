@@ -249,6 +249,50 @@ enum AniListQueries {
               averageScore
               episodes
               status
+              seasonYear
+              season
+              format
+            }
+          }
+        }
+      }
+    }
+    """
+
+    static let resolverMediaById = """
+    query ($id: Int) {
+      Media(id: $id, type: ANIME) {
+        id
+        idMal
+        title { english romaji }
+        coverImage { large medium color }
+        bannerImage
+        averageScore
+        genres
+        episodes
+        duration
+        status
+        seasonYear
+        season
+        format
+        startDate { year }
+        favourites
+        trailer { id site }
+        description(asHtml: false)
+        synonyms
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              title { english romaji }
+              coverImage { large medium color }
+              averageScore
+              episodes
+              status
+              seasonYear
+              season
+              format
             }
           }
         }

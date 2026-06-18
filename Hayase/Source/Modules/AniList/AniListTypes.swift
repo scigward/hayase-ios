@@ -206,8 +206,53 @@ struct AniListDetailResponse: Codable {
         let averageScore: Float?
         let episodes: Int?
         let status: String?
+        let seasonYear: Int?
+        let season: String?
+        let format: String?
         struct RelTitle: Codable { let english: String?; let romaji: String? }
         struct RelCover: Codable { let large: String?; let color: String? }
+    }
+}
+
+struct AniListResolverMediaResponse: Codable {
+    let data: ResolverData?
+    struct ResolverData: Codable { let Media: ResolverMedia? }
+    struct ResolverMedia: Codable {
+        let id: Int?
+        let idMal: Int?
+        let title: AniListMedia.Title?
+        let coverImage: AniListMedia.CoverImage?
+        let bannerImage: String?
+        let averageScore: Float?
+        let episodes: Int?
+        let duration: Int?
+        let description: String?
+        let status: String?
+        let genres: [String]?
+        let favourites: Int?
+        let trailer: AniListMedia.Trailer?
+        let seasonYear: Int?
+        let season: String?
+        let format: String?
+        let synonyms: [String]?
+        let startDate: AniListMedia.StartDate?
+        let relations: ResolverRelationConnection?
+    }
+    struct ResolverRelationConnection: Codable { let edges: [ResolverRelationEdge]? }
+    struct ResolverRelationEdge: Codable {
+        let relationType: String?
+        let node: ResolverRelationNode?
+    }
+    struct ResolverRelationNode: Codable {
+        let id: Int?
+        let title: AniListMedia.Title?
+        let coverImage: AniListMedia.CoverImage?
+        let averageScore: Float?
+        let episodes: Int?
+        let status: String?
+        let seasonYear: Int?
+        let season: String?
+        let format: String?
     }
 }
 

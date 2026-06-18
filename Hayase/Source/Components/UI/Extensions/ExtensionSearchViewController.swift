@@ -160,6 +160,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var pendingHud: UIAlertController?
     private var metadataObserver: NSObjectProtocol?
     private var metadataStatusTimer: Timer?
+    private var isResolvingPendingMetadata = false
 
     // MARK: UI
     private var tableView: UITableView!
@@ -614,7 +615,7 @@ final class ExtensionSearchViewController: UIViewController {
         skeletonView.spacing = 8
         skeletonView.isHidden = true
         skeletonView.translatesAutoresizingMaskIntoConstraints = false
-        let cardBg = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1) // bg-neutral-950
+        let cardBg = UIColor.HayaseTheme.card
         let shimmerColor = UIColor.white.withAlphaComponent(0.05)             // bg-primary/5
         for _ in 0..<12 {
             let card = UIView()
@@ -1108,6 +1109,7 @@ final class ExtensionSearchViewController: UIViewController {
     /// Auto-resolves the target episode and presents the player directly.
     private func handlePendingMetadata() {
         guard let vs = pendingVideoService, let entity = pendingEntity else { return }
+        guard !isResolvingPendingMetadata else { return }
 
         // Check for errors.
         if let error = vs.lastError {
@@ -1139,11 +1141,32 @@ final class ExtensionSearchViewController: UIViewController {
             targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
         } else if let handle = vs.torrentHandle {
             let resolver = TorrentBatchResolver()
-            if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode) {
+            if let animeItem {
+                isResolvingPendingMetadata = true
+                resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode, targetMedia: animeItem) { [weak self] result in
+                    guard let self else { return }
+                    self.isResolvingPendingMetadata = false
+                    var resolvedVideo: Videos?
+                    var resolvedIndex: UInt = 0
+                    if let match = result.target {
+                        resolvedIndex = UInt(match.entry.index)
+                        resolvedVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
+                    }
+                    self.presentPendingVideo(vs: vs, entity: entity, targetVideo: resolvedVideo, targetIndex: resolvedIndex, videos: videos)
+                }
+                return
+            } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode) {
                 targetIndex = UInt(match.entry.index)
                 targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
             }
         }
+
+        presentPendingVideo(vs: vs, entity: entity, targetVideo: targetVideo, targetIndex: targetIndex, videos: videos)
+    }
+
+    private func presentPendingVideo(vs: VideoService, entity: Torrents, targetVideo: Videos?, targetIndex: UInt, videos: [Videos]) {
+        var targetVideo = targetVideo
+        var targetIndex = targetIndex
 
         // Fallback to first video if no match found.
         if targetVideo == nil {
@@ -1187,6 +1210,7 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     private func cleanupPendingState() {
+        isResolvingPendingMetadata = false
         if let observer = metadataObserver {
             NotificationCenter.default.removeObserver(observer)
             metadataObserver = nil
@@ -1299,7 +1323,7 @@ final class TorrentResultCell: UITableViewCell {
     /// Card container — stored for highlight effects
     private let cardView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1) // bg-neutral-950
+        v.backgroundColor = UIColor.HayaseTheme.card
         v.layer.cornerRadius = 6  // rounded-md (0.375rem = 6px)
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
@@ -1381,7 +1405,7 @@ final class TorrentResultCell: UITableViewCell {
         backgroundColor = .black // page bg
         selectionStyle = .none
 
-        // Card: bg-neutral-950 (#111111), 6px radius, mb-2 p-3
+        // Card: theme-default --card hsl(0 0% 4%), 6px radius, mb-2 p-3
         // Hayase px-4 sm:px-6 on the container → we use 16px card inset
         contentView.addSubview(cardView)
 
@@ -1503,7 +1527,7 @@ final class TorrentResultCell: UITableViewCell {
             } else {
                 self.cardView.layer.borderWidth = 0
                 self.cardView.layer.borderColor = nil
-                self.cardView.backgroundColor = UIColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1)
+                self.cardView.backgroundColor = UIColor.HayaseTheme.card
                 self.cardView.transform = .identity
                 self.cardView.layer.shadowOpacity = 0
                 self.groupLabel.textColor = .white

@@ -107,29 +107,50 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
           var __pending = new Map();
           var __seq = 0;
 
+          function __bytesFromBase64(base64) {
+            var bin = atob(base64 || '');
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes;
+          }
+
+          function __base64FromBytes(bytes) {
+            var bin = '';
+            for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+            return btoa(bin);
+          }
+
+          function __decodeText(bytes) {
+            try {
+              return new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+            } catch(e) {
+              try { return new TextDecoder('iso-8859-1').decode(bytes); }
+              catch(_) { return new TextDecoder().decode(bytes); }
+            }
+          }
+
           // Called by Swift after URLSession completes.
-          window.__fetchResolve = function(id, status, text) {
+          window.__fetchResolve = function(id, status, bodyBase64) {
             var p = __pending.get(id);
             __pending.delete(id);
             if (!p) return;
+            var bytes = __bytesFromBase64(bodyBase64);
             p.resolve({
               ok: status >= 200 && status < 300,
               status: status,
               statusText: '',
               url: '',
               headers: { get: function() { return null; }, has: function() { return false; } },
-              text: function() { return Promise.resolve(text); },
+              text: function() { return Promise.resolve(__decodeText(bytes)); },
               json: function() {
                 return new Promise(function(res, rej) {
-                  try { res(JSON.parse(text)); } catch(e) { rej(e); }
+                  try { res(JSON.parse(__decodeText(bytes))); } catch(e) { rej(e); }
                 });
               },
               arrayBuffer: function() {
-                var b = new Uint8Array(text.length);
-                for (var i = 0; i < text.length; i++) b[i] = text.charCodeAt(i) & 0xff;
-                return Promise.resolve(b.buffer);
+                return Promise.resolve(bytes.slice().buffer);
               },
-              blob: function() { return Promise.resolve(new Blob([text])); },
+              blob: function() { return Promise.resolve(new Blob([bytes])); },
               clone: function() { return this; }
             });
           };
@@ -159,14 +180,28 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
               }
             }
             var body = null;
-            if (init && init.body != null) body = String(init.body);
+            var bodyBase64 = null;
+            if (init && init.body != null) {
+              if (typeof init.body === 'string') {
+                body = init.body;
+              } else if (init.body instanceof URLSearchParams) {
+                body = init.body.toString();
+              } else if (init.body instanceof ArrayBuffer) {
+                bodyBase64 = __base64FromBytes(new Uint8Array(init.body));
+              } else if (ArrayBuffer.isView(init.body)) {
+                bodyBase64 = __base64FromBytes(new Uint8Array(init.body.buffer, init.body.byteOffset, init.body.byteLength));
+              } else {
+                body = String(init.body);
+              }
+            }
 
             return new Promise(function(resolve, reject) {
               __pending.set(id, { resolve: resolve, reject: reject });
               try {
                 window.webkit.messageHandlers.extBridge.postMessage(
                   JSON.stringify({ type: 'fetch', fetchId: id, url: url,
-                                   method: method, headers: headers, body: body }));
+                                   method: method, headers: headers, body: body,
+                                   bodyBase64: bodyBase64 }));
               } catch(e) {
                 __pending.delete(id);
                 reject(new TypeError('Fetch proxy unavailable: ' + String(e)));
@@ -293,6 +328,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     /// mirrors TorrentSource.test()
     func test() async throws -> Bool {
+        guard webView != nil else { throw WorkerError.notLoaded }
         let callId = UUID().uuidString
         // 'void' prefix prevents iOS 16+ from awaiting the IIFE's returned Promise (same
         // deadlock fix as call() above).
@@ -310,8 +346,19 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         """
         let result: Any = try await withCheckedThrowingContinuation { cont in
             pending[callId] = { cont.resume(with: $0) }
+
+            // Match the upstream web loader's extension check timeout.
+            let timeoutWork = DispatchWorkItem { [weak self] in
+                guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
+                self.callTimeouts.removeValue(forKey: callId)
+                handler(.failure(WorkerError.callFailed("Extension check timed out.")))
+            }
+            callTimeouts[callId] = timeoutWork
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeoutWork)
+
             webView?.evaluateJavaScript(js) { [weak self] _, err in
                 guard let self, let err else { return }
+                self.callTimeouts.removeValue(forKey: callId)?.cancel()
                 if let handler = self.pending.removeValue(forKey: callId) {
                     handler(.failure(err))
                 }
@@ -442,6 +489,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             let method  = (dict["method"] as? String) ?? "GET"
             let headers = (dict["headers"] as? [String: String]) ?? [:]
             let bodyStr =  dict["body"]   as? String
+            let bodyBase64 = dict["bodyBase64"] as? String
             let wv = webView                          // capture before Task
             Task {
                 do {
@@ -458,27 +506,26 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                     }
                     if let b = bodyStr, !b.isEmpty {
                         req.httpBody = b.data(using: .utf8)
+                    } else if let b64 = bodyBase64, !b64.isEmpty {
+                        req.httpBody = Data(base64Encoded: b64)
                     }
                     let (data, resp) = try await URLSession.shared.data(for: req)
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 200
-                    // Decode as UTF-8; fall back to Latin-1 (handles some RSS feeds)
-                    let text = String(data: data, encoding: .utf8)
-                           ?? String(data: data, encoding: .isoLatin1) ?? ""
-                    // JSON-encode response text so all special chars are safely escaped.
-                    // [text] → ["...escaped..."] → strip [ and ] → "...escaped..."
-                    guard let td  = try? JSONSerialization.data(withJSONObject: [text]),
+                    let bodyBase64 = data.base64EncodedString()
+                    // JSON-encode base64 so it is safe to embed in the JS call.
+                    guard let td  = try? JSONSerialization.data(withJSONObject: [bodyBase64]),
                           let raw = String(data: td, encoding: .utf8) else {
                         wv?.evaluateJavaScript(
                             "window.__fetchReject(\(fetchId),'Serialization failed');",
                             completionHandler: nil)
                         return
                     }
-                    let textJSON = String(raw.dropFirst().dropLast()) // strip [ ]
+                    let bodyJSON = String(raw.dropFirst().dropLast()) // strip [ ]
                     // Add a completionHandler so if evaluateJavaScript itself fails
-                    // (e.g. JS syntax in textJSON, webView torn down), we reject
+                    // (e.g. webView torn down), we reject
                     // the pending fetch so the extension doesn't hang.
                     wv?.evaluateJavaScript(
-                        "window.__fetchResolve(\(fetchId),\(status),\(textJSON));") { _, jsErr in
+                        "window.__fetchResolve(\(fetchId),\(status),\(bodyJSON));") { _, jsErr in
                         if jsErr != nil {
                             wv?.evaluateJavaScript(
                                 "window.__fetchReject(\(fetchId),'Response delivery failed');",

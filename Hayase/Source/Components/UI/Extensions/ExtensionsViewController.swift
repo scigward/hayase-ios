@@ -480,9 +480,9 @@ final class ExtensionCell: UITableViewCell {
 
     private let toggleSwitch: UISwitch = {
         let s = UISwitch()
-        // Hayase switch.svelte: data-[state=checked]:bg-primary (#fafafa), thumb = bg-background (#09090b)
+        // Hayase switch.svelte: data-[state=checked]:bg-primary (#fafafa), thumb = bg-background.
         s.onTintColor = UIColor(red: 250/255, green: 250/255, blue: 250/255, alpha: 1)  // primary #fafafa
-        s.thumbTintColor = UIColor(red: 9/255, green: 9/255, blue: 11/255, alpha: 1)    // background #09090b
+        s.thumbTintColor = UIColor.HayaseTheme.background
         s.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
         return s
     }()

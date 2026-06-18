@@ -120,6 +120,7 @@ final class LocalStreamServer {
         listener = try NWListener(using: params, on: .any)
 
         let readySemaphore = DispatchSemaphore(value: 0)
+        var startError: Error?
 
         listener?.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -131,6 +132,7 @@ final class LocalStreamServer {
                 readySemaphore.signal()
             case .failed(let error):
                 if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed — \(error)") }
+                startError = error
                 self?.stop()
                 readySemaphore.signal()
             default:
@@ -145,7 +147,20 @@ final class LocalStreamServer {
         listener?.start(queue: queue)
 
         // Wait up to 2s for the listener to be ready and port to be assigned.
-        _ = readySemaphore.wait(timeout: .now() + 2.0)
+        let waitResult = readySemaphore.wait(timeout: .now() + 2.0)
+        if waitResult == .timedOut {
+            stop()
+            throw NSError(domain: "LocalStreamServer", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Timed out while starting local stream server"])
+        }
+        if let startError {
+            throw startError
+        }
+        guard port != 0 else {
+            stop()
+            throw NSError(domain: "LocalStreamServer", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Local stream server did not receive a valid port"])
+        }
     }
 
     func stop() {
@@ -226,6 +241,7 @@ final class LocalStreamServer {
         var rangeStart: UInt64 = 0
         var rangeEnd: UInt64 = fileSize > 0 ? fileSize - 1 : 0
         var hasRange = false
+        var invalidRange = false
 
         for line in lines {
             if line.lowercased().hasPrefix("range:") {
@@ -233,12 +249,36 @@ final class LocalStreamServer {
                 if value.hasPrefix("bytes=") {
                     let rangeStr = value.dropFirst(6)
                     let rangeParts = rangeStr.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
-                    if let startStr = rangeParts.first, let start = UInt64(startStr) {
+                    let startStr = rangeParts.first.map(String.init) ?? ""
+                    let endStr = rangeParts.count > 1 ? String(rangeParts[1]) : ""
+                    hasRange = true
+
+                    if startStr.isEmpty {
+                        // Suffix range: "bytes=-65536" means the last 65536 bytes.
+                        guard fileSize > 0, let suffixLength = UInt64(endStr), suffixLength > 0 else {
+                            invalidRange = true
+                            break
+                        }
+                        let length = min(suffixLength, fileSize)
+                        rangeStart = fileSize - length
+                        rangeEnd = fileSize - 1
+                    } else if let start = UInt64(startStr) {
+                        guard fileSize > 0, start < fileSize else {
+                            invalidRange = true
+                            break
+                        }
                         rangeStart = start
-                        hasRange = true
-                    }
-                    if rangeParts.count > 1, let endStr = rangeParts.last, !endStr.isEmpty, let end = UInt64(endStr) {
-                        rangeEnd = min(end, fileSize > 0 ? fileSize - 1 : 0)
+                        if !endStr.isEmpty {
+                            guard let end = UInt64(endStr), end >= start else {
+                                invalidRange = true
+                                break
+                            }
+                            rangeEnd = min(end, fileSize - 1)
+                        } else {
+                            rangeEnd = fileSize - 1
+                        }
+                    } else {
+                        invalidRange = true
                     }
                 }
                 break
@@ -251,8 +291,13 @@ final class LocalStreamServer {
             rangeEnd = min(rangeEnd, fileSize - 1)
         }
 
+        if invalidRange {
+            sendRangeNotSatisfiable(connection: connection)
+            return
+        }
+
         if method == "HEAD" {
-            let contentLength = rangeEnd - rangeStart + 1
+            let contentLength = fileSize > 0 ? rangeEnd - rangeStart + 1 : 0
             sendHeaders(connection: connection, rangeStart: rangeStart, rangeEnd: rangeEnd, hasRange: hasRange, bodyLength: contentLength)
             // After HEAD, wait for next request on this connection (keep-alive)
             receiveRequest(connection)
@@ -274,7 +319,7 @@ final class LocalStreamServer {
     // MARK: - HTTP response
 
     private func sendHeaders(connection: NWConnection, rangeStart: UInt64, rangeEnd: UInt64, hasRange: Bool, bodyLength: UInt64?) {
-        let contentLength = bodyLength ?? (rangeEnd - rangeStart + 1)
+        let contentLength = bodyLength ?? (fileSize > 0 ? rangeEnd - rangeStart + 1 : 0)
         var header: String
 
         if hasRange {
@@ -296,9 +341,27 @@ final class LocalStreamServer {
         })
     }
 
+    private func sendRangeNotSatisfiable(connection: NWConnection) {
+        let response = """
+        HTTP/1.1 416 Range Not Satisfiable\r
+        Content-Range: bytes */\(fileSize)\r
+        Content-Length: 0\r
+        Connection: close\r
+        \r
+        """
+        connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
     private func serveRange(connection: NWConnection, rangeStart: UInt64, rangeEnd: UInt64, hasRange: Bool) {
-        let contentLength = rangeEnd - rangeStart + 1
+        let contentLength = fileSize > 0 ? rangeEnd - rangeStart + 1 : 0
         sendHeaders(connection: connection, rangeStart: rangeStart, rangeEnd: rangeEnd, hasRange: hasRange, bodyLength: contentLength)
+
+        guard contentLength > 0 else {
+            receiveRequest(connection)
+            return
+        }
 
         // Stream body in chunks on a background queue so we don't block
         // the NWListener queue. Each chunk is read from the file only after

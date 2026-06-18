@@ -31,13 +31,13 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
     /// Whether to use wide (tablet) layout: side-by-side image + form.
     private var isWide: Bool { traitCollection.horizontalSizeClass == .regular }
 
-    // MARK: - Theme colors (dark-mode shadcn)
-    // --background: HSL(240, 10%, 3.9%)
-    private static let bgBackground  = UIColor(red: 0.035, green: 0.035, blue: 0.043, alpha: 1)
+    // MARK: - Theme colors (interface Default / Blackout)
+    // --background: hsl(0 0% 0%)
+    private static let bgBackground  = UIColor.HayaseTheme.background
     // --border / --input: HSL(240, 3.7%, 15.9%)
     private static let borderInput   = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-    // --muted-foreground: HSL(240, 5%, 64.9%)
-    private static let mutedFG       = UIColor(red: 0.631, green: 0.631, blue: 0.667, alpha: 1)
+    // --muted-foreground: hsl(0 0% 50%)
+    private static let mutedFG       = UIColor.HayaseTheme.mutedForeground
     // --primary: HSL(0, 0%, 98%)
     private static let primary       = UIColor(white: 0.98, alpha: 1)
     // --primary-foreground: HSL(240, 5.9%, 10%)

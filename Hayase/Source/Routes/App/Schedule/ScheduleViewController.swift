@@ -133,7 +133,7 @@ final class ScheduleViewController: UIViewController {
 
     // MARK: - Colors
 
-    private let bgColor = UIColor(red: 0.039, green: 0.039, blue: 0.059, alpha: 1)
+    private let bgColor = UIColor.HayaseTheme.background
     private static let todayColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
 
     // ISO 8601 calendar — week starts Monday (matches Hayase Mon-Sun column order)

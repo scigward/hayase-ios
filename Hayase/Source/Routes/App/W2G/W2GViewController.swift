@@ -773,11 +773,11 @@ extension W2GViewController {
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
 
         // Wait for metadata then present the player.
-        w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, hud: hud)
+        w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, hud: hud)
     }
 
     /// Polls the torrent handle until metadata is available, then presents the player.
-    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, hud: UIAlertController, attempt: Int = 0) {
+    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController, attempt: Int = 0) {
         handle.updateSnapshot()
         let snap = handle.snapshot
 
@@ -792,7 +792,7 @@ extension W2GViewController {
             if !snap.files.isEmpty {
                 // Metadata ready — present the player.
                 hud.dismiss(animated: true) { [weak self] in
-                    self?.presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID, episode: episode)
+                    self?.presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem)
                 }
                 return
             }
@@ -812,12 +812,12 @@ extension W2GViewController {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, hud: hud, attempt: attempt + 1)
+            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, hud: hud, attempt: attempt + 1)
         }
     }
 
     /// Present the video player for a W2G torrent with metadata ready.
-    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int) {
+    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
 
         // Create a VideoService to manage streaming for this torrent.
@@ -826,18 +826,13 @@ extension W2GViewController {
 
         // Resolve the target file index for the episode.
         let resolver = TorrentBatchResolver()
-        var targetIndex: UInt = 0
+        let resolvedVideos = resolver.resolveAll(files: handle.snapshot.files)
+        let playableFiles = resolvedVideos.isEmpty ? handle.snapshot.files : resolvedVideos.map { $0.entry }
+        let playableFileIndices = Set(playableFiles.map { Int($0.index) })
+        var targetIndex = UInt(playableFiles.first?.index ?? 0)
         if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode) {
             targetIndex = UInt(match.entry.index)
         }
-
-        // Use the W2G client's file index if set (the host may have sent an
-        // index event before or along with the media event).
-        if let clientIndex = W2GLobby.shared.client?.index, clientIndex > 0 {
-            targetIndex = UInt(clientIndex)
-        }
-
-        vs.selectFileForStreaming(targetIndex)
 
         // Ensure Video CoreData entities exist for the torrent's files.
         // VideoService.UpdateLocalVideo populates these asynchronously, but for
@@ -845,13 +840,16 @@ extension W2GViewController {
         let videoReq = NSFetchRequest<Videos>(entityName: Videos.entityName)
         videoReq.predicate = NSPredicate(format: "torrents == %@", entity)
         videoReq.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true)]
-        var videos = (try? context.fetch(videoReq)) ?? []
+        var videos = ((try? context.fetch(videoReq)) ?? [])
+            .filter { playableFileIndices.contains($0.videoIndex?.intValue ?? -1) }
         if videos.isEmpty {
             // Populate from torrent file list.
             let snap = handle.snapshot
-            for (i, file) in snap.files.enumerated() {
+            for file in playableFiles {
                 let v = Videos(context: context)
-                v.videoIndex = NSNumber(value: i)
+                v.videoName = file.name
+                v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
+                v.videoIndex = NSNumber(value: file.index)
                 // Build absolute path from downloadPath + relative file path.
                 if let base = snap.downloadPath {
                     v.videoPath = base.appendingPathComponent(file.path).path
@@ -864,27 +862,79 @@ extension W2GViewController {
             try? context.save()
         }
 
-        // Pick the target video entity.
-        let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
-        guard let video = targetVideo else { return }
+        let presentResolved: (UInt) -> Void = { [weak self] resolvedIndex in
+            guard let self else { return }
+            var targetIndex = resolvedIndex
 
-        _ = vs.UpdateFilePathForFileIndex(targetIndex)
+            // Upstream W2G sends the playlist index, not the libtorrent file index.
+            // Translate it through the playable video list before selecting a file.
+            if let clientIndex = W2GLobby.shared.client?.index,
+               clientIndex > 0,
+               clientIndex < playableFiles.count {
+                targetIndex = UInt(playableFiles[clientIndex].index)
+            }
 
-        // Present the player.
-        MiniPlayerManager.shared.close()
-        let player = VideoPlayerViewController()
-        player.videoEntity       = video
-        player.torrentHandle     = handle
-        player.videoService      = vs
-        player.fileIndex         = targetIndex
-        player.anilistID         = anilistID
-        player.episodeNumber     = episode
-        player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? 0
-        player.allVideos         = videos
-        player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-        player.modalPresentationStyle = .fullScreen
-        player.modalTransitionStyle   = .crossDissolve
-        present(player, animated: true)
+            let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
+            guard let video = targetVideo else { return }
+
+            vs.selectFileForStreaming(targetIndex)
+            _ = vs.UpdateFilePathForFileIndex(targetIndex)
+
+            MiniPlayerManager.shared.close()
+            let player = VideoPlayerViewController()
+            player.videoEntity       = video
+            player.torrentHandle     = handle
+            player.videoService      = vs
+            player.fileIndex         = targetIndex
+            player.anilistID         = anilistID
+            player.episodeNumber     = episode
+            player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
+            player.allVideos         = videos
+            player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+            player.modalPresentationStyle = .fullScreen
+            player.modalTransitionStyle   = .crossDissolve
+            self.present(player, animated: true)
+        }
+
+        if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
+            resolver.resolve(files: handle.snapshot.files, targetEpisode: episode, targetMedia: targetMedia) { result in
+                let resolvedIndex = result.target.map { UInt($0.entry.index) } ?? targetIndex
+                presentResolved(resolvedIndex)
+            }
+        } else {
+            presentResolved(targetIndex)
+        }
+    }
+
+    private func w2gResolverTargetMedia(entity: Torrents, anilistID: Int) -> AnimeItem? {
+        if let anime = entity.animes,
+           let id = anime.animeAnilistId?.intValue,
+           id > 0 {
+            return AnimeItem(
+                id: id,
+                titleEnglish: anime.animeTitleEnglish,
+                titleRomaji: anime.animeTitleJapanese,
+                coverURL: anime.animeImgL ?? anime.animeImgM,
+                score: anime.animeScore?.floatValue,
+                status: anime.animeStatus,
+                episodes: anime.animeTotalEps?.intValue,
+                bannerURL: anime.animeImgS,
+                genres: [],
+                description: anime.animeDescription)
+        }
+
+        guard anilistID > 0 else { return nil }
+        return AnimeItem(
+            id: anilistID,
+            titleEnglish: nil,
+            titleRomaji: nil,
+            coverURL: nil,
+            score: nil,
+            status: nil,
+            episodes: nil,
+            bannerURL: nil,
+            genres: [],
+            description: nil)
     }
 }
 

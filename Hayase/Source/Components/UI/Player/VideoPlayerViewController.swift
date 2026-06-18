@@ -354,7 +354,7 @@ final class VideoPlayerViewController: UIViewController {
         if client.media == nil,
            let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
             client.mediaChange(W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber))
-            client.mediaIndexChanged(Int(fileIndex))
+            client.mediaIndexChanged(currentVideoIndex)
             client.playerStateChanged(W2GPlayerState(paused: isPaused, time: floor(currentTime)))
         }
     }
@@ -887,7 +887,7 @@ final class VideoPlayerViewController: UIViewController {
             W2GLobby.shared.client?.mediaChange(
                 W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
             )
-            W2GLobby.shared.client?.mediaIndexChanged(Int(fileIndex))
+            W2GLobby.shared.client?.mediaIndexChanged(currentVideoIndex)
         }
     }
 

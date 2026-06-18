@@ -355,6 +355,162 @@ public final class AniListClient: NSObject {
         }.resume()
     }
 
+    // MARK: - Resolver search/fetch (player resolver.ts parity)
+
+    func searchResolverAnimeIDs(titleGroups: [(key: String, titles: [String], year: Int?)],
+                                completion: @escaping ([String: Int]) -> Void) {
+        let flattened = titleGroups.flatMap { group -> [(key: String, title: String, year: Int?, isAdult: Bool)] in
+            let titles = group.titles
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !titles.isEmpty else { return [] }
+            var objects = titles.map { (key: group.key, title: $0, year: group.year, isAdult: false) }
+            if let last = objects.last {
+                objects.append((key: last.key, title: last.title, year: last.year, isAdult: true))
+            }
+            return objects
+        }
+        guard !flattened.isEmpty, let url = URL(string: graphQLEndpoint) else {
+            completion([:])
+            return
+        }
+
+        var resultIDs: [String: Int] = [:]
+        let chunks = stride(from: 0, to: flattened.count, by: 24).map {
+            Array(flattened[$0..<min($0 + 24, flattened.count)])
+        }
+
+        func runChunk(at chunkIndex: Int) {
+            guard chunkIndex < chunks.count else {
+                DispatchQueue.main.async { completion(resultIDs) }
+                return
+            }
+
+            let chunk = chunks[chunkIndex]
+            let variableDefs = chunk.enumerated().map { "$v\($0.offset): String" }.joined(separator: ", ")
+            let pages = chunk.enumerated().map { index, object in
+                let yearPart = object.year.map { ", seasonYear: \($0)" } ?? ""
+                return """
+                v\(index): Page(perPage: 10) {
+                  media(type: ANIME, search: $v\(index), status_in: [RELEASING, FINISHED], isAdult: \(object.isAdult)\(yearPart)) {
+                    id
+                    title { romaji english native }
+                    startDate { year month day }
+                    synonyms
+                  }
+                }
+                """
+            }.joined(separator: "\n")
+            let query = """
+            query(\(variableDefs)) {
+              \(pages)
+            }
+            """
+
+            var request = authorizedRequest(url: url)
+            var variables: [String: Any] = [:]
+            for (index, object) in chunk.enumerated() {
+                variables["v\(index)"] = object.title
+            }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+
+            URLSession.shared.dataTask(with: request) { data, _, _ in
+                defer { runChunk(at: chunkIndex + 1) }
+                guard let data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let dataObject = json["data"] as? [String: Any] else { return }
+
+                for (index, titleObject) in chunk.enumerated() {
+                    if resultIDs[titleObject.key] != nil { continue }
+                    guard let page = dataObject["v\(index)"] as? [String: Any],
+                          let mediaList = page["media"] as? [[String: Any]],
+                          !mediaList.isEmpty,
+                          let best = self.bestResolverSearchMedia(in: mediaList, title: titleObject.title),
+                          let id = best["id"] as? Int else { continue }
+                    resultIDs[titleObject.key] = id
+                }
+            }.resume()
+        }
+
+        runChunk(at: 0)
+    }
+
+    func fetchResolverMediaById(_ id: Int, completion: @escaping (AnimeItem?) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else { completion(nil); return }
+        var request = authorizedRequest(url: url)
+        let body: [String: Any] = ["query": AniListQueries.resolverMediaById, "variables": ["id": id]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let response = try? JSONDecoder().decode(AniListResolverMediaResponse.self, from: data),
+                  let media = response.data?.Media,
+                  let item = AniListUtil.animeItem(from: media) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            DispatchQueue.main.async { completion(item) }
+        }.resume()
+    }
+
+    private func bestResolverSearchMedia(in mediaList: [[String: Any]], title: String) -> [String: Any]? {
+        mediaList.min { lhs, rhs in
+            let leftDistance = resolverTitleDistance(lhs, title: title)
+            let rightDistance = resolverTitleDistance(rhs, title: title)
+            if leftDistance == rightDistance {
+                let leftDate = resolverStartDate(lhs)
+                let rightDate = resolverStartDate(rhs)
+                if leftDate != nil || rightDate != nil {
+                    return (leftDate ?? Date()) <= (rightDate ?? Date())
+                }
+            }
+            return leftDistance <= rightDistance
+        }
+    }
+
+    private func resolverTitleDistance(_ media: [String: Any], title: String) -> Int {
+        let target = title.lowercased()
+        let titleObject = media["title"] as? [String: Any] ?? [:]
+        let titleDistances = titleObject.values.compactMap { $0 as? String }
+            .filter { !$0.isEmpty }
+            .map { Self.levenshtein($0.lowercased(), target) }
+        let synonymDistances = (media["synonyms"] as? [String] ?? [])
+            .filter { !$0.isEmpty }
+            .map { Self.levenshtein($0.lowercased(), target) + 2 }
+        return (titleDistances + synonymDistances).min() ?? Int.max
+    }
+
+    private func resolverStartDate(_ media: [String: Any]) -> Date? {
+        guard let startDate = media["startDate"] as? [String: Any],
+              let year = startDate["year"] as? Int else { return nil }
+        var components = DateComponents()
+        components.year = year
+        components.month = startDate["month"] as? Int ?? 1
+        components.day = startDate["day"] as? Int ?? 1
+        return Calendar(identifier: .gregorian).date(from: components)
+    }
+
+    private static func levenshtein(_ lhs: String, _ rhs: String) -> Int {
+        let a = Array(lhs)
+        let b = Array(rhs)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+
+        var previous = Array(0...b.count)
+        var current = Array(repeating: 0, count: b.count + 1)
+
+        for i in 1...a.count {
+            current[0] = i
+            for j in 1...b.count {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+            }
+            swap(&previous, &current)
+        }
+
+        return previous[b.count]
+    }
+
     // MARK: - Detail (relations)
 
     func fetchDetailForItem(id: Int, completion: @escaping ([AnimeRelation]) -> Void) {
@@ -389,6 +545,9 @@ public final class AniListClient: NSObject {
                     bannerURL: nil,
                     genres: [],
                     description: nil,
+                    year: node.seasonYear,
+                    season: node.season,
+                    format: node.format,
                     coverColor: node.coverImage?.color)
                 return AnimeRelation(relationType: type, media: relItem)
             }

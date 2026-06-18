@@ -322,25 +322,13 @@ class VideoListViewController: UIViewController {
             if let vs = videoService, let handle = vs.torrentHandle, handle.snapshot.hasMetadata {
                 didAutoResolve = true
                 let resolver = TorrentBatchResolver()
-                if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: ep) {
-                    let fileIdx = UInt(match.entry.index)
-                    vs.selectFileForStreaming(fileIdx)
-                    tableView.reloadData()
-
-                    // Find the matching IndexPath so we can auto-open the player
-                    if let allVids = videoResultsController?.fetchedObjects {
-                        for (row, vid) in allVids.enumerated() {
-                            if let vidIdx = vid.videoIndex?.intValue, vidIdx == Int(match.entry.index) {
-                                let ip = IndexPath(row: row, section: 0)
-                                if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
-                                    presentPlayer(at: ip)
-                                } else {
-                                    pendingAutoOpenIndexPath = ip
-                                }
-                                break
-                            }
-                        }
+                if let targetMedia = resolverTargetMedia() {
+                    resolver.resolve(files: handle.snapshot.files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
+                        guard let self, let match = result.target else { return }
+                        self.selectAndOpenResolvedMatch(match, videoService: vs)
                     }
+                } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: ep) {
+                    selectAndOpenResolvedMatch(match, videoService: vs)
                 }
             }
         }
@@ -355,6 +343,44 @@ class VideoListViewController: UIViewController {
                 presentPlayer(at: pending)
             }
         }
+    }
+
+    private func selectAndOpenResolvedMatch(_ match: TorrentBatchResolver.ResolvedFile, videoService vs: VideoService) {
+        let fileIdx = UInt(match.entry.index)
+        vs.selectFileForStreaming(fileIdx)
+        tableView.reloadData()
+
+        // Find the matching IndexPath so we can auto-open the player.
+        if let allVids = videoResultsController?.fetchedObjects {
+            for (row, vid) in allVids.enumerated() {
+                if let vidIdx = vid.videoIndex?.intValue, vidIdx == Int(match.entry.index) {
+                    let ip = IndexPath(row: row, section: 0)
+                    if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
+                        presentPlayer(at: ip)
+                    } else {
+                        pendingAutoOpenIndexPath = ip
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    private func resolverTargetMedia() -> AnimeItem? {
+        guard let anime = torrentEntity?.animes,
+              let id = anime.animeAnilistId?.intValue,
+              id > 0 else { return nil }
+        return AnimeItem(
+            id: id,
+            titleEnglish: anime.animeTitleEnglish,
+            titleRomaji: anime.animeTitleJapanese,
+            coverURL: anime.animeImgL ?? anime.animeImgM,
+            score: anime.animeScore?.floatValue,
+            status: anime.animeStatus,
+            episodes: anime.animeTotalEps?.intValue,
+            bannerURL: anime.animeImgS,
+            genres: [],
+            description: anime.animeDescription)
     }
 
     private func showErrorAlert(_ error: Error) {
