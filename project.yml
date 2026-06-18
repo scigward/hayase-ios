@@ -23,7 +23,7 @@ packages:
     url: https://github.com/Smearedo/matroska-swift.git
     branch: main
   WebRTC:
-    path: Vendor/WebRTC
+    path: ./Vendor/WebRTC
   LucideIcons:
     url: https://github.com/JakubMazur/lucide-icons-swift.git
     from: "0.516.0"
