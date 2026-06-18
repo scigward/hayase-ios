@@ -77,6 +77,7 @@ final class PlayerOptionsController: UIViewController {
     var onSwitchVideo: ((Videos) -> Void)?
     var onToggleDeband: (() -> Void)?
     var onTogglePiP: (() -> Void)?
+    var onToggleFullscreen: (() -> Void)?
     var onSubtitleDelayChanged: ((Double) -> Void)?
     var onDismiss: (() -> Void)?
 
@@ -89,6 +90,7 @@ final class PlayerOptionsController: UIViewController {
     var subtitleDelay: Double = 0.0
     var isDebandActive: Bool = false
     var isPiPActive: Bool = false
+    var isFullscreenActive: Bool = false
     var allVideos: [Videos] = []
     var currentVideoEntity: Videos?
 
@@ -269,6 +271,12 @@ final class PlayerOptionsController: UIViewController {
             }
             items.append(.expandable(title: "Playlist", children: playlistItems))
         }
+
+        // Fullscreen (options.svelte: Fullscreen tree item)
+        items.append(.toggle(title: "Fullscreen", isActive: isFullscreenActive) { [weak self] in
+            self?.onToggleFullscreen?()
+            self?.dismissSelf()
+        })
 
         // Picture in Picture (options.svelte: toggle)
         items.append(.toggle(title: "Picture in Picture", isActive: isPiPActive) { [weak self] in

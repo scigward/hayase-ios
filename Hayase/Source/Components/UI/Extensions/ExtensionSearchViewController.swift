@@ -1203,9 +1203,7 @@ final class ExtensionSearchViewController: UIViewController {
             player.onEpisodeChange   = { [weak self] episode in
                 self?.handleEpisodeChangeFromPlayer(episode)
             }
-            player.modalPresentationStyle = .fullScreen
-            player.modalTransitionStyle   = .crossDissolve
-            self.present(player, animated: true)
+            self.presentHayasePlayer(player)
         }
     }
 
@@ -1777,32 +1775,7 @@ final class BottomDialogPresentationController: UIPresentationController {
         return v
     }()
 
-    /// Striped gradient layer matching web custom-bg pattern:
-    /// repeating-linear-gradient(40deg, #1114 0, #5554 1px, #5554 5px, #1114 6px, #1114 10px)
-    private lazy var stripedLayer: CALayer = {
-        let layer = CALayer()
-        let size = CGSize(width: 14, height: 14)
-        UIGraphicsBeginImageContextWithOptions(size, false, 0)
-        if let ctx = UIGraphicsGetCurrentContext() {
-            ctx.clear(CGRect(origin: .zero, size: size))
-            // Draw diagonal stripes matching #5554 (rgba(85,85,85,0.267))
-            ctx.setStrokeColor(UIColor(red: 85/255, green: 85/255, blue: 85/255, alpha: 0.267).cgColor)
-            ctx.setLineWidth(4)
-            // 40° diagonal stripes across the tile
-            ctx.move(to: CGPoint(x: -2, y: size.height + 2))
-            ctx.addLine(to: CGPoint(x: size.width + 2, y: -2))
-            ctx.strokePath()
-            ctx.move(to: CGPoint(x: size.width - 16, y: size.height + 2))
-            ctx.addLine(to: CGPoint(x: size.width + 2, y: size.height - 12))
-            ctx.strokePath()
-        }
-        let patternImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        if let cgImage = patternImage?.cgImage {
-            layer.backgroundColor = UIColor(patternImage: UIImage(cgImage: cgImage)).cgColor
-        }
-        return layer
-    }()
+    private lazy var stripedLayer = HayaseStripePattern.customBackground.makeLayer()
 
     // MARK: Frame
 

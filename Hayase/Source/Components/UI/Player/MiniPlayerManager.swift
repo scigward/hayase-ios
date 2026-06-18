@@ -192,11 +192,18 @@ final class MiniPlayerManager {
 
         // Flag to prevent viewWillDisappear from tearing down the player.
         player.isMinimizing = true
-        player.dismiss(animated: true) { [weak self] in
+        let finishMinimize: () -> Void = { [weak self] in
             player.isMinimizing = false
             // Reposition after dismiss in case safe area insets changed
             // (e.g., landscape → portrait rotation during the transition).
             self?.repositionContainer()
+        }
+        if let nav = player.navigationController,
+           nav.viewControllers.contains(player) {
+            nav.popViewController(animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: finishMinimize)
+        } else {
+            player.dismiss(animated: true, completion: finishMinimize)
         }
 
         // Persist session state so the mini-player can be restored on relaunch
@@ -234,11 +241,10 @@ final class MiniPlayerManager {
         miniWindow?.isHidden = true
         miniWindow = nil
 
-        // Present the fullscreen player again.
+        // Restore the player route. iPhone presents fullscreen; iPad returns
+        // to the app shell route so the sidebar remains visible.
         player.isMinimizing = true          // prevent tearDownPlayer on restore too
-        player.modalPresentationStyle = .fullScreen
-        player.modalTransitionStyle   = .crossDissolve
-        presenter.present(player, animated: true) {
+        presenter.presentHayasePlayer(player) {
             player.isMinimizing = false
         }
     }

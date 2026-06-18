@@ -420,9 +420,7 @@ class VideoListViewController: UIViewController {
         player.episodeNumber     = Int(indexNum.intValue) + 1
         player.allVideos         = allVids
         player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
-        player.modalPresentationStyle = .fullScreen
-        player.modalTransitionStyle   = .crossDissolve
-        present(player, animated: true)
+        presentHayasePlayer(player)
     }
 }
 

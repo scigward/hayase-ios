@@ -308,12 +308,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         leftColumn.axis = .vertical
         leftColumn.spacing = 16  // gap-4
         leftColumn.alignment = .center  // will be .leading on iPad
-        // Add a small spacer to push clearlogo/title slightly lower
-        let logoTopSpacer = UIView()
-        logoTopSpacer.translatesAutoresizingMaskIntoConstraints = false
-        logoTopSpacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
-        leftColumn.addArrangedSubview(logoTopSpacer)
-        leftColumn.setCustomSpacing(0, after: logoTopSpacer)
         leftColumn.addArrangedSubview(clearlogoImageView)
         leftColumn.addArrangedSubview(titleLabel)
         leftColumn.addArrangedSubview(badgeStack)
@@ -894,6 +888,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     @objc private func playButtonTapped() {
         guard let item = currentItem else { return }
+        animateTap(playButton)
         onPlayTapped?(item)
     }
 

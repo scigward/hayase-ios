@@ -26,6 +26,7 @@ final class HayaseSidebarButton: UIButton {
     private let activeBackground = UIView()
     private let dotView = UIView()
     private var iconImage: UIImage?
+    private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
 
     var onPress: (() -> Void)?
 
@@ -47,6 +48,7 @@ final class HayaseSidebarButton: UIButton {
         didSet {
             UIView.animate(withDuration: 0.12) {
                 self.alpha = self.isHighlighted ? 0.72 : 1
+                self.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.92, y: 0.92) : .identity
             }
         }
     }
@@ -107,6 +109,9 @@ final class HayaseSidebarButton: UIButton {
             self.activeBackground.alpha = active ? 1 : 0
             self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
             self.imageView?.tintColor = self.tintColor
+            if let icon = self.iconImage, self.iconRenderingMode != .alwaysOriginal {
+                self.setImage(icon.withTintColor(self.tintColor, renderingMode: .alwaysOriginal), for: .normal)
+            }
         }
         if animated {
             UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut], animations: changes)
@@ -121,7 +126,13 @@ final class HayaseSidebarButton: UIButton {
 
     func setSidebarImage(_ image: UIImage?, pointSize: CGFloat, renderingMode: UIImage.RenderingMode) {
         let inset = max(0, (boundsSize - pointSize) / 2)
-        setImage(image?.withRenderingMode(renderingMode), for: .normal)
+        iconRenderingMode = renderingMode
+        iconImage = image?.withRenderingMode(renderingMode)
+        if renderingMode == .alwaysOriginal {
+            setImage(iconImage, for: .normal)
+        } else {
+            setImage(iconImage?.withTintColor(tintColor, renderingMode: .alwaysOriginal), for: .normal)
+        }
         imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     }
 

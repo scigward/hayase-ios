@@ -11,7 +11,7 @@ import UIKit
 
 // MARK: - HayaseSidebarRoute
 
-enum HayaseSidebarRoute: Hashable {
+enum HayaseSidebarRoute: Hashable, CaseIterable {
     case home
     case search
     case schedule

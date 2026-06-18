@@ -891,9 +891,7 @@ extension W2GViewController {
             player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-            player.modalPresentationStyle = .fullScreen
-            player.modalTransitionStyle   = .crossDissolve
-            self.present(player, animated: true)
+            self.presentHayasePlayer(player)
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {

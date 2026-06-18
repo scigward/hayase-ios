@@ -19,6 +19,7 @@ final class HayaseSidebarController: UIViewController {
     private let mobileLauncher = UIView()
     private let mobileGridContainer = UIView()
     private let mobileToggleButton = UIButton(type: .system)
+    private let sidebarContainer = UIView()
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
@@ -95,6 +96,7 @@ final class HayaseSidebarController: UIViewController {
         for case let nav as UINavigationController in tabBarControllerHost.viewControllers ?? [] {
             nav.delegate = self
             nav.navigationBar.isHidden = true
+            nav.navigationBar.alpha = 0
             nav.setNavigationBarHidden(true, animated: false)
         }
     }
@@ -105,6 +107,8 @@ final class HayaseSidebarController: UIViewController {
                 nav.setNavigationBarHidden(true, animated: false)
             }
             nav.navigationBar.isHidden = true
+            nav.navigationBar.alpha = 0
+            nav.view.setNeedsLayout()
         }
     }
 
@@ -112,9 +116,8 @@ final class HayaseSidebarController: UIViewController {
         sidebarList.translatesAutoresizingMaskIntoConstraints = false
         sidebarList.backgroundColor = .clear
 
-        let sidebarContainer = UIView()
         sidebarContainer.translatesAutoresizingMaskIntoConstraints = false
-        sidebarContainer.backgroundColor = UIColor.HayaseTheme.background
+        sidebarContainer.backgroundColor = .clear
         sidebarContainer.addSubview(sidebarList)
         view.addSubview(sidebarContainer)
 
@@ -222,6 +225,7 @@ final class HayaseSidebarController: UIViewController {
     private func updateSelection(animated: Bool) {
         sidebarList.setSelectedIndex(tabBarControllerHost.selectedIndex, animated: animated)
         mobileSidebarList.setSelectedIndex(tabBarControllerHost.selectedIndex, animated: animated)
+        updateSidebarBackground()
     }
 
     private func updateLayoutForCurrentWidth() {
@@ -234,6 +238,12 @@ final class HayaseSidebarController: UIViewController {
         if !isDesktop {
             closeMobileMenu(animated: false)
         }
+        updateSidebarBackground()
+    }
+
+    private func updateSidebarBackground() {
+        let selectedRoute = HayaseSidebarRoute.allCases.first { $0.tabIndex == tabBarControllerHost.selectedIndex }
+        sidebarContainer.backgroundColor = selectedRoute == .home ? UIColor.HayaseTheme.background : .clear
     }
 
     @objc private func toggleMobileMenu() {
@@ -283,5 +293,14 @@ extension HayaseSidebarController: UINavigationControllerDelegate {
                               animated: Bool) {
         navigationController.setNavigationBarHidden(true, animated: false)
         navigationController.navigationBar.isHidden = true
+        navigationController.navigationBar.alpha = 0
+    }
+
+    func navigationController(_ navigationController: UINavigationController,
+                              didShow viewController: UIViewController,
+                              animated: Bool) {
+        navigationController.setNavigationBarHidden(true, animated: false)
+        navigationController.navigationBar.isHidden = true
+        navigationController.navigationBar.alpha = 0
     }
 }

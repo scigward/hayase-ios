@@ -336,6 +336,7 @@ final class VideoPlayerViewController: UIViewController {
     /// Throttle watch-progress saves to avoid writing UserDefaults on every
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
+    private weak var shellNavigationControllerBeforeFullscreen: UINavigationController?
 
     /// True while the player is being minimized to in-app PiP. Prevents
     /// viewWillDisappear from tearing down the streaming pipeline.
@@ -1533,6 +1534,7 @@ final class VideoPlayerViewController: UIViewController {
         optionsVC.currentSpeed = playbackRate
         optionsVC.subtitleDelay = subtitleDelay
         optionsVC.isDebandActive = UserDefaults.standard.bool(forKey: "pref_deband")
+        optionsVC.isFullscreenActive = isFullscreenPresentation
         optionsVC.allVideos = allVideos
         optionsVC.currentVideoEntity = videoEntity
 
@@ -1586,6 +1588,10 @@ final class VideoPlayerViewController: UIViewController {
             }
         }
 
+        optionsVC.onToggleFullscreen = { [weak self] in
+            self?.toggleFullscreenPresentation()
+        }
+
         optionsVC.onSubtitleDelayChanged = { [weak self] delay in
             self?.subtitleDelay = delay
             self?.surface.mpv.setSubtitleDelay(delay)
@@ -1596,6 +1602,49 @@ final class VideoPlayerViewController: UIViewController {
         }
 
         present(optionsVC, animated: true)
+    }
+
+    private var isFullscreenPresentation: Bool {
+        presentingViewController != nil && navigationController == nil
+    }
+
+    private func toggleFullscreenPresentation() {
+        guard hayaseShouldEmbedPlayerInShell else { return }
+        if isFullscreenPresentation {
+            exitFullscreenPresentation()
+        } else {
+            enterFullscreenPresentation()
+        }
+    }
+
+    private func enterFullscreenPresentation() {
+        guard let nav = navigationController else { return }
+        shellNavigationControllerBeforeFullscreen = nav
+        isMinimizing = true
+        nav.popViewController(animated: false)
+        modalPresentationStyle = .fullScreen
+        modalTransitionStyle = .crossDissolve
+        DispatchQueue.main.async { [weak self, weak nav] in
+            guard let self = self, let nav = nav else { return }
+            nav.present(self, animated: true) { [weak self] in
+                self?.isMinimizing = false
+            }
+        }
+    }
+
+    private func exitFullscreenPresentation() {
+        let nav = shellNavigationControllerBeforeFullscreen ?? presentingViewController?.hayaseShellNavigationController()
+        guard let nav = nav else { return }
+        isMinimizing = true
+        dismiss(animated: true) { [weak self, weak nav] in
+            guard let self = self, let nav = nav else { return }
+            nav.setNavigationBarHidden(true, animated: false)
+            nav.navigationBar.isHidden = true
+            nav.pushViewController(self, animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                self.isMinimizing = false
+            }
+        }
     }
 
     // Auto-plays next episode (Hayase web: next() called at EOF)
@@ -1876,8 +1925,7 @@ extension VideoPlayerViewController: PiPControllerDelegate {
                 var top = root
                 while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
                 guard top !== self else { completionHandler(false); return }
-                self.modalPresentationStyle = .fullScreen
-                top.present(self, animated: true) {
+                top.presentHayasePlayer(self) {
                     completionHandler(true)
                 }
             } else {
