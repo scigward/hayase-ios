@@ -119,7 +119,7 @@ final class ThreadDetailViewController: UIViewController {
         let timeAgo  = sinceString(ts)
 
         let lockedBadge = locked
-            ? "<span class='badge locked'>🔒 Locked</span>" : ""
+            ? "<span class='badge locked'>\(lucideSVG("lock")) Locked</span>" : ""
 
         // Build comment HTML
         var commentsHTML = ""
@@ -139,7 +139,7 @@ final class ThreadDetailViewController: UIViewController {
                 <img class='avatar' src='\(cAvatar)' onerror="this.style.display='none'"/>
                 <span class='username'>\(htmlEscape(cName))</span>
                 <span class='meta'>\(cTime)</span>
-                <span class='meta' style='margin-left:auto'>♥ \(cLikes)</span>
+                <span class='meta stat-inline' style='margin-left:auto'>\(lucideSVG("heart")) \(cLikes)</span>
               </div>
               <div class='comment-body'>\(cBody)</div>
             </div>
@@ -169,8 +169,10 @@ final class ThreadDetailViewController: UIViewController {
           .username      { font-weight: 600; color: #e5e5e5; font-size: 13px; }
           .meta          { color: #888; font-size: 12px; }
           .badge         { background: #27272a; border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #a3a3a3; }
+          .badge, .stat-inline, .stats span { display: inline-flex; align-items: center; gap: 4px; }
           .badge.locked  { color: #f87171; }
           .stats         { display: flex; gap: 12px; color: #888; font-size: 12px; margin-bottom: 12px; }
+          .icon          { width: 12px; height: 12px; flex: 0 0 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
           .divider       { border: none; border-top: 1px solid #27272a; margin: 20px 0; }
           .thread-body, .comment-body { color: #d4d4d4; }
           .thread-body img, .comment-body img {
@@ -196,9 +198,9 @@ final class ThreadDetailViewController: UIViewController {
             \(lockedBadge)
           </div>
           <div class='stats'>
-            <span>♥ \(likes) likes</span>
-            <span>👁 \(views) views</span>
-            <span>💬 \(replies) replies</span>
+            <span>\(lucideSVG("heart")) \(likes) likes</span>
+            <span>\(lucideSVG("eye")) \(views) views</span>
+            <span>\(lucideSVG("messages-square")) \(replies) replies</span>
           </div>
         </div>
         <div class='thread-body'>\(body)</div>
@@ -243,5 +245,20 @@ final class ThreadDetailViewController: UIViewController {
          .replacingOccurrences(of: "<", with: "&lt;")
          .replacingOccurrences(of: ">", with: "&gt;")
          .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    private func lucideSVG(_ id: String) -> String {
+        let path: String
+        switch id {
+        case "eye":
+            path = "<path d='M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0'/><circle cx='12' cy='12' r='3'/>"
+        case "lock":
+            path = "<rect width='18' height='11' x='3' y='11' rx='2' ry='2'/><path d='M7 11V7a5 5 0 0 1 10 0v4'/>"
+        case "messages-square":
+            path = "<path d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/><path d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/>"
+        default:
+            path = "<path d='M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7z'/>"
+        }
+        return "<svg class='icon' viewBox='0 0 24 24' aria-hidden='true'>\(path)</svg>"
     }
 }

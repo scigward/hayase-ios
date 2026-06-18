@@ -21,6 +21,83 @@ final class ThreadBadgeLabel: UILabel {
     }
 }
 
+// MARK: - ThreadStatsView
+
+final class ThreadStatsView: UIView {
+    private let stack = UIStackView()
+    private let likesLabel = UILabel()
+    private let viewsLabel = UILabel()
+    private let repliesLabel = UILabel()
+    private let lockView = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        stack.addArrangedSubview(makeItem(icon: "heart", label: likesLabel))
+        stack.addArrangedSubview(makeItem(icon: "eye", label: viewsLabel))
+        stack.addArrangedSubview(makeItem(icon: "messages-square", label: repliesLabel))
+
+        lockView.image = UIImage.hayaseIcon("lock", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular))
+        lockView.tintColor = UIColor(red: 0.937, green: 0.267, blue: 0.267, alpha: 1)
+        lockView.contentMode = .scaleAspectFit
+        lockView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            lockView.widthAnchor.constraint(equalToConstant: 12),
+            lockView.heightAnchor.constraint(equalToConstant: 12),
+        ])
+        stack.addArrangedSubview(lockView)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func makeItem(icon: String, label: UILabel) -> UIStackView {
+        let imageView = UIImageView(image: UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)))
+        imageView.tintColor = UIColor(white: 0.6, alpha: 1)
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 12),
+            imageView.heightAnchor.constraint(equalToConstant: 12),
+        ])
+
+        label.font = .nunito(ofSize: 9.6)
+        label.textColor = UIColor(white: 0.6, alpha: 1)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let item = UIStackView(arrangedSubviews: [imageView, label])
+        item.axis = .horizontal
+        item.spacing = 4
+        item.alignment = .center
+        return item
+    }
+
+    func configure(likes: Int, views: Int, replies: Int, locked: Bool) {
+        likesLabel.text = "\(likes)"
+        viewsLabel.text = "\(views)"
+        repliesLabel.text = "\(replies)"
+        lockView.isHidden = !locked
+    }
+}
+
 // MARK: - ThreadCardView
 
 final class ThreadCardView: UIView {
@@ -36,13 +113,7 @@ final class ThreadCardView: UIView {
         return l
     }()
 
-    private let statsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.6, alpha: 1)
-        l.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return l
-    }()
+    private let statsView = ThreadStatsView()
 
     private let footerLabel: UILabel = {
         let l = UILabel()
@@ -73,7 +144,7 @@ final class ThreadCardView: UIView {
         layer.cornerRadius = 6
         clipsToBounds = true
 
-        [titleLabel, statsLabel, footerLabel, badgeStack].forEach {
+        [titleLabel, statsView, footerLabel, badgeStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -83,10 +154,10 @@ final class ThreadCardView: UIView {
 
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(equalTo: statsView.leadingAnchor, constant: -8),
 
-            statsLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            statsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            statsView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            statsView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
 
             footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
             footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
@@ -107,7 +178,7 @@ final class ThreadCardView: UIView {
     func configure(with thread: AniListThread, accentColor: UIColor) {
         threadID = thread.id
         titleLabel.text = thread.title
-        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
+        statsView.configure(likes: thread.likeCount, views: thread.viewCount, replies: thread.replyCount, locked: thread.isLocked)
 
         var footerParts = [thread.sinceString]
         if let name = thread.userName { footerParts.append("by \(name)") }
@@ -131,7 +202,7 @@ final class ThreadCardView: UIView {
 
     func reset() {
         titleLabel.text = nil
-        statsLabel.text = nil
+        statsView.configure(likes: 0, views: 0, replies: 0, locked: false)
         footerLabel.text = nil
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         threadID = 0
@@ -279,11 +350,9 @@ extension AnimeDetailViewController {
         titleLabel.numberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let statsLabel = UILabel()
-        statsLabel.text = "♥ \(thread.likeCount)  👁 \(thread.viewCount)  💬 \(thread.replyCount)\(thread.isLocked ? "  🔒" : "")"
-        statsLabel.font = .nunito(ofSize: 9.6)
-        statsLabel.textColor = UIColor(white: 0.6, alpha: 1)
-        statsLabel.translatesAutoresizingMaskIntoConstraints = false
+        let statsView = ThreadStatsView()
+        statsView.configure(likes: thread.likeCount, views: thread.viewCount, replies: thread.replyCount, locked: thread.isLocked)
+        statsView.translatesAutoresizingMaskIntoConstraints = false
 
         let footerLabel = UILabel()
         var footerParts = [thread.sinceString]
@@ -313,10 +382,9 @@ extension AnimeDetailViewController {
         }
 
         card.addSubview(titleLabel)
-        card.addSubview(statsLabel)
+        card.addSubview(statsView)
         card.addSubview(footerLabel)
         card.addSubview(badgeStack)
-        statsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
 
@@ -329,10 +397,10 @@ extension AnimeDetailViewController {
 
             titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: statsLabel.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(equalTo: statsView.leadingAnchor, constant: -8),
 
-            statsLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            statsLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            statsView.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            statsView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
 
             footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
             footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),

@@ -267,7 +267,10 @@ final class VideoPlayerViewController: UIViewController {
     private let backButton    = UIButton(type: .system)
 
     // Hayase downloadstats.svelte — floating HUD at top center
-    private let statsHUD      = UILabel()
+    private let statsHUD = UIStackView()
+    private let statsPeersLabel = UILabel()
+    private let statsDownLabel = UILabel()
+    private let statsUpLabel = UILabel()
 
     // Bottom bar — above seekbar row
     private let titleLabel    = UILabel()
@@ -561,20 +564,46 @@ final class VideoPlayerViewController: UIViewController {
     /// is inactive — matching Hayase's `class:opacity-0={immersed}`.
     private func setupStatsHUD() {
         statsHUD.translatesAutoresizingMaskIntoConstraints = false
-        statsHUD.font = .nunito(ofSize: 14, weight: .bold)
-        statsHUD.textColor = .white
-        statsHUD.textAlignment = .center
+        statsHUD.axis = .horizontal
+        statsHUD.spacing = 16
+        statsHUD.alignment = .center
         statsHUD.isHidden = true
-        // Text shadow via layer (matches Hayase text-shadow-lg)
+        // Text/icon shadow via layer (matches Hayase text-shadow-lg)
         statsHUD.layer.shadowColor = UIColor.black.cgColor
         statsHUD.layer.shadowOffset = .zero
         statsHUD.layer.shadowOpacity = 0.8
         statsHUD.layer.shadowRadius = 4
+
+        statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "users", label: statsPeersLabel))
+        statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "chevron-down", label: statsDownLabel))
+        statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "chevron-up", label: statsUpLabel))
+
         overlay.addSubview(statsHUD)
         NSLayoutConstraint.activate([
             statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             statsHUD.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         ])
+    }
+
+    private func makeStatsHUDItem(icon: String, label: UILabel) -> UIStackView {
+        let imageView = UIImageView(image: UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)))
+        imageView.tintColor = .white
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 18),
+            imageView.heightAnchor.constraint(equalToConstant: 18),
+        ])
+
+        label.font = .nunito(ofSize: 18, weight: .bold)
+        label.textColor = .white
+        label.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [imageView, label])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        return stack
     }
 
     private func setupBottomBar() {
@@ -1088,11 +1117,13 @@ final class VideoPlayerViewController: UIViewController {
                 streamer = nil
             }
         }
-        // Hayase downloadstats.svelte format: peers ↓speed ↑speed
+        // Hayase downloadstats.svelte: Users, ChevronDown, ChevronUp.
         let peers = snap.numberOfSeeds
         let downBits = fmtBits(snap.downloadRate * 8)
         let upBits = fmtBits(snap.uploadRate * 8)
-        statsHUD.text = "👤 \(peers)    ↓ \(downBits)/s    ↑ \(upBits)/s"
+        statsPeersLabel.text = "\(peers)"
+        statsDownLabel.text = "\(downBits)/s"
+        statsUpLabel.text = "\(upBits)/s"
     }
 
     /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).

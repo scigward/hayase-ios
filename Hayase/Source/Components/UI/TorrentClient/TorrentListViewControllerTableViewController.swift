@@ -6,6 +6,63 @@
 import UIKit
 import CoreData
 
+// MARK: - TorrentCountBadgeView
+
+final class TorrentCountBadgeView: UIView {
+    private let imageView = UIImageView()
+    private let label = UILabel()
+
+    init(icon: String, color: UIColor) {
+        super.init(frame: .zero)
+        setup(icon: icon, color: color)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup(icon: "users", color: .systemGray)
+    }
+
+    private func setup(icon: String, color: UIColor) {
+        backgroundColor = color
+        layer.cornerRadius = 8
+        clipsToBounds = true
+
+        imageView.image = UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        imageView.tintColor = .white
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 12),
+            imageView.heightAnchor.constraint(equalToConstant: 12),
+        ])
+
+        label.font = .nunito(ofSize: 11, weight: .semibold)
+        label.textColor = .white
+        label.textAlignment = .center
+        label.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [imageView, label])
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
+        stack.layoutMargins = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    func setCount(_ count: Int) {
+        label.text = "\(count)"
+    }
+}
+
 // MARK: - TorrentTableViewCell
 
 final class TorrentTableViewCell: UITableViewCell {
@@ -19,8 +76,8 @@ final class TorrentTableViewCell: UITableViewCell {
         return l
     }()
 
-    private let seedersLabel = TorrentTableViewCell.makeBadge(color: .systemGreen)
-    private let leechersLabel = TorrentTableViewCell.makeBadge(color: .systemRed)
+    private let seedersBadge = TorrentCountBadgeView(icon: "user-round-plus", color: .systemGreen)
+    private let leechersBadge = TorrentCountBadgeView(icon: "user-round-minus", color: .systemRed)
 
     private let sizeLabel: UILabel = {
         let l = UILabel()
@@ -28,17 +85,6 @@ final class TorrentTableViewCell: UITableViewCell {
         l.textColor = .secondaryLabel
         return l
     }()
-
-    private static func makeBadge(color: UIColor) -> UILabel {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 11, weight: .semibold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.backgroundColor = color
-        l.layer.cornerRadius = 8
-        l.clipsToBounds = true
-        return l
-    }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -52,7 +98,7 @@ final class TorrentTableViewCell: UITableViewCell {
 
     private func setup() {
         accessoryType = .disclosureIndicator
-        [nameLabel, seedersLabel, leechersLabel, sizeLabel].forEach {
+        [nameLabel, seedersBadge, leechersBadge, sizeLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
@@ -61,19 +107,19 @@ final class TorrentTableViewCell: UITableViewCell {
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 
-            seedersLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
-            seedersLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            seedersLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
-            seedersLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
-            seedersLabel.heightAnchor.constraint(equalToConstant: 20),
+            seedersBadge.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            seedersBadge.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            seedersBadge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            seedersBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            seedersBadge.heightAnchor.constraint(equalToConstant: 20),
 
-            leechersLabel.leadingAnchor.constraint(equalTo: seedersLabel.trailingAnchor, constant: 6),
-            leechersLabel.centerYAnchor.constraint(equalTo: seedersLabel.centerYAnchor),
-            leechersLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
-            leechersLabel.heightAnchor.constraint(equalToConstant: 20),
+            leechersBadge.leadingAnchor.constraint(equalTo: seedersBadge.trailingAnchor, constant: 6),
+            leechersBadge.centerYAnchor.constraint(equalTo: seedersBadge.centerYAnchor),
+            leechersBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            leechersBadge.heightAnchor.constraint(equalToConstant: 20),
 
-            sizeLabel.leadingAnchor.constraint(equalTo: leechersLabel.trailingAnchor, constant: 10),
-            sizeLabel.centerYAnchor.constraint(equalTo: seedersLabel.centerYAnchor),
+            sizeLabel.leadingAnchor.constraint(equalTo: leechersBadge.trailingAnchor, constant: 10),
+            sizeLabel.centerYAnchor.constraint(equalTo: seedersBadge.centerYAnchor),
         ])
     }
 
@@ -82,8 +128,8 @@ final class TorrentTableViewCell: UITableViewCell {
         let s = torrent.torrentSeeders?.intValue ?? 0
         let l = torrent.torrentLeechers?.intValue ?? 0
         let mb = torrent.torrentSize?.floatValue ?? 0
-        seedersLabel.text = "  ▲ \(s)  "
-        leechersLabel.text = "  ▼ \(l)  "
+        seedersBadge.setCount(s)
+        leechersBadge.setCount(l)
         sizeLabel.text = mb >= 1024 ? String(format: "%.1f GB", mb / 1024) : String(format: "%.0f MB", mb)
     }
 }
@@ -275,7 +321,7 @@ extension TorrentListViewController: UITableViewDelegate {
 
         let alert = UIAlertController(
             title: "Download Torrent?",
-            message: "\(name)\n\nSize: \(sizeStr)  ·  ▲ \(seeders) seeders",
+            message: "\(name)\n\nSize: \(sizeStr)  ·  \(seeders) seeders",
             preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Download", style: .default) { [weak self] _ in
             guard let self = self,

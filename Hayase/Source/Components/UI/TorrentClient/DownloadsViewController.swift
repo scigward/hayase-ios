@@ -1431,14 +1431,23 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
         for (title, fixedWidth, sortCol) in columns {
             let isActive = filesSortColumn == sortCol
-            var displayTitle = title
-            if isActive { displayTitle += filesSortAscending ? " ▲" : " ▼" }
 
             let btn = UIButton(type: .system)
             btn.tag = sortCol.rawValue
-            btn.setTitle(displayTitle, for: .normal)
+            btn.setTitle(title, for: .normal)
+            if isActive {
+                let icon = filesSortAscending ? "arrow-up" : "arrow-down"
+                btn.setImage(UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)), for: .normal)
+                btn.imageEdgeInsets = UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 2)
+                btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: -2)
+            } else {
+                btn.setImage(nil, for: .normal)
+                btn.imageEdgeInsets = .zero
+                btn.titleEdgeInsets = .zero
+            }
             btn.titleLabel?.font = .nunito(ofSize: 12, weight: .medium)
             btn.setTitleColor(isActive ? .label : .secondaryLabel, for: .normal)
+            btn.tintColor = isActive ? .secondaryLabel : .clear
             btn.contentHorizontalAlignment = .left
             btn.addTarget(self, action: #selector(fileColumnHeaderTapped(_:)), for: .touchUpInside)
 
@@ -1468,7 +1477,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     /// Handles tap on a Files column header button.
-    /// Tap cycle per column: unsorted → ascending (▲) → descending (▼) → unsorted.
+    /// Tap cycle per column: unsorted -> ascending -> descending -> unsorted.
     /// Matches Hayase's column sort dropdown with Asc/Desc options.
     @objc private func fileColumnHeaderTapped(_ sender: UIButton) {
         guard let col = FileSortColumn(rawValue: sender.tag) else { return }
