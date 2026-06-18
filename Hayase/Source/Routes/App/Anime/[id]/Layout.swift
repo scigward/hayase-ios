@@ -243,8 +243,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
-        b.setImage(UIImage.hayaseIcon("play")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 13), for: .normal)
         b.setTitle("Watch Now", for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
@@ -736,10 +735,10 @@ final class AnimeInfoHeaderView: UIView {
 
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
+        favoriteButton.setImage(isFavorite ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
         favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
-        bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
+        bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
         bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 

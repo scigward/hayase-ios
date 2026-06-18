@@ -185,9 +185,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // So: h-9 = 36pt, text-sm = 14pt, font-bold override, rounded-md (6pt)
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setTitle("  Watch Now", for: .normal)
-        b.setImage(UIImage.hayaseIcon("play")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 13), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
@@ -528,7 +527,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
-                    self.favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
+                    self.favoriteButton.setImage(isFav ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
                     self.favoriteButton.tintColor = isFav ? accentForState : .white
                 }
             }
@@ -537,8 +536,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
-                    self.bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
-                    self.bookmarkButton.tintColor = (entry != nil) ? accentForState : .white
+                    let isOnList = entry != nil
+                    self.bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
+                    self.bookmarkButton.tintColor = isOnList ? accentForState : .white
                 }
             }
             // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"

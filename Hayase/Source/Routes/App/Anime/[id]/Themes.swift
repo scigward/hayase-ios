@@ -199,8 +199,7 @@ extension AnimeDetailViewController {
             row.addSubview(epLabel)
 
             let playBtn = UIButton(type: .system)
-            let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-            playBtn.setImage(UIImage.hayaseIcon("play")?.withConfiguration(playIconCfg), for: .normal)
+            playBtn.setImage(UIImage.hayaseFilledIcon("play", pointSize: 9), for: .normal)
             playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 13

@@ -680,9 +680,9 @@ final class VideoPlayerViewController: UIViewController {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.tintColor = .white
         }
-        prevButton.setImage(UIImage.hayaseIcon("skip-back"),  for: .normal)
-        playPauseButton.setImage(UIImage.hayaseIcon("pause"),    for: .normal)
-        nextButton.setImage(UIImage.hayaseIcon("skip-forward"),   for: .normal)
+        prevButton.setImage(UIImage.hayaseFilledIcon("skip-back"), for: .normal)
+        playPauseButton.setImage(UIImage.hayaseFilledIcon("pause"), for: .normal)
+        nextButton.setImage(UIImage.hayaseFilledIcon("skip-forward"), for: .normal)
         optionsButton.setImage(UIImage.hayaseIcon("ellipsis-vertical"), for: .normal)
 
         prevButton.addTarget(self,      action: #selector(prevTapped),      for: .touchUpInside)
@@ -1599,7 +1599,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             )
         }
 
-        playPauseButton.setImage(UIImage.hayaseIcon(isPaused ? "play" : "pause"), for: .normal)
+        playPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 
         // Keep the mini-player's play/pause icon in sync.

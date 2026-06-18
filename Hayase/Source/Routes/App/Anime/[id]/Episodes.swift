@@ -268,8 +268,7 @@ final class EpisodeCardView: UIView {
         if let rating = episode.rating {
             let ratingStr = String(format: "%.2f", rating)
             let starAttachment = NSTextAttachment()
-            let starCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular)
-            if let starImg = UIImage.hayaseIcon("star", withConfiguration: starCfg)?
+            if let starImg = UIImage.hayaseFilledIcon("star", pointSize: 10)?
                 .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
                 starAttachment.image = starImg
                 starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)

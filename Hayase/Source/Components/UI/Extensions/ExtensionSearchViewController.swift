@@ -1575,15 +1575,13 @@ final class TorrentResultCell: UITableViewCell {
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
         case "high":
-            let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
-            badgeCheckView.image = UIImage.hayaseIcon("badge-check", withConfiguration: cfg)?
+            badgeCheckView.image = UIImage.hayaseFilledIcon("badge-check", pointSize: 19)?
                 .withTintColor(green, renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         case "medium":
-            let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             // Web: text-muted-foreground/20 — muted foreground (≈ white 0.65) at 20% opacity
-            badgeCheckView.image = UIImage.hayaseIcon("badge-check", withConfiguration: cfg)?
+            badgeCheckView.image = UIImage.hayaseFilledIcon("badge-check", pointSize: 19)?
                 .withTintColor(UIColor(white: 0.65, alpha: 0.2), renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         default:
@@ -1598,7 +1596,7 @@ final class TorrentResultCell: UITableViewCell {
         let cfg = UIImage.SymbolConfiguration(pointSize: 40, weight: .regular)
         if let rtype = result.type, !rtype.isEmpty {
             // batch / best / alt → folder icon (yellow)
-            fileIconView.image = UIImage.hayaseIcon("folder", withConfiguration: cfg)?
+            fileIconView.image = UIImage.hayaseFilledIcon("folder", pointSize: 40)?
                 .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         } else {
             // single episode → file icon (muted)
