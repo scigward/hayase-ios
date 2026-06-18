@@ -63,7 +63,7 @@ enum HayaseStripePattern {
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { context in
             let cg = context.cgContext
-            let scale = renderer.format.scale
+            let scale = UIScreen.main.scale
             let pixelWidth = Int(size.width * scale)
             let pixelHeight = Int(size.height * scale)
             let angle = angleDegrees * .pi / 180
