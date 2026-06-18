@@ -1197,6 +1197,7 @@ final class VideoPlayerViewController: UIViewController {
         let fromEnd = max(180.0, duration / 10.0)
         if duration - fromEnd < currentTime {
             trackingCompleted = true
+            saveProgress()
             AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber)
         }
     }

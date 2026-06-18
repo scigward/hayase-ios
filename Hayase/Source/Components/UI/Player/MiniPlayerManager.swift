@@ -49,12 +49,11 @@ final class MiniPlayerManager {
 
     // MARK: - Constants (Hayase wrapper.svelte)
 
-    /// Hayase: `max-w-[22rem]` ≈ 352pt. Reduced for phone screens.
-    private let miniWidth: CGFloat = 200
-    /// 16:9 aspect ratio.
-    private var miniHeight: CGFloat { miniWidth * 9 / 16 }
-    /// Padding from screen edges.
-    private let edgePadding: CGFloat = 12
+    /// Hayase wrapper.svelte: `max-w-[22rem] px-4` with a `w-full aspect-video`
+    /// child. Tailwind uses border-box sizing, so the visible rounded player is
+    /// min(viewport, 352pt) minus 32pt horizontal padding.
+    private let maxOuterWidth: CGFloat = 352
+    private let edgePadding: CGFloat = 16
     /// Corner radius matching Hayase's `[&>*]:rounded-lg`.
     private let cornerRadius: CGFloat = 12
     /// Snap animation (Hayase: `transition-transform duration-[500ms]
@@ -284,13 +283,16 @@ final class MiniPlayerManager {
               let window = miniWindow,
               !isDragging else { return }
         let bounds = window.bounds
+        let size = miniSize(in: window)
         let safeBottom = window.safeAreaInsets.bottom
         let frame = CGRect(
-            x: bounds.width - miniWidth - edgePadding,
-            y: bounds.height - miniHeight - edgePadding - safeBottom,
-            width: miniWidth, height: miniHeight)
+            x: bounds.width - size.width - edgePadding,
+            y: bounds.height - size.height - safeBottom - edgePadding,
+            width: size.width, height: size.height)
         revealedFrame = frame
         isSnappedToRight = true
+        container.bounds.size = size
+        container.viewWithTag(100)?.frame = CGRect(origin: .zero, size: size)
         if isTucked {
             var tuckedFrame = frame
             tuckedFrame.origin.x = bounds.width - peekWidth
@@ -301,6 +303,11 @@ final class MiniPlayerManager {
     }
 
     // MARK: - Window + Container creation
+
+    private func miniSize(in window: UIWindow) -> CGSize {
+        let visibleWidth = max(peekWidth, min(maxOuterWidth, window.bounds.width) - (edgePadding * 2))
+        return CGSize(width: visibleWidth, height: visibleWidth * 9 / 16)
+    }
 
     /// Creates the dedicated passthrough window for the mini-player.
     /// - Parameter preferredScene: The window scene to use. Pass the
@@ -336,7 +343,8 @@ final class MiniPlayerManager {
     /// Builds the floating mini-player container view (Hayase wrapper.svelte
     /// mini-player div with rounded corners and shadow).
     private func makeContainer() -> UIView {
-        let v = UIView(frame: CGRect(x: 0, y: 0, width: miniWidth, height: miniHeight))
+        let fallbackWidth = maxOuterWidth - (edgePadding * 2)
+        let v = UIView(frame: CGRect(x: 0, y: 0, width: fallbackWidth, height: fallbackWidth * 9 / 16))
         // Don't clip the outer view — it needs to show the shadow.
         v.clipsToBounds = false
         v.layer.shadowColor = UIColor.black.cgColor
@@ -455,22 +463,24 @@ final class MiniPlayerManager {
         let targetX: CGFloat
         let targetY: CGFloat
 
+        let size = miniSize(in: window)
+
         if isLeft {
             targetX = edgePadding
         } else {
-            targetX = window.bounds.width - miniWidth - edgePadding
+            targetX = window.bounds.width - size.width - edgePadding
         }
 
         if isTop {
             targetY = edgePadding + safeInsets.top
         } else {
-            targetY = window.bounds.height - miniHeight - edgePadding - safeInsets.bottom
+            targetY = window.bounds.height - size.height - safeInsets.bottom - edgePadding
         }
 
         isSnappedToRight = !isLeft
         let targetFrame = CGRect(
             x: targetX, y: targetY,
-            width: miniWidth, height: miniHeight)
+            width: size.width, height: size.height)
         revealedFrame = targetFrame
 
         // Hayase: `transition-transform duration-[500ms]
@@ -503,7 +513,7 @@ final class MiniPlayerManager {
         if isSnappedToRight {
             tuckedFrame.origin.x = window.bounds.width - peekWidth
         } else {
-            tuckedFrame.origin.x = -(miniWidth - peekWidth)
+            tuckedFrame.origin.x = -(revealedFrame.width - peekWidth)
         }
 
         UIView.animate(

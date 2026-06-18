@@ -1348,6 +1348,7 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Properties
 
     private var sections: [HomeSectionData] = []
+    private var fetchedHomeSections: [HomeSectionData] = []
     /// Items used exclusively for the hero banner rotation.  Always sourced from
     /// the first *fetched* section (trending/popular) — never "Continue Watching".
     private var bannerItems: [AnimeItem] = []
@@ -1362,6 +1363,8 @@ class BrowseAnimeViewController: UIViewController {
     private var emptyLabel: UILabel!
     private var lastSearchString = ""
     private var searchDebounceTimer: Timer?
+    private var homeRefreshTimer: Timer?
+    private var personalSectionsLoadID = 0
 
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
 
@@ -1441,6 +1444,7 @@ class BrowseAnimeViewController: UIViewController {
     deinit {
         NotificationCenter.default.removeObserver(self)
         searchDebounceTimer?.invalidate()
+        homeRefreshTimer?.invalidate()
     }
 
     // MARK: - Setup
@@ -1621,6 +1625,9 @@ class BrowseAnimeViewController: UIViewController {
         NotificationCenter.default.addObserver(self,
             selector: #selector(handleUpdateFailed),
             name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: nil)
+        NotificationCenter.default.addObserver(self,
+            selector: #selector(handleTrackingDidChange),
+            name: LocalTracking.didChange, object: nil)
     }
 
     // MARK: - Data Loading
@@ -1653,87 +1660,111 @@ class BrowseAnimeViewController: UIViewController {
 
         AniListClient.shared.fetchHomeSections { [weak self] fetchedSections in
             guard let self = self else { return }
+            self.fetchedHomeSections = fetchedSections
 
             // If banner didn't load from the separate SCORE_DESC query, fall back to first section
             if self.bannerItems.isEmpty {
                 self.bannerItems = fetchedSections.first?.items ?? []
             }
 
-            // Fetch personalized sections from AniList user lists
-            // (matches desktop home/+page.svelte: continueIDs, planningIDs, sequelIDs)
-            AniListTracking.shared.fetchUserLists { [weak self] userListIDs in
+            self.loadPersonalSections(fetchedSections: fetchedSections)
+        }
+    }
+
+    private func loadPersonalSections(fetchedSections: [HomeSectionData]) {
+        // Fetch personalized sections from AniList user lists and local watch progress.
+        // This mirrors desktop home/+page.svelte, with local progress merged into
+        // Continue Watching so offline/local tracking updates the home page too.
+        personalSectionsLoadID += 1
+        let loadID = personalSectionsLoadID
+
+        AniListTracking.shared.fetchUserLists { [weak self] userListIDs in
+            guard let self = self else { return }
+
+            let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+            let remoteContinueIDs = userListIDs?.continueIDs ?? []
+            let continueIDs = self.mergeIDs(localContinueIDs, remoteContinueIDs)
+
+            let planningIDs = userListIDs?.planningIDs ?? []
+            let sequelIDs = userListIDs?.sequelIDs ?? []
+
+            let group = DispatchGroup()
+            let syncQueue = DispatchQueue(label: "com.hayase.personalSections")
+            var personalSections: [(index: Int, section: HomeSectionData)] = []
+
+            if !continueIDs.isEmpty {
+                group.enter()
+                AniListClient.shared.fetchSectionByIDs(Array(continueIDs.prefix(50))) { items in
+                    if !items.isEmpty {
+                        syncQueue.sync {
+                            personalSections.append((index: 0,
+                                                     section: HomeSectionData(title: "Continue Watching", items: items)))
+                        }
+                    }
+                    group.leave()
+                }
+            }
+
+            if !planningIDs.isEmpty {
+                group.enter()
+                AniListClient.shared.fetchSectionByIDsFiltered(
+                    planningIDs,
+                    status: ["FINISHED", "RELEASING"]
+                ) { items in
+                    if !items.isEmpty {
+                        syncQueue.sync {
+                            personalSections.append((index: 1,
+                                                     section: HomeSectionData(title: "Your List", items: items)))
+                        }
+                    }
+                    group.leave()
+                }
+            }
+
+            if !sequelIDs.isEmpty {
+                group.enter()
+                AniListClient.shared.fetchSectionByIDsFiltered(
+                    sequelIDs,
+                    status: ["FINISHED", "RELEASING"],
+                    onList: false
+                ) { items in
+                    if !items.isEmpty {
+                        syncQueue.sync {
+                            personalSections.append((index: 2,
+                                                     section: HomeSectionData(title: "Sequels You Missed", items: items)))
+                        }
+                    }
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) { [weak self] in
                 guard let self = self else { return }
+                guard loadID == self.personalSectionsLoadID else { return }
+                let sorted = personalSections.sorted { $0.index < $1.index }.map { $0.section }
+                self.finishLoadSections(fetchedSections: fetchedSections, personalSections: sorted)
+            }
+        }
+    }
 
-                guard let ids = userListIDs,
-                      (!ids.continueIDs.isEmpty || !ids.planningIDs.isEmpty || !ids.sequelIDs.isEmpty) else {
-                    // No AniList user lists — fall back to local "Continue Watching" only
-                    self.finishLoadSections(fetchedSections: fetchedSections, personalSections: [])
-                    return
-                }
+    private func mergeIDs(_ primary: [Int], _ secondary: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        var result: [Int] = []
+        for id in primary + secondary where seen.insert(id).inserted {
+            result.append(id)
+        }
+        return result
+    }
 
-                let group = DispatchGroup()
-                let syncQueue = DispatchQueue(label: "com.hayase.personalSections")
-                var personalSections: [(index: Int, section: HomeSectionData)] = []
-
-                // "Continue Watching" — CURRENT/REPEATING with unwatched episodes
-                // Desktop: client.search({ ids: continueIDs.slice(0, 50), sort: ['UPDATED_AT_DESC'] })
-                if !ids.continueIDs.isEmpty {
-                    group.enter()
-                    let cappedIDs = Array(ids.continueIDs.prefix(50))
-                    AniListClient.shared.fetchSectionByIDs(cappedIDs) { items in
-                        if !items.isEmpty {
-                            syncQueue.sync {
-                                personalSections.append((index: 0,
-                                                         section: HomeSectionData(title: "Continue Watching", items: items)))
-                            }
-                        }
-                        group.leave()
-                    }
-                }
-
-                // "Your List" — PLANNING entries, filtered to FINISHED/RELEASING
-                // Desktop: client.search({ ids: planningIDs, status: ['FINISHED', 'RELEASING'], sort: ['START_DATE_DESC'] })
-                if !ids.planningIDs.isEmpty {
-                    group.enter()
-                    AniListClient.shared.fetchSectionByIDsFiltered(
-                        ids.planningIDs,
-                        status: ["FINISHED", "RELEASING"]
-                    ) { items in
-                        if !items.isEmpty {
-                            syncQueue.sync {
-                                personalSections.append((index: 1,
-                                                         section: HomeSectionData(title: "Your List", items: items)))
-                            }
-                        }
-                        group.leave()
-                    }
-                }
-
-                // "Sequels You Missed" — SEQUEL relations from COMPLETED, not on user's list
-                // Desktop: client.search({ ids: sequelIDs, status: ['FINISHED', 'RELEASING'], onList: false })
-                if !ids.sequelIDs.isEmpty {
-                    group.enter()
-                    AniListClient.shared.fetchSectionByIDsFiltered(
-                        ids.sequelIDs,
-                        status: ["FINISHED", "RELEASING"],
-                        onList: false
-                    ) { items in
-                        if !items.isEmpty {
-                            syncQueue.sync {
-                                personalSections.append((index: 2,
-                                                         section: HomeSectionData(title: "Sequels You Missed", items: items)))
-                            }
-                        }
-                        group.leave()
-                    }
-                }
-
-                group.notify(queue: .main) { [weak self] in
-                    guard let self = self else { return }
-                    // Sort personal sections by their intended order and prepend
-                    let sorted = personalSections.sorted { $0.index < $1.index }.map { $0.section }
-                    self.finishLoadSections(fetchedSections: fetchedSections, personalSections: sorted)
-                }
+    @objc private func handleTrackingDidChange() {
+        guard !isSearching else { return }
+        homeRefreshTimer?.invalidate()
+        homeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if self.fetchedHomeSections.isEmpty {
+                self.loadSections()
+            } else {
+                self.loadPersonalSections(fetchedSections: self.fetchedHomeSections)
             }
         }
     }

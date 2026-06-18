@@ -68,6 +68,12 @@ final class AniListTracking {
 
     private let endpoint = "https://graphql.anilist.co"
 
+    private func notifyTrackingDidChange() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: LocalTracking.didChange, object: self)
+        }
+    }
+
     // MARK: - Mutations
 
     private let saveEntryMutation = """
@@ -165,7 +171,7 @@ final class AniListTracking {
         authRequest(query: singleMediaQuery, variables: ["id": anilistID]) { [weak self] data in
             guard let self else { completion(nil, nil, nil, nil, nil); return }
             guard let media = data?["Media"] as? [String: Any] else {
-                completion(nil, nil, nil, nil, nil); return
+                completion(LocalTracking.shared.entry(for: anilistID), nil, nil, nil, nil); return
             }
             let mediaStatus = media["status"] as? String
             let episodes = media["episodes"] as? Int
@@ -192,7 +198,7 @@ final class AniListTracking {
                     repeatCount: self.jsonInt(mle["repeat"]),
                     customLists: enabledLists)
             }
-            completion(entry, mediaStatus, episodes, format, duration)
+            completion(entry ?? LocalTracking.shared.entry(for: anilistID), mediaStatus, episodes, format, duration)
         }
     }
 
@@ -205,9 +211,16 @@ final class AniListTracking {
                repeatCount: Int? = nil,
                lists: [String]? = nil,
                completion: ((AnimeItem.MediaListEntry?) -> Void)? = nil) {
+        let localEntry = LocalTracking.shared.entry(
+            mediaID: mediaID,
+            status: status,
+            progress: progress,
+            score: score,
+            repeatCount: repeatCount,
+            lists: lists)
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion?(nil); return
+            completion?(localEntry); return
         }
 
         var vars: [String: Any] = ["id": mediaID]
@@ -244,6 +257,7 @@ final class AniListTracking {
                 score: self.jsonInt(entry["score"]),
                 repeatCount: self.jsonInt(entry["repeat"]),
                 customLists: enabledLists)
+            self.notifyTrackingDidChange()
             completion?(result)
         }
     }
@@ -253,11 +267,12 @@ final class AniListTracking {
     func deleteEntry(listID: Int, completion: ((Bool) -> Void)? = nil) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion?(false); return
+            completion?(LocalTracking.shared.delete(mediaID: listID)); return
         }
 
-        authRequest(query: deleteEntryMutation, variables: ["id": listID]) { data in
+        authRequest(query: deleteEntryMutation, variables: ["id": listID]) { [weak self] data in
             let deleted = (data?["DeleteMediaListEntry"] as? [String: Any])?["deleted"] as? Bool ?? false
+            if deleted { self?.notifyTrackingDidChange() }
             completion?(deleted)
         }
     }
@@ -265,6 +280,7 @@ final class AniListTracking {
     // MARK: - watch()
 
     func watch(anilistID: Int, episodeProgress: Int) {
+        LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress)
         fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, mediaStatus, totalEps, _, _ in
             guard let self else { return }
 
@@ -276,6 +292,7 @@ final class AniListTracking {
 
             let total = totalEps ?? max(1, episodeProgress)
             if total < episodeProgress { return }
+            LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress, totalEpisodes: total)
 
             let currentProgress = currentEntry?.progress ?? 0
             if currentProgress >= episodeProgress { return }
@@ -299,6 +316,7 @@ final class AniListTracking {
     // MARK: - setInitialState()
 
     func setInitialState(anilistID: Int, episode: Int) {
+        LocalTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
         guard episode == 1 else { return }
 
         fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, _, totalEps, _, _ in
@@ -446,11 +464,12 @@ final class AniListTracking {
     // MARK: - Fetch progress
 
     func fetchProgress(anilistID: Int, completion: @escaping (Int?) -> Void) {
+        let localProgress = LocalTracking.shared.progress(for: anilistID)
         guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
-            completion(nil); return
+            completion(localProgress); return
         }
         fetchMediaWithEntry(anilistID: anilistID) { entry, _, _, _, _ in
-            completion(entry?.progress)
+            completion(max(entry?.progress ?? 0, localProgress ?? 0))
         }
     }
 
@@ -473,8 +492,9 @@ final class AniListTracking {
     """
 
     func toggleFavourite(mediaID: Int, completion: ((Bool) -> Void)? = nil) {
-        authRequest(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { data in
+        authRequest(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { [weak self] data in
             let success = data?["ToggleFavourite"] != nil
+            if success { self?.notifyTrackingDidChange() }
             completion?(success)
         }
     }

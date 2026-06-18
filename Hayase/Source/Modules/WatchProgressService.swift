@@ -35,6 +35,7 @@ struct WatchProgress {
 /// Key space: "nyais_watchProgress" → [videoPath: {currentTime, duration, episode, anilistID, updatedAt}]
 final class WatchProgressService {
     static let shared = WatchProgressService()
+    static let didChange = Notification.Name("WatchProgressDidChange")
     private init() {}
 
     private let udKey = "nyais_watchProgress"
@@ -65,6 +66,8 @@ final class WatchProgressService {
                      duration: Double) {
         guard !videoPath.isEmpty, duration > 0 else { return }
         var dict = (UserDefaults.standard.dictionary(forKey: udKey) as? [String: [String: Any]]) ?? [:]
+        let oldIDs = continueWatchingAnilistIDs()
+        let oldProgress = decode(dict[videoPath] ?? [:])
         dict[videoPath] = [
             "currentTime": currentTime,
             "duration":    duration,
@@ -73,6 +76,13 @@ final class WatchProgressService {
             "updatedAt":   Date().timeIntervalSince1970,
         ]
         UserDefaults.standard.set(dict, forKey: udKey)
+        let newProgress = decode(dict[videoPath] ?? [:])
+        let newIDs = continueWatchingAnilistIDs()
+        if oldIDs != newIDs ||
+            oldProgress?.isInProgress != newProgress?.isInProgress ||
+            oldProgress?.isCompleted != newProgress?.isCompleted {
+            notify()
+        }
     }
 
     // MARK: Continue Watching
@@ -80,8 +90,8 @@ final class WatchProgressService {
     /// Unique AniList IDs for which the user has an in-progress episode,
     /// sorted by most-recently-watched first. Matches Hayase's continueIDs.
     func continueWatchingAnilistIDs() -> [Int] {
-        // Matches Hayase home/+page.svelte: continueIDs.slice(0, 50) — we cap at 20 for UI density
-        let maxItems = 20
+        // Matches Hayase home/+page.svelte: continueIDs.slice(0, 50)
+        let maxItems = 50
         let inProgress = allProgress().values.filter { $0.isInProgress && $0.anilistID > 0 }
         let sorted = inProgress.sorted { $0.updatedAt > $1.updatedAt }
         var seen  = Set<Int>()
@@ -116,5 +126,12 @@ final class WatchProgressService {
             duration:      dur,
             updatedAt:     Date(timeIntervalSince1970: ts)
         )
+    }
+
+    private func notify() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Self.didChange, object: self)
+            NotificationCenter.default.post(name: LocalTracking.didChange, object: self)
+        }
     }
 }
