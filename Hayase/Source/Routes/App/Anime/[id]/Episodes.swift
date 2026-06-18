@@ -269,7 +269,7 @@ final class EpisodeCardView: UIView {
             let ratingStr = String(format: "%.2f", rating)
             let starAttachment = NSTextAttachment()
             let starCfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular)
-            if let starImg = UIImage(systemName: "star.fill", withConfiguration: starCfg)?
+            if let starImg = UIImage.hayaseIcon("star.fill", withConfiguration: starCfg)?
                 .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
                 starAttachment.image = starImg
                 starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)
@@ -525,7 +525,7 @@ final class PaginationBarView: UIView {
     private let prevButton: UIButton = {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        b.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        b.setImage(UIImage.hayaseIcon("chevron.left", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -536,7 +536,7 @@ final class PaginationBarView: UIView {
     private let nextButton: UIButton = {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        b.setImage(UIImage(systemName: "chevron.right", withConfiguration: config), for: .normal)
+        b.setImage(UIImage.hayaseIcon("chevron.right", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true

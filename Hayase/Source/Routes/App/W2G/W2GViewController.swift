@@ -35,8 +35,8 @@ final class W2GViewController: UIViewController {
     private func configureTabBarItem() {
         tabBarItem = UITabBarItem(
             title: "W2G",
-            image: UIImage(systemName: "person.2"),
-            selectedImage: UIImage(systemName: "person.2.fill"))
+            image: UIImage.hayaseIcon("person.2"),
+            selectedImage: UIImage.hayaseIcon("person.2.fill"))
     }
 
     // MARK: - Properties
@@ -350,7 +350,7 @@ final class W2GViewController: UIViewController {
 
     private func configureIconButton(_ button: UIButton, systemName: String, action: Selector) {
         let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
+        button.setImage(UIImage.hayaseIcon(systemName, withConfiguration: config), for: .normal)
         button.tintColor = .white
         button.addTarget(self, action: action, for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -1159,7 +1159,7 @@ private final class W2GUserCell: UITableViewCell {
 
         // External link button: ml-auto text-blue-600, ExternalLink size=18
         let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        linkButton.setImage(UIImage(systemName: "arrow.up.right.square", withConfiguration: linkConfig), for: .normal)
+        linkButton.setImage(UIImage.hayaseIcon("arrow.up.right.square", withConfiguration: linkConfig), for: .normal)
         linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
         linkButton.translatesAutoresizingMaskIntoConstraints = false
         linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)

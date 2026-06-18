@@ -145,15 +145,15 @@ final class ScheduleViewController: UIViewController {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
         tabBarItem = UITabBarItem(
             title: "Schedule",
-            image: UIImage(systemName: "calendar"),
-            selectedImage: UIImage(systemName: "calendar.badge.clock"))
+            image: UIImage.hayaseIcon("calendar"),
+            selectedImage: UIImage.hayaseIcon("calendar.badge.clock"))
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(
             title: "Schedule",
-            image: UIImage(systemName: "calendar"),
-            selectedImage: UIImage(systemName: "calendar.badge.clock"))
+            image: UIImage.hayaseIcon("calendar"),
+            selectedImage: UIImage.hayaseIcon("calendar.badge.clock"))
     }
 
     // MARK: - UI
@@ -181,7 +181,7 @@ final class ScheduleViewController: UIViewController {
     // Month navigation row
     private lazy var prevButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+        b.setImage(UIImage.hayaseIcon("chevron.left"), for: .normal)
         b.tintColor = .white
         b.addTarget(self, action: #selector(prevMonth), for: .touchUpInside)
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -197,7 +197,7 @@ final class ScheduleViewController: UIViewController {
     }()
     private lazy var nextButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage(systemName: "chevron.right"), for: .normal)
+        b.setImage(UIImage.hayaseIcon("chevron.right"), for: .normal)
         b.tintColor = .white
         b.addTarget(self, action: #selector(nextMonth), for: .touchUpInside)
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true

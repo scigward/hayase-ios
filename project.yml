@@ -23,8 +23,10 @@ packages:
     url: https://github.com/Smearedo/matroska-swift.git
     branch: main
   WebRTC:
-    url: https://github.com/stasel/WebRTC.git
-    branch: latest
+    path: Vendor/WebRTC
+  LucideIcons:
+    url: https://github.com/JakubMazur/lucide-icons-swift.git
+    from: "0.516.0"
   Starscream:
     url: https://github.com/daltoniam/Starscream.git
     from: "4.0.8"
@@ -63,6 +65,7 @@ targets:
       - package: matroska-swift
         product: MatroskaSwift
       - package: WebRTC
+      - package: LucideIcons
       - package: Starscream
 
     postBuildScripts:

@@ -145,7 +145,7 @@ class DownloadsViewController: UIViewController {
         tf.clipsToBounds = true
         tf.clearButtonMode = .whileEditing
         tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let icon = UIImageView(image: UIImage.hayaseIcon("magnifyingglass"))
         icon.tintColor = .secondaryLabel
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
@@ -186,7 +186,7 @@ class DownloadsViewController: UIViewController {
         tf.clipsToBounds = true
         tf.clearButtonMode = .whileEditing
         tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let icon = UIImageView(image: UIImage.hayaseIcon("magnifyingglass"))
         icon.tintColor = .secondaryLabel
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
@@ -233,8 +233,8 @@ class DownloadsViewController: UIViewController {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(title: "Downloads",
-                                  image: UIImage(systemName: "arrow.down.circle"),
-                                  selectedImage: UIImage(systemName: "arrow.down.circle.fill"))
+                                  image: UIImage.hayaseIcon("arrow.down.circle"),
+                                  selectedImage: UIImage.hayaseIcon("arrow.down.circle.fill"))
     }
 
     override func viewDidLoad() {
@@ -985,7 +985,7 @@ class DownloadsViewController: UIViewController {
 
         let rescanBtn = UIButton(type: .system)
         let rescanConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        rescanBtn.setImage(UIImage(systemName: "arrow.triangle.2.circlepath", withConfiguration: rescanConfig), for: .normal)
+        rescanBtn.setImage(UIImage.hayaseIcon("arrow.triangle.2.circlepath", withConfiguration: rescanConfig), for: .normal)
         rescanBtn.tintColor = .label
         rescanBtn.backgroundColor = .secondarySystemBackground
         rescanBtn.layer.cornerRadius = 6
@@ -994,7 +994,7 @@ class DownloadsViewController: UIViewController {
 
         let deleteBtn = UIButton(type: .system)
         let deleteConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        deleteBtn.setImage(UIImage(systemName: "trash", withConfiguration: deleteConfig), for: .normal)
+        deleteBtn.setImage(UIImage.hayaseIcon("trash", withConfiguration: deleteConfig), for: .normal)
         deleteBtn.tintColor = .white
         deleteBtn.backgroundColor = .systemRed
         deleteBtn.layer.cornerRadius = 6
@@ -1124,7 +1124,7 @@ class DownloadsViewController: UIViewController {
 
     private func makeIcon(_ name: String, tint: UIColor, size: CGFloat) -> UIImageView {
         let config = UIImage.SymbolConfiguration(pointSize: size, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: name, withConfiguration: config))
+        let iv = UIImageView(image: UIImage.hayaseIcon(name, withConfiguration: config))
         iv.tintColor = tint
         iv.contentMode = .scaleAspectFit
         iv.setContentHuggingPriority(.required, for: .horizontal)

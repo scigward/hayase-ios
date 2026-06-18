@@ -116,7 +116,7 @@ final class ExtensionsViewController: UIViewController {
         // primary = #fafafa (white), primary-foreground = #18181b (dark)
         importButton = UIButton(type: .system)
         importButton.setImage(
-            UIImage(systemName: "plus",
+            UIImage.hayaseIcon("plus",
                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)),
             for: .normal)
         importButton.setTitle("Import Extensions", for: .normal)
@@ -268,7 +268,7 @@ final class ExtensionsViewController: UIViewController {
                 self.importSpinner.stopAnimating()
                 self.importButton.setTitle("Import Extensions", for: .normal)
                 self.importButton.setImage(
-                    UIImage(systemName: "plus",
+                    UIImage.hayaseIcon("plus",
                             withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)),
                     for: .normal)
                 self.importButton.isEnabled = true
@@ -569,7 +569,7 @@ final class ExtensionCell: UITableViewCell {
         let iconName = hasOpts ? "bolt" : "trash"
         let iconColor: UIColor = hasOpts ? UIColor(white: 0.6, alpha: 1) : .systemRed
         optionsButton.setImage(
-            UIImage(systemName: iconName,
+            UIImage.hayaseIcon(iconName,
                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)),
             for: .normal)
         optionsButton.tintColor = iconColor
@@ -669,11 +669,11 @@ final class RepoCell: UITableViewCell {
     func configure(url: String, count: Int) {
         // Determine icon (GitHub / npm / Globe) — mirrors Hayase Repositories tab
         if url.hasPrefix("gh:") || url.contains("github.com") {
-            sourceIcon.image = UIImage(systemName: "chevron.left.forwardslash.chevron.right")
+            sourceIcon.image = UIImage.hayaseIcon("chevron.left.forwardslash.chevron.right")
         } else if url.hasPrefix("npm:") {
-            sourceIcon.image = UIImage(systemName: "shippingbox")
+            sourceIcon.image = UIImage.hayaseIcon("shippingbox")
         } else {
-            sourceIcon.image = UIImage(systemName: "globe")
+            sourceIcon.image = UIImage.hayaseIcon("globe")
         }
 
         // Display: hostname for http URLs, full for gh:/npm:

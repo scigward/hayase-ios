@@ -477,7 +477,7 @@ private final class TreeItemCell: UITableViewCell {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let chevronConfig = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-        chevronImage.image = UIImage(systemName: "chevron.right", withConfiguration: chevronConfig)
+        chevronImage.image = UIImage.hayaseIcon("chevron.right", withConfiguration: chevronConfig)
         chevronImage.tintColor = .white
         chevronImage.translatesAutoresizingMaskIntoConstraints = false
 

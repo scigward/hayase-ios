@@ -29,7 +29,7 @@ final class ThemePlayerViewController: UIViewController {
         view.backgroundColor = .black
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeBtn.setImage(UIImage.hayaseIcon("xmark.circle.fill"), for: .normal)
         closeBtn.tintColor = .white
         closeBtn.contentVerticalAlignment = .fill
         closeBtn.contentHorizontalAlignment = .fill
@@ -200,7 +200,7 @@ extension AnimeDetailViewController {
 
             let playBtn = UIButton(type: .system)
             let playIconCfg = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-            playBtn.setImage(UIImage(systemName: "play.fill")?.withConfiguration(playIconCfg), for: .normal)
+            playBtn.setImage(UIImage.hayaseIcon("play.fill")?.withConfiguration(playIconCfg), for: .normal)
             playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
             playBtn.backgroundColor = accentColor
             playBtn.layer.cornerRadius = 13

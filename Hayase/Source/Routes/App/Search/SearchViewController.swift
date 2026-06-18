@@ -217,8 +217,8 @@ class SearchViewController: UIViewController {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(
             title: "Search",
-            image: UIImage(systemName: "magnifyingglass"),
-            selectedImage: UIImage(systemName: "magnifyingglass.circle.fill"))
+            image: UIImage.hayaseIcon("magnifyingglass"),
+            selectedImage: UIImage.hayaseIcon("magnifyingglass.circle.fill"))
     }
 
     // MARK: - Lifecycle
@@ -403,7 +403,7 @@ class SearchViewController: UIViewController {
         searchField.font = .nunito(ofSize: 15)
         let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
         let iconImageView = UIImageView(
-            image: UIImage(systemName: "magnifyingglass")?
+            image: UIImage.hayaseIcon("magnifyingglass")?
                 .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)))
         iconImageView.tintColor = Self.mutedFg.withAlphaComponent(0.5)
         iconImageView.contentMode = .center
@@ -432,7 +432,7 @@ class SearchViewController: UIViewController {
         // Camera button (FileImage) — border-0 outline icon button
         cameraButton = UIButton(type: .system)
         cameraButton.setImage(
-            UIImage(systemName: "photo.on.rectangle.angled")?
+            UIImage.hayaseIcon("photo.on.rectangle.angled")?
                 .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
             for: .normal)
         cameraButton.tintColor = Self.mutedFg
@@ -444,7 +444,7 @@ class SearchViewController: UIViewController {
         // Bolt toggle — md:hidden in Hayase (only on mobile)
         boltButton = UIButton(type: .system)
         boltButton.setImage(
-            UIImage(systemName: "slider.horizontal.3")?
+            UIImage.hayaseIcon("slider.horizontal.3")?
                 .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
             for: .normal)
         boltButton.tintColor = Self.mutedFg
@@ -797,7 +797,7 @@ class SearchViewController: UIViewController {
 
         let xButton = UIButton(type: .system)
         xButton.setImage(
-            UIImage(systemName: "xmark")?
+            UIImage.hayaseIcon("xmark")?
                 .withConfiguration(UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)),
             for: .normal)
         xButton.tintColor = Self.chipFg.withAlphaComponent(0.7)

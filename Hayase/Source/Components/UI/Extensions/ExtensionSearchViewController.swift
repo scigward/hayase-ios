@@ -344,7 +344,7 @@ final class ExtensionSearchViewController: UIViewController {
             // Web: Cross2 size-4 (16px), data-[state=open]:text-muted-foreground, rounded-sm (2px)
             // data-[state=open]:bg-accent/70 → dark accent bg at 70% opacity
             let xCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-            closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xCfg), for: .normal)
+            closeButton.setImage(UIImage.hayaseIcon("xmark", withConfiguration: xCfg), for: .normal)
             closeButton.tintColor = UIColor(white: 0.64, alpha: 1)  // text-muted-foreground
             // Web: bg-accent/70 — dark theme accent HSL(240, 3.7%, 15.9%) at 70% opacity
             closeButton.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 0.7)
@@ -416,7 +416,7 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.layer.borderWidth = 1
         filterField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         filterField.leftViewMode = .always
-        let magIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let magIcon = UIImageView(image: UIImage.hayaseIcon("magnifyingglass"))
         magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
         magIcon.contentMode = .scaleAspectFit
         magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 16)  // pl-9 = 2.25rem = 36pt left padding for icon area
@@ -1577,13 +1577,13 @@ final class TorrentResultCell: UITableViewCell {
         case "high":
             let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
-            badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
+            badgeCheckView.image = UIImage.hayaseIcon("checkmark.seal.fill", withConfiguration: cfg)?
                 .withTintColor(green, renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         case "medium":
             let cfg = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular) // size='1.2rem'
             // Web: text-muted-foreground/20 — muted foreground (≈ white 0.65) at 20% opacity
-            badgeCheckView.image = UIImage(systemName: "checkmark.seal.fill", withConfiguration: cfg)?
+            badgeCheckView.image = UIImage.hayaseIcon("checkmark.seal.fill", withConfiguration: cfg)?
                 .withTintColor(UIColor(white: 0.65, alpha: 0.2), renderingMode: .alwaysOriginal)
             badgeCheckView.isHidden = false
         default:
@@ -1598,11 +1598,11 @@ final class TorrentResultCell: UITableViewCell {
         let cfg = UIImage.SymbolConfiguration(pointSize: 40, weight: .regular)
         if let rtype = result.type, !rtype.isEmpty {
             // batch / best / alt → folder icon (yellow)
-            fileIconView.image = UIImage(systemName: "folder.fill", withConfiguration: cfg)?
+            fileIconView.image = UIImage.hayaseIcon("folder.fill", withConfiguration: cfg)?
                 .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         } else {
             // single episode → file icon (muted)
-            fileIconView.image = UIImage(systemName: "doc.fill", withConfiguration: cfg)?
+            fileIconView.image = UIImage.hayaseIcon("doc.fill", withConfiguration: cfg)?
                 .withTintColor(UIColor(white: 0.4, alpha: 0.8), renderingMode: .alwaysOriginal)
         }
 

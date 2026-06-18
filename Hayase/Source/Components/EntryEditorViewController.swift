@@ -53,7 +53,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
     private let closeButton: UIButton = {
         let b = UIButton(type: .system)
         let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-        b.setImage(UIImage(systemName: "xmark")?.withConfiguration(cfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("xmark")?.withConfiguration(cfg), for: .normal)
         b.tintColor = UIColor(white: 0.64, alpha: 1) // muted-foreground
         b.layer.cornerRadius = 2 // rounded-sm
         return b

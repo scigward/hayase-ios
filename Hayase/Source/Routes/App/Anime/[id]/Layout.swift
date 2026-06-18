@@ -244,7 +244,7 @@ final class AnimeInfoHeaderView: UIView {
     private let playButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
-        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.setTitle("Watch Now", for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
@@ -262,7 +262,7 @@ final class AnimeInfoHeaderView: UIView {
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "pencil.line")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("pencil.line")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1)
         b.layer.cornerRadius = 6
@@ -274,7 +274,7 @@ final class AnimeInfoHeaderView: UIView {
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "heart")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6
@@ -285,7 +285,7 @@ final class AnimeInfoHeaderView: UIView {
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6
@@ -296,7 +296,7 @@ final class AnimeInfoHeaderView: UIView {
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("arrowshape.turn.up.right")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
         b.layer.cornerRadius = 6
@@ -313,7 +313,7 @@ final class AnimeInfoHeaderView: UIView {
         } else {
             symName = "film"
         }
-        let img = UIImage(systemName: symName, withConfiguration: iconCfg)?
+        let img = UIImage.hayaseIcon(symName, withConfiguration: iconCfg)?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
         b.setImage(img, for: .normal)
         b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
@@ -720,9 +720,9 @@ final class AnimeInfoHeaderView: UIView {
     @objc private func shareTapped() {
         animateTap(shareButton)
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        shareButton.setImage(UIImage(systemName: "checkmark")?.withConfiguration(cfg), for: .normal)
+        shareButton.setImage(UIImage.hayaseIcon("checkmark")?.withConfiguration(cfg), for: .normal)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.shareButton.setImage(UIImage(systemName: "arrowshape.turn.up.right")?.withConfiguration(cfg), for: .normal)
+            self?.shareButton.setImage(UIImage.hayaseIcon("arrowshape.turn.up.right")?.withConfiguration(cfg), for: .normal)
         }
         onShare?()
     }
@@ -737,11 +737,11 @@ final class AnimeInfoHeaderView: UIView {
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         let heartName = isFavorite ? "heart.fill" : "heart"
-        favoriteButton.setImage(UIImage(systemName: heartName)?.withConfiguration(cfg), for: .normal)
+        favoriteButton.setImage(UIImage.hayaseIcon(heartName)?.withConfiguration(cfg), for: .normal)
         favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
         let bookmarkName = isOnList ? "bookmark.fill" : "bookmark"
-        bookmarkButton.setImage(UIImage(systemName: bookmarkName)?.withConfiguration(cfg), for: .normal)
+        bookmarkButton.setImage(UIImage.hayaseIcon(bookmarkName)?.withConfiguration(cfg), for: .normal)
         bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 

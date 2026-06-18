@@ -105,13 +105,13 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
 
         // Calendar icon for year
-        let calIcon = UIImageView(image: UIImage(systemName: "calendar"))
+        let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar"))
         calIcon.tintColor = UIColor(white: 0.45, alpha: 1)
         calIcon.contentMode = .scaleAspectFit
         calIcon.translatesAutoresizingMaskIntoConstraints = false
 
         // TV icon for format
-        let tvIcon = UIImageView(image: UIImage(systemName: "tv"))
+        let tvIcon = UIImageView(image: UIImage.hayaseIcon("tv"))
         tvIcon.tintColor = UIColor(white: 0.45, alpha: 1)
         tvIcon.contentMode = .scaleAspectFit
         tvIcon.translatesAutoresizingMaskIntoConstraints = false

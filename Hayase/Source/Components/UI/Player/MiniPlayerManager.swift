@@ -380,7 +380,7 @@ final class MiniPlayerManager {
         let ppBtn = UIButton(type: .system)
         ppBtn.translatesAutoresizingMaskIntoConstraints = false
         let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
-        ppBtn.setImage(UIImage(systemName: icon), for: .normal)
+        ppBtn.setImage(UIImage.hayaseIcon(icon), for: .normal)
         ppBtn.tintColor = .white
         ppBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
         overlay.addSubview(ppBtn)
@@ -436,7 +436,7 @@ final class MiniPlayerManager {
         resetAutoHideTimer()
         activePlayer?.togglePlayPause()
         let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
-        playPauseButton?.setImage(UIImage(systemName: icon), for: .normal)
+        playPauseButton?.setImage(UIImage.hayaseIcon(icon), for: .normal)
     }
 
     // MARK: - Corner snapping (Hayase endDragging)
@@ -572,7 +572,7 @@ final class MiniPlayerManager {
     /// player's didChangePause delegate.
     func updatePlayPauseIcon(isPaused: Bool) {
         let icon = isPaused ? "play.fill" : "pause.fill"
-        playPauseButton?.setImage(UIImage(systemName: icon), for: .normal)
+        playPauseButton?.setImage(UIImage.hayaseIcon(icon), for: .normal)
     }
 
     // MARK: - Session State Persistence

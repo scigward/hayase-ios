@@ -917,7 +917,7 @@ final class TorrentDetailViewController: UIViewController {
 
     private func makeIcon(_ name: String, tint: UIColor, size: CGFloat) -> UIImageView {
         let config = UIImage.SymbolConfiguration(pointSize: size, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: name, withConfiguration: config))
+        let iv = UIImageView(image: UIImage.hayaseIcon(name, withConfiguration: config))
         iv.tintColor = tint
         iv.contentMode = .scaleAspectFit
         iv.setContentHuggingPriority(.required, for: .horizontal)

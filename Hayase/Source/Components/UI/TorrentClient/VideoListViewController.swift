@@ -108,20 +108,20 @@ final class VideoTableViewCell: UITableViewCell {
             progressView.isHidden = true
             statusLabel.text = "Skipped"
             statusLabel.textColor = .secondaryLabel
-            iconView.image = UIImage(systemName: "minus.circle")
+            iconView.image = UIImage.hayaseIcon("minus.circle")
             iconView.tintColor = .secondaryLabel
         } else if downloadedBytes >= totalBytes && totalBytes > 0 {
             progressView.isHidden = true
             statusLabel.text = "Play"
             statusLabel.textColor = .systemGreen
-            iconView.image = UIImage(systemName: "play.circle.fill")
+            iconView.image = UIImage.hayaseIcon("play.circle.fill")
             iconView.tintColor = .systemGreen
         } else {
             progressView.isHidden = false
             progressView.progress = progress
             statusLabel.text = String(format: "%.0f%%", progress * 100)
             statusLabel.textColor = .systemOrange
-            iconView.image = UIImage(systemName: "arrow.down.circle.fill")
+            iconView.image = UIImage.hayaseIcon("arrow.down.circle.fill")
             iconView.tintColor = .systemOrange
         }
     }
@@ -495,7 +495,7 @@ extension VideoListViewController: UITableViewDelegate {
             done(true)
         }
         action.backgroundColor = color
-        action.image = UIImage(systemName: icon)
+        action.image = UIImage.hayaseIcon(icon)
         return UISwipeActionsConfiguration(actions: [action])
     }
 }

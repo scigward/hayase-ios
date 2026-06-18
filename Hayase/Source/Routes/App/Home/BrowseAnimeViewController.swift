@@ -187,7 +187,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setTitle("  Watch Now", for: .normal)
-        b.setImage(UIImage(systemName: "play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("play.fill")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
@@ -202,7 +202,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "heart")?.withConfiguration(cfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
         b.tintColor = .white
         b.layer.cornerRadius = 6  // rounded-md
         return b
@@ -213,7 +213,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage(systemName: "bookmark")?.withConfiguration(cfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
         b.tintColor = .white
         b.layer.cornerRadius = 6  // rounded-md
         return b
@@ -517,8 +517,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             self.favoriteButton.tintColor = .white
             self.bookmarkButton.tintColor = .white
             let cfg16 = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            self.favoriteButton.setImage(UIImage(systemName: "heart")?.withConfiguration(cfg16), for: .normal)
-            self.bookmarkButton.setImage(UIImage(systemName: "bookmark")?.withConfiguration(cfg16), for: .normal)
+            self.favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
+            self.bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
             // Reflect saved state: fill icon + tint to accent if already favourited/bookmarked.
             // Mirrors Hayase full-banner.svelte FavoriteButton/BookmarkButton fill logic.
             let itemIDForState = item.id
@@ -529,7 +529,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
                     let name = isFav ? "heart.fill" : "heart"
-                    self.favoriteButton.setImage(UIImage(systemName: name)?.withConfiguration(cfg16), for: .normal)
+                    self.favoriteButton.setImage(UIImage.hayaseIcon(name)?.withConfiguration(cfg16), for: .normal)
                     self.favoriteButton.tintColor = isFav ? accentForState : .white
                 }
             }
@@ -539,7 +539,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
                     let name = (entry != nil) ? "bookmark.fill" : "bookmark"
-                    self.bookmarkButton.setImage(UIImage(systemName: name)?.withConfiguration(cfg16), for: .normal)
+                    self.bookmarkButton.setImage(UIImage.hayaseIcon(name)?.withConfiguration(cfg16), for: .normal)
                     self.bookmarkButton.tintColor = (entry != nil) ? accentForState : .white
                 }
             }
@@ -1371,8 +1371,8 @@ class BrowseAnimeViewController: UIViewController {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(
             title: "Home",
-            image: UIImage(systemName: "house"),
-            selectedImage: UIImage(systemName: "house.fill"))
+            image: UIImage.hayaseIcon("house"),
+            selectedImage: UIImage.hayaseIcon("house.fill"))
     }
 
     // MARK: - Lifecycle
