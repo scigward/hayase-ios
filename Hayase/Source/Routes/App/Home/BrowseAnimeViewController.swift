@@ -13,46 +13,54 @@ import CoreData
 // MARK: - BannerGradientView
 
 private final class BannerGradientView: UIView {
-    private let radialGradient = CAGradientLayer()
-    private let bottomGradient = CAGradientLayer()
+    private var centerX: CGFloat = 0.50
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Web: radial-gradient(75% 65% at 59.18% 34.97%, rgba(0,0,0,0.16) 30.56%, rgba(0,0,0,1) 100%)
-        // On mobile: centered at 50% 34.97%
-        // Core Animation radial gradient: center at startPoint, edge at endPoint
-        radialGradient.type = .radial
-        radialGradient.colors = [
-            UIColor.black.withAlphaComponent(0.16).cgColor, // center: rgba(0,0,0,0.16) at 30.56%
-            UIColor.black.withAlphaComponent(0.16).cgColor,
-            UIColor.black.withAlphaComponent(1.0).cgColor,  // edge: rgba(0,0,0,1) at 100%
-        ]
-        radialGradient.locations = [0.0, 0.3056, 1.0]
-        // startPoint = center of radial (normalized) — ~55% x, 35% y
-        radialGradient.startPoint = CGPoint(x: 0.55, y: 0.35)
-        // endPoint defines the edge of the gradient ellipse — 75% width, 65% height
-        radialGradient.endPoint = CGPoint(x: 0.55 + 0.75, y: 0.35 + 0.65)
-        layer.addSublayer(radialGradient)
-
-        // Additional bottom fade from black to --background so the banner edge
-        // blends seamlessly into the app background.
-        bottomGradient.colors = [
-            UIColor.clear.cgColor,
-            hayasePageBackground.cgColor,
-        ]
-        bottomGradient.locations = [0.0, 1.0]
-        // Only covers the bottom 20% of the banner
-        layer.addSublayer(bottomGradient)
+        configureView()
     }
 
-    required init?(coder: NSCoder) { super.init(coder: coder) }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureView()
+    }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        radialGradient.frame = bounds
-        // Bottom gradient: covers bottom 20% of the view
-        let bottomH = bounds.height * 0.20
-        bottomGradient.frame = CGRect(x: 0, y: bounds.height - bottomH, width: bounds.width, height: bottomH)
+    private func configureView() {
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    func setCompact(_ compact: Bool) {
+        // interface banner-image.svelte:
+        // desktop: radial-gradient(75% 65% at 59.18% 34.97%, ...)
+        // mobile:  radial-gradient(75% 65% at 50% 34.97%, ...)
+        centerX = compact ? 0.50 : 0.5918
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard bounds.width > 0, bounds.height > 0,
+              let context = UIGraphicsGetCurrentContext(),
+              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                        colors: [
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.cgColor,
+                                        ] as CFArray,
+                                        locations: [0.0, 0.3056, 1.0]) else { return }
+
+        let center = CGPoint(x: bounds.width * centerX, y: bounds.height * 0.3497)
+        context.saveGState()
+        context.clip(to: bounds)
+        context.translateBy(x: center.x, y: center.y)
+        context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
+        context.drawRadialGradient(gradient,
+                                   startCenter: .zero,
+                                   startRadius: 0,
+                                   endCenter: .zero,
+                                   endRadius: 1,
+                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        context.restoreGState()
     }
 }
 
@@ -252,8 +260,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     // Stored constraints toggled between iPhone/iPad layouts
     // Clearlogo uses width constraints (web: w-[30rem] = 480pt on iPad, capped for mobile)
-    private var clearlogoWidthCompact: NSLayoutConstraint!
-    private var clearlogoWidthRegular: NSLayoutConstraint!
+    private var clearlogoWidthMax: NSLayoutConstraint!
 
     // MARK: Init
 
@@ -341,19 +348,17 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         dotsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dotsStack)
 
-        // Clearlogo constraints: WIDTH-based like web w-[30rem] (480pt)
-        // Web: image is inside a w-[900px] max-w-[85%] parent, so effectively limited to 85% of column
-        // iPhone: capped at ~250pt width; iPad: up to 480pt (w-[30rem])
-        clearlogoWidthCompact = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 250)
-        clearlogoWidthRegular = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
+        // Clearlogo constraints: web title anchor is w-[900px] max-w-[85%]
+        // inside the left column; the logo image itself is w-[30rem].
+        clearlogoWidthMax = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
 
-        // Also limit clearlogo to 85% of columnsStack width (matches web max-w-[85%] parent)
+        // Tailwind image max-width: 100% makes this min(480pt, 85% of left column).
         let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
-            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.85)
+            lessThanOrEqualTo: leftColumn.widthAnchor, multiplier: 0.85)
 
-        // Title max-width: web max-w-[85%] — relative to columnsStack width
+        // Title max-width: web max-w-[85%] inside the left column.
         titleMaxWidthConstraint = titleLabel.widthAnchor.constraint(
-            lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.85)
+            lessThanOrEqualTo: leftColumn.widthAnchor, multiplier: 0.85)
         // Description max-width: web max-w-[90%] on mobile, max-w-[75%] on iPad
         // Start with 90% (iPhone), toggled in applyLayoutForSizeClass
         descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
@@ -379,6 +384,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
             titleMaxWidthConstraint,
             descriptionMaxWidthConstraint,
+            clearlogoWidthMax,
             clearlogoMaxWidthPct,
 
             buttonRow.widthAnchor.constraint(equalToConstant: 280),
@@ -418,8 +424,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // pt-4 = 16pt spacing between description and genres in right column
             rightColumn.setCustomSpacing(16, after: descriptionLabel)
             // Clearlogo sizing: web w-[30rem] = 480pt
-            clearlogoWidthCompact.isActive = false
-            clearlogoWidthRegular.isActive = true
+            clearlogoWidthMax.constant = 480
+            gradientView.setCompact(false)
             // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
             descriptionLabel.numberOfLines = 3
             descriptionLabel.font = .nunito(ofSize: 14)
@@ -447,9 +453,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             leftColumn.addArrangedSubview(descriptionLabel)
             rightColumn.isHidden = true
             genresStack.isHidden = true
-            // Clearlogo sizing: smaller on iPhone
-            clearlogoWidthRegular.isActive = false
-            clearlogoWidthCompact.isActive = true
+            // Clearlogo sizing: web w-[30rem], capped by the parent max-w-[85%].
+            clearlogoWidthMax.constant = 480
+            gradientView.setCompact(true)
             // Description: text-xs (0.75rem = 12pt), line-clamp-2
             descriptionLabel.numberOfLines = 2
             descriptionLabel.font = .nunito(ofSize: 12)

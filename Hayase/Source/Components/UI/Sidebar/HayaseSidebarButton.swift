@@ -24,9 +24,11 @@ final class HayaseSidebarButton: UIButton {
     private let route: HayaseSidebarRoute?
     private let sizeMode: SidebarSize
     private let activeBackground = UIView()
+    private let iconView = UIImageView()
     private let dotView = UIView()
     private var iconImage: UIImage?
     private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
+    private var iconSizeConstraint: NSLayoutConstraint?
 
     var onPress: (() -> Void)?
 
@@ -69,6 +71,12 @@ final class HayaseSidebarButton: UIButton {
         activeBackground.alpha = 0
         insertSubview(activeBackground, at: 0)
 
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.contentMode = .scaleAspectFit
+        iconView.tintColor = tintColor
+        iconView.isUserInteractionEnabled = false
+        addSubview(iconView)
+
         dotView.translatesAutoresizingMaskIntoConstraints = false
         dotView.backgroundColor = UIColor(red: 0.22, green: 0.82, blue: 0.34, alpha: 1)
         dotView.layer.cornerRadius = 4
@@ -78,6 +86,8 @@ final class HayaseSidebarButton: UIButton {
 
         let side: CGFloat = sizeMode == .mobile ? 48 : 40
         let width: CGFloat = sizeMode == .mobile ? 48 : 48
+        let iconSize = iconView.widthAnchor.constraint(equalToConstant: 18)
+        iconSizeConstraint = iconSize
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: side),
@@ -85,6 +95,10 @@ final class HayaseSidebarButton: UIButton {
             activeBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             activeBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
             activeBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconSize,
+            iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
             dotView.widthAnchor.constraint(equalToConstant: 8),
             dotView.heightAnchor.constraint(equalToConstant: 8),
             dotView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
@@ -99,7 +113,8 @@ final class HayaseSidebarButton: UIButton {
             ? UIImage.hayaseFilledIcon("heart", pointSize: 18)
             : route.map { UIImage.hayaseIcon($0.iconName) } ?? UIImage.hayaseIcon("circle")
         setSidebarImage(iconImage, pointSize: 18, renderingMode: .alwaysTemplate)
-        imageView?.contentMode = .scaleAspectFit
+        setImage(nil, for: .normal)
+        imageEdgeInsets = .zero
 
         addTarget(self, action: #selector(didTap), for: .touchUpInside)
     }
@@ -108,10 +123,8 @@ final class HayaseSidebarButton: UIButton {
         let changes = {
             self.activeBackground.alpha = active ? 1 : 0
             self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
-            self.imageView?.tintColor = self.tintColor
-            if let icon = self.iconImage, self.iconRenderingMode != .alwaysOriginal {
-                self.setImage(icon.withTintColor(self.tintColor, renderingMode: .alwaysOriginal), for: .normal)
-            }
+            self.iconView.tintColor = self.tintColor
+            self.applyIconImage()
         }
         if animated {
             UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut], animations: changes)
@@ -125,15 +138,19 @@ final class HayaseSidebarButton: UIButton {
     }
 
     func setSidebarImage(_ image: UIImage?, pointSize: CGFloat, renderingMode: UIImage.RenderingMode) {
-        let inset = max(0, (boundsSize - pointSize) / 2)
         iconRenderingMode = renderingMode
         iconImage = image?.withRenderingMode(renderingMode)
-        if renderingMode == .alwaysOriginal {
-            setImage(iconImage, for: .normal)
+        iconSizeConstraint?.constant = pointSize
+        applyIconImage()
+    }
+
+    private func applyIconImage() {
+        if iconRenderingMode == .alwaysOriginal {
+            iconView.image = iconImage
         } else {
-            setImage(iconImage?.withTintColor(tintColor, renderingMode: .alwaysOriginal), for: .normal)
+            iconView.image = iconImage
+            iconView.tintColor = tintColor
         }
-        imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     }
 
     private func tintForInactiveState() -> UIColor {
@@ -141,10 +158,6 @@ final class HayaseSidebarButton: UIButton {
             return Self.donateColor
         }
         return UIColor.HayaseTheme.foreground
-    }
-
-    private var boundsSize: CGFloat {
-        sizeMode == .mobile ? 48 : 40
     }
 
     @objc private func didTap() {

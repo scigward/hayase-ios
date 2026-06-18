@@ -213,6 +213,133 @@ private final class SegmentedSeekBar: UIControl {
     }
 }
 
+// MARK: - Interface Player Overlays
+
+private final class InterfaceSpinnerView: UIView {
+    private let spinnerLayer = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        isUserInteractionEnabled = false
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.5
+        layer.shadowRadius = 8
+        layer.shadowOffset = .zero
+        spinnerLayer.fillColor = UIColor.clear.cgColor
+        spinnerLayer.strokeColor = UIColor.white.cgColor
+        spinnerLayer.lineWidth = 3
+        spinnerLayer.lineCap = .butt
+        layer.addSublayer(spinnerLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let inset = spinnerLayer.lineWidth / 2
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        spinnerLayer.frame = bounds
+        spinnerLayer.path = UIBezierPath(arcCenter: CGPoint(x: bounds.midX, y: bounds.midY),
+                                         radius: min(rect.width, rect.height) / 2,
+                                         startAngle: -.pi / 2,
+                                         endAngle: 0,
+                                         clockwise: true).cgPath
+    }
+
+    func setAnimating(_ animating: Bool) {
+        guard animating != !isHidden else { return }
+        isHidden = !animating
+        if animating {
+            let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+            rotation.fromValue = 0
+            rotation.toValue = CGFloat.pi * 2
+            rotation.duration = 0.8
+            rotation.repeatCount = .infinity
+            rotation.timingFunction = CAMediaTimingFunction(name: .linear)
+            layer.add(rotation, forKey: "spin")
+        } else {
+            layer.removeAnimation(forKey: "spin")
+        }
+    }
+}
+
+private final class InterfaceProgressButton: UIControl {
+    private let label = UILabel()
+    private let progressView = UIView()
+    private var pendingCompletion = false
+    var onTrigger: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.HayaseTheme.primary
+        layer.cornerRadius = 6
+        clipsToBounds = true
+
+        label.font = .nunito(ofSize: 14, weight: .bold)
+        label.textColor = UIColor.HayaseTheme.primaryForeground
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        progressView.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(progressView)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 36),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            progressView.topAnchor.constraint(equalTo: topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            progressView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        sendSubviewToBack(progressView)
+        addTarget(self, action: #selector(triggerNow), for: .touchUpInside)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: CGSize {
+        let labelSize = label.intrinsicContentSize
+        return CGSize(width: labelSize.width + 56, height: 36)
+    }
+
+    func setTitle(_ title: String) {
+        label.text = title
+        invalidateIntrinsicContentSize()
+    }
+
+    func startProgress(duration: TimeInterval) {
+        guard !pendingCompletion else { return }
+        pendingCompletion = true
+        layoutIfNeeded()
+        progressView.layer.removeAllAnimations()
+        progressView.transform = .identity
+        UIView.animate(withDuration: duration, delay: 0, options: [.curveLinear]) {
+            self.progressView.transform = CGAffineTransform(translationX: self.bounds.width, y: 0)
+        } completion: { [weak self] finished in
+            guard let self, finished, self.pendingCompletion else { return }
+            self.pendingCompletion = false
+            self.progressView.transform = CGAffineTransform(translationX: self.bounds.width, y: 0)
+            self.onTrigger?()
+        }
+    }
+
+    func stopProgress() {
+        pendingCompletion = false
+        progressView.layer.removeAllAnimations()
+        progressView.transform = CGAffineTransform(translationX: bounds.width, y: 0)
+    }
+
+    @objc private func triggerNow() {
+        stopProgress()
+        onTrigger?()
+    }
+}
+
 final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Input (set before presenting)
@@ -261,15 +388,16 @@ final class VideoPlayerViewController: UIViewController {
     private let overlay       = UIView()
     private let bottomBar     = UIView()
     private let bottomGradient = CAGradientLayer()
-    private let logOverlay    = LogOverlayView()
-
-    // Floating back button (top-left, no background bar — matches Hayase)
-    private let backButton    = UIButton(type: .system)
     private let mobileOptionsButton = UIButton(type: .system)
     private let mobileControlsStack = UIStackView()
     private let mobilePrevButton = UIButton(type: .system)
     private let mobilePlayPauseButton = UIButton(type: .system)
     private let mobileNextButton = UIButton(type: .system)
+    private let bufferingSpinner = InterfaceSpinnerView()
+    private let fastForwardBadge = UIView()
+    private let fastForwardLabel = UILabel()
+    private let fastForwardIcon = UIImageView(image: UIImage.hayaseFilledIcon("fast-forward", pointSize: 12))
+    private let skipChapterButton = InterfaceProgressButton()
 
     // Hayase downloadstats.svelte — floating HUD at top center
     private let statsHUD = UIStackView()
@@ -323,8 +451,14 @@ final class VideoPlayerViewController: UIViewController {
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
+    private var isBuffering = true
+    private var isFastForwarding = false
+    private var playbackRateBeforeFastForward = 1.0
+    private var wasPausedBeforeFastForward = false
+    private var currentSkippableChapter: SkippableChapter?
     /// The double-tap recognizer, stored so single-tap can require(toFail:) it.
     private var doubleTapRecognizer: UITapGestureRecognizer?
+    private var longPressRecognizer: UILongPressGestureRecognizer?
     private var statsTimer: Timer?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
@@ -337,6 +471,12 @@ final class VideoPlayerViewController: UIViewController {
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
     private weak var shellNavigationControllerBeforeFullscreen: UINavigationController?
+
+    private struct SkippableChapter: Equatable {
+        let title: String
+        let end: Double
+        let skipType: String
+    }
 
     /// True while the player is being minimized to in-app PiP. Prevents
     /// viewWillDisappear from tearing down the streaming pipeline.
@@ -449,7 +589,7 @@ final class VideoPlayerViewController: UIViewController {
         super.viewDidLayoutSubviews()
         applyInterfaceMobilePlayerLayout()
         updateChapterMarkers()
-        // Apply gradient to bottom bar (Hayase gradient: black → transparent)
+        // Hayase player.svelte: linear-gradient(to top, black 0%, black 35%, transparent 100%).
         bottomGradient.frame = bottomBar.bounds
         if bottomGradient.superlayer == nil {
             bottomGradient.colors = [
@@ -457,7 +597,7 @@ final class VideoPlayerViewController: UIViewController {
                 UIColor.black.withAlphaComponent(0.7).cgColor,
                 UIColor.black.withAlphaComponent(0.85).cgColor,
             ]
-            bottomGradient.locations = [0.0, 0.35, 1.0]
+            bottomGradient.locations = [0.0, 0.65, 1.0]
             bottomBar.layer.insertSublayer(bottomGradient, at: 0)
         }
     }
@@ -531,42 +671,12 @@ final class VideoPlayerViewController: UIViewController {
             overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
-        // Floating back button — top-left, no background bar (Hayase style)
-        setupBackButton()
         // Download stats — top center (Hayase downloadstats.svelte)
         setupStatsHUD()
         setupMobilePlayerControls()
         // Bottom overlay with gradient
         setupBottomBar()
-
-        // Log overlay — shows streaming errors/warnings at the bottom-left.
-        // Tap to expand, long-press to copy all logs to clipboard.
-        logOverlay.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(logOverlay)
-        NSLayoutConstraint.activate([
-            logOverlay.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            logOverlay.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
-            logOverlay.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.5),
-        ])
-    }
-
-    /// Floating back button at top-left (no top bar). Matches Hayase mobile
-    /// layout where options/back is a floating button, not a bar.
-    private func setupBackButton() {
-        backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.setImage(UIImage.hayaseIcon("chevron-left"), for: .normal)
-        backButton.tintColor = .white
-        backButton.backgroundColor = UIColor.black.withAlphaComponent(0.2)
-        backButton.layer.cornerRadius = 22
-        backButton.clipsToBounds = true
-        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        overlay.addSubview(backButton)
-        NSLayoutConstraint.activate([
-            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-        ])
+        setupInterfacePlayerOverlays()
     }
 
     /// Hayase downloadstats.svelte — floating HUD at top center showing
@@ -592,7 +702,7 @@ final class VideoPlayerViewController: UIViewController {
 
         overlay.addSubview(statsHUD)
         NSLayoutConstraint.activate([
-            statsHUD.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            statsHUD.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
             statsHUD.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         ])
     }
@@ -638,17 +748,17 @@ final class VideoPlayerViewController: UIViewController {
         configureMobileControlButton(mobilePrevButton,
                                      icon: "skip-back",
                                      size: 40,
-                                     inset: 10,
+                                     inset: 8,
                                      action: #selector(prevTapped))
         configureMobileControlButton(mobilePlayPauseButton,
                                      icon: "pause",
                                      size: 48,
-                                     inset: 10,
+                                     inset: 12,
                                      action: #selector(playPauseTapped))
         configureMobileControlButton(mobileNextButton,
                                      icon: "skip-forward",
                                      size: 40,
-                                     inset: 10,
+                                     inset: 8,
                                      action: #selector(nextTapped))
 
         mobileControlsStack.addArrangedSubview(mobilePrevButton)
@@ -656,8 +766,8 @@ final class VideoPlayerViewController: UIViewController {
         mobileControlsStack.addArrangedSubview(mobileNextButton)
 
         NSLayoutConstraint.activate([
-            mobileOptionsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            mobileOptionsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            mobileOptionsButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            mobileOptionsButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             mobileOptionsButton.widthAnchor.constraint(equalToConstant: 48),
             mobileOptionsButton.heightAnchor.constraint(equalToConstant: 48),
 
@@ -686,6 +796,62 @@ final class VideoPlayerViewController: UIViewController {
         button.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
         button.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         button.addTarget(self, action: action, for: .touchUpInside)
+    }
+
+    private func setupInterfacePlayerOverlays() {
+        bufferingSpinner.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(bufferingSpinner)
+
+        fastForwardBadge.translatesAutoresizingMaskIntoConstraints = false
+        fastForwardBadge.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.6)
+        fastForwardBadge.layer.cornerRadius = 16
+        fastForwardBadge.clipsToBounds = true
+        fastForwardBadge.alpha = 0
+        fastForwardBadge.isHidden = true
+        fastForwardBadge.isUserInteractionEnabled = false
+
+        fastForwardLabel.translatesAutoresizingMaskIntoConstraints = false
+        fastForwardLabel.font = .nunito(ofSize: 14, weight: .bold)
+        fastForwardLabel.textColor = .white
+        fastForwardLabel.text = "x2"
+        fastForwardLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        fastForwardIcon.translatesAutoresizingMaskIntoConstraints = false
+        fastForwardIcon.tintColor = .white
+        fastForwardIcon.contentMode = .scaleAspectFit
+
+        let fastForwardStack = UIStackView(arrangedSubviews: [fastForwardLabel, fastForwardIcon])
+        fastForwardStack.translatesAutoresizingMaskIntoConstraints = false
+        fastForwardStack.axis = .horizontal
+        fastForwardStack.alignment = .center
+        fastForwardStack.spacing = 8
+        fastForwardBadge.addSubview(fastForwardStack)
+        overlay.addSubview(fastForwardBadge)
+
+        skipChapterButton.translatesAutoresizingMaskIntoConstraints = false
+        skipChapterButton.alpha = 0
+        skipChapterButton.isHidden = true
+        skipChapterButton.onTrigger = { [weak self] in self?.skipCurrentChapter() }
+        overlay.addSubview(skipChapterButton)
+
+        NSLayoutConstraint.activate([
+            bufferingSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            bufferingSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            bufferingSpinner.widthAnchor.constraint(equalToConstant: 40),
+            bufferingSpinner.heightAnchor.constraint(equalToConstant: 40),
+
+            fastForwardBadge.topAnchor.constraint(equalTo: view.topAnchor, constant: 40),
+            fastForwardBadge.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            fastForwardStack.topAnchor.constraint(equalTo: fastForwardBadge.topAnchor, constant: 8),
+            fastForwardStack.bottomAnchor.constraint(equalTo: fastForwardBadge.bottomAnchor, constant: -8),
+            fastForwardStack.leadingAnchor.constraint(equalTo: fastForwardBadge.leadingAnchor, constant: 16),
+            fastForwardStack.trailingAnchor.constraint(equalTo: fastForwardBadge.trailingAnchor, constant: -16),
+            fastForwardIcon.widthAnchor.constraint(equalToConstant: 12),
+            fastForwardIcon.heightAnchor.constraint(equalToConstant: 12),
+
+            skipChapterButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
+            skipChapterButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -160),
+        ])
     }
 
     private func setupBottomBar() {
@@ -818,22 +984,22 @@ final class VideoPlayerViewController: UIViewController {
         bottomRightControls.addArrangedSubview(airPlayPicker)
         bottomBar.addSubview(bottomRightControls)
 
-        let pad: CGFloat = 16
+        let pad: CGFloat = 24
         let baseConstraints = [
             // Row 1: title + episode (left), chapter + time (right)
             // Hayase: title on top, episode below; chapter above time on right
-            titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad + 8),
-            titleLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
+            titleLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chapterLabel.leadingAnchor, constant: -12),
 
             episodeLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             episodeLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             episodeLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -12),
 
-            chapterLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
+            chapterLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             chapterLabel.bottomAnchor.constraint(equalTo: timeLabel.topAnchor, constant: -2),
 
-            timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -(pad + 8)),
+            timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             timeLabel.centerYAnchor.constraint(equalTo: episodeLabel.centerYAnchor),
 
             // Row 2: seekbar
@@ -889,6 +1055,13 @@ final class VideoPlayerViewController: UIViewController {
         singleTap.require(toFail: doubleTap)
         singleTap.delegate = self
         view.addGestureRecognizer(singleTap)
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleHoldToFastForward(_:)))
+        longPress.minimumPressDuration = 1.0
+        longPress.allowableMovement = 40
+        longPress.delegate = self
+        view.addGestureRecognizer(longPress)
+        longPressRecognizer = longPress
     }
 
     /// Single-tap: toggle controls visibility.
@@ -902,6 +1075,17 @@ final class VideoPlayerViewController: UIViewController {
         performDoubleTapSeek(at: tapLocation)
     }
 
+    @objc private func handleHoldToFastForward(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            startFastForward()
+        case .ended, .cancelled, .failed:
+            stopFastForward()
+        default:
+            break
+        }
+    }
+
     /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 2.
     private var seekDurationSeconds: Double {
         let stored = UserDefaults.standard.string(forKey: "pref_seekDuration") ?? "2"
@@ -913,58 +1097,42 @@ final class VideoPlayerViewController: UIViewController {
     private func performDoubleTapSeek(at location: CGPoint) {
         let seekAmount = seekDurationSeconds
         if location.x < surface.bounds.midX {
-            // Left half → seek backward
             let newTime = max(0, currentTime - seekAmount)
             let fraction = duration > 0 ? newTime / duration : 0
             streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: -seekAmount)
             lastSeekTime = Date()
-            showSeekIndicator(seconds: -seekAmount)
+            showPlayerAnimation(icon: "rewind")
         } else {
-            // Right half → seek forward
             let newTime = min(duration, currentTime + seekAmount)
             let fraction = duration > 0 ? newTime / duration : 0
             streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: seekAmount)
             lastSeekTime = Date()
-            showSeekIndicator(seconds: seekAmount)
+            showPlayerAnimation(icon: "fast-forward")
         }
-        if !controlsVisible { setControls(visible: true) }
-        scheduleHide()
     }
 
-    /// Briefly shows a "«10s" or "10s»" indicator on the tapped side.
-    private func showSeekIndicator(seconds: Double) {
-        let isForward = seconds > 0
-        let text = isForward
-            ? "\(Int(abs(seconds)))s »"
-            : "« \(Int(abs(seconds)))s"
-        let indicator = UILabel()
-        indicator.text = text
-        indicator.font = .nunito(ofSize: 22, weight: .bold)
-        indicator.textColor = .white
-        indicator.textAlignment = .center
-        indicator.alpha = 0
-        indicator.layer.shadowColor = UIColor.black.cgColor
-        indicator.layer.shadowOffset = .zero
-        indicator.layer.shadowOpacity = 0.8
-        indicator.layer.shadowRadius = 4
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(indicator)
+    private func showPlayerAnimation(icon: String) {
+        guard let image = UIImage.hayaseFilledIcon(icon, pointSize: 64) else { return }
+        let iconView = UIImageView(image: image)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.tintColor = .white
+        iconView.alpha = 1
+        iconView.contentMode = .scaleAspectFit
+        iconView.isUserInteractionEnabled = false
+        overlay.addSubview(iconView)
         NSLayoutConstraint.activate([
-            indicator.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
-            isForward
-                ? indicator.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: surface.bounds.width * 0.25)
-                : indicator.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: -surface.bounds.width * 0.25),
+            iconView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 64),
+            iconView.heightAnchor.constraint(equalToConstant: 64),
         ])
-        UIView.animate(withDuration: 0.15, animations: {
-            indicator.alpha = 1
-        }) { _ in
-            UIView.animate(withDuration: 0.3, delay: 0.4, options: [], animations: {
-                indicator.alpha = 0
-            }) { _ in
-                indicator.removeFromSuperview()
-            }
+        UIView.animate(withDuration: 0.4, delay: 0, options: [.curveLinear]) {
+            iconView.alpha = 0
+            iconView.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+        } completion: { _ in
+            iconView.removeFromSuperview()
         }
     }
 
@@ -980,7 +1148,10 @@ final class VideoPlayerViewController: UIViewController {
         isEOFTriggered = false
         pendingRestoreTime = nil
         chapters.removeAll()
+        currentSkippableChapter = nil
+        skipChapterButton.stopProgress()
         updateChapterMarkers()
+        updateBuffering(true)
 
         // Set up torrent streaming if the file is still downloading.
         setupStreamer()
@@ -1301,17 +1472,103 @@ final class VideoPlayerViewController: UIViewController {
 
     private func scheduleHide() {
         hideWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.setControls(visible: false) }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  !self.isPaused,
+                  !self.isSeeking,
+                  !self.isBuffering,
+                  !self.isFastForwarding else { return }
+            self.setControls(visible: false)
+        }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
     }
 
     private func setControls(visible: Bool) {
         controlsVisible = visible
-        UIView.animate(withDuration: 0.25) { [weak self] in self?.overlay.alpha = visible ? 1 : 0 }
+        overlay.alpha = 1
+        updateInterfaceOverlayVisibility(animated: true)
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         if visible { scheduleHide() }
+    }
+
+    private func updateInterfaceOverlayVisibility(animated: Bool) {
+        overlay.alpha = 1
+        bufferingSpinner.setAnimating(isBuffering)
+
+        let controlsAlpha: CGFloat = controlsVisible ? 1 : 0
+        let mobileControlsAlpha: CGFloat = controlsVisible && !isSeeking ? 1 : 0
+        let showFastForward = isFastForwarding
+        let showSkip = controlsVisible && currentSkippableChapter != nil
+
+        if showFastForward { fastForwardBadge.isHidden = false }
+        if showSkip { skipChapterButton.isHidden = false }
+
+        mobileOptionsButton.isUserInteractionEnabled = controlsVisible
+        mobileControlsStack.isUserInteractionEnabled = controlsVisible && !isSeeking
+        bottomBar.isUserInteractionEnabled = controlsVisible
+        skipChapterButton.isUserInteractionEnabled = showSkip
+
+        let changes = {
+            self.statsHUD.alpha = controlsAlpha
+            self.mobileOptionsButton.alpha = controlsAlpha
+            self.mobileControlsStack.alpha = mobileControlsAlpha
+            self.bottomBar.alpha = controlsAlpha
+            self.skipChapterButton.alpha = showSkip ? 1 : 0
+            self.fastForwardBadge.alpha = showFastForward ? 1 : 0
+            self.mobilePlayPauseButton.alpha = self.isBuffering ? 0.10 : 1
+        }
+
+        let completion: (Bool) -> Void = { _ in
+            if !showFastForward { self.fastForwardBadge.isHidden = true }
+            if !showSkip { self.skipChapterButton.isHidden = true }
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.25, animations: changes, completion: completion)
+        } else {
+            changes()
+            completion(true)
+        }
+    }
+
+    private func updateBuffering(_ buffering: Bool) {
+        guard isBuffering != buffering else { return }
+        isBuffering = buffering
+        if buffering {
+            setControls(visible: true)
+        } else {
+            updateInterfaceOverlayVisibility(animated: true)
+            if !isPaused { scheduleHide() }
+        }
+    }
+
+    private func startFastForward() {
+        guard !isFastForwarding else { return }
+        playbackRateBeforeFastForward = playbackRate
+        wasPausedBeforeFastForward = isPaused
+        isFastForwarding = true
+        if isPaused {
+            surface.mpv.play()
+        }
+        playbackRate = 2
+        surface.mpv.setSpeed(2)
+        updateSpeedLabel()
+        updateInterfaceOverlayVisibility(animated: true)
+    }
+
+    private func stopFastForward() {
+        guard isFastForwarding else { return }
+        isFastForwarding = false
+        playbackRate = playbackRateBeforeFastForward
+        surface.mpv.setSpeed(playbackRate)
+        updateSpeedLabel()
+        if wasPausedBeforeFastForward {
+            surface.mpv.pausePlayback()
+        }
+        updateInterfaceOverlayVisibility(animated: true)
+        if !wasPausedBeforeFastForward && !isPaused { scheduleHide() }
     }
 
     private func applyInterfaceMobilePlayerLayout() {
@@ -1321,6 +1578,7 @@ final class VideoPlayerViewController: UIViewController {
         bottomRightControls.isHidden = true
         mobileControlsStack.isHidden = false
         mobileOptionsButton.isHidden = false
+        updateInterfaceOverlayVisibility(animated: false)
     }
 
     // MARK: - Time UI
@@ -1334,12 +1592,8 @@ final class VideoPlayerViewController: UIViewController {
         } else {
             timeLabel.text = "\(fmtTime(currentTime)) / \(fmtTime(duration))"
         }
-        // Update chapter label if chapters are available
-        if let ch = chapters.last(where: { $0.time <= currentTime }) {
-            chapterLabel.text = ch.title
-        } else {
-            chapterLabel.text = ""
-        }
+        chapterLabel.text = chapterTitle(at: currentTime)
+        updateSkipChapterButton()
     }
 
     private func fmtTime(_ secs: Double) -> String {
@@ -1353,15 +1607,83 @@ final class VideoPlayerViewController: UIViewController {
         seekBar.setChapters(chapters, duration: duration)
     }
 
-    // MARK: - Actions
-
-    @objc private func backTapped() {
-        // Hayase wrapper.svelte: navigating away from /app/player activates
-        // mini-player mode instead of destroying the player component.
-        MiniPlayerManager.shared.minimize(self)
+    private func chapterWindow(at time: Double) -> (title: String, start: Double, end: Double)? {
+        guard duration > 0, !chapters.isEmpty else { return nil }
+        let sorted = chapters.sorted { $0.time < $1.time }
+        for (index, chapter) in sorted.enumerated() {
+            let start = max(0, chapter.time)
+            let end = index + 1 < sorted.count ? sorted[index + 1].time : duration
+            if time >= start && time <= end {
+                return (chapter.title, start, min(duration, max(start, end)))
+            }
+        }
+        return nil
     }
 
+    private func chapterTitle(at time: Double) -> String {
+        chapterWindow(at: time)?.title ?? ""
+    }
+
+    private func skippableChapter(at time: Double) -> SkippableChapter? {
+        guard let chapter = chapterWindow(at: time),
+              let skipType = skipType(for: chapter.title) else { return nil }
+        return SkippableChapter(title: chapter.title, end: chapter.end, skipType: skipType)
+    }
+
+    private func skipType(for chapterText: String) -> String? {
+        let patterns: [(String, String)] = [
+            ("Opening", "^op$|opening$|^ncop|^opening "),
+            ("Ending", "^ed$|ending$|^nced|^ending "),
+            ("Intro", "^intro$"),
+            ("Outro", "^outro$"),
+            ("Credits", "^credits$"),
+            ("Preview", "^preview$"),
+            ("Recap", "recap"),
+        ]
+        let range = NSRange(chapterText.startIndex..<chapterText.endIndex, in: chapterText)
+        for (skipType, pattern) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .anchorsMatchLines]) else {
+                continue
+            }
+            if regex.firstMatch(in: chapterText, options: [], range: range) != nil {
+                return skipType
+            }
+        }
+        return nil
+    }
+
+    private func updateSkipChapterButton() {
+        let next = skippableChapter(at: currentTime)
+        guard next != currentSkippableChapter else { return }
+        currentSkippableChapter = next
+        if let next {
+            skipChapterButton.setTitle("Skip \(next.skipType)")
+        } else {
+            skipChapterButton.stopProgress()
+        }
+        updateInterfaceOverlayVisibility(animated: true)
+    }
+
+    private func skipCurrentChapter() {
+        guard let current = currentSkippableChapter ?? skippableChapter(at: currentTime),
+              duration > 0 else { return }
+        let targetTime = min(duration, current.end + 0.5)
+        let fraction = max(0, min(1, targetTime / duration))
+        streamer?.seekTo(fraction: fraction)
+        surface.mpv.seek(to: targetTime)
+        lastSeekTime = Date()
+        currentTime = targetTime
+        currentSkippableChapter = nil
+        skipChapterButton.stopProgress()
+        updateTimeUI()
+        updateInterfaceOverlayVisibility(animated: true)
+        scheduleHide()
+    }
+
+    // MARK: - Actions
+
     @objc private func playPauseTapped() {
+        showPlayerAnimation(icon: isPaused ? "play" : "pause")
         // Track that this pause/unpause was user-initiated so didChangePause
         // knows to pause/resume the torrent. Without this flag, buffer stalls
         // (paused-for-cache) that flip the pause property would incorrectly
@@ -1456,6 +1778,7 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func seekBegan() {
         isSeeking = true
         hideWork?.cancel()
+        updateInterfaceOverlayVisibility(animated: true)
     }
 
     @objc private func seekChanged() {
@@ -1465,10 +1788,8 @@ final class VideoPlayerViewController: UIViewController {
         } else {
             timeLabel.text = "\(fmtTime(t)) / \(fmtTime(duration))"
         }
-        // Update chapter label during seeking
-        if let ch = chapters.last(where: { $0.time <= t }) {
-            chapterLabel.text = ch.title
-        }
+        chapterLabel.text = chapterTitle(at: t)
+        updateInterfaceOverlayVisibility(animated: true)
     }
 
     @objc private func seekEnded() {
@@ -1481,6 +1802,7 @@ final class VideoPlayerViewController: UIViewController {
         // the required pieces are downloaded, so we can seek immediately.
         streamer?.seekTo(fraction: seekFraction)
         surface.mpv.seek(to: seekFraction * duration)
+        updateInterfaceOverlayVisibility(animated: true)
         scheduleHide()
     }
 
@@ -1665,6 +1987,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         self.currentTime = position
         self.duration    = duration
         updateTimeUI()
+        if duration > 0, position > 0 {
+            updateBuffering(false)
+        }
 
         // W2G: sync playback position to peers (mirrors player.svelte reactive binding).
         // Guard against feedback loop when applying remote state.
@@ -1754,7 +2079,13 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
         playPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
         mobilePlayPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
-        if isPaused { hideWork?.cancel(); setControls(visible: true) }
+        if isPaused {
+            hideWork?.cancel()
+            setControls(visible: true)
+        } else {
+            updateInterfaceOverlayVisibility(animated: true)
+            scheduleHide()
+        }
 
         // Keep the mini-player's play/pause icon in sync.
         MiniPlayerManager.shared.updatePlayPauseIcon(isPaused: isPaused)
@@ -1779,6 +2110,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
         // Torrent is never paused, so no safety-valve resume is needed.
+        updateBuffering(isLoading)
     }
 
     func renderer(_ renderer: MPVWrapper, didBecomeReadyToSeek: Bool) {
@@ -1874,6 +2206,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didBecomeChaptersReady chapters: [MPVChapter]) {
         self.chapters = chapters
         updateChapterMarkers()
+        updateSkipChapterButton()
     }
 
     // MARK: - Mini-player support (Hayase wrapper.svelte)

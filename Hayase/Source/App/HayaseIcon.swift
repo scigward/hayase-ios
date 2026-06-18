@@ -45,6 +45,28 @@ enum HayaseIcon {
             triangle.close()
             triangle.fill()
             strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
+        case "fast-forward":
+            filledTriangle(points: [
+                CGPoint(x: 13, y: 19),
+                CGPoint(x: 22, y: 12),
+                CGPoint(x: 13, y: 5),
+            ])
+            filledTriangle(points: [
+                CGPoint(x: 2, y: 19),
+                CGPoint(x: 11, y: 12),
+                CGPoint(x: 2, y: 5),
+            ])
+        case "rewind":
+            filledTriangle(points: [
+                CGPoint(x: 11, y: 19),
+                CGPoint(x: 2, y: 12),
+                CGPoint(x: 11, y: 5),
+            ])
+            filledTriangle(points: [
+                CGPoint(x: 22, y: 19),
+                CGPoint(x: 13, y: 12),
+                CGPoint(x: 22, y: 5),
+            ])
         case "star":
             let star = UIBezierPath()
             [
@@ -155,15 +177,9 @@ enum HayaseIcon {
 
     private static func filledPlayPath() -> UIBezierPath {
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: 22.99, y: 11.7773))
-        path.addCurve(to: CGPoint(x: 21.4859, y: 9.39398), controlPoint1: CGPoint(x: 22.9219, y: 10.8388), controlPoint2: CGPoint(x: 22.4205, y: 9.92777))
-        path.addLine(to: CGPoint(x: 7.48782, y: 1.39936))
-        path.addCurve(to: CGPoint(x: 3, y: 4.00443), controlPoint1: CGPoint(x: 5.48785, y: 0.25713), controlPoint2: CGPoint(x: 3, y: 1.70127))
-        path.addLine(to: CGPoint(x: 3, y: 19.9937))
-        path.addCurve(to: CGPoint(x: 7.48781, y: 22.5988), controlPoint1: CGPoint(x: 3, y: 22.2968), controlPoint2: CGPoint(x: 5.48785, y: 23.741))
-        path.addLine(to: CGPoint(x: 21.4859, y: 14.6041))
-        path.addCurve(to: CGPoint(x: 22.99, y: 12.2208), controlPoint1: CGPoint(x: 22.4205, y: 14.0703), controlPoint2: CGPoint(x: 22.9219, y: 13.1593))
-        path.addCurve(to: CGPoint(x: 22.99, y: 11.7773), controlPoint1: CGPoint(x: 23.0226, y: 12.0751), controlPoint2: CGPoint(x: 23.0226, y: 11.9231))
+        path.move(to: CGPoint(x: 6, y: 3))
+        path.addLine(to: CGPoint(x: 20, y: 12))
+        path.addLine(to: CGPoint(x: 6, y: 21))
         path.close()
         return path
     }
@@ -175,6 +191,15 @@ enum HayaseIcon {
         path.lineWidth = width
         path.lineCapStyle = .round
         path.stroke()
+    }
+
+    private static func filledTriangle(points: [CGPoint]) {
+        guard let first = points.first else { return }
+        let path = UIBezierPath()
+        path.move(to: first)
+        points.dropFirst().forEach { path.addLine(to: $0) }
+        path.close()
+        path.fill()
     }
 }
 
