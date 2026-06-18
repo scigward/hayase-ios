@@ -524,7 +524,7 @@ final class TorrentDetailViewController: UIViewController {
         titleRow.alignment = .center
         titleRow.spacing = 6
 
-        let dlIcon = makeIcon("arrow.down.to.line", tint: .label, size: 20)
+        let dlIcon = makeIcon("hard-drive-download", tint: .label, size: 20)
         let progressTitle = UILabel()
         progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
@@ -546,10 +546,10 @@ final class TorrentDetailViewController: UIViewController {
         // 4-column stat grid: Downloaded, Uploaded, Total Size, Pieces
         // Matches Hayase's flat layout: icon + muted label + value
         let grid = makeProgressStatRow([
-            StatItem(label: downloadedValue, title: "Downloaded", icon: "arrow.down",        color: .systemGreen),
-            StatItem(label: uploadedValue,   title: "Uploaded",   icon: "arrow.up",          color: .systemBlue),
-            StatItem(label: totalSizeValue,  title: "Total Size", icon: "internaldrive",     color: .systemGray),
-            StatItem(label: piecesValue,     title: "Pieces",     icon: "puzzlepiece",       color: .systemGray),
+            StatItem(label: downloadedValue, title: "Downloaded", icon: "download",   color: .systemGreen),
+            StatItem(label: uploadedValue,   title: "Uploaded",   icon: "upload",     color: .systemBlue),
+            StatItem(label: totalSizeValue,  title: "Total Size", icon: "hard-drive", color: .systemGray),
+            StatItem(label: piecesValue,     title: "Pieces",     icon: "puzzle",     color: .systemGray),
         ])
         container.addArrangedSubview(grid)
 
@@ -568,8 +568,8 @@ final class TorrentDetailViewController: UIViewController {
             title: "Speed & Transfer",
             icon: "wifi",
             items: [
-                StatItem(label: downSpeedValue, title: "Download", icon: "arrow.down", color: .systemGreen),
-                StatItem(label: upSpeedValue,   title: "Upload",   icon: "arrow.up",   color: .systemBlue),
+                StatItem(label: downSpeedValue, title: "Download", icon: "download", color: .systemGreen),
+                StatItem(label: upSpeedValue,   title: "Upload",   icon: "upload",   color: .systemBlue),
             ]
         ))
 
@@ -578,19 +578,19 @@ final class TorrentDetailViewController: UIViewController {
             title: "Time Information",
             icon: "clock",
             items: [
-                StatItem(label: etaValue,     title: "Remaining", icon: "hourglass.tophalf.filled", color: .systemOrange),
-                StatItem(label: elapsedValue, title: "Elapsed",   icon: "timer",                    color: .systemPurple),
+                StatItem(label: etaValue,     title: "Remaining", icon: "clock-fading", color: .systemOrange),
+                StatItem(label: elapsedValue, title: "Elapsed",   icon: "timer",        color: .systemPurple),
             ]
         ))
 
         // Peers & Connections
         stack.addArrangedSubview(makeFlatSection(
             title: "Peers & Connections",
-            icon: "person.2.fill",
+            icon: "users",
             items: [
-                StatItem(label: seedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
-                StatItem(label: leechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-                StatItem(label: wiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
+                StatItem(label: seedersValue,  title: "Seeders",  icon: "user-round-plus",  color: .systemGreen),
+                StatItem(label: leechersValue, title: "Leechers", icon: "user-round-minus", color: .systemBlue),
+                StatItem(label: wiresValue,    title: "Wires",    icon: "link",             color: .systemPurple),
             ]
         ))
 
@@ -693,7 +693,7 @@ final class TorrentDetailViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: peersView.trailingAnchor, constant: -16),
         ])
 
-        let iconView = makeIcon("person.2.fill", tint: .label, size: 20)
+        let iconView = makeIcon("users", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Peers & Connections"
         title.font = .nunito(ofSize: 24, weight: .bold)
@@ -705,9 +705,9 @@ final class TorrentDetailViewController: UIViewController {
         stack.addArrangedSubview(titleRow)
 
         stack.addArrangedSubview(makeFlatStatRow([
-            StatItem(label: peerSeedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
-            StatItem(label: peerLeechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-            StatItem(label: peerWiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
+            StatItem(label: peerSeedersValue,  title: "Seeders",  icon: "user-round-plus",  color: .systemGreen),
+            StatItem(label: peerLeechersValue, title: "Leechers", icon: "user-round-minus", color: .systemBlue),
+            StatItem(label: peerWiresValue,    title: "Wires",    icon: "link",             color: .systemPurple),
         ]))
     }
 
@@ -731,7 +731,7 @@ final class TorrentDetailViewController: UIViewController {
         ])
 
         // Section title with icon (matches Hayase)
-        let iconView = makeIcon("books.vertical.fill", tint: .label, size: 20)
+        let iconView = makeIcon("library-big", tint: .label, size: 20)
         let title = UILabel()
         title.text = "Library"
         title.font = .nunito(ofSize: 24, weight: .bold)

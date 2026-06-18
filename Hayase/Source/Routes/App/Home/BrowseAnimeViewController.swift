@@ -187,7 +187,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         b.setTitle("  Watch Now", for: .normal)
-        b.setImage(UIImage.hayaseIcon("play.fill")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("play")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.setTitleColor(.black, for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
@@ -528,8 +528,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
-                    let name = isFav ? "heart.fill" : "heart"
-                    self.favoriteButton.setImage(UIImage.hayaseIcon(name)?.withConfiguration(cfg16), for: .normal)
+                    self.favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
                     self.favoriteButton.tintColor = isFav ? accentForState : .white
                 }
             }
@@ -538,8 +537,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
-                    let name = (entry != nil) ? "bookmark.fill" : "bookmark"
-                    self.bookmarkButton.setImage(UIImage.hayaseIcon(name)?.withConfiguration(cfg16), for: .normal)
+                    self.bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
                     self.bookmarkButton.tintColor = (entry != nil) ? accentForState : .white
                 }
             }
@@ -1372,7 +1370,7 @@ class BrowseAnimeViewController: UIViewController {
         tabBarItem = UITabBarItem(
             title: "Home",
             image: UIImage.hayaseIcon("house"),
-            selectedImage: UIImage.hayaseIcon("house.fill"))
+            selectedImage: UIImage.hayaseIcon("house"))
     }
 
     // MARK: - Lifecycle

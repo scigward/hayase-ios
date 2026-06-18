@@ -539,7 +539,7 @@ final class VideoPlayerViewController: UIViewController {
     /// layout where options/back is a floating button, not a bar.
     private func setupBackButton() {
         backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.setImage(UIImage.hayaseIcon("chevron.left"), for: .normal)
+        backButton.setImage(UIImage.hayaseIcon("chevron-left"), for: .normal)
         backButton.tintColor = .white
         backButton.backgroundColor = UIColor.black.withAlphaComponent(0.2)
         backButton.layer.cornerRadius = 22
@@ -651,12 +651,10 @@ final class VideoPlayerViewController: UIViewController {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.tintColor = .white
         }
-        prevButton.setImage(UIImage.hayaseIcon("backward.end.fill"),  for: .normal)
-        playPauseButton.setImage(UIImage.hayaseIcon("pause.fill"),    for: .normal)
-        nextButton.setImage(UIImage.hayaseIcon("forward.end.fill"),   for: .normal)
-        optionsButton.setImage(UIImage.hayaseIcon("ellipsis"), for: .normal)
-        // Rotate to vertical orientation, matching Hayase's EllipsisVertical icon
-        optionsButton.transform = CGAffineTransform(rotationAngle: .pi / 2)
+        prevButton.setImage(UIImage.hayaseIcon("skip-back"),  for: .normal)
+        playPauseButton.setImage(UIImage.hayaseIcon("pause"),    for: .normal)
+        nextButton.setImage(UIImage.hayaseIcon("skip-forward"),   for: .normal)
+        optionsButton.setImage(UIImage.hayaseIcon("ellipsis-vertical"), for: .normal)
 
         prevButton.addTarget(self,      action: #selector(prevTapped),      for: .touchUpInside)
         playPauseButton.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
@@ -1570,7 +1568,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
             )
         }
 
-        playPauseButton.setImage(UIImage.hayaseIcon(isPaused ? "play.fill" : "pause.fill"), for: .normal)
+        playPauseButton.setImage(UIImage.hayaseIcon(isPaused ? "play" : "pause"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 
         // Keep the mini-player's play/pause icon in sync.

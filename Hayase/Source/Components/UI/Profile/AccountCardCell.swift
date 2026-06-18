@@ -101,7 +101,7 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     private let settingsButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setImage(UIImage.hayaseIcon("gearshape"), for: .normal)
+        b.setImage(UIImage.hayaseIcon("settings"), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true // Only shown for AniList and MAL

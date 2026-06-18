@@ -108,20 +108,20 @@ final class VideoTableViewCell: UITableViewCell {
             progressView.isHidden = true
             statusLabel.text = "Skipped"
             statusLabel.textColor = .secondaryLabel
-            iconView.image = UIImage.hayaseIcon("minus.circle")
+            iconView.image = UIImage.hayaseIcon("circle-minus")
             iconView.tintColor = .secondaryLabel
         } else if downloadedBytes >= totalBytes && totalBytes > 0 {
             progressView.isHidden = true
             statusLabel.text = "Play"
             statusLabel.textColor = .systemGreen
-            iconView.image = UIImage.hayaseIcon("play.circle.fill")
+            iconView.image = UIImage.hayaseIcon("circle-play")
             iconView.tintColor = .systemGreen
         } else {
             progressView.isHidden = false
             progressView.progress = progress
             statusLabel.text = String(format: "%.0f%%", progress * 100)
             statusLabel.textColor = .systemOrange
-            iconView.image = UIImage.hayaseIcon("arrow.down.circle.fill")
+            iconView.image = UIImage.hayaseIcon("download")
             iconView.tintColor = .systemOrange
         }
     }
@@ -483,7 +483,7 @@ extension VideoListViewController: UITableViewDelegate {
 
         let title = isSkipped ? "Prioritize" : "Skip"
         let color: UIColor = isSkipped ? .systemGreen : .systemGray
-        let icon = isSkipped ? "arrow.down.circle" : "nosign"
+        let icon = isSkipped ? "download" : "ban"
         let action = UIContextualAction(style: .normal, title: title) { [weak self] _, _, done in
             if isSkipped {
                 vs.selectFileForStreaming(index)  // Hayase: prioritize this, deprioritize others

@@ -566,7 +566,7 @@ final class ExtensionCell: UITableViewCell {
 
         // Options button: Bolt icon when has options (Hayase <Bolt size={18} />), Trash when none
         let hasOpts = !(config.options?.isEmpty ?? true)
-        let iconName = hasOpts ? "bolt" : "trash"
+        let iconName = hasOpts ? "bolt" : "trash-2"
         let iconColor: UIColor = hasOpts ? UIColor(white: 0.6, alpha: 1) : .systemRed
         optionsButton.setImage(
             UIImage.hayaseIcon(iconName,
@@ -669,9 +669,9 @@ final class RepoCell: UITableViewCell {
     func configure(url: String, count: Int) {
         // Determine icon (GitHub / npm / Globe) — mirrors Hayase Repositories tab
         if url.hasPrefix("gh:") || url.contains("github.com") {
-            sourceIcon.image = UIImage.hayaseIcon("chevron.left.forwardslash.chevron.right")
+            sourceIcon.image = UIImage.hayaseIcon("git-branch")
         } else if url.hasPrefix("npm:") {
-            sourceIcon.image = UIImage.hayaseIcon("shippingbox")
+            sourceIcon.image = UIImage.hayaseIcon("package")
         } else {
             sourceIcon.image = UIImage.hayaseIcon("globe")
         }

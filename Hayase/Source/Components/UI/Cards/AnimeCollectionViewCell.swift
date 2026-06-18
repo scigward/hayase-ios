@@ -105,7 +105,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
 
         // Calendar icon for year
-        let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar"))
+        let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar-days"))
         calIcon.tintColor = UIColor(white: 0.45, alpha: 1)
         calIcon.contentMode = .scaleAspectFit
         calIcon.translatesAutoresizingMaskIntoConstraints = false

@@ -95,8 +95,8 @@ class SettingsViewController: UIViewController {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(
             title: "Settings",
-            image: UIImage.hayaseIcon("gearshape"),
-            selectedImage: UIImage.hayaseIcon("gearshape.fill"))
+            image: UIImage.hayaseIcon("settings"),
+            selectedImage: UIImage.hayaseIcon("settings"))
     }
 
     // MARK: - Colors (matching Hayase dark theme)

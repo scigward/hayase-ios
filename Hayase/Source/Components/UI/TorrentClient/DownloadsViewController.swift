@@ -145,7 +145,7 @@ class DownloadsViewController: UIViewController {
         tf.clipsToBounds = true
         tf.clearButtonMode = .whileEditing
         tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage.hayaseIcon("magnifyingglass"))
+        let icon = UIImageView(image: UIImage.hayaseIcon("search"))
         icon.tintColor = .secondaryLabel
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
@@ -186,7 +186,7 @@ class DownloadsViewController: UIViewController {
         tf.clipsToBounds = true
         tf.clearButtonMode = .whileEditing
         tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage.hayaseIcon("magnifyingglass"))
+        let icon = UIImageView(image: UIImage.hayaseIcon("search"))
         icon.tintColor = .secondaryLabel
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
@@ -233,8 +233,8 @@ class DownloadsViewController: UIViewController {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         tabBarItem = UITabBarItem(title: "Downloads",
-                                  image: UIImage.hayaseIcon("arrow.down.circle"),
-                                  selectedImage: UIImage.hayaseIcon("arrow.down.circle.fill"))
+                                  image: UIImage.hayaseIcon("download"),
+                                  selectedImage: UIImage.hayaseIcon("download"))
     }
 
     override func viewDidLoad() {
@@ -790,7 +790,7 @@ class DownloadsViewController: UIViewController {
         titleRow.alignment = .center
         titleRow.spacing = 6
 
-        let dlIcon = makeIcon("arrow.down.to.line", tint: .label, size: 20)
+        let dlIcon = makeIcon("hard-drive-download", tint: .label, size: 20)
         let progressTitle = UILabel()
         progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
@@ -811,10 +811,10 @@ class DownloadsViewController: UIViewController {
 
         // 4-column stat grid: Downloaded, Uploaded, Total Size, Pieces
         let grid = makeProgressStatRow([
-            StatItem(label: downloadedValue, title: "Downloaded", icon: "arrow.down",    color: .systemGreen),
-            StatItem(label: uploadedValue,   title: "Uploaded",   icon: "arrow.up",      color: .systemBlue),
-            StatItem(label: totalSizeValue,  title: "Total Size", icon: "internaldrive", color: .systemGray),
-            StatItem(label: piecesValue,     title: "Pieces",     icon: "puzzlepiece",   color: .systemGray),
+            StatItem(label: downloadedValue, title: "Downloaded", icon: "download",   color: .systemGreen),
+            StatItem(label: uploadedValue,   title: "Uploaded",   icon: "upload",     color: .systemBlue),
+            StatItem(label: totalSizeValue,  title: "Total Size", icon: "hard-drive", color: .systemGray),
+            StatItem(label: piecesValue,     title: "Pieces",     icon: "puzzle",     color: .systemGray),
         ])
         container.addArrangedSubview(grid)
 
@@ -831,8 +831,8 @@ class DownloadsViewController: UIViewController {
             title: "Speed & Transfer",
             icon: "wifi",
             items: [
-                StatItem(label: downSpeedValue, title: "Download", icon: "arrow.down", color: .systemGreen),
-                StatItem(label: upSpeedValue,   title: "Upload",   icon: "arrow.up",   color: .systemBlue),
+                StatItem(label: downSpeedValue, title: "Download", icon: "download", color: .systemGreen),
+                StatItem(label: upSpeedValue,   title: "Upload",   icon: "upload",   color: .systemBlue),
             ]
         ))
 
@@ -841,19 +841,19 @@ class DownloadsViewController: UIViewController {
             title: "Time Information",
             icon: "clock",
             items: [
-                StatItem(label: etaValue,     title: "Remaining", icon: "hourglass.tophalf.filled", color: .systemOrange),
-                StatItem(label: elapsedValue, title: "Elapsed",   icon: "timer",                    color: .systemPurple),
+                StatItem(label: etaValue,     title: "Remaining", icon: "clock-fading", color: .systemOrange),
+                StatItem(label: elapsedValue, title: "Elapsed",   icon: "timer",        color: .systemPurple),
             ]
         ))
 
         // Peers & Connections
         stack.addArrangedSubview(makeFlatSection(
             title: "Peers & Connections",
-            icon: "person.2.fill",
+            icon: "users",
             items: [
-                StatItem(label: seedersValue,  title: "Seeders",  icon: "person.fill.badge.plus",  color: .systemGreen),
-                StatItem(label: leechersValue, title: "Leechers", icon: "person.fill.badge.minus", color: .systemBlue),
-                StatItem(label: wiresValue,    title: "Wires",    icon: "link",                    color: .systemPurple),
+                StatItem(label: seedersValue,  title: "Seeders",  icon: "user-round-plus",  color: .systemGreen),
+                StatItem(label: leechersValue, title: "Leechers", icon: "user-round-minus", color: .systemBlue),
+                StatItem(label: wiresValue,    title: "Wires",    icon: "link",             color: .systemPurple),
             ]
         ))
 
@@ -985,7 +985,7 @@ class DownloadsViewController: UIViewController {
 
         let rescanBtn = UIButton(type: .system)
         let rescanConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        rescanBtn.setImage(UIImage.hayaseIcon("arrow.triangle.2.circlepath", withConfiguration: rescanConfig), for: .normal)
+        rescanBtn.setImage(UIImage.hayaseIcon("refresh-cw", withConfiguration: rescanConfig), for: .normal)
         rescanBtn.tintColor = .label
         rescanBtn.backgroundColor = .secondarySystemBackground
         rescanBtn.layer.cornerRadius = 6
@@ -994,7 +994,7 @@ class DownloadsViewController: UIViewController {
 
         let deleteBtn = UIButton(type: .system)
         let deleteConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        deleteBtn.setImage(UIImage.hayaseIcon("trash", withConfiguration: deleteConfig), for: .normal)
+        deleteBtn.setImage(UIImage.hayaseIcon("trash-2", withConfiguration: deleteConfig), for: .normal)
         deleteBtn.tintColor = .white
         deleteBtn.backgroundColor = .systemRed
         deleteBtn.layer.cornerRadius = 6

@@ -113,7 +113,7 @@ final class ExternalDisplayManager {
         label.translatesAutoresizingMaskIntoConstraints = false
         placeholder.addSubview(label)
 
-        let icon = UIImageView(image: UIImage.hayaseIcon("airplayvideo"))
+        let icon = UIImageView(image: UIImage.hayaseIcon("airplay"))
         icon.tintColor = UIColor(white: 0.7, alpha: 1)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false

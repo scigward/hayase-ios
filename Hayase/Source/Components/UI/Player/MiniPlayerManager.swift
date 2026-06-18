@@ -379,7 +379,7 @@ final class MiniPlayerManager {
         // Play/Pause button — center.
         let ppBtn = UIButton(type: .system)
         ppBtn.translatesAutoresizingMaskIntoConstraints = false
-        let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
+        let icon = activePlayer?.isPaused == true ? "play" : "pause"
         ppBtn.setImage(UIImage.hayaseIcon(icon), for: .normal)
         ppBtn.tintColor = .white
         ppBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
@@ -435,7 +435,7 @@ final class MiniPlayerManager {
         // Any button interaction resets the auto-hide timer.
         resetAutoHideTimer()
         activePlayer?.togglePlayPause()
-        let icon = activePlayer?.isPaused == true ? "play.fill" : "pause.fill"
+        let icon = activePlayer?.isPaused == true ? "play" : "pause"
         playPauseButton?.setImage(UIImage.hayaseIcon(icon), for: .normal)
     }
 
@@ -571,7 +571,7 @@ final class MiniPlayerManager {
     /// Updates the play/pause icon in the mini-player. Called from the
     /// player's didChangePause delegate.
     func updatePlayPauseIcon(isPaused: Bool) {
-        let icon = isPaused ? "play.fill" : "pause.fill"
+        let icon = isPaused ? "play" : "pause"
         playPauseButton?.setImage(UIImage.hayaseIcon(icon), for: .normal)
     }
 

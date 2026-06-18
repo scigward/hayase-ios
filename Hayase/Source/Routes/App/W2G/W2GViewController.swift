@@ -35,8 +35,8 @@ final class W2GViewController: UIViewController {
     private func configureTabBarItem() {
         tabBarItem = UITabBarItem(
             title: "W2G",
-            image: UIImage.hayaseIcon("person.2"),
-            selectedImage: UIImage.hayaseIcon("person.2.fill"))
+            image: UIImage.hayaseIcon("users"),
+            selectedImage: UIImage.hayaseIcon("users"))
     }
 
     // MARK: - Properties
@@ -314,11 +314,11 @@ final class W2GViewController: UIViewController {
     // MARK: - Setup Bottom Bar (matches web's flex mt-4 gap-2)
 
     private func setupBottomBar() {
-        // Quit button (DoorOpen icon equivalent)
-        configureIconButton(quitButton, systemName: "door.left.hand.open", action: #selector(quitTapped))
+        // Quit button
+        configureIconButton(quitButton, lucideId: "door-open", action: #selector(quitTapped))
 
-        // Invite button (UserPlus icon equivalent)
-        configureIconButton(inviteButton, systemName: "person.badge.plus", action: #selector(inviteTapped))
+        // Invite button
+        configureIconButton(inviteButton, lucideId: "user-plus", action: #selector(inviteTapped))
 
         // Message input
         messageField.placeholder = "Message"
@@ -332,8 +332,8 @@ final class W2GViewController: UIViewController {
         messageField.delegate = self
         messageField.autocorrectionType = .no
 
-        // Send button (SendHorizontal icon equivalent)
-        configureIconButton(sendButton, systemName: "paperplane.fill", action: #selector(sendTapped))
+        // Send button
+        configureIconButton(sendButton, lucideId: "send-horizontal", action: #selector(sendTapped))
 
         bottomBar.axis = .horizontal
         bottomBar.spacing = 8
@@ -348,9 +348,9 @@ final class W2GViewController: UIViewController {
         view.addSubview(bottomBar)
     }
 
-    private func configureIconButton(_ button: UIButton, systemName: String, action: Selector) {
+    private func configureIconButton(_ button: UIButton, lucideId: String, action: Selector) {
         let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        button.setImage(UIImage.hayaseIcon(systemName, withConfiguration: config), for: .normal)
+        button.setImage(UIImage.hayaseIcon(lucideId, withConfiguration: config), for: .normal)
         button.tintColor = .white
         button.addTarget(self, action: action, for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -1159,7 +1159,7 @@ private final class W2GUserCell: UITableViewCell {
 
         // External link button: ml-auto text-blue-600, ExternalLink size=18
         let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        linkButton.setImage(UIImage.hayaseIcon("arrow.up.right.square", withConfiguration: linkConfig), for: .normal)
+        linkButton.setImage(UIImage.hayaseIcon("external-link", withConfiguration: linkConfig), for: .normal)
         linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
         linkButton.translatesAutoresizingMaskIntoConstraints = false
         linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
