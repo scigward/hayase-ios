@@ -1405,12 +1405,6 @@ class BrowseAnimeViewController: UIViewController {
         syncBannerToCurrentScrollPosition()
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        // Restore nav bar when pushing child VCs (detail, etc.)
-        navigationController?.setNavigationBarHidden(false, animated: animated)
-    }
-
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         guard isViewLoaded else { return }

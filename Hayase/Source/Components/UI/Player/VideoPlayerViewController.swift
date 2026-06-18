@@ -265,6 +265,11 @@ final class VideoPlayerViewController: UIViewController {
 
     // Floating back button (top-left, no background bar — matches Hayase)
     private let backButton    = UIButton(type: .system)
+    private let mobileOptionsButton = UIButton(type: .system)
+    private let mobileControlsStack = UIStackView()
+    private let mobilePrevButton = UIButton(type: .system)
+    private let mobilePlayPauseButton = UIButton(type: .system)
+    private let mobileNextButton = UIButton(type: .system)
 
     // Hayase downloadstats.svelte — floating HUD at top center
     private let statsHUD = UIStackView()
@@ -288,6 +293,10 @@ final class VideoPlayerViewController: UIViewController {
     private let speedLabel      = UILabel()
     private let optionsButton   = UIButton(type: .system)
     private let airPlayPicker   = AVRoutePickerView()
+    private let bottomLeftControls = UIStackView()
+    private let bottomRightControls = UIStackView()
+    private var bottomControlConstraints: [NSLayoutConstraint] = []
+    private var mobileSeekBarBottomConstraint: NSLayoutConstraint?
 
     // MARK: - State
 
@@ -437,6 +446,7 @@ final class VideoPlayerViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        applyInterfaceMobilePlayerLayout()
         updateChapterMarkers()
         // Apply gradient to bottom bar (Hayase gradient: black → transparent)
         bottomGradient.frame = bottomBar.bounds
@@ -524,6 +534,7 @@ final class VideoPlayerViewController: UIViewController {
         setupBackButton()
         // Download stats — top center (Hayase downloadstats.svelte)
         setupStatsHUD()
+        setupMobilePlayerControls()
         // Bottom overlay with gradient
         setupBottomBar()
 
@@ -604,6 +615,76 @@ final class VideoPlayerViewController: UIViewController {
         stack.spacing = 8
         stack.alignment = .center
         return stack
+    }
+
+    private func setupMobilePlayerControls() {
+        mobileOptionsButton.translatesAutoresizingMaskIntoConstraints = false
+        mobileOptionsButton.tintColor = .white
+        mobileOptionsButton.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
+        mobileOptionsButton.layer.cornerRadius = 24
+        mobileOptionsButton.clipsToBounds = true
+        mobileOptionsButton.setImage(UIImage.hayaseIcon("ellipsis-vertical"), for: .normal)
+        mobileOptionsButton.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        mobileOptionsButton.addTarget(self, action: #selector(optionsTapped), for: .touchUpInside)
+        overlay.addSubview(mobileOptionsButton)
+
+        mobileControlsStack.translatesAutoresizingMaskIntoConstraints = false
+        mobileControlsStack.axis = .horizontal
+        mobileControlsStack.spacing = 40
+        mobileControlsStack.alignment = .center
+        overlay.addSubview(mobileControlsStack)
+
+        configureMobileControlButton(mobilePrevButton,
+                                     icon: "skip-back",
+                                     size: 40,
+                                     inset: 10,
+                                     action: #selector(prevTapped))
+        configureMobileControlButton(mobilePlayPauseButton,
+                                     icon: "pause",
+                                     size: 48,
+                                     inset: 10,
+                                     action: #selector(playPauseTapped))
+        configureMobileControlButton(mobileNextButton,
+                                     icon: "skip-forward",
+                                     size: 40,
+                                     inset: 10,
+                                     action: #selector(nextTapped))
+
+        mobileControlsStack.addArrangedSubview(mobilePrevButton)
+        mobileControlsStack.addArrangedSubview(mobilePlayPauseButton)
+        mobileControlsStack.addArrangedSubview(mobileNextButton)
+
+        NSLayoutConstraint.activate([
+            mobileOptionsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            mobileOptionsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            mobileOptionsButton.widthAnchor.constraint(equalToConstant: 48),
+            mobileOptionsButton.heightAnchor.constraint(equalToConstant: 48),
+
+            mobileControlsStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            mobileControlsStack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+
+            mobilePrevButton.widthAnchor.constraint(equalToConstant: 40),
+            mobilePrevButton.heightAnchor.constraint(equalToConstant: 40),
+            mobilePlayPauseButton.widthAnchor.constraint(equalToConstant: 48),
+            mobilePlayPauseButton.heightAnchor.constraint(equalToConstant: 48),
+            mobileNextButton.widthAnchor.constraint(equalToConstant: 40),
+            mobileNextButton.heightAnchor.constraint(equalToConstant: 40),
+        ])
+    }
+
+    private func configureMobileControlButton(_ button: UIButton,
+                                              icon: String,
+                                              size: CGFloat,
+                                              inset: CGFloat,
+                                              action: Selector) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tintColor = .white
+        button.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
+        button.layer.cornerRadius = size / 2
+        button.clipsToBounds = true
+        button.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
+        button.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        button.addTarget(self, action: action, for: .touchUpInside)
     }
 
     private func setupBottomBar() {
@@ -700,12 +781,16 @@ final class VideoPlayerViewController: UIViewController {
         } else {
             nextButton.isEnabled = true
         }
+        mobilePrevButton.isEnabled = prevButton.isEnabled
+        mobileNextButton.isEnabled = nextButton.isEnabled
 
-        let leftStack = UIStackView(arrangedSubviews: [playPauseButton, prevButton, nextButton])
-        leftStack.translatesAutoresizingMaskIntoConstraints = false
-        leftStack.axis = .horizontal
-        leftStack.spacing = 4
-        bottomBar.addSubview(leftStack)
+        bottomLeftControls.translatesAutoresizingMaskIntoConstraints = false
+        bottomLeftControls.axis = .horizontal
+        bottomLeftControls.spacing = 4
+        bottomLeftControls.addArrangedSubview(playPauseButton)
+        bottomLeftControls.addArrangedSubview(prevButton)
+        bottomLeftControls.addArrangedSubview(nextButton)
+        bottomBar.addSubview(bottomLeftControls)
 
         // Right side: speed label, options, AirPlay
         speedLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -723,15 +808,17 @@ final class VideoPlayerViewController: UIViewController {
         airPlayPicker.prioritizesVideoDevices = true
         bottomBar.addSubview(airPlayPicker)
 
-        let rightStack = UIStackView(arrangedSubviews: [speedLabel, optionsButton, airPlayPicker])
-        rightStack.translatesAutoresizingMaskIntoConstraints = false
-        rightStack.axis = .horizontal
-        rightStack.spacing = 4
-        rightStack.alignment = .center
-        bottomBar.addSubview(rightStack)
+        bottomRightControls.translatesAutoresizingMaskIntoConstraints = false
+        bottomRightControls.axis = .horizontal
+        bottomRightControls.spacing = 4
+        bottomRightControls.alignment = .center
+        bottomRightControls.addArrangedSubview(speedLabel)
+        bottomRightControls.addArrangedSubview(optionsButton)
+        bottomRightControls.addArrangedSubview(airPlayPicker)
+        bottomBar.addSubview(bottomRightControls)
 
         let pad: CGFloat = 16
-        NSLayoutConstraint.activate([
+        let baseConstraints = [
             // Row 1: title + episode (left), chapter + time (right)
             // Hayase: title on top, episode below; chapter above time on right
             titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad + 8),
@@ -753,16 +840,18 @@ final class VideoPlayerViewController: UIViewController {
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
             seekBar.heightAnchor.constraint(equalToConstant: 32),
+        ]
 
+        bottomControlConstraints = [
             // Row 3: controls
-            leftStack.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
-            leftStack.topAnchor.constraint(equalTo: seekBar.bottomAnchor, constant: 0),
-            leftStack.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -10),
-            leftStack.heightAnchor.constraint(equalToConstant: 44),
+            bottomLeftControls.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
+            bottomLeftControls.topAnchor.constraint(equalTo: seekBar.bottomAnchor, constant: 0),
+            bottomLeftControls.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -10),
+            bottomLeftControls.heightAnchor.constraint(equalToConstant: 44),
 
-            rightStack.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
-            rightStack.centerYAnchor.constraint(equalTo: leftStack.centerYAnchor),
-            rightStack.heightAnchor.constraint(equalToConstant: 44),
+            bottomRightControls.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
+            bottomRightControls.centerYAnchor.constraint(equalTo: bottomLeftControls.centerYAnchor),
+            bottomRightControls.heightAnchor.constraint(equalToConstant: 44),
 
             playPauseButton.widthAnchor.constraint(equalToConstant: 48),
             playPauseButton.heightAnchor.constraint(equalToConstant: 48),
@@ -776,7 +865,10 @@ final class VideoPlayerViewController: UIViewController {
             optionsButton.heightAnchor.constraint(equalToConstant: 48),
             airPlayPicker.widthAnchor.constraint(equalToConstant: 48),
             airPlayPicker.heightAnchor.constraint(equalToConstant: 48),
-        ])
+        ]
+        mobileSeekBarBottomConstraint = seekBar.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -12)
+        NSLayoutConstraint.activate(baseConstraints + bottomControlConstraints)
+        applyInterfaceMobilePlayerLayout()
     }
 
     private func setupGestures() {
@@ -1011,6 +1103,8 @@ final class VideoPlayerViewController: UIViewController {
         }
         prevButton.isEnabled = canGoPrev
         nextButton.isEnabled = canGoNext
+        mobilePrevButton.isEnabled = canGoPrev
+        mobileNextButton.isEnabled = canGoNext
         restoreProgress(path: path)
         startStatsTimer()
     }
@@ -1217,6 +1311,15 @@ final class VideoPlayerViewController: UIViewController {
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         if visible { scheduleHide() }
+    }
+
+    private func applyInterfaceMobilePlayerLayout() {
+        NSLayoutConstraint.deactivate(bottomControlConstraints)
+        mobileSeekBarBottomConstraint?.isActive = true
+        bottomLeftControls.isHidden = true
+        bottomRightControls.isHidden = true
+        mobileControlsStack.isHidden = false
+        mobileOptionsButton.isHidden = false
     }
 
     // MARK: - Time UI
@@ -1601,6 +1704,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         }
 
         playPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
+        mobilePlayPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
         if isPaused { hideWork?.cancel(); setControls(visible: true) }
 
         // Keep the mini-player's play/pause icon in sync.

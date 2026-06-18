@@ -39,6 +39,7 @@ final class HayaseSidebarController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
         installInterfaceRoutes()
+        configureHostedNavigationControllers()
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
@@ -51,6 +52,7 @@ final class HayaseSidebarController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateLayoutForCurrentWidth()
+        hideHostedNavigationBars()
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -87,6 +89,23 @@ final class HayaseSidebarController: UIViewController {
         let chat = UINavigationController(rootViewController: HayaseChatViewController())
         controllers.insert(chat, at: 4)
         tabBarControllerHost.setViewControllers(controllers, animated: false)
+    }
+
+    private func configureHostedNavigationControllers() {
+        for case let nav as UINavigationController in tabBarControllerHost.viewControllers ?? [] {
+            nav.delegate = self
+            nav.navigationBar.isHidden = true
+            nav.setNavigationBarHidden(true, animated: false)
+        }
+    }
+
+    private func hideHostedNavigationBars() {
+        for case let nav as UINavigationController in tabBarControllerHost.viewControllers ?? [] {
+            if !nav.isNavigationBarHidden {
+                nav.setNavigationBarHidden(true, animated: false)
+            }
+            nav.navigationBar.isHidden = true
+        }
     }
 
     private func setupDesktopSidebar() {
@@ -253,6 +272,16 @@ final class HayaseSidebarController: UIViewController {
 
 extension HayaseSidebarController: UITabBarControllerDelegate {
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+        hideHostedNavigationBars()
         updateSelection(animated: true)
+    }
+}
+
+extension HayaseSidebarController: UINavigationControllerDelegate {
+    func navigationController(_ navigationController: UINavigationController,
+                              willShow viewController: UIViewController,
+                              animated: Bool) {
+        navigationController.setNavigationBarHidden(true, animated: false)
+        navigationController.navigationBar.isHidden = true
     }
 }

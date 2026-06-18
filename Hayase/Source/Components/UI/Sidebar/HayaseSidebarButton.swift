@@ -17,8 +17,8 @@ final class HayaseSidebarButton: UIButton {
         case mobile
     }
 
-    private static let primaryColor = UIColor.HayaseTheme.foreground
-    private static let primaryForeground = UIColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1)
+    private static let primaryColor = UIColor.HayaseTheme.primary
+    private static let primaryForeground = UIColor.HayaseTheme.primaryForeground
     private static let donateColor = UIColor(red: 250/255, green: 104/255, blue: 182/255, alpha: 1)
 
     private let route: HayaseSidebarRoute?
@@ -106,6 +106,7 @@ final class HayaseSidebarButton: UIButton {
         let changes = {
             self.activeBackground.alpha = active ? 1 : 0
             self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
+            self.imageView?.tintColor = self.tintColor
         }
         if animated {
             UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut], animations: changes)

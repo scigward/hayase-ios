@@ -226,7 +226,7 @@ private final class HayaseSidebarLogoButton: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         let side = min(bounds.width, bounds.height)
-        let inset: CGFloat = 5
+        let inset: CGFloat = 10
         let scale = (side - inset * 2) / 66.145833
         var transform = CGAffineTransform(translationX: (bounds.width - side) / 2 + inset,
                                           y: (bounds.height - side) / 2 + inset)
