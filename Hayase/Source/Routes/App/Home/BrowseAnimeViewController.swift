@@ -1365,6 +1365,7 @@ class BrowseAnimeViewController: UIViewController {
     private var searchDebounceTimer: Timer?
     private var homeRefreshTimer: Timer?
     private var personalSectionsLoadID = 0
+    private var lastLocalContinueIDs: [Int] = []
 
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
 
@@ -1626,7 +1627,7 @@ class BrowseAnimeViewController: UIViewController {
             selector: #selector(handleUpdateFailed),
             name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: nil)
         NotificationCenter.default.addObserver(self,
-            selector: #selector(handleTrackingDidChange),
+            selector: #selector(handleTrackingDidChange(_:)),
             name: LocalTracking.didChange, object: nil)
     }
 
@@ -1667,21 +1668,22 @@ class BrowseAnimeViewController: UIViewController {
                 self.bannerItems = fetchedSections.first?.items ?? []
             }
 
-            self.loadPersonalSections(fetchedSections: fetchedSections)
+            self.loadPersonalSections(fetchedSections: fetchedSections, fetchRemoteLists: true)
         }
     }
 
-    private func loadPersonalSections(fetchedSections: [HomeSectionData]) {
+    private func loadPersonalSections(fetchedSections: [HomeSectionData], fetchRemoteLists: Bool) {
         // Fetch personalized sections from AniList user lists and local watch progress.
         // This mirrors desktop home/+page.svelte, with local progress merged into
         // Continue Watching so offline/local tracking updates the home page too.
         personalSectionsLoadID += 1
         let loadID = personalSectionsLoadID
 
-        AniListTracking.shared.fetchUserLists { [weak self] userListIDs in
+        let applyLists: (AniListTracking.UserListIDs?) -> Void = { [weak self] userListIDs in
             guard let self = self else { return }
 
             let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+            self.lastLocalContinueIDs = localContinueIDs
             let remoteContinueIDs = userListIDs?.continueIDs ?? []
             let continueIDs = self.mergeIDs(localContinueIDs, remoteContinueIDs)
 
@@ -1745,6 +1747,12 @@ class BrowseAnimeViewController: UIViewController {
                 self.finishLoadSections(fetchedSections: fetchedSections, personalSections: sorted)
             }
         }
+
+        if fetchRemoteLists {
+            AniListTracking.shared.fetchUserLists(completion: applyLists)
+        } else {
+            applyLists(AniListTracking.shared.cachedUserLists())
+        }
     }
 
     private func mergeIDs(_ primary: [Int], _ secondary: [Int]) -> [Int] {
@@ -1756,15 +1764,18 @@ class BrowseAnimeViewController: UIViewController {
         return result
     }
 
-    @objc private func handleTrackingDidChange() {
+    @objc private func handleTrackingDidChange(_ notification: Notification) {
         guard !isSearching else { return }
+        let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+        let remoteListChanged = notification.object is AniListTracking
+        guard remoteListChanged || fetchedHomeSections.isEmpty || currentLocalContinueIDs != lastLocalContinueIDs else { return }
         homeRefreshTimer?.invalidate()
         homeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
             guard let self else { return }
             if self.fetchedHomeSections.isEmpty {
                 self.loadSections()
             } else {
-                self.loadPersonalSections(fetchedSections: self.fetchedHomeSections)
+                self.loadPersonalSections(fetchedSections: self.fetchedHomeSections, fetchRemoteLists: false)
             }
         }
     }
@@ -1895,7 +1906,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             cell.onBookmark = { item in
                 AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { entry, _, _, _, _ in
                     if let listID = entry?.listID {
-                        AniListTracking.shared.deleteEntry(listID: listID)
+                        AniListTracking.shared.deleteEntry(listID: listID, mediaID: item.id)
                     } else {
                         AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING")
                     }

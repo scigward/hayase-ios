@@ -501,6 +501,11 @@ class SettingsViewController: UIViewController {
         return btn
     }
 
+    func openAccountsTab() {
+        loadViewIfNeeded()
+        setSelectedTab(.accounts)
+    }
+
     /// Updates a tab button's appearance to match Hayase's active/inactive states.
     private func updateTabAppearance(_ btn: UIButton, isSelected: Bool) {
         if isSelected {
@@ -514,7 +519,11 @@ class SettingsViewController: UIViewController {
 
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
+        setSelectedTab(tab)
+    }
 
+    private func setSelectedTab(_ tab: SettingsTab) {
+        guard tab != selectedTab else { return }
         // 1. Snapshot the OLD table content *before* mutating anything.
         let snapshot = tableView.snapshotView(afterScreenUpdates: false)
 

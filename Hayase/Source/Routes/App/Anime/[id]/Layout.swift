@@ -1409,7 +1409,7 @@ class AnimeDetailViewController: UIViewController {
             if self.isOnList {
                 AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { [weak self] entry, _, _, _, _ in
                     if let listID = entry?.listID {
-                        AniListTracking.shared.deleteEntry(listID: listID) { [weak self] _ in
+                        AniListTracking.shared.deleteEntry(listID: listID, mediaID: item.id) { [weak self] _ in
                             self?.refreshButtonStates()
                         }
                     }

@@ -51,12 +51,19 @@ final class LocalTracking {
             customLists: [],
             updatedAt: Date())
 
+        let old = entry
         if let status { entry.status = status }
         if let progress { entry.progress = max(entry.progress, progress) }
         if let score { entry.score = score }
         if let repeatCount { entry.repeatCount = repeatCount }
         if let lists { entry.customLists = lists }
         if entry.status == nil { entry.status = "CURRENT" }
+        let changed = old.status != entry.status ||
+            old.progress != entry.progress ||
+            old.score != entry.score ||
+            old.repeatCount != entry.repeatCount ||
+            old.customLists != entry.customLists
+        guard changed else { return entry.animeEntry }
         entry.updatedAt = Date()
         entries[mediaID] = entry
         save(entries)

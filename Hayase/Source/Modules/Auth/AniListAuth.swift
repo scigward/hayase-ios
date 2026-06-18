@@ -257,22 +257,32 @@ final class AniListTracking {
                 score: self.jsonInt(entry["score"]),
                 repeatCount: self.jsonInt(entry["repeat"]),
                 customLists: enabledLists)
-            self.notifyTrackingDidChange()
+            self.updateCachedUserLists(mediaID: mediaID, status: result.status) { [weak self] in
+                self?.notifyTrackingDidChange()
+            }
             completion?(result)
         }
     }
 
     // MARK: - deleteEntry()
 
-    func deleteEntry(listID: Int, completion: ((Bool) -> Void)? = nil) {
+    func deleteEntry(listID: Int, mediaID: Int? = nil, completion: ((Bool) -> Void)? = nil) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion?(LocalTracking.shared.delete(mediaID: listID)); return
+            completion?(LocalTracking.shared.delete(mediaID: mediaID ?? listID)); return
         }
 
         authRequest(query: deleteEntryMutation, variables: ["id": listID]) { [weak self] data in
             let deleted = (data?["DeleteMediaListEntry"] as? [String: Any])?["deleted"] as? Bool ?? false
-            if deleted { self?.notifyTrackingDidChange() }
+            if deleted {
+                if let mediaID {
+                    self?.updateCachedUserLists(mediaID: mediaID, status: nil) { [weak self] in
+                        self?.notifyTrackingDidChange()
+                    }
+                } else {
+                    self?.notifyTrackingDidChange()
+                }
+            }
             completion?(deleted)
         }
     }
@@ -382,7 +392,25 @@ final class AniListTracking {
         let sequelIDs: [Int]
     }
 
-    func fetchUserLists(completion: @escaping (UserListIDs?) -> Void) {
+    private let userListCacheTTL: TimeInterval = 120
+    private let userListCacheQueue = DispatchQueue(label: "com.hayase.anilist.userListCache")
+    private var cachedUserListViewerID: Int?
+    private var cachedUserListIDs: UserListIDs?
+    private var cachedUserListFetchedAt: Date?
+    private var userListFetchCompletions: [((UserListIDs?) -> Void)] = []
+
+    func cachedUserLists() -> UserListIDs? {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              let viewerStr = TrackerAccountManager.shared.viewer(for: .anilist)?.id,
+              let viewerID = Int(viewerStr) else {
+            return nil
+        }
+        return userListCacheQueue.sync {
+            cachedUserListViewerID == viewerID ? cachedUserListIDs : nil
+        }
+    }
+
+    func fetchUserLists(forceRefresh: Bool = false, completion: @escaping (UserListIDs?) -> Void) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
             completion(nil); return
         }
@@ -391,73 +419,140 @@ final class AniListTracking {
             completion(nil); return
         }
 
-        authRequest(query: userListsQuery, variables: ["id": viewerID]) { data in
-            guard let collection = data?["MediaListCollection"] as? [String: Any],
-                  let lists = collection["lists"] as? [[String: Any]] else {
-                completion(nil); return
+        userListCacheQueue.async { [weak self] in
+            guard let self else { return }
+            if !forceRefresh,
+               self.cachedUserListViewerID == viewerID,
+               let cached = self.cachedUserListIDs,
+               let fetchedAt = self.cachedUserListFetchedAt,
+               Date().timeIntervalSince(fetchedAt) < self.userListCacheTTL {
+                DispatchQueue.main.async { completion(cached) }
+                return
             }
 
-            var continueIDs: [Int] = []
-            var planningIDs: [Int] = []
-            var sequelIDs: [Int] = []
+            let alreadyFetching = !self.userListFetchCompletions.isEmpty
+            self.userListFetchCompletions.append(completion)
+            if alreadyFetching { return }
 
-            for list in lists {
-                let status = list["status"] as? String
-                let entries = list["entries"] as? [[String: Any]] ?? []
+            self.authRequest(query: self.userListsQuery, variables: ["id": viewerID]) { [weak self] data in
+                guard let self else { return }
+                let parsed = self.parseUserListIDs(from: data)
+                self.userListCacheQueue.async {
+                    let completions = self.userListFetchCompletions
+                    self.userListFetchCompletions = []
+                    if let parsed {
+                        self.cachedUserListViewerID = viewerID
+                        self.cachedUserListIDs = parsed
+                        self.cachedUserListFetchedAt = Date()
+                    }
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(parsed) }
+                    }
+                }
+            }
+        }
+    }
 
-                if status == "CURRENT" || status == "REPEATING" {
-                    for entry in entries {
-                        guard let media = entry["media"] as? [String: Any],
-                              let mediaID = media["id"] as? Int else { continue }
-                        let mediaStatus = media["status"] as? String
-                        if mediaStatus == "FINISHED" {
-                            continueIDs.append(mediaID)
+    private func parseUserListIDs(from data: [String: Any]?) -> UserListIDs? {
+        guard let collection = data?["MediaListCollection"] as? [String: Any],
+              let lists = collection["lists"] as? [[String: Any]] else {
+            return nil
+        }
+
+        var continueIDs: [Int] = []
+        var planningIDs: [Int] = []
+        var sequelIDs: [Int] = []
+
+        for list in lists {
+            let status = list["status"] as? String
+            let entries = list["entries"] as? [[String: Any]] ?? []
+
+            if status == "CURRENT" || status == "REPEATING" {
+                for entry in entries {
+                    guard let media = entry["media"] as? [String: Any],
+                          let mediaID = media["id"] as? Int else { continue }
+                    let mediaStatus = media["status"] as? String
+                    if mediaStatus == "FINISHED" {
+                        continueIDs.append(mediaID)
+                    } else {
+                        let progress: Int
+                        if let mle = media["mediaListEntry"] as? [String: Any] {
+                            progress = (mle["progress"] as? Int) ?? 0
                         } else {
-                            let progress: Int
-                            if let mle = media["mediaListEntry"] as? [String: Any] {
-                                progress = (mle["progress"] as? Int) ?? 0
-                            } else {
-                                progress = 0
-                            }
-                            let nextEp: Int
-                            if let nae = media["nextAiringEpisode"] as? [String: Any] {
-                                nextEp = (nae["episode"] as? Int) ?? (progress + 2)
-                            } else {
-                                nextEp = progress + 2
-                            }
-                            if progress < nextEp - 1 {
-                                continueIDs.append(mediaID)
-                            }
+                            progress = 0
+                        }
+                        let nextEp: Int
+                        if let nae = media["nextAiringEpisode"] as? [String: Any] {
+                            nextEp = (nae["episode"] as? Int) ?? (progress + 2)
+                        } else {
+                            nextEp = progress + 2
+                        }
+                        if progress < nextEp - 1 {
+                            continueIDs.append(mediaID)
                         }
                     }
-                } else if status == "PLANNING" {
-                    for entry in entries {
-                        guard let media = entry["media"] as? [String: Any],
-                              let mediaID = media["id"] as? Int else { continue }
-                        planningIDs.append(mediaID)
-                    }
-                } else if status == "COMPLETED" {
-                    for entry in entries {
-                        guard let media = entry["media"] as? [String: Any],
-                              let relations = media["relations"] as? [String: Any],
-                              let edges = relations["edges"] as? [[String: Any]] else { continue }
-                        for edge in edges {
-                            if edge["relationType"] as? String == "SEQUEL",
-                               let node = edge["node"] as? [String: Any],
-                               let nodeID = node["id"] as? Int {
-                                sequelIDs.append(nodeID)
-                            }
+                }
+            } else if status == "PLANNING" {
+                for entry in entries {
+                    guard let media = entry["media"] as? [String: Any],
+                          let mediaID = media["id"] as? Int else { continue }
+                    planningIDs.append(mediaID)
+                }
+            } else if status == "COMPLETED" {
+                for entry in entries {
+                    guard let media = entry["media"] as? [String: Any],
+                          let relations = media["relations"] as? [String: Any],
+                          let edges = relations["edges"] as? [[String: Any]] else { continue }
+                    for edge in edges {
+                        if edge["relationType"] as? String == "SEQUEL",
+                           let node = edge["node"] as? [String: Any],
+                           let nodeID = node["id"] as? Int {
+                            sequelIDs.append(nodeID)
                         }
                     }
                 }
             }
+        }
 
-            let uniqueSequelIDs = Array(Set(sequelIDs))
+        return UserListIDs(
+            continueIDs: continueIDs,
+            planningIDs: planningIDs,
+            sequelIDs: orderedUnique(sequelIDs))
+    }
 
-            completion(UserListIDs(
-                continueIDs: continueIDs,
-                planningIDs: planningIDs,
-                sequelIDs: uniqueSequelIDs))
+    private func orderedUnique(_ ids: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        var result: [Int] = []
+        for id in ids where seen.insert(id).inserted {
+            result.append(id)
+        }
+        return result
+    }
+
+    private func updateCachedUserLists(mediaID: Int, status: String?, completion: (() -> Void)? = nil) {
+        userListCacheQueue.async { [weak self] in
+            guard let self, var cached = self.cachedUserListIDs else {
+                DispatchQueue.main.async { completion?() }
+                return
+            }
+            cached = UserListIDs(
+                continueIDs: cached.continueIDs.filter { $0 != mediaID },
+                planningIDs: cached.planningIDs.filter { $0 != mediaID },
+                sequelIDs: cached.sequelIDs.filter { $0 != mediaID })
+            if status == "PLANNING" {
+                cached = UserListIDs(
+                    continueIDs: cached.continueIDs,
+                    planningIDs: [mediaID] + cached.planningIDs,
+                    sequelIDs: cached.sequelIDs)
+            } else if status == "CURRENT" || status == "REPEATING" {
+                cached = UserListIDs(
+                    continueIDs: [mediaID] + cached.continueIDs,
+                    planningIDs: cached.planningIDs,
+                    sequelIDs: cached.sequelIDs)
+            }
+            self.cachedUserListIDs = cached
+            self.cachedUserListFetchedAt = Date()
+            DispatchQueue.main.async { completion?() }
         }
     }
 

@@ -17,6 +17,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 	func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Hayase is `color-scheme: only dark` — enforce dark mode throughout the app
         window?.overrideUserInterfaceStyle = .dark
+        installSidebarShellIfNeeded()
 
         // Configure audio session for playback. This is required for:
         // 1. PiP — the system refuses to enter PiP without a playback session
@@ -49,6 +50,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 		return true
 	}
+
+    private func installSidebarShellIfNeeded() {
+        guard let tabBarController = window?.rootViewController as? UITabBarController else { return }
+        window?.rootViewController = HayaseSidebarController(tabBarController: tabBarController)
+        window?.makeKeyAndVisible()
+    }
 
     // MARK: - URL Scheme Handling
 

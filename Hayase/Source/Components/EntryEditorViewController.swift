@@ -603,7 +603,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
             dismiss(animated: true)
             return
         }
-        AniListTracking.shared.deleteEntry(listID: listID) { [weak self] _ in
+        AniListTracking.shared.deleteEntry(listID: listID, mediaID: mediaID) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.onDelete?()
                 self?.dismiss(animated: true)
