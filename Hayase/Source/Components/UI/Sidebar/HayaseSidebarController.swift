@@ -33,7 +33,6 @@ final class HayaseSidebarController: UIViewController {
     private var sidebarBackdropAlpha: CGFloat = 0
     private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var sidebarWidthConstraint: NSLayoutConstraint?
-    private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
@@ -194,7 +193,6 @@ final class HayaseSidebarController: UIViewController {
         view.addSubview(sidebarContainer)
 
         sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
-        sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
         sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
         NSLayoutConstraint.activate([
             sidebarContainer.topAnchor.constraint(equalTo: view.topAnchor),
