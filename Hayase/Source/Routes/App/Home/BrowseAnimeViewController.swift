@@ -13,6 +13,8 @@ import CoreData
 private let hayaseHomeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
 private let hayaseHomeBannerBackdropURLKey = "url"
 private let hayaseHomeBannerBackdropAlphaKey = "alpha"
+private let hayaseHomeBannerBackdropScrollOffsetKey = "scrollOffset"
+private let hayaseHomeBannerBackdropHeightKey = "height"
 
 // MARK: - BannerGradientView
 
@@ -306,6 +308,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var avatarContainerWidthConstraint: NSLayoutConstraint!
     private var columnsLeadingConstraint: NSLayoutConstraint!
     private var columnsTrailingConstraint: NSLayoutConstraint!
+    private var backgroundImageLeadingConstraint: NSLayoutConstraint!
+    private var gradientLeadingConstraint: NSLayoutConstraint!
     private var backgroundImageHeightConstraint: NSLayoutConstraint!
     private var gradientHeightConstraint: NSLayoutConstraint!
 
@@ -414,6 +418,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
         columnsLeadingConstraint = columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         columnsTrailingConstraint = columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+        backgroundImageLeadingConstraint = backgroundImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
+        gradientLeadingConstraint = gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
         backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
         gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
 
@@ -431,12 +437,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         NSLayoutConstraint.activate([
             backgroundImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            backgroundImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            backgroundImageLeadingConstraint,
             backgroundImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             backgroundImageHeightConstraint,
 
             gradientView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            gradientLeadingConstraint,
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientHeightConstraint,
 
@@ -513,6 +519,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             columnsTrailingConstraint.constant = 0
             columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
             columnsStack.isLayoutMarginsRelativeArrangement = true
+            // Web home content uses -ml-14/pl-14, so the banner image starts at
+            // the app's left edge instead of after the 56pt sidebar.
+            backgroundImageLeadingConstraint.constant = -56
+            gradientLeadingConstraint.constant = -56
             backgroundImageHeightConstraint.isActive = false
             gradientHeightConstraint.isActive = false
             backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 90.0 / 80.0)
@@ -553,6 +563,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             columnsTrailingConstraint.constant = -16
             columnsStack.directionalLayoutMargins = .zero
             columnsStack.isLayoutMarginsRelativeArrangement = false
+            backgroundImageLeadingConstraint.constant = 0
+            gradientLeadingConstraint.constant = 0
             backgroundImageHeightConstraint.isActive = false
             gradientHeightConstraint.isActive = false
             backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
@@ -778,6 +790,22 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return luminance > 0.5 ? .black : .white
     }
 
+    private func currentBackdropHeight() -> CGFloat {
+        if backgroundImageView.bounds.height > 0 { return backgroundImageView.bounds.height }
+        if contentView.bounds.height > 0 {
+            return contentView.bounds.height * (traitCollection.horizontalSizeClass == .regular ? 90.0 / 80.0 : 80.0 / 70.0)
+        }
+        return 368
+    }
+
+    private func publishSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
+        var userInfo: [String: Any] = [hayaseHomeBannerBackdropHeightKey: currentBackdropHeight()]
+        if let urlString { userInfo[hayaseHomeBannerBackdropURLKey] = urlString }
+        if let scrollOffset { userInfo[hayaseHomeBannerBackdropScrollOffsetKey] = scrollOffset }
+        if let alpha { userInfo[hayaseHomeBannerBackdropAlphaKey] = alpha }
+        NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange, object: nil, userInfo: userInfo)
+    }
+
     private func loadBanner(for item: AnimeItem) {
         bannerTask?.cancel()
         bannerTask = nil
@@ -794,12 +822,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 return
             }
             DispatchQueue.main.async {
-                NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange,
-                                                object: nil,
-                                                userInfo: [
-                                                    hayaseHomeBannerBackdropURLKey: urlStr,
-                                                    hayaseHomeBannerBackdropAlphaKey: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1)
-                                                ])
+                self?.publishSidebarBackdrop(urlString: urlStr,
+                                             scrollOffset: CGFloat(0),
+                                             alpha: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1))
             }
             if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                 DispatchQueue.main.async {
@@ -1250,15 +1275,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Faded-out = 5% opacity (0.05), fully visible = 100% opacity (1.0).
         // transition-opacity duration-500 → UIView.animate withDuration: 0.5
         let shouldHide = scrollOffset > 100
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        publishSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
-        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
         // Only fade the image — keep gradientView at full opacity so its bottom stop
         // (UIColor(white: 0.04, alpha: 1) = --background) always covers the banner edge.
         // Fading the gradient out too exposes the raw image bottom against the background.
-        NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange,
-                                        object: nil,
-                                        userInfo: [hayaseHomeBannerBackdropAlphaKey: targetAlpha])
         UIView.animate(withDuration: 0.5) {
             self.backgroundImageView.alpha = targetAlpha
         }

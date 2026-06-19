@@ -16,6 +16,8 @@ let hayaseCardBackground = UIColor.HayaseTheme.card
 private let hayaseAnimeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
 private let hayaseAnimeBannerBackdropURLKey = "url"
 private let hayaseAnimeBannerBackdropAlphaKey = "alpha"
+private let hayaseAnimeBannerBackdropScrollOffsetKey = "scrollOffset"
+private let hayaseAnimeBannerBackdropHeightKey = "height"
 
 // MARK: - PaddedLabel
 
@@ -155,6 +157,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private var contentTopConstraint: NSLayoutConstraint?
     private var contentMaxWidthConstraint: NSLayoutConstraint?
+    private var bannerImageLeadingConstraint: NSLayoutConstraint?
 
     // MARK: - Banner
 
@@ -485,9 +488,11 @@ final class AnimeInfoHeaderView: UIView {
             addSubview($0)
         }
 
+        bannerImageLeadingConstraint = bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor)
+
         NSLayoutConstraint.activate([
             bannerImageView.topAnchor.constraint(equalTo: topAnchor),
-            bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bannerImageLeadingConstraint!,
             bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bannerImageView.heightAnchor.constraint(equalToConstant: AnimeInfoHeaderView.bannerHeight),
 
@@ -582,6 +587,10 @@ final class AnimeInfoHeaderView: UIView {
 
         let hPad: CGFloat = isRegular ? 56 : 12
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
+        // Web anime pages use -ml-14/pl-14 around the scroll area. The
+        // background banner begins at the app's left edge, not after the
+        // sidebar, so shift the native header image left by the same 56pt.
+        bannerImageLeadingConstraint?.constant = isRegular ? -56 : 0
 
         actionsTrailingSpacer.removeFromSuperview()
         for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
@@ -710,27 +719,28 @@ final class AnimeInfoHeaderView: UIView {
     // MARK: - Sidebar banner bridge
 
     func publishSidebarBackdrop() {
-        postSidebarBackdrop(urlString: displayedBannerURL)
+        postSidebarBackdrop(urlString: displayedBannerURL, scrollOffset: 0)
     }
 
-    private func postSidebarBackdrop(urlString: String?) {
-        guard let urlString else { return }
-        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange,
-                                        object: nil,
-                                        userInfo: [
-                                            hayaseAnimeBannerBackdropURLKey: urlString,
-                                            hayaseAnimeBannerBackdropAlphaKey: bannerHidden ? CGFloat(0.05) : CGFloat(1),
-                                        ])
+    private func currentSidebarBackdropHeight() -> CGFloat {
+        // banner-image.svelte uses h-[23rem] outside /app/home.
+        return 368
+    }
+
+    private func postSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
+        var userInfo: [String: Any] = [hayaseAnimeBannerBackdropHeightKey: currentSidebarBackdropHeight()]
+        if let urlString { userInfo[hayaseAnimeBannerBackdropURLKey] = urlString }
+        if let scrollOffset { userInfo[hayaseAnimeBannerBackdropScrollOffsetKey] = scrollOffset }
+        if let alpha { userInfo[hayaseAnimeBannerBackdropAlphaKey] = alpha }
+        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange, object: nil, userInfo: userInfo)
     }
 
     func applyScrollFade(_ scrollOffset: CGFloat) {
         let shouldHide = scrollOffset > 100
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        postSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
-        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange,
-                                        object: nil,
-                                        userInfo: [hayaseAnimeBannerBackdropAlphaKey: targetAlpha])
         UIView.animate(withDuration: 0.5) {
             self.bannerImageView.alpha = targetAlpha
         }

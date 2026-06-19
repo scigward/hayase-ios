@@ -15,6 +15,8 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
     private static let homeBannerBackdropURLKey = "url"
     private static let homeBannerBackdropAlphaKey = "alpha"
+    private static let homeBannerBackdropScrollOffsetKey = "scrollOffset"
+    private static let homeBannerBackdropHeightKey = "height"
 
     private let tabBarControllerHost: UITabBarController
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
@@ -28,6 +30,8 @@ final class HayaseSidebarController: UIViewController {
     private let sidebarBackdropGradientView = SidebarBackdropGradientView()
     private var sidebarBackdropTask: URLSessionDataTask?
     private var sidebarBackdropURL: String?
+    private var sidebarBackdropAlpha: CGFloat = 0
+    private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
@@ -191,6 +195,7 @@ final class HayaseSidebarController: UIViewController {
 
         sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
         sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
+        sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
         NSLayoutConstraint.activate([
             sidebarContainer.topAnchor.constraint(equalTo: view.topAnchor),
             sidebarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -198,9 +203,8 @@ final class HayaseSidebarController: UIViewController {
             sidebarWidthConstraint!,
             contentContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
 
-            // Web sidebarlist.svelte mounts <BannerImage class='w-14'> behind
-            // the buttons. Keep the image screen-width and clip it to the rail
-            // so anime pages show the same left slice as the main banner.
+            // sidebarlist.svelte renders <BannerImage class='w-14'>. The
+            // inner image is still w-screen; the rail only clips the left 56pt.
             sidebarBackdropImageView.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
             sidebarBackdropImageView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
             sidebarBackdropImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
@@ -278,16 +282,33 @@ final class HayaseSidebarController: UIViewController {
     }
 
     @objc private func homeBannerBackdropDidChange(_ notification: Notification) {
-        if let alpha = notification.userInfo?[Self.homeBannerBackdropAlphaKey] as? CGFloat {
-            UIView.animate(withDuration: 0.5) {
-                self.sidebarBackdropImageView.alpha = alpha
-                self.sidebarBackdropGradientView.alpha = alpha
+        let userInfo = notification.userInfo ?? [:]
+
+        if let height = userInfo[Self.homeBannerBackdropHeightKey] as? CGFloat, height > 0 {
+            sidebarBackdropHeightConstraint?.constant = height
+        }
+
+        if let scrollOffset = userInfo[Self.homeBannerBackdropScrollOffsetKey] as? CGFloat {
+            applySidebarBackdropScrollOffset(scrollOffset)
+        }
+
+        if let alpha = userInfo[Self.homeBannerBackdropAlphaKey] as? CGFloat {
+            let clampedAlpha = min(max(alpha, 0), 1)
+            if abs(clampedAlpha - sidebarBackdropAlpha) > 0.01 {
+                sidebarBackdropAlpha = clampedAlpha
+                UIView.animate(withDuration: 0.5) {
+                    self.sidebarBackdropImageView.alpha = clampedAlpha
+                    self.sidebarBackdropGradientView.alpha = clampedAlpha
+                }
+            } else {
+                sidebarBackdropImageView.alpha = clampedAlpha
+                sidebarBackdropGradientView.alpha = clampedAlpha
             }
         }
 
         updateSidebarBackground()
 
-        guard let urlString = notification.userInfo?[Self.homeBannerBackdropURLKey] as? String,
+        guard let urlString = userInfo[Self.homeBannerBackdropURLKey] as? String,
               urlString != sidebarBackdropURL,
               let url = URL(string: urlString) else { return }
 
@@ -313,6 +334,13 @@ final class HayaseSidebarController: UIViewController {
             }
         }
         sidebarBackdropTask?.resume()
+    }
+
+    private func applySidebarBackdropScrollOffset(_ scrollOffset: CGFloat) {
+        let y = -max(scrollOffset, 0)
+        let transform = CGAffineTransform(translationX: 0, y: y)
+        sidebarBackdropImageView.transform = transform
+        sidebarBackdropGradientView.transform = transform
     }
 
     private func configureActions() {
@@ -383,17 +411,13 @@ final class HayaseSidebarController: UIViewController {
 
     private func updateSidebarBackground() {
         let topController = topVisibleHostedController()
-        let isHomeRoute = topController is BrowseAnimeViewController
-        let isAnimeRoute = topController is AnimeDetailViewController
-        let allowsBannerBackdrop = isHomeRoute || isAnimeRoute
-        let showsBannerBackdrop = allowsBannerBackdrop && sidebarBackdropImageView.image != nil
+        let isBannerRoute = topController is BrowseAnimeViewController || topController is AnimeDetailViewController
+        let hasBackdrop = sidebarBackdropImageView.image != nil || sidebarBackdropURL != nil
+        let showsBannerBackdrop = isBannerRoute && hasBackdrop
 
-        // interface renders BannerImage from sidebarlist.svelte on both /app/home
-        // and /app/anime/*, clipped to w-14 behind the sidebar buttons. The
-        // image height comes from banner-image.svelte: md home = 90vh, anime = 23rem.
-        let homeHeight = max(view.bounds.height * 0.9, 368)
-        sidebarBackdropHeightConstraint?.constant = isHomeRoute ? homeHeight : 368
-
+        // app/+layout.svelte and sidebarlist.svelte both render BannerImage at
+        // absolute top-left. Keep the rail transparent on banner routes so the
+        // clipped w-14 sidebar slice stays attached to the page banner.
         sidebarContainer.backgroundColor = showsBannerBackdrop ? .clear : UIColor.HayaseTheme.background
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
