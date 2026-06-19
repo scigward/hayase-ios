@@ -140,6 +140,16 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
+    // Web renders the banner image as a layout background and then places the first row
+    // above it in normal flow.  In UIKit the backdrop lives in the hero cell, so clip only
+    // this visual layer; otherwise the 90vh image/gradient can paint over the first row.
+    private let bannerBackdropClipView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.clipsToBounds = true
+        return v
+    }()
+
     private let socialBlock: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
@@ -341,9 +351,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         contentView.addGestureRecognizer(swipeLeft)
         contentView.addGestureRecognizer(swipeRight)
 
+        bannerBackdropClipView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(bannerBackdropClipView)
+
         [backgroundImageView, gradientView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
+            bannerBackdropClipView.addSubview($0)
         }
 
         let socialTextStack = UIStackView(arrangedSubviews: [socialNameLabel, socialCaptionLabel])
@@ -421,10 +434,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
         columnsLeadingConstraint = columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         columnsTrailingConstraint = columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
-        backgroundImageLeadingConstraint = backgroundImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
-        gradientLeadingConstraint = gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
-        backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
-        gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
+        backgroundImageLeadingConstraint = backgroundImageView.leadingAnchor.constraint(equalTo: bannerBackdropClipView.leadingAnchor)
+        gradientLeadingConstraint = gradientView.leadingAnchor.constraint(equalTo: bannerBackdropClipView.leadingAnchor)
+        backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 80.0 / 70.0)
+        gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 80.0 / 70.0)
 
         // Tailwind image max-width: 100% makes this min(480pt, 85% of left column).
         let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
@@ -439,14 +452,19 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.90)
 
         NSLayoutConstraint.activate([
-            backgroundImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            bannerBackdropClipView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            bannerBackdropClipView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            bannerBackdropClipView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            bannerBackdropClipView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            backgroundImageView.topAnchor.constraint(equalTo: bannerBackdropClipView.topAnchor),
             backgroundImageLeadingConstraint,
-            backgroundImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            backgroundImageView.trailingAnchor.constraint(equalTo: bannerBackdropClipView.trailingAnchor),
             backgroundImageHeightConstraint,
 
-            gradientView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            gradientView.topAnchor.constraint(equalTo: bannerBackdropClipView.topAnchor),
             gradientLeadingConstraint,
-            gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            gradientView.trailingAnchor.constraint(equalTo: bannerBackdropClipView.trailingAnchor),
             gradientHeightConstraint,
 
             socialTopConstraint,
@@ -528,8 +546,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientLeadingConstraint.constant = -56
             backgroundImageHeightConstraint.isActive = false
             gradientHeightConstraint.isActive = false
-            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 90.0 / 80.0)
-            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 90.0 / 80.0)
+            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 90.0 / 80.0)
+            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 90.0 / 80.0)
             backgroundImageHeightConstraint.isActive = true
             gradientHeightConstraint.isActive = true
             socialTopConstraint.constant = 56      // md:pt-14
@@ -570,8 +588,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientLeadingConstraint.constant = 0
             backgroundImageHeightConstraint.isActive = false
             gradientHeightConstraint.isActive = false
-            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
-            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
+            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 80.0 / 70.0)
+            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 80.0 / 70.0)
             backgroundImageHeightConstraint.isActive = true
             gradientHeightConstraint.isActive = true
             socialTopConstraint.constant = 16
@@ -1577,11 +1595,13 @@ private final class SectionHeaderView: UICollectionReusableView {
             addSubview($0)
         }
         NSLayoutConstraint.activate([
-            // items-end: align text to bottom of header (Hayase uses items-end on section header div)
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            viewMoreButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            viewMoreButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            // home/+page.svelte: flex px-4 pt-5 items-end ...
+            // The header owns the 16pt horizontal padding and 20pt top padding; the row
+            // below starts immediately after it, with the card's p-4 creating the cover gap.
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            viewMoreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            viewMoreButton.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
             viewMoreButton.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
         ])
     }
@@ -1598,9 +1618,10 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Layout Constants
 
     private enum PosterLayout {
-        // Matches Hayase small.svelte: w-[9.5rem] = 152px wide, aspect-ratio 152:290
-        static let width: CGFloat = 152
-        static let height: CGFloat = 290
+        // small.svelte outer card: w-[11.5rem] h-[323px] flex flex-col p-4.
+        // The visible cover inside that padding remains 152×216pt.
+        static let width: CGFloat = 184
+        static let height: CGFloat = 323
     }
 
     // MARK: - Properties
@@ -1766,28 +1787,26 @@ class BrowseAnimeViewController: UIViewController {
                 return bannerSection
                 // No header supplementary for section 0
             }
-            // Sections 1..n: horizontal-scroll poster rows (Hayase small.svelte card ratio)
-            // Web: each card has p-4 (16pt) all around. Card content is w-[9.5rem] (152pt).
-            // So each card's outer slot = 152 + 32 = 184pt. Gap between covers = 32pt.
-            let itemW = PosterLayout.width + 32  // 152 + 32 = 184pt total slot width
+            // Sections 1..n mirror home/+page.svelte exactly:
+            //   header: flex px-4 pt-5 items-end
+            //   row:    flex overflow-x-scroll -mb-5 pb-5
+            //   card:   item w-[11.5rem] h-[323px] p-4
             let item = NSCollectionLayoutItem(
-                layoutSize: .init(widthDimension: .absolute(itemW),
+                layoutSize: .init(widthDimension: .absolute(PosterLayout.width),
                                   heightDimension: .absolute(PosterLayout.height)))
-            // 32pt trailing inset: content renders in left 152pt, gap on right
-            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 32)
             let group = NSCollectionLayoutGroup.horizontal(
-                layoutSize: .init(widthDimension: .estimated(itemW),
+                layoutSize: .init(widthDimension: .estimated(PosterLayout.width),
                                   heightDimension: .absolute(PosterLayout.height)),
                 subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
             section.orthogonalScrollingBehavior = .continuous
-            // Section leading = web first card's p-4 left (16pt)
-            // Section trailing = 0 (last card's 32pt trailing inset provides right padding)
-            // pb-5 = 20pt bottom (web scroll container -mb-5 pb-5)
-            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 20, trailing: 0)
-            // Header: pt-5 (20pt top) + text-lg (18pt) + 10pt bottom = 48pt total
+            // The web row has no extra top/left padding.  Its cover offset comes from
+            // SmallCard's p-4, so do not add another inset here.
+            section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0)
+            // pt-5 (20pt) + text-lg leading-none (~18pt).  42pt gives UIKit's Nunito
+            // line box enough room while keeping the row anchored like the web layout.
             let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0),
-                                                    heightDimension: .absolute(48))
+                                                    heightDimension: .absolute(42))
             let header = NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: headerSize,
                 elementKind: UICollectionView.elementKindSectionHeader,
