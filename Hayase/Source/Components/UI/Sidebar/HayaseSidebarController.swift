@@ -12,6 +12,10 @@ import UIKit
 // MARK: - HayaseSidebarController
 
 final class HayaseSidebarController: UIViewController {
+    private static let homeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
+    private static let homeBannerBackdropURLKey = "url"
+    private static let homeBannerBackdropAlphaKey = "alpha"
+
     private let tabBarControllerHost: UITabBarController
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
@@ -20,6 +24,10 @@ final class HayaseSidebarController: UIViewController {
     private let mobileGridContainer = UIView()
     private let mobileToggleButton = UIButton(type: .system)
     private let sidebarContainer = UIView()
+    private let sidebarBackdropImageView = UIImageView()
+    private let sidebarBackdropGradientView = SidebarBackdropGradientView()
+    private var sidebarBackdropTask: URLSessionDataTask?
+    private var sidebarBackdropURL: String?
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
@@ -44,6 +52,7 @@ final class HayaseSidebarController: UIViewController {
         setupDesktopSidebar()
         setupMobileSidebar()
         configureActions()
+        observeBannerBackdrop()
         observeTabSelection()
         updateSelection(animated: false)
         updateLayoutForCurrentWidth()
@@ -160,8 +169,19 @@ final class HayaseSidebarController: UIViewController {
         sidebarList.translatesAutoresizingMaskIntoConstraints = false
         sidebarList.backgroundColor = .clear
 
+        sidebarBackdropImageView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarBackdropImageView.contentMode = .scaleAspectFill
+        sidebarBackdropImageView.clipsToBounds = true
+        sidebarBackdropImageView.alpha = 0
+
+        sidebarBackdropGradientView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarBackdropGradientView.alpha = 0
+
         sidebarContainer.translatesAutoresizingMaskIntoConstraints = false
         sidebarContainer.backgroundColor = .clear
+        sidebarContainer.clipsToBounds = true
+        sidebarContainer.addSubview(sidebarBackdropImageView)
+        sidebarContainer.addSubview(sidebarBackdropGradientView)
         sidebarContainer.addSubview(sidebarList)
         view.addSubview(sidebarContainer)
 
@@ -172,6 +192,20 @@ final class HayaseSidebarController: UIViewController {
             sidebarContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             sidebarWidthConstraint!,
             contentContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
+
+            // Web sidebarlist.svelte mounts <BannerImage class='w-14'> behind the
+            // buttons. The image itself remains screen-width, then the sidebar
+            // clips to the left 56pt slice. Do the same so home does not show an
+            // unrelated solid black rail next to the banner.
+            sidebarBackdropImageView.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
+            sidebarBackdropImageView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
+            sidebarBackdropImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            sidebarBackdropImageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.90),
+
+            sidebarBackdropGradientView.topAnchor.constraint(equalTo: sidebarBackdropImageView.topAnchor),
+            sidebarBackdropGradientView.leadingAnchor.constraint(equalTo: sidebarBackdropImageView.leadingAnchor),
+            sidebarBackdropGradientView.widthAnchor.constraint(equalTo: sidebarBackdropImageView.widthAnchor),
+            sidebarBackdropGradientView.heightAnchor.constraint(equalTo: sidebarBackdropImageView.heightAnchor),
 
             sidebarList.topAnchor.constraint(equalTo: sidebarContainer.safeAreaLayoutGuide.topAnchor, constant: 8),
             sidebarList.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
@@ -228,6 +262,51 @@ final class HayaseSidebarController: UIViewController {
         let outsideTap = UITapGestureRecognizer(target: self, action: #selector(handleOutsideTap(_:)))
         outsideTap.cancelsTouchesInView = false
         view.addGestureRecognizer(outsideTap)
+    }
+
+    private func observeBannerBackdrop() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(homeBannerBackdropDidChange(_:)),
+                                               name: Self.homeBannerBackdropDidChange,
+                                               object: nil)
+    }
+
+    @objc private func homeBannerBackdropDidChange(_ notification: Notification) {
+        if let alpha = notification.userInfo?[Self.homeBannerBackdropAlphaKey] as? CGFloat {
+            UIView.animate(withDuration: 0.5) {
+                self.sidebarBackdropImageView.alpha = alpha
+                self.sidebarBackdropGradientView.alpha = alpha > 0 ? 1 : 0
+            }
+        }
+
+        guard let urlString = notification.userInfo?[Self.homeBannerBackdropURLKey] as? String,
+              urlString != sidebarBackdropURL,
+              let url = URL(string: urlString) else { return }
+
+        sidebarBackdropURL = urlString
+        sidebarBackdropTask?.cancel()
+
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            sidebarBackdropImageView.image = cached
+            sidebarBackdropImageView.alpha = 1
+            sidebarBackdropGradientView.alpha = 1
+            return
+        }
+
+        sidebarBackdropTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+            DispatchQueue.main.async {
+                guard self?.sidebarBackdropURL == urlString else { return }
+                UIView.transition(with: self?.sidebarBackdropImageView ?? UIImageView(),
+                                  duration: 0.3,
+                                  options: .transitionCrossDissolve,
+                                  animations: { self?.sidebarBackdropImageView.image = image })
+                self?.sidebarBackdropImageView.alpha = 1
+                self?.sidebarBackdropGradientView.alpha = 1
+            }
+        }
+        sidebarBackdropTask?.resume()
     }
 
     private func configureActions() {
@@ -298,7 +377,10 @@ final class HayaseSidebarController: UIViewController {
 
     private func updateSidebarBackground() {
         let selectedRoute = HayaseSidebarRoute.allCases.first { $0.tabIndex == tabBarControllerHost.selectedIndex }
-        sidebarContainer.backgroundColor = selectedRoute == .home ? UIColor.HayaseTheme.background : .clear
+        let showsHomeBackdrop = selectedRoute == .home
+        sidebarContainer.backgroundColor = .clear
+        sidebarBackdropImageView.isHidden = !showsHomeBackdrop
+        sidebarBackdropGradientView.isHidden = !showsHomeBackdrop
         sidebarList.backgroundColor = .clear
     }
 
@@ -333,6 +415,52 @@ final class HayaseSidebarController: UIViewController {
         if !mobileLauncher.frame.contains(point) {
             closeMobileMenu()
         }
+    }
+
+    deinit {
+        sidebarBackdropTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
+    }
+}
+
+// MARK: - SidebarBackdropGradientView
+
+private final class SidebarBackdropGradientView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard bounds.width > 0, bounds.height > 0,
+              let context = UIGraphicsGetCurrentContext(),
+              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                        colors: [
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.cgColor,
+                                        ] as CFArray,
+                                        locations: [0.0, 0.3056, 1.0]) else { return }
+
+        let center = CGPoint(x: bounds.width * 0.5918, y: bounds.height * 0.3497)
+        context.saveGState()
+        context.clip(to: bounds)
+        context.translateBy(x: center.x, y: center.y)
+        context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
+        context.drawRadialGradient(gradient,
+                                   startCenter: .zero,
+                                   startRadius: 0,
+                                   endCenter: .zero,
+                                   endRadius: 1,
+                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        context.restoreGState()
     }
 }
 

@@ -10,6 +10,10 @@
 import UIKit
 import CoreData
 
+private let hayaseHomeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
+private let hayaseHomeBannerBackdropURLKey = "url"
+private let hayaseHomeBannerBackdropAlphaKey = "alpha"
+
 // MARK: - BannerGradientView
 
 private final class BannerGradientView: UIView {
@@ -789,6 +793,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 DispatchQueue.main.async { biv.image = nil }
                 return
             }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange,
+                                                object: nil,
+                                                userInfo: [
+                                                    hayaseHomeBannerBackdropURLKey: urlStr,
+                                                    hayaseHomeBannerBackdropAlphaKey: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1)
+                                                ])
+            }
             if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                 DispatchQueue.main.async {
                     self?.applyContentMode(for: cached)
@@ -1244,6 +1256,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Only fade the image — keep gradientView at full opacity so its bottom stop
         // (UIColor(white: 0.04, alpha: 1) = --background) always covers the banner edge.
         // Fading the gradient out too exposes the raw image bottom against the background.
+        NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange,
+                                        object: nil,
+                                        userInfo: [hayaseHomeBannerBackdropAlphaKey: targetAlpha])
         UIView.animate(withDuration: 0.5) {
             self.backgroundImageView.alpha = targetAlpha
         }
