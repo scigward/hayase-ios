@@ -148,6 +148,27 @@ enum AniListQueries {
     }
     """
 
+    // MARK: - Following many (full-banner.svelte)
+
+    static let followingMany = """
+    query FollowingMany($ids: [Int]!) {
+      Page {
+        mediaList(mediaId_in: $ids, isFollowing: true, sort: UPDATED_TIME_DESC) {
+          id
+          status
+          score
+          progress
+          media { id }
+          user {
+            id
+            name
+            avatar { large }
+          }
+        }
+      }
+    }
+    """
+
     // MARK: - ID-based fetch
 
     static let idIn = """

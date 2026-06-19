@@ -60,6 +60,14 @@ struct HomeSectionData {
     var filterSort: String? = nil
 }
 
+// MARK: - AniList user summary
+
+struct AniListUserSummary {
+    let id: Int
+    let name: String
+    let avatarURL: String?
+}
+
 // MARK: - Staff + Stats models
 
 struct AnimeStaffMember {

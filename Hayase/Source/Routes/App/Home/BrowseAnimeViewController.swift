@@ -110,6 +110,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
     private var clearlogoTask: URLSessionDataTask?
+    private var avatarTasks: [URLSessionDataTask] = []
+    private var followingUsersByMediaID: [Int: [AniListUserSummary]] = [:]
     /// Tracks whether the banner is currently in the faded-out (5% opacity) state.
     private var bannerHidden = false
     /// Stored dot width constraints keyed by index — updated in-place instead of recreated.
@@ -128,6 +130,38 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
+
+    private let socialBlock: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.spacing = 8
+        sv.alignment = .center
+        sv.isHidden = true
+        return sv
+    }()
+
+    private let avatarContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    private let socialNameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12, weight: .medium)
+        l.textColor = UIColor.HayaseTheme.mutedForeground
+        l.numberOfLines = 1
+        return l
+    }()
+
+    private let socialCaptionLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 14, weight: .medium)
+        l.textColor = UIColor.HayaseTheme.foreground
+        l.numberOfLines = 1
+        l.text = "Also Watched This Series"
+        return l
+    }()
 
     // Title: font-black text-3xl lg:text-4xl line-clamp-2 text-white text-shadow-lg
     //   max-w-[85%] leading-tight text-balance text-center (mobile) lg:text-left
@@ -263,6 +297,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var clearlogoWidthMax: NSLayoutConstraint!
     private var clearlogoHeightMax: NSLayoutConstraint!
     private var clearlogoAspectConstraint: NSLayoutConstraint?
+    private var socialTopConstraint: NSLayoutConstraint!
+    private var socialLeadingConstraint: NSLayoutConstraint!
+    private var avatarContainerWidthConstraint: NSLayoutConstraint!
 
     // MARK: Init
 
@@ -293,6 +330,16 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
+
+        let socialTextStack = UIStackView(arrangedSubviews: [socialNameLabel, socialCaptionLabel])
+        socialTextStack.axis = .vertical
+        socialTextStack.spacing = 2
+        socialTextStack.alignment = .leading
+        socialTextStack.distribution = .fillEqually
+        socialBlock.addArrangedSubview(avatarContainer)
+        socialBlock.addArrangedSubview(socialTextStack)
+        socialBlock.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(socialBlock)
 
         // Button row: [Play (grow)  Favorite  Bookmark] — matches web PlayButton/FavoriteButton/BookmarkButton
         // Web: flex flex-row w-[280px] max-w-full
@@ -354,6 +401,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // inside the left column; the logo image itself is w-[30rem].
         clearlogoWidthMax = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
         clearlogoHeightMax = clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 150)
+        socialTopConstraint = socialBlock.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16)
+        socialLeadingConstraint = socialBlock.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+        avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
 
         // Tailwind image max-width: 100% makes this min(480pt, 85% of left column).
         let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
@@ -377,6 +427,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            socialTopConstraint,
+            socialLeadingConstraint,
+            avatarContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 32),
+            avatarContainerWidthConstraint,
+            avatarContainer.heightAnchor.constraint(equalToConstant: 32),
 
             dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
@@ -442,6 +498,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Column padding: lg:pl-5 = 20pt left, lg:pr-5 = 20pt right
             columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
             columnsStack.isLayoutMarginsRelativeArrangement = true
+            socialTopConstraint.constant = 56      // md:pt-14
+            socialLeadingConstraint.constant = 40  // md:pl-10
         } else {
             // iPhone layout — web mobile
             columnsStack.axis = .vertical
@@ -472,6 +530,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             descriptionMaxWidthConstraint.isActive = true
             columnsStack.directionalLayoutMargins = .zero
             columnsStack.isLayoutMarginsRelativeArrangement = false
+            socialTopConstraint.constant = 16
+            socialLeadingConstraint.constant = 16
         }
     }
 
@@ -488,9 +548,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // full-banner.svelte: shuffleAndFilter → media with bannerImage OR trailer
         let filtered = items.filter { $0.bannerURL != nil || $0.coverURL != nil }
         self.items = filtered.isEmpty ? Array(items.prefix(5)) : Array(filtered.prefix(5))
+        followingUsersByMediaID = [:]
         currentIndex = 0
         rebuildDots()
         displayItem(animated: false)
+        loadFollowingUsers(for: self.items)
         startTimer()
     }
 
@@ -513,6 +575,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             self.updateBadges(for: item, customColor: customColor)
             self.updateGenres(for: item, customColor: customColor)
             self.updateDots()
+            self.updateSocialBlock(for: item)
             self.playButton.backgroundColor = customColor
             // Determine text contrast (Hayase: text-contrast — black or white based on luminance)
             let textColor = Self.contrastColor(for: customColor)
@@ -562,6 +625,103 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
         loadBanner(for: item)
         loadClearlogo(for: item)
+    }
+
+    private func loadFollowingUsers(for items: [AnimeItem]) {
+        let ids = items.map(\.id)
+        AniListClient.shared.fetchFollowingMany(animeIDs: ids) { [weak self] usersByMediaID in
+            guard let self = self else { return }
+            let currentIDs = self.items.map(\.id).sorted()
+            guard currentIDs == ids.sorted() else { return }
+            self.followingUsersByMediaID = usersByMediaID
+            if self.currentIndex < self.items.count {
+                self.updateSocialBlock(for: self.items[self.currentIndex])
+            }
+        }
+    }
+
+    private func updateSocialBlock(for item: AnimeItem) {
+        let users = followingUsersByMediaID[item.id] ?? []
+        guard let firstUser = users.first else {
+            socialBlock.isHidden = true
+            rebuildAvatarStack(users: [])
+            return
+        }
+        socialNameLabel.text = firstUser.name
+        rebuildAvatarStack(users: users)
+        socialBlock.alpha = socialBlock.isHidden ? 0 : socialBlock.alpha
+        socialBlock.isHidden = false
+        UIView.animate(withDuration: 0.2) {
+            self.socialBlock.alpha = 1
+        }
+    }
+
+    private func rebuildAvatarStack(users: [AniListUserSummary]) {
+        avatarTasks.forEach { $0.cancel() }
+        avatarTasks = []
+        avatarContainer.subviews.forEach { $0.removeFromSuperview() }
+        guard !users.isEmpty else {
+            avatarContainerWidthConstraint.constant = 32
+            return
+        }
+
+        let size: CGFloat = 32
+        let overlap: CGFloat = 8
+        avatarContainerWidthConstraint.constant = size + CGFloat(max(0, users.count - 1)) * (size - overlap)
+
+        for (index, user) in users.enumerated() {
+            let imageView = UIImageView()
+            imageView.backgroundColor = UIColor.HayaseTheme.background
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            imageView.layer.cornerRadius = size / 2
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            avatarContainer.addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor,
+                                                   constant: CGFloat(index) * (size - overlap)),
+                imageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: size),
+                imageView.heightAnchor.constraint(equalToConstant: size)
+            ])
+            if let initial = user.name.first {
+                imageView.image = Self.avatarFallbackImage(String(initial).uppercased(), size: size)
+            }
+            loadAvatar(for: user, into: imageView)
+        }
+    }
+
+    private func loadAvatar(for user: AniListUserSummary, into imageView: UIImageView) {
+        guard let urlString = user.avatarURL, let url = URL(string: urlString) else { return }
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            imageView.image = cached
+            return
+        }
+        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+            DispatchQueue.main.async {
+                imageView.image = image
+            }
+        }
+        avatarTasks.append(task)
+        task.resume()
+    }
+
+    private static func avatarFallbackImage(_ text: String, size: CGFloat) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { context in
+            UIColor.HayaseTheme.accent.setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: size, height: size))
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.nunito(ofSize: 13, weight: .bold),
+                .foregroundColor: UIColor.HayaseTheme.foreground
+            ]
+            let attributed = NSAttributedString(string: text, attributes: attributes)
+            let textSize = attributed.size()
+            attributed.draw(at: CGPoint(x: (size - textSize.width) / 2,
+                                        y: (size - textSize.height) / 2))
+        }
     }
 
     /// Parse hex color string (e.g. "#e3566b") to UIColor
@@ -996,11 +1156,18 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         fanartTask = nil
         clearlogoTask?.cancel()
         clearlogoTask = nil
+        avatarTasks.forEach { $0.cancel() }
+        avatarTasks = []
         items = []
+        followingUsersByMediaID = [:]
         backgroundImageView.image = nil
         clearlogoImageView.image = nil
         clearlogoImageView.isHidden = true
         titleLabel.isHidden = false
+        socialBlock.isHidden = true
+        socialBlock.alpha = 1
+        socialNameLabel.text = nil
+        rebuildAvatarStack(users: [])
         bannerHidden = false
         backgroundImageView.alpha = 1.0
         gradientView.alpha = 1.0

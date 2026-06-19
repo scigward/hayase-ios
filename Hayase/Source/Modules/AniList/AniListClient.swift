@@ -16,6 +16,9 @@ public final class AniListClient: NSObject {
     static let shared = AniListClient()
 
     private let graphQLEndpoint = "https://graphql.anilist.co"
+    private let followingManyQueue = DispatchQueue(label: "com.hayase.anilist.followingMany")
+    private var followingManyCache: [String: (viewerID: Int, usersByMediaID: [Int: [AniListUserSummary]])] = [:]
+    private var followingManyCompletions: [String: [([Int: [AniListUserSummary]]) -> Void]] = [:]
 
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
@@ -228,6 +231,88 @@ public final class AniListClient: NSObject {
         group.notify(queue: .main) {
             completion(results.compactMap { $0 })
         }
+    }
+
+    func fetchFollowingMany(animeIDs: [Int], completion: @escaping ([Int: [AniListUserSummary]]) -> Void) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              let viewerStr = TrackerAccountManager.shared.viewer(for: .anilist)?.id,
+              let viewerID = Int(viewerStr) else {
+            completion([:]); return
+        }
+        let ids = Array(Set(animeIDs)).sorted()
+        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else {
+            completion([:]); return
+        }
+        let key = ids.map(String.init).joined(separator: ",")
+
+        followingManyQueue.async { [weak self] in
+            guard let self = self else { return }
+            if let cached = self.followingManyCache[key], cached.viewerID == viewerID {
+                DispatchQueue.main.async { completion(cached.usersByMediaID) }
+                return
+            }
+
+            let alreadyFetching = self.followingManyCompletions[key] != nil
+            self.followingManyCompletions[key, default: []].append(completion)
+            if alreadyFetching { return }
+
+            var request = self.authorizedRequest(url: url)
+            request.httpBody = try? JSONSerialization.data(withJSONObject: [
+                "query": AniListQueries.followingMany,
+                "variables": ["ids": ids]
+            ])
+
+            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+                guard let self = self else { return }
+                if let error = error {
+                    NSLog("[AniListClient] followingMany network error: %@", error.localizedDescription)
+                }
+
+                let usersByMediaID = self.parseFollowingMany(data: data, viewerID: viewerID)
+                self.followingManyQueue.async {
+                    let completions = self.followingManyCompletions.removeValue(forKey: key) ?? []
+                    self.followingManyCache[key] = (viewerID: viewerID, usersByMediaID: usersByMediaID)
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(usersByMediaID) }
+                    }
+                }
+            }.resume()
+        }
+    }
+
+    private func parseFollowingMany(data: Data?, viewerID: Int) -> [Int: [AniListUserSummary]] {
+        guard let data = data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        if let errors = json["errors"] as? [[String: Any]] {
+            let messages = errors.compactMap { $0["message"] as? String }
+            NSLog("[AniListClient] followingMany GraphQL errors: %@", messages.joined(separator: ", "))
+        }
+        guard let dataObject = json["data"] as? [String: Any],
+              let page = dataObject["Page"] as? [String: Any],
+              let mediaList = page["mediaList"] as? [Any] else {
+            return [:]
+        }
+
+        var usersByMediaID: [Int: [AniListUserSummary]] = [:]
+        var seenPairs = Set<String>()
+        for rawEntry in mediaList {
+            guard let entry = rawEntry as? [String: Any] else { continue }
+            guard let media = entry["media"] as? [String: Any],
+                  let mediaID = media["id"] as? Int,
+                  let user = entry["user"] as? [String: Any],
+                  let userID = user["id"] as? Int,
+                  userID != viewerID,
+                  let name = user["name"] as? String else { continue }
+            let pairKey = "\(mediaID):\(userID)"
+            guard seenPairs.insert(pairKey).inserted else { continue }
+            let avatar = (user["avatar"] as? [String: Any])?["large"] as? String
+            usersByMediaID[mediaID, default: []].append(AniListUserSummary(id: userID,
+                                                                           name: name,
+                                                                           avatarURL: avatar))
+        }
+        return usersByMediaID
     }
 
     private func fetchSectionItems(variables: [String: Any], completion: @escaping ([AnimeItem]) -> Void) {
