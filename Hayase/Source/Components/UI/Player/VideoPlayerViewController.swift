@@ -295,10 +295,12 @@ private final class InterfaceProgressButton: UIControl {
         label.font = .nunito(ofSize: 14, weight: .bold)
         label.textColor = UIColor.HayaseTheme.primaryForeground
         label.textAlignment = .center
+        label.isUserInteractionEnabled = false
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
 
         progressView.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
+        progressView.isUserInteractionEnabled = false
         progressView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(progressView)
 
@@ -317,6 +319,13 @@ private final class InterfaceProgressButton: UIControl {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !pendingCompletion {
+            progressView.transform = CGAffineTransform(translationX: bounds.width, y: 0)
+        }
+    }
 
     override var intrinsicContentSize: CGSize {
         let labelSize = label.intrinsicContentSize
@@ -1689,6 +1698,7 @@ final class VideoPlayerViewController: UIViewController {
         currentSkippableChapter = next
         if let next {
             skipChapterButton.setTitle("Skip \(next.skipType)")
+            skipChapterButton.stopProgress()
         } else {
             skipChapterButton.stopProgress()
         }

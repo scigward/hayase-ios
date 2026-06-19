@@ -70,13 +70,12 @@ final class HayaseSidebarController: UIViewController {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        hideHostedNavigationBars()
         updateLayoutForCurrentWidth()
     }
 
     private func setupContentHost() {
-        tabBarControllerHost.tabBar.isHidden = true
-        tabBarControllerHost.tabBar.alpha = 0
-        tabBarControllerHost.tabBar.isUserInteractionEnabled = false
+        hideNativeTabNavigation(in: tabBarControllerHost)
         tabBarControllerHost.delegate = self
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -122,13 +121,27 @@ final class HayaseSidebarController: UIViewController {
         hideNavigationChrome(in: tabBarControllerHost)
     }
 
+    private func hideNativeTabNavigation(in tab: UITabBarController) {
+        tab.tabBar.isHidden = true
+        tab.tabBar.alpha = 0
+        tab.tabBar.isUserInteractionEnabled = false
+
+        if #available(iOS 18.0, *) {
+            // iPadOS 18 can promote a UITabBarController into Apple's native
+            // tab/sidebar chrome on regular-width screens. This app owns its
+            // navigation UI, so keep UIKit's tab chrome fully disabled.
+            tab.mode = .tabBar
+            tab.setTabBarHidden(true, animated: false)
+            tab.sidebar.isHidden = true
+        }
+
+        tab.view.setNeedsLayout()
+    }
+
     private func hideNavigationChrome(in viewController: UIViewController?) {
         guard let viewController else { return }
         if let tab = viewController as? UITabBarController {
-            tab.tabBar.isHidden = true
-            tab.tabBar.alpha = 0
-            tab.tabBar.isUserInteractionEnabled = false
-            tab.view.setNeedsLayout()
+            hideNativeTabNavigation(in: tab)
         }
         if let nav = viewController as? UINavigationController {
             nav.setNavigationBarHidden(true, animated: false)
@@ -271,6 +284,7 @@ final class HayaseSidebarController: UIViewController {
             && view.bounds.width > view.bounds.height
             && view.bounds.width >= 568
         let isDesktop = view.bounds.width >= 768 || traitCollection.horizontalSizeClass == .regular || isPhoneLandscape
+        hideNativeTabNavigation(in: tabBarControllerHost)
         guard isDesktopMode != isDesktop else { return }
         isDesktopMode = isDesktop
         sidebarList.superview?.isHidden = !isDesktop
