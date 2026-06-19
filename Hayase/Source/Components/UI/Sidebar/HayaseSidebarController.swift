@@ -284,7 +284,7 @@ final class HayaseSidebarController: UIViewController {
 
     private func updateSidebarBackground() {
         let selectedRoute = HayaseSidebarRoute.allCases.first { $0.tabIndex == tabBarControllerHost.selectedIndex }
-        sidebarContainer.backgroundColor = selectedRoute == .home ? .clear : UIColor.HayaseTheme.background
+        sidebarContainer.backgroundColor = selectedRoute == .home ? UIColor.HayaseTheme.background : .clear
         sidebarList.backgroundColor = .clear
     }
 
