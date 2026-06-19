@@ -13,6 +13,10 @@ import ObjectiveC
 let hayasePageBackground = UIColor.HayaseTheme.background
 let hayaseCardBackground = UIColor.HayaseTheme.card
 
+private let hayaseAnimeBannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
+private let hayaseAnimeBannerBackdropURLKey = "url"
+private let hayaseAnimeBannerBackdropAlphaKey = "alpha"
+
 // MARK: - PaddedLabel
 
 final class PaddedLabel: UILabel {
@@ -383,6 +387,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
+    private var bannerHidden = false
 
     // MARK: - Init
 
@@ -702,6 +707,35 @@ final class AnimeInfoHeaderView: UIView {
         descriptionLabel.invalidateIntrinsicContentSize()
     }
 
+    // MARK: - Sidebar banner bridge
+
+    func publishSidebarBackdrop() {
+        postSidebarBackdrop(urlString: displayedBannerURL)
+    }
+
+    private func postSidebarBackdrop(urlString: String?) {
+        guard let urlString else { return }
+        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange,
+                                        object: nil,
+                                        userInfo: [
+                                            hayaseAnimeBannerBackdropURLKey: urlString,
+                                            hayaseAnimeBannerBackdropAlphaKey: bannerHidden ? CGFloat(0.05) : CGFloat(1),
+                                        ])
+    }
+
+    func applyScrollFade(_ scrollOffset: CGFloat) {
+        let shouldHide = scrollOffset > 100
+        guard shouldHide != bannerHidden else { return }
+        bannerHidden = shouldHide
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange,
+                                        object: nil,
+                                        userInfo: [hayaseAnimeBannerBackdropAlphaKey: targetAlpha])
+        UIView.animate(withDuration: 0.5) {
+            self.bannerImageView.alpha = targetAlpha
+        }
+    }
+
     // MARK: - Actions
 
     private func animateTap(_ button: UIButton) {
@@ -792,6 +826,7 @@ final class AnimeInfoHeaderView: UIView {
         trailerButton.isHidden = true
 
         displayedBannerURL = anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM
+        postSidebarBackdrop(urlString: displayedBannerURL)
         loadImage(from: displayedBannerURL,
                   into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
@@ -858,6 +893,7 @@ final class AnimeInfoHeaderView: UIView {
             guard let self else { return }
             let urlStr = fanartURL ?? bannerFallback
             self.displayedBannerURL = urlStr
+            self.postSidebarBackdrop(urlString: urlStr)
             self.bannerImageTask?.cancel()
             self.bannerImageTask = nil
             guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -1319,6 +1355,7 @@ class AnimeDetailViewController: UIViewController {
         fetchRelationsAndCharacters()
         fetchAniListProgress()
         refreshButtonStates()
+        headerView?.publishSidebarBackdrop()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1330,6 +1367,7 @@ class AnimeDetailViewController: UIViewController {
 
         fetchAniListProgress()
         refreshButtonStates()
+        headerView?.publishSidebarBackdrop()
     }
 
     override func viewWillDisappear(_ animated: Bool) {

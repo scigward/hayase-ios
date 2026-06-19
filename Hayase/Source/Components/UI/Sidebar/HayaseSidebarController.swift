@@ -64,16 +64,19 @@ final class HayaseSidebarController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         hideHostedNavigationBars()
+        updateSidebarBackground()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         hideHostedNavigationBars()
+        updateSidebarBackground()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateLayoutForCurrentWidth()
+        updateSidebarBackground()
         hideHostedNavigationBars()
     }
 
@@ -193,14 +196,16 @@ final class HayaseSidebarController: UIViewController {
             sidebarWidthConstraint!,
             contentContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
 
-            // Web sidebarlist.svelte mounts <BannerImage class='w-14'> behind the
-            // buttons. The image itself remains screen-width, then the sidebar
-            // clips to the left 56pt slice. Do the same so home does not show an
-            // unrelated solid black rail next to the banner.
+            // Web sidebarlist.svelte mounts <BannerImage class='w-14'> behind
+            // the buttons. Keep the image screen-width and clip it to the rail
+            // so anime pages show the same left slice as the main banner.
             sidebarBackdropImageView.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
             sidebarBackdropImageView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
             sidebarBackdropImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-            sidebarBackdropImageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.90),
+            // BannerImage uses h-[23rem] outside home. 23rem = 368pt at the
+            // app's 16pt root font, so the anime detail sidebar fades to the
+            // page background at the same height as interface.
+            sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368),
 
             sidebarBackdropGradientView.topAnchor.constraint(equalTo: sidebarBackdropImageView.topAnchor),
             sidebarBackdropGradientView.leadingAnchor.constraint(equalTo: sidebarBackdropImageView.leadingAnchor),
@@ -275,9 +280,11 @@ final class HayaseSidebarController: UIViewController {
         if let alpha = notification.userInfo?[Self.homeBannerBackdropAlphaKey] as? CGFloat {
             UIView.animate(withDuration: 0.5) {
                 self.sidebarBackdropImageView.alpha = alpha
-                self.sidebarBackdropGradientView.alpha = alpha > 0 ? 1 : 0
+                self.sidebarBackdropGradientView.alpha = alpha
             }
         }
+
+        updateSidebarBackground()
 
         guard let urlString = notification.userInfo?[Self.homeBannerBackdropURLKey] as? String,
               urlString != sidebarBackdropURL,
@@ -288,8 +295,7 @@ final class HayaseSidebarController: UIViewController {
 
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
             sidebarBackdropImageView.image = cached
-            sidebarBackdropImageView.alpha = 1
-            sidebarBackdropGradientView.alpha = 1
+            updateSidebarBackground()
             return
         }
 
@@ -302,8 +308,7 @@ final class HayaseSidebarController: UIViewController {
                                   duration: 0.3,
                                   options: .transitionCrossDissolve,
                                   animations: { self?.sidebarBackdropImageView.image = image })
-                self?.sidebarBackdropImageView.alpha = 1
-                self?.sidebarBackdropGradientView.alpha = 1
+                self?.updateSidebarBackground()
             }
         }
         sidebarBackdropTask?.resume()
@@ -376,12 +381,25 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateSidebarBackground() {
-        let selectedRoute = HayaseSidebarRoute.allCases.first { $0.tabIndex == tabBarControllerHost.selectedIndex }
-        let showsHomeBackdrop = selectedRoute == .home
-        sidebarContainer.backgroundColor = .clear
-        sidebarBackdropImageView.isHidden = !showsHomeBackdrop
-        sidebarBackdropGradientView.isHidden = !showsHomeBackdrop
+        let topController = topVisibleHostedController()
+        let isHomeRoot = topController is BrowseAnimeViewController
+        let showsBannerBackdrop = topController is AnimeDetailViewController && sidebarBackdropImageView.image != nil
+
+        // Matches sidebar.svelte:
+        //   home route  -> w-14 rail gets bg-background
+        //   anime route -> rail is transparent and BannerImage shows behind it
+        sidebarContainer.backgroundColor = isHomeRoot ? UIColor.HayaseTheme.background : .clear
+        sidebarBackdropImageView.isHidden = !showsBannerBackdrop
+        sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
         sidebarList.backgroundColor = .clear
+    }
+
+    private func topVisibleHostedController() -> UIViewController? {
+        let selected = tabBarControllerHost.selectedViewController
+        if let nav = selected as? UINavigationController {
+            return nav.topViewController
+        }
+        return selected
     }
 
     @objc private func toggleMobileMenu() {

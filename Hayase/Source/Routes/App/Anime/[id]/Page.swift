@@ -247,8 +247,10 @@ extension AnimeDetailViewController: UITableViewDelegate {
         let offsetY = scrollView.contentOffset.y
         if offsetY < 0 {
             headerView.applyOverscrollZoom(-offsetY)
+            headerView.applyScrollFade(0)
         } else {
             headerView.applyOverscrollZoom(0)
+            headerView.applyScrollFade(offsetY)
         }
     }
 
