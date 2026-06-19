@@ -123,7 +123,7 @@ enum AniListQueries {
 
     static let banner = """
     query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $statusNot: [MediaStatus], $nsfw: [String]) {
-      Page(page: 1, perPage: 5) {
+      Page(page: 1, perPage: 15) {
         media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot, genre_not_in: $nsfw) {
           id
           idMal

@@ -881,7 +881,12 @@ public final class AniListClient: NSObject {
     }
 
     private static func _fetchAniZipImages(anilistID: Int) {
-        var comps = URLComponents(string: "https://api.ani.zip/mappings")
+        // Web Hayase uses episodesCached(id), which calls:
+        //   https://api.ani.zip/v2/images/tmdb?anilist_id=<id>
+        // and then picks TMDB backdrops/logos by vote_average. The previous native
+        // path used api.ani.zip/v1 mappings images (Fanart/Poster), which is why
+        // the Swift banner could show a completely different red key visual.
+        var comps = URLComponents(string: "https://api.ani.zip/v2/images/tmdb")
         comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
         guard let url = comps?.url else {
             _fanartQueue.async(flags: .barrier) {
@@ -897,11 +902,14 @@ public final class AniListClient: NSObject {
             var fanartURL: String? = nil
             var clearlogoURL: String? = nil
             if let data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let images = json["images"] as? [[String: Any]] {
-                fanartURL = images.first(where: { ($0["coverType"] as? String) == "Fanart" })?["url"] as? String
-                           ?? images.first(where: { ($0["coverType"] as? String) == "Poster" })?["url"] as? String
-                clearlogoURL = images.first(where: { ($0["coverType"] as? String) == "Clearlogo" })?["url"] as? String
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let backdrops = (json["backdrops"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
+                let posters = (json["posters"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
+                let logos = (json["logos"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
+
+                fanartURL = backdrops.firstTMDBImage(language: nil, minimumAspectRatio: 1.2)
+                         ?? posters.firstTMDBImage(language: nil, minimumAspectRatio: 1.2)
+                clearlogoURL = logos.firstTMDBImage(language: "en", minimumAspectRatio: 1.2)
             }
             _fanartQueue.async(flags: .barrier) {
                 let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
@@ -911,5 +919,20 @@ public final class AniListClient: NSObject {
                 cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
             }
         }.resume()
+    }
+}
+private extension Array where Element == [String: Any] {
+    func sortedByVoteAverageDescending() -> [[String: Any]] {
+        sorted { lhs, rhs in
+            (lhs["vote_average"] as? Double ?? 0) > (rhs["vote_average"] as? Double ?? 0)
+        }
+    }
+
+    func firstTMDBImage(language: String?, minimumAspectRatio: Double) -> String? {
+        first { image in
+            let imageLanguage = image["iso_639_1"] as? String
+            let aspectRatio = image["aspect_ratio"] as? Double ?? 0
+            return imageLanguage == language && aspectRatio > minimumAspectRatio
+        }?["file_path"] as? String
     }
 }

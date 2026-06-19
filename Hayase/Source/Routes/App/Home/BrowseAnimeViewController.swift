@@ -300,6 +300,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var socialTopConstraint: NSLayoutConstraint!
     private var socialLeadingConstraint: NSLayoutConstraint!
     private var avatarContainerWidthConstraint: NSLayoutConstraint!
+    private var columnsLeadingConstraint: NSLayoutConstraint!
+    private var columnsTrailingConstraint: NSLayoutConstraint!
+    private var backgroundImageHeightConstraint: NSLayoutConstraint!
+    private var gradientHeightConstraint: NSLayoutConstraint!
 
     // MARK: Init
 
@@ -404,6 +408,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         socialTopConstraint = socialBlock.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16)
         socialLeadingConstraint = socialBlock.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
+        columnsLeadingConstraint = columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+        columnsTrailingConstraint = columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+        backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
+        gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
 
         // Tailwind image max-width: 100% makes this min(480pt, 85% of left column).
         let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
@@ -421,12 +429,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             backgroundImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             backgroundImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             backgroundImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            backgroundImageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            backgroundImageHeightConstraint,
 
             gradientView.topAnchor.constraint(equalTo: contentView.topAnchor),
             gradientView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             gradientView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            gradientView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            gradientHeightConstraint,
 
             socialTopConstraint,
             socialLeadingConstraint,
@@ -437,8 +445,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
 
-            columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            columnsLeadingConstraint,
+            columnsTrailingConstraint,
             columnsStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
 
             titleMaxWidthConstraint,
@@ -495,9 +503,18 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.375) // 75% of right column (37.5% of full width, since columns are 50/50)
             descriptionMaxWidthConstraint.isActive = true
-            // Column padding: lg:pl-5 = 20pt left, lg:pr-5 = 20pt right
+            // Web regular layout has lg:pl-5 on the grid and lg:pr-5 on the right column.
+            // The old 16pt outer inset stacked with this and pushed the hero content too far right.
+            columnsLeadingConstraint.constant = 0
+            columnsTrailingConstraint.constant = 0
             columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
             columnsStack.isLayoutMarginsRelativeArrangement = true
+            backgroundImageHeightConstraint.isActive = false
+            gradientHeightConstraint.isActive = false
+            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 90.0 / 80.0)
+            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 90.0 / 80.0)
+            backgroundImageHeightConstraint.isActive = true
+            gradientHeightConstraint.isActive = true
             socialTopConstraint.constant = 56      // md:pt-14
             socialLeadingConstraint.constant = 40  // md:pl-10
         } else {
@@ -528,8 +545,16 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.90)
             descriptionMaxWidthConstraint.isActive = true
+            columnsLeadingConstraint.constant = 16
+            columnsTrailingConstraint.constant = -16
             columnsStack.directionalLayoutMargins = .zero
             columnsStack.isLayoutMarginsRelativeArrangement = false
+            backgroundImageHeightConstraint.isActive = false
+            gradientHeightConstraint.isActive = false
+            backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
+            gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: contentView.heightAnchor, multiplier: 80.0 / 70.0)
+            backgroundImageHeightConstraint.isActive = true
+            gradientHeightConstraint.isActive = true
             socialTopConstraint.constant = 16
             socialLeadingConstraint.constant = 16
         }
@@ -545,9 +570,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // MARK: Configuration
 
     func configure(with items: [AnimeItem]) {
-        // full-banner.svelte: shuffleAndFilter → media with bannerImage OR trailer
-        let filtered = items.filter { $0.bannerURL != nil || $0.coverURL != nil }
-        self.items = filtered.isEmpty ? Array(items.prefix(5)) : Array(filtered.prefix(5))
+        // full-banner.svelte: shuffleAndFilter(media).filter(bannerImage || trailer).slice(0, 5)
+        let filtered = Self.shuffle(items).filter { $0.bannerURL != nil || $0.trailerYouTubeID != nil }
+        self.items = filtered.isEmpty ? Array(Self.shuffle(items).prefix(5)) : Array(filtered.prefix(5))
         followingUsersByMediaID = [:]
         currentIndex = 0
         rebuildDots()
@@ -722,6 +747,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             attributed.draw(at: CGPoint(x: (size - textSize.width) / 2,
                                         y: (size - textSize.height) / 2))
         }
+    }
+
+    private static func shuffle<T>(_ array: [T]) -> [T] {
+        var copy = array
+        copy.shuffle()
+        return copy
     }
 
     /// Parse hex color string (e.g. "#e3566b") to UIColor
