@@ -1868,22 +1868,61 @@ final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Options sheet (Hayase options.svelte — tree-style menu)
 
+    private func makeTrack(from dict: [String: Any], type: String) -> MPVTrack? {
+        guard let id = dict["id"] as? Int else { return nil }
+        return MPVTrack(id: id,
+                        type: type,
+                        title: dict["title"] as? String,
+                        lang: dict["lang"] as? String,
+                        isSelected: dict["selected"] as? Bool ?? false)
+    }
+
+    private func readTracks(from renderer: MPVWrapper, includeMkvLanguages: Bool = false) -> [MPVTrack] {
+        let mkvURL = includeMkvLanguages ? mkvFileURLForLanguageParsing() : nil
+        var result: [MPVTrack] = []
+
+        for dict in renderer.getSubtitleTracks(mkvFileURL: mkvURL) {
+            if let track = makeTrack(from: dict, type: "sub") {
+                result.append(track)
+            }
+        }
+        for dict in renderer.getAudioTracks() {
+            if let track = makeTrack(from: dict, type: "audio") {
+                result.append(track)
+            }
+        }
+
+        return result
+    }
+
+    private func mergeCachedTrackMetadata(into freshTracks: [MPVTrack]) -> [MPVTrack] {
+        guard !tracks.isEmpty else { return freshTracks }
+        let cachedByKey = Dictionary(uniqueKeysWithValues: tracks.map { (trackKey($0), $0) })
+
+        return freshTracks.map { fresh in
+            guard let cached = cachedByKey[trackKey(fresh)] else { return fresh }
+            return MPVTrack(id: fresh.id,
+                            type: fresh.type,
+                            title: fresh.title ?? cached.title,
+                            lang: fresh.lang ?? cached.lang,
+                            isSelected: fresh.isSelected)
+        }
+    }
+
+    private func currentTracksForOptions() -> [MPVTrack] {
+        let freshTracks = readTracks(from: surface.mpv)
+        guard !freshTracks.isEmpty else { return tracks }
+        return mergeCachedTrackMetadata(into: freshTracks)
+    }
+
+    private func trackKey(_ track: MPVTrack) -> String {
+        "\(track.type):\(track.id)"
+    }
+
     private func showOptionsSheet() {
-        // Re-read tracks from MPV so isSelected reflects the current state
-        // (didBecomeTracksReady only fires on track-list/count changes,
-        //  not when the user switches between existing tracks).
-        var freshTracks: [MPVTrack] = []
-        let mkvURL = mkvFileURLForLanguageParsing()
-        for s in surface.mpv.getSubtitleTracks(mkvFileURL: mkvURL) {
-            if let id = s["id"] as? Int {
-                freshTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
-            }
-        }
-        for a in surface.mpv.getAudioTracks() {
-            if let id = a["id"] as? Int {
-                freshTracks.append(MPVTrack(id: id, type: "audio", title: a["title"] as? String, lang: a["lang"] as? String, isSelected: a["selected"] as? Bool ?? false))
-            }
-        }
+        // Keep this synchronous path cheap so the menu appears immediately.
+        // MKV language parsing can touch disk and is done from track readiness instead.
+        let freshTracks = currentTracksForOptions()
         self.tracks = freshTracks
 
         let optionsVC = PlayerOptionsController()
@@ -2162,25 +2201,41 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     }
 
     func renderer(_ renderer: MPVWrapper, didBecomeTracksReady: Bool) {
-        // Map the [[String: Any]] Dictionaries from Streamyfin into native Swift Structs
-        var newTracks: [MPVTrack] = []
-        let mkvURL = mkvFileURLForLanguageParsing()
-
-        for s in renderer.getSubtitleTracks(mkvFileURL: mkvURL) {
-            if let id = s["id"] as? Int {
-                newTracks.append(MPVTrack(id: id, type: "sub", title: s["title"] as? String, lang: s["lang"] as? String, isSelected: s["selected"] as? Bool ?? false))
-            }
-        }
-        for a in renderer.getAudioTracks() {
-            if let id = a["id"] as? Int {
-                newTracks.append(MPVTrack(id: id, type: "audio", title: a["title"] as? String, lang: a["lang"] as? String, isSelected: a["selected"] as? Bool ?? false))
-            }
-        }
+        // Read MPV's track list immediately. MKV metadata parsing is slower and
+        // runs off the main thread so first paint/options taps are not blocked.
+        let newTracks = mergeCachedTrackMetadata(into: readTracks(from: renderer))
         self.tracks = newTracks
 
         // Auto-select preferred audio/subtitle tracks from Language Settings.
         // Reads pref_audioLanguage / pref_subtitleLanguage set in Settings → Player.
         applyPreferredLanguages(renderer: renderer, tracks: newTracks)
+
+        guard let mkvURL = mkvFileURLForLanguageParsing() else { return }
+        let expectedPath = mkvURL.path
+        DispatchQueue.global(qos: .utility).async { [weak self, weak renderer] in
+            let languages = MatroskaMetadataService.shared.subtitleLanguages(for: mkvURL)
+            guard !languages.isEmpty else { return }
+
+            DispatchQueue.main.async { [weak self, weak renderer] in
+                guard let self,
+                      let renderer,
+                      self.surface.mpv === renderer,
+                      self.videoEntity?.videoPath == expectedPath else { return }
+
+                self.tracks = self.tracks.map { track in
+                    guard track.type == "sub",
+                          let language = languages[track.id],
+                          !language.isEmpty,
+                          language != "und" else { return track }
+                    return MPVTrack(id: track.id,
+                                    type: track.type,
+                                    title: track.title,
+                                    lang: language,
+                                    isSelected: track.isSelected)
+                }
+                self.applyPreferredLanguages(renderer: renderer, tracks: self.tracks)
+            }
+        }
     }
 
     /// Selects audio and subtitle tracks whose language matches the user's
