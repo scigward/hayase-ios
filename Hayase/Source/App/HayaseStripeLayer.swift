@@ -156,24 +156,125 @@ private final class HayaseStripeRenderingLayer: CALayer {
     }
 
     override func draw(in ctx: CGContext) {
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        let scale = contentsScale > 0 ? contentsScale : UIScreen.main.scale
-        let pixelWidth = Int(ceil(bounds.width * scale))
-        let pixelHeight = Int(ceil(bounds.height * scale))
+        guard bounds.width > 0,
+              bounds.height > 0,
+              spec.period > 0,
+              spec.stops.count > 1 else { return }
+
         let angle = spec.angleDegrees * .pi / 180
         let dx = sin(angle)
         let dy = -cos(angle)
-        let pixelSize = 1 / scale
+        let perpendicularX = -dy
+        let perpendicularY = dx
+        let corners = [
+            CGPoint(x: bounds.minX, y: bounds.minY),
+            CGPoint(x: bounds.maxX, y: bounds.minY),
+            CGPoint(x: bounds.minX, y: bounds.maxY),
+            CGPoint(x: bounds.maxX, y: bounds.maxY)
+        ]
 
-        for py in 0..<pixelHeight {
-            for px in 0..<pixelWidth {
-                let x = CGFloat(px) / scale
-                let y = CGFloat(py) / scale
-                let projected = x * dx + y * dy
-                let position = HayaseStripePattern.positiveModulo(projected, spec.period)
-                ctx.setFillColor(HayaseStripePattern.color(at: position, stops: spec.stops).cgColor)
-                ctx.fill(CGRect(x: x, y: y, width: pixelSize, height: pixelSize))
-            }
+        let projectedCorners = corners.map { $0.x * dx + $0.y * dy }
+        let perpendicularCorners = corners.map { $0.x * perpendicularX + $0.y * perpendicularY }
+        guard let minProjection = projectedCorners.min(),
+              let maxProjection = projectedCorners.max(),
+              let minPerpendicular = perpendicularCorners.min(),
+              let maxPerpendicular = perpendicularCorners.max() else { return }
+
+        let periodStart = floor(minProjection / spec.period) * spec.period - spec.period
+        let periodEnd = ceil(maxProjection / spec.period) * spec.period + spec.period
+        let perpendicularPadding = hypot(bounds.width, bounds.height)
+        let perpendicularStart = minPerpendicular - perpendicularPadding
+        let perpendicularHeight = maxPerpendicular - minPerpendicular + perpendicularPadding * 2
+
+        ctx.saveGState()
+        ctx.clip(to: bounds)
+        ctx.concatenate(CGAffineTransform(a: dx,
+                                          b: dy,
+                                          c: perpendicularX,
+                                          d: perpendicularY,
+                                          tx: 0,
+                                          ty: 0))
+
+        var periodOrigin = periodStart
+        while periodOrigin <= periodEnd {
+            drawStops(in: ctx,
+                      periodOrigin: periodOrigin,
+                      perpendicularStart: perpendicularStart,
+                      perpendicularHeight: perpendicularHeight)
+            periodOrigin += spec.period
         }
+
+        ctx.restoreGState()
+    }
+
+    private func drawStops(in ctx: CGContext,
+                           periodOrigin: CGFloat,
+                           perpendicularStart: CGFloat,
+                           perpendicularHeight: CGFloat) {
+        var previous = spec.stops[0]
+        for current in spec.stops.dropFirst() {
+            let start = periodOrigin + previous.1
+            let end = periodOrigin + current.1
+            let width = end - start
+            guard width > 0 else {
+                previous = current
+                continue
+            }
+
+            let rect = CGRect(x: start,
+                              y: perpendicularStart,
+                              width: width,
+                              height: perpendicularHeight)
+            drawBand(in: ctx,
+                     rect: rect,
+                     startColor: previous.0,
+                     endColor: current.0)
+            previous = current
+        }
+    }
+
+    private func drawBand(in ctx: CGContext,
+                          rect: CGRect,
+                          startColor: UIColor,
+                          endColor: UIColor) {
+        if startColor.isVisuallyEqual(to: endColor) {
+            ctx.setFillColor(startColor.cgColor)
+            ctx.fill(rect)
+            return
+        }
+
+        guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                        colors: [startColor.cgColor, endColor.cgColor] as CFArray,
+                                        locations: [0, 1]) else { return }
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.drawLinearGradient(gradient,
+                               start: CGPoint(x: rect.minX, y: rect.midY),
+                               end: CGPoint(x: rect.maxX, y: rect.midY),
+                               options: [])
+        ctx.restoreGState()
+    }
+}
+
+private extension UIColor {
+    func isVisuallyEqual(to other: UIColor) -> Bool {
+        var lhsRed: CGFloat = 0
+        var lhsGreen: CGFloat = 0
+        var lhsBlue: CGFloat = 0
+        var lhsAlpha: CGFloat = 0
+        var rhsRed: CGFloat = 0
+        var rhsGreen: CGFloat = 0
+        var rhsBlue: CGFloat = 0
+        var rhsAlpha: CGFloat = 0
+
+        guard getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha),
+              other.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha) else {
+            return false
+        }
+
+        return lhsRed == rhsRed &&
+               lhsGreen == rhsGreen &&
+               lhsBlue == rhsBlue &&
+               lhsAlpha == rhsAlpha
     }
 }
