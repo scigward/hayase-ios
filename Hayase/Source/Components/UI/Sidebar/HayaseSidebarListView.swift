@@ -228,13 +228,12 @@ private final class HayaseSidebarLogoButton: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // The web sidebar uses <Logo class='h-10 px-2.5 ml-2'>, but the
-        // visible path only occupies the inner mark area. Keep the control at
-        // 48x40 for layout, then draw the SVG mark at the same visual size
-        // produced by the interface: about 25pt wide, offset into the rail.
+        // Logo.svelte uses h-10, ml-2 and px-2.5. The SVG box is
+        // 40pt tall, but the visible path sits inside the viewBox, so the
+        // actual mark lands around x:23...48 and y:25...46 in the 56pt rail.
         let logoSide: CGFloat = 25
         let scale = logoSide / 66.145833
-        var transform = CGAffineTransform(translationX: 23, y: 22)
+        var transform = CGAffineTransform(translationX: 23, y: 15)
             .scaledBy(x: scale, y: scale)
         shapeLayer.path = Self.logoPath().copy(using: &transform)
     }
