@@ -147,13 +147,16 @@ final class HayaseSidebarListView: UIView {
         logoButton.accessibilityLabel = "Home"
         logoButton.addTarget(self, action: #selector(logoTapped), for: .touchUpInside)
         NSLayoutConstraint.activate([
-            // Logo.svelte: h-10 mb-1. The horizontal placement is handled
-            // inside HayaseSidebarLogoButton to mirror ml-2 px-2.5.
+            // Logo.svelte: h-10 mb-1. The SVG itself is 40pt tall.
+            // Its visible path is positioned inside HayaseSidebarLogoButton
+            // to match ml-2 px-2.5 from the web interface.
             logoButton.widthAnchor.constraint(equalToConstant: 48),
             logoButton.heightAnchor.constraint(equalToConstant: 40),
         ])
         stack.addArrangedSubview(logoButton)
-        stack.setCustomSpacing(4, after: logoButton)
+        // sidebar.svelte has gap-2 (8pt) and Logo.svelte adds mb-1 (4pt).
+        // UIStackView custom spacing replaces stack.spacing, so use 12pt here.
+        stack.setCustomSpacing(12, after: logoButton)
     }
 
     private func addRoute(_ route: HayaseSidebarRoute) {
@@ -228,12 +231,13 @@ private final class HayaseSidebarLogoButton: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // Logo.svelte uses h-10, ml-2 and px-2.5. The SVG box is
-        // 40pt tall, but the visible path sits inside the viewBox, so the
-        // actual mark lands around x:23...48 and y:25...46 in the 56pt rail.
-        let logoSide: CGFloat = 25
+        // Exact CSS box model from sidebarlist.svelte:
+        //   <Logo class="h-10 px-2.5 ml-2" />
+        // Tailwind's border-box padding leaves a 20pt SVG content box inside
+        // a 40pt-high element, shifted 8pt from the rail's left edge.
+        let logoSide: CGFloat = 20
         let scale = logoSide / 66.145833
-        var transform = CGAffineTransform(translationX: 23, y: 15)
+        var transform = CGAffineTransform(translationX: 18, y: 10)
             .scaledBy(x: scale, y: scale)
         shapeLayer.path = Self.logoPath().copy(using: &transform)
     }

@@ -140,13 +140,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Gradient from transparent (top) to nearly-black (bottom) — matches Hayase gradient
     private let gradientView = BannerGradientView()
 
-    // Web renders the banner image as a layout background and then places the first row
-    // above it in normal flow.  In UIKit the backdrop lives in the hero cell, so clip only
-    // this visual layer; otherwise the 90vh image/gradient can paint over the first row.
+    // Web renders BannerImage at the app-layout level, behind the scrollable page.
+    // The image is 90vh on desktop while the hero content is 80vh, so the fade
+    // naturally continues behind the first row. Keep this layer unclipped and
+    // control z-order instead of cutting it at the hero cell boundary.
     private let bannerBackdropClipView: UIView = {
         let v = UIView()
         v.backgroundColor = .clear
-        v.clipsToBounds = true
+        v.clipsToBounds = false
         return v
     }()
 
@@ -339,9 +340,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 
     private func setup() {
-        // Don't clip — allows the banner image to extend upward for the zoom-on-overscroll effect
+        // Don't clip — interface BannerImage lives behind the route and extends
+        // past the 80vh hero into the first row fade area.
         clipsToBounds = false
         contentView.clipsToBounds = false
+        contentView.backgroundColor = .clear
 
         // Swipe left/right to manually advance the banner carousel
         let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
@@ -352,10 +355,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         contentView.addGestureRecognizer(swipeRight)
 
         bannerBackdropClipView.translatesAutoresizingMaskIntoConstraints = false
+        bannerBackdropClipView.layer.zPosition = -1
         contentView.addSubview(bannerBackdropClipView)
 
         [backgroundImageView, gradientView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
+            $0.layer.zPosition = -1
             bannerBackdropClipView.addSubview($0)
         }
 
@@ -1731,7 +1736,11 @@ class BrowseAnimeViewController: UIViewController {
 
     private func setupCollectionView() {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
-        collectionView.backgroundColor = hayasePageBackground
+        // Interface draws BannerImage behind the scrollable page. Keep the
+        // collection clear so the extended 90vh fade can show behind the
+        // first section without being painted over by a hard black viewport.
+        view.backgroundColor = hayasePageBackground
+        collectionView.backgroundColor = .clear
         // .never so the banner extends behind the status bar — matching Hayase's
         // `position:absolute; top:0; left:0; h-[80vh]` banner image on home
         collectionView.contentInsetAdjustmentBehavior = .never
@@ -2150,11 +2159,15 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         // Skeleton mode: shimmer placeholders while sections load
         if isLoadingSections {
             if indexPath.section == 0 {
-                return collectionView.dequeueReusableCell(
+                let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SkeletonBannerCell.reuseID, for: indexPath)
+                cell.layer.zPosition = 0
+                return cell
             }
-            return collectionView.dequeueReusableCell(
+            let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
+            cell.layer.zPosition = 10
+            return cell
         }
 
         // Section 0: hero banner (always uses the trending/popular items, never Continue Watching)
@@ -2162,6 +2175,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
+            cell.layer.zPosition = 0
             if !bannerItems.isEmpty {
                 cell.configure(with: bannerItems)
             }
@@ -2202,6 +2216,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
         let rowSection = indexPath.section - 1
+        cell.layer.zPosition = 10
         if rowSection < sections.count, indexPath.item < sections[rowSection].items.count {
             cell.configure(with: sections[rowSection].items[indexPath.item])
         }
@@ -2216,6 +2231,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             ofKind: kind,
             withReuseIdentifier: SectionHeaderView.reuseID,
             for: indexPath) as? SectionHeaderView ?? SectionHeaderView(frame: .zero)
+        header.layer.zPosition = 10
         // indexPath.section here is 1..n → map to sections[section - 1]
         let rowSection = indexPath.section - 1
         if isLoadingSections {
