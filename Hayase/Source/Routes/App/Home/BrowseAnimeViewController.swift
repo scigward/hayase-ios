@@ -1305,11 +1305,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         publishSidebarBackdrop(urlString: currentSidebarBackdropURL, scrollOffset: scrollOffset, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
-        // Only fade the image — keep gradientView at full opacity so its bottom stop
-        // (UIColor(white: 0.04, alpha: 1) = --background) always covers the banner edge.
-        // Fading the gradient out too exposes the raw image bottom against the background.
+        // Web applies opacity to the whole Banner component, including the radial
+        // gradient pseudo-element. Fade both layers so the hero does not leave a
+        // full-strength black veil over the first row after scrolling.
         UIView.animate(withDuration: 0.5) {
             self.backgroundImageView.alpha = targetAlpha
+            self.gradientView.alpha = targetAlpha
         }
     }
 }
