@@ -15,18 +15,14 @@ enum HayaseStripePattern {
     case stripedMuted
 
     func makeLayer() -> CALayer {
-        let layer = HayaseStripeRenderingLayer(pattern: self)
+        let layer = HayaseStripeTiledLayer(pattern: self)
         layer.contentsScale = UIScreen.main.scale
-        layer.needsDisplayOnBoundsChange = true
+        layer.drawsAsynchronously = true
         return layer
     }
 
     func makeImage() -> UIImage {
-        let spec = renderSpec
-        return Self.makeRepeatingLinearGradientTile(size: spec.tileSize,
-                                                    angleDegrees: spec.angleDegrees,
-                                                    period: spec.period,
-                                                    stops: spec.stops)
+        Self.cachedTile(for: self, scale: UIScreen.main.scale)
     }
 
     fileprivate var renderSpec: HayaseStripeRenderSpec {
@@ -35,6 +31,8 @@ enum HayaseStripePattern {
             return HayaseStripeRenderSpec(tileSize: CGSize(width: 120, height: 120),
                                           angleDegrees: 40,
                                           period: 10,
+                                          horizontalCycles: 8,
+                                          verticalCycles: 9,
                                           stops: [
                                             (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 0),
                                             (.init(white: 85.0 / 255.0, alpha: 4.0 / 15.0), 1),
@@ -46,6 +44,8 @@ enum HayaseStripePattern {
             return HayaseStripeRenderSpec(tileSize: CGSize(width: 119, height: 119),
                                           angleDegrees: 45,
                                           period: 12,
+                                          horizontalCycles: 7,
+                                          verticalCycles: 7,
                                           stops: [
                                             (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 0),
                                             (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 6),
@@ -56,6 +56,8 @@ enum HayaseStripePattern {
             return HayaseStripeRenderSpec(tileSize: CGSize(width: 119, height: 119),
                                           angleDegrees: 45,
                                           period: 12,
+                                          horizontalCycles: 7,
+                                          verticalCycles: 7,
                                           stops: [
                                             (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 0),
                                             (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 6),
@@ -65,97 +67,52 @@ enum HayaseStripePattern {
         }
     }
 
+    private var cacheKey: String {
+        switch self {
+        case .customBackground: return "customBackground"
+        case .striped: return "striped"
+        case .stripedMuted: return "stripedMuted"
+        }
+    }
+
+    private static var tileCache: [String: UIImage] = [:]
+    private static let tileCacheQueue = DispatchQueue(label: "hayase.stripe.tile-cache")
+
+    fileprivate static func cachedTile(for pattern: HayaseStripePattern, scale: CGFloat) -> UIImage {
+        let spec = pattern.renderSpec
+        let key = "\(pattern.cacheKey)-\(scale)"
+
+        if let cached = tileCacheQueue.sync(execute: { tileCache[key] }) {
+            return cached
+        }
+
+        let image = makeRepeatingLinearGradientTile(size: spec.seamlessTileSize,
+                                                    scale: scale,
+                                                    spec: spec)
+        tileCacheQueue.sync {
+            tileCache[key] = image
+        }
+        return image
+    }
+
     private static func makeRepeatingLinearGradientTile(size: CGSize,
-                                                        angleDegrees: CGFloat,
-                                                        period: CGFloat,
-                                                        stops: [(UIColor, CGFloat)]) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: size)
+                                                        scale: CGFloat,
+                                                        spec: HayaseStripeRenderSpec) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = false
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
-            let cg = context.cgContext
-            let scale = UIScreen.main.scale
-            let pixelWidth = Int(size.width * scale)
-            let pixelHeight = Int(size.height * scale)
-            let angle = angleDegrees * .pi / 180
-            let dx = sin(angle)
-            let dy = -cos(angle)
-
-            for py in 0..<pixelHeight {
-                for px in 0..<pixelWidth {
-                    let x = CGFloat(px) / scale
-                    let y = CGFloat(py) / scale
-                    let projected = x * dx + y * dy
-                    let position = positiveModulo(projected, period)
-                    color(at: position, stops: stops).setFill()
-                    cg.fill(CGRect(x: x, y: y, width: 1 / scale, height: 1 / scale))
-                }
-            }
+            drawPattern(in: context.cgContext,
+                        bounds: CGRect(origin: .zero, size: size),
+                        spec: spec)
         }
     }
 
-    fileprivate static func positiveModulo(_ value: CGFloat, _ modulus: CGFloat) -> CGFloat {
-        let remainder = value.truncatingRemainder(dividingBy: modulus)
-        return remainder >= 0 ? remainder : remainder + modulus
-    }
-
-    fileprivate static func color(at position: CGFloat, stops: [(UIColor, CGFloat)]) -> UIColor {
-        guard let first = stops.first else { return .clear }
-        var previous = first
-        for current in stops.dropFirst() {
-            if position <= current.1 {
-                let distance = current.1 - previous.1
-                if distance <= 0 { return current.0 }
-                let t = (position - previous.1) / distance
-                return interpolate(previous.0, current.0, t: min(max(t, 0), 1))
-            }
-            previous = current
-        }
-        return stops.last?.0 ?? first.0
-    }
-
-    private static func interpolate(_ lhs: UIColor, _ rhs: UIColor, t: CGFloat) -> UIColor {
-        var lr: CGFloat = 0, lg: CGFloat = 0, lb: CGFloat = 0, la: CGFloat = 0
-        var rr: CGFloat = 0, rg: CGFloat = 0, rb: CGFloat = 0, ra: CGFloat = 0
-        lhs.getRed(&lr, green: &lg, blue: &lb, alpha: &la)
-        rhs.getRed(&rr, green: &rg, blue: &rb, alpha: &ra)
-        return UIColor(red: lr + (rr - lr) * t,
-                       green: lg + (rg - lg) * t,
-                       blue: lb + (rb - lb) * t,
-                       alpha: la + (ra - la) * t)
-    }
-}
-
-fileprivate struct HayaseStripeRenderSpec {
-    let tileSize: CGSize
-    let angleDegrees: CGFloat
-    let period: CGFloat
-    let stops: [(UIColor, CGFloat)]
-}
-
-private final class HayaseStripeRenderingLayer: CALayer {
-    private let spec: HayaseStripeRenderSpec
-
-    init(pattern: HayaseStripePattern) {
-        self.spec = pattern.renderSpec
-        super.init()
-        isOpaque = false
-        setNeedsDisplay()
-    }
-
-    override init(layer: Any) {
-        if let layer = layer as? HayaseStripeRenderingLayer {
-            self.spec = layer.spec
-        } else {
-            self.spec = HayaseStripePattern.customBackground.renderSpec
-        }
-        super.init(layer: layer)
-    }
-
-    required init?(coder: NSCoder) {
-        self.spec = HayaseStripePattern.customBackground.renderSpec
-        super.init(coder: coder)
-    }
-
-    override func draw(in ctx: CGContext) {
+    fileprivate static func drawPattern(in ctx: CGContext,
+                                        bounds: CGRect,
+                                        spec: HayaseStripeRenderSpec) {
         guard bounds.width > 0,
               bounds.height > 0,
               spec.period > 0,
@@ -198,6 +155,7 @@ private final class HayaseStripeRenderingLayer: CALayer {
         var periodOrigin = periodStart
         while periodOrigin <= periodEnd {
             drawStops(in: ctx,
+                      spec: spec,
                       periodOrigin: periodOrigin,
                       perpendicularStart: perpendicularStart,
                       perpendicularHeight: perpendicularHeight)
@@ -207,10 +165,11 @@ private final class HayaseStripeRenderingLayer: CALayer {
         ctx.restoreGState()
     }
 
-    private func drawStops(in ctx: CGContext,
-                           periodOrigin: CGFloat,
-                           perpendicularStart: CGFloat,
-                           perpendicularHeight: CGFloat) {
+    private static func drawStops(in ctx: CGContext,
+                                  spec: HayaseStripeRenderSpec,
+                                  periodOrigin: CGFloat,
+                                  perpendicularStart: CGFloat,
+                                  perpendicularHeight: CGFloat) {
         var previous = spec.stops[0]
         for current in spec.stops.dropFirst() {
             let start = periodOrigin + previous.1
@@ -233,10 +192,10 @@ private final class HayaseStripeRenderingLayer: CALayer {
         }
     }
 
-    private func drawBand(in ctx: CGContext,
-                          rect: CGRect,
-                          startColor: UIColor,
-                          endColor: UIColor) {
+    private static func drawBand(in ctx: CGContext,
+                                 rect: CGRect,
+                                 startColor: UIColor,
+                                 endColor: UIColor) {
         if startColor.isVisuallyEqual(to: endColor) {
             ctx.setFillColor(startColor.cgColor)
             ctx.fill(rect)
@@ -252,6 +211,81 @@ private final class HayaseStripeRenderingLayer: CALayer {
                                start: CGPoint(x: rect.minX, y: rect.midY),
                                end: CGPoint(x: rect.maxX, y: rect.midY),
                                options: [])
+        ctx.restoreGState()
+    }
+}
+
+fileprivate struct HayaseStripeRenderSpec {
+    let tileSize: CGSize
+    let angleDegrees: CGFloat
+    let period: CGFloat
+    let horizontalCycles: CGFloat
+    let verticalCycles: CGFloat
+    let stops: [(UIColor, CGFloat)]
+
+    var seamlessTileSize: CGSize {
+        let angle = angleDegrees * .pi / 180
+        let dx = abs(sin(angle))
+        let dy = abs(cos(angle))
+        return CGSize(width: dx > 0.001 ? period * horizontalCycles / dx : tileSize.width,
+                      height: dy > 0.001 ? period * verticalCycles / dy : tileSize.height)
+    }
+}
+
+private final class HayaseStripeTiledLayer: CALayer {
+    private let pattern: HayaseStripePattern
+
+    init(pattern: HayaseStripePattern) {
+        self.pattern = pattern
+        super.init()
+        isOpaque = false
+        needsDisplayOnBoundsChange = true
+    }
+
+    override init(layer: Any) {
+        if let layer = layer as? HayaseStripeTiledLayer {
+            self.pattern = layer.pattern
+        } else {
+            self.pattern = .customBackground
+        }
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        self.pattern = .customBackground
+        super.init(coder: coder)
+    }
+
+    override func draw(in ctx: CGContext) {
+        guard bounds.width > 0,
+              bounds.height > 0 else { return }
+
+        let tile = HayaseStripePattern.cachedTile(for: pattern, scale: contentsScale)
+        guard let cgImage = tile.cgImage else { return }
+
+        ctx.saveGState()
+        ctx.clip(to: bounds)
+        ctx.interpolationQuality = .none
+
+        let tileSize = tile.size
+        var y = floor(bounds.minY / tileSize.height) * tileSize.height
+        while y < bounds.maxY {
+            var x = floor(bounds.minX / tileSize.width) * tileSize.width
+            while x < bounds.maxX {
+                draw(cgImage, in: CGRect(origin: CGPoint(x: x, y: y), size: tileSize), context: ctx)
+                x += tileSize.width
+            }
+            y += tileSize.height
+        }
+
+        ctx.restoreGState()
+    }
+
+    private func draw(_ image: CGImage, in rect: CGRect, context ctx: CGContext) {
+        ctx.saveGState()
+        ctx.translateBy(x: rect.minX, y: rect.minY + rect.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(origin: .zero, size: rect.size))
         ctx.restoreGState()
     }
 }
