@@ -25,17 +25,17 @@ enum HayaseIcon {
     private static func drawFilledIcon(_ lucideId: String, in cg: CGContext) {
         switch lucideId {
         case "play":
-            filledPlayPath().fill()
+            filledPath(filledPlayPath(), strokeWidth: 0)
         case "pause":
-            UIBezierPath(roundedRect: CGRect(x: 6, y: 4, width: 4, height: 16), cornerRadius: 1).fill()
-            UIBezierPath(roundedRect: CGRect(x: 14, y: 4, width: 4, height: 16), cornerRadius: 1).fill()
+            filledPath(UIBezierPath(roundedRect: CGRect(x: 6, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
+            filledPath(UIBezierPath(roundedRect: CGRect(x: 14, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
         case "skip-back":
             let triangle = UIBezierPath()
             triangle.move(to: CGPoint(x: 19, y: 4))
             triangle.addLine(to: CGPoint(x: 9, y: 12))
             triangle.addLine(to: CGPoint(x: 19, y: 20))
             triangle.close()
-            triangle.fill()
+            filledPath(triangle, strokeWidth: 1)
             strokeLine(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 5, y: 19), width: 1)
         case "skip-forward":
             let triangle = UIBezierPath()
@@ -43,7 +43,7 @@ enum HayaseIcon {
             triangle.addLine(to: CGPoint(x: 15, y: 12))
             triangle.addLine(to: CGPoint(x: 5, y: 20))
             triangle.close()
-            triangle.fill()
+            filledPath(triangle, strokeWidth: 1)
             strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
         case "fast-forward":
             filledTriangle(points: [
@@ -148,17 +148,28 @@ enum HayaseIcon {
             cg.restoreGState()
         case "heart":
             let heart = UIBezierPath()
-            heart.move(to: CGPoint(x: 12, y: 21))
-            heart.addCurve(to: CGPoint(x: 5, y: 14), controlPoint1: CGPoint(x: 10, y: 19.1), controlPoint2: CGPoint(x: 5, y: 16.2))
-            heart.addCurve(to: CGPoint(x: 2, y: 8.5), controlPoint1: CGPoint(x: 3.1, y: 12.1), controlPoint2: CGPoint(x: 2, y: 10.4))
-            heart.addCurve(to: CGPoint(x: 7.5, y: 3), controlPoint1: CGPoint(x: 2, y: 5.4), controlPoint2: CGPoint(x: 4.4, y: 3))
-            heart.addCurve(to: CGPoint(x: 12, y: 5), controlPoint1: CGPoint(x: 9.3, y: 3), controlPoint2: CGPoint(x: 10.5, y: 3.6))
-            heart.addCurve(to: CGPoint(x: 16.5, y: 3), controlPoint1: CGPoint(x: 13.5, y: 3.6), controlPoint2: CGPoint(x: 14.7, y: 3))
-            heart.addCurve(to: CGPoint(x: 22, y: 8.5), controlPoint1: CGPoint(x: 19.6, y: 3), controlPoint2: CGPoint(x: 22, y: 5.4))
-            heart.addCurve(to: CGPoint(x: 19, y: 14), controlPoint1: CGPoint(x: 22, y: 10.4), controlPoint2: CGPoint(x: 20.9, y: 12.1))
-            heart.addCurve(to: CGPoint(x: 12, y: 21), controlPoint1: CGPoint(x: 19, y: 16.2), controlPoint2: CGPoint(x: 14, y: 19.1))
+            heart.move(to: CGPoint(x: 19, y: 14))
+            heart.addCurve(to: CGPoint(x: 22, y: 8.5),
+                           controlPoint1: CGPoint(x: 20.49, y: 12.54),
+                           controlPoint2: CGPoint(x: 22, y: 10.79))
+            heart.addCurve(to: CGPoint(x: 16.5, y: 3),
+                           controlPoint1: CGPoint(x: 22, y: 5.46),
+                           controlPoint2: CGPoint(x: 19.54, y: 3))
+            heart.addCurve(to: CGPoint(x: 12, y: 5),
+                           controlPoint1: CGPoint(x: 14.74, y: 3),
+                           controlPoint2: CGPoint(x: 13.5, y: 3.5))
+            heart.addCurve(to: CGPoint(x: 7.5, y: 3),
+                           controlPoint1: CGPoint(x: 10.5, y: 3.5),
+                           controlPoint2: CGPoint(x: 9.26, y: 3))
+            heart.addCurve(to: CGPoint(x: 2, y: 8.5),
+                           controlPoint1: CGPoint(x: 4.46, y: 3),
+                           controlPoint2: CGPoint(x: 2, y: 5.46))
+            heart.addCurve(to: CGPoint(x: 5, y: 14),
+                           controlPoint1: CGPoint(x: 2, y: 10.8),
+                           controlPoint2: CGPoint(x: 3.51, y: 12.54))
+            heart.addLine(to: CGPoint(x: 12, y: 21))
             heart.close()
-            heart.fill()
+            filledPath(heart, strokeWidth: 2)
         case "bookmark":
             let bookmark = UIBezierPath()
             bookmark.move(to: CGPoint(x: 5, y: 21))
@@ -177,9 +188,25 @@ enum HayaseIcon {
 
     private static func filledPlayPath() -> UIBezierPath {
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: 6, y: 3))
-        path.addLine(to: CGPoint(x: 20, y: 12))
-        path.addLine(to: CGPoint(x: 6, y: 21))
+        path.move(to: CGPoint(x: 22.99, y: 11.7773))
+        path.addCurve(to: CGPoint(x: 21.4859, y: 9.39398),
+                      controlPoint1: CGPoint(x: 22.9219, y: 10.8388),
+                      controlPoint2: CGPoint(x: 22.4205, y: 9.92777))
+        path.addLine(to: CGPoint(x: 7.48782, y: 1.39936))
+        path.addCurve(to: CGPoint(x: 3, y: 4.00443),
+                      controlPoint1: CGPoint(x: 5.48785, y: 0.25713),
+                      controlPoint2: CGPoint(x: 3, y: 1.70127))
+        path.addLine(to: CGPoint(x: 3, y: 19.9937))
+        path.addCurve(to: CGPoint(x: 7.48781, y: 22.5988),
+                      controlPoint1: CGPoint(x: 3, y: 22.2968),
+                      controlPoint2: CGPoint(x: 5.48785, y: 23.741))
+        path.addLine(to: CGPoint(x: 21.4859, y: 14.6041))
+        path.addCurve(to: CGPoint(x: 22.99, y: 12.2208),
+                      controlPoint1: CGPoint(x: 22.4205, y: 14.0703),
+                      controlPoint2: CGPoint(x: 22.9219, y: 13.1593))
+        path.addCurve(to: CGPoint(x: 22.99, y: 11.7773),
+                      controlPoint1: CGPoint(x: 23.0226, y: 12.0751),
+                      controlPoint2: CGPoint(x: 23.0226, y: 11.9231))
         path.close()
         return path
     }
@@ -199,7 +226,15 @@ enum HayaseIcon {
         path.move(to: first)
         points.dropFirst().forEach { path.addLine(to: $0) }
         path.close()
+        filledPath(path, strokeWidth: 0)
+    }
+
+    private static func filledPath(_ path: UIBezierPath, strokeWidth: CGFloat) {
+        path.lineJoinStyle = .round
         path.fill()
+        guard strokeWidth > 0 else { return }
+        path.lineWidth = strokeWidth
+        path.stroke()
     }
 }
 

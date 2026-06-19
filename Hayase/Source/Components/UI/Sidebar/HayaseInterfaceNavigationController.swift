@@ -11,7 +11,7 @@ import UIKit
 
 // MARK: - HayaseInterfaceNavigationController
 
-final class HayaseInterfaceNavigationController: UINavigationController {
+final class HayaseInterfaceNavigationController: UINavigationController, UINavigationControllerDelegate {
     convenience init(wrapping navigationController: UINavigationController) {
         let viewControllers = navigationController.viewControllers
         navigationController.setViewControllers([], animated: false)
@@ -24,8 +24,12 @@ final class HayaseInterfaceNavigationController: UINavigationController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        delegate = self
         applyInterfaceNavigationChrome()
     }
+
+    override var prefersStatusBarHidden: Bool { true }
+    override var childForStatusBarHidden: UIViewController? { nil }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -39,6 +43,11 @@ final class HayaseInterfaceNavigationController: UINavigationController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
+        applyInterfaceNavigationChrome()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
         applyInterfaceNavigationChrome()
     }
 
@@ -69,11 +78,26 @@ final class HayaseInterfaceNavigationController: UINavigationController {
         applyInterfaceNavigationChrome()
     }
 
+    func navigationController(_ navigationController: UINavigationController,
+                              willShow viewController: UIViewController,
+                              animated: Bool) {
+        applyInterfaceNavigationChrome()
+    }
+
+    func navigationController(_ navigationController: UINavigationController,
+                              didShow viewController: UIViewController,
+                              animated: Bool) {
+        applyInterfaceNavigationChrome()
+    }
+
     private func applyInterfaceNavigationChrome() {
         super.setNavigationBarHidden(true, animated: false)
+        isToolbarHidden = true
         navigationBar.isHidden = true
         navigationBar.alpha = 0
         navigationBar.isUserInteractionEnabled = false
+        toolbar.isHidden = true
+        toolbar.alpha = 0
         navigationBar.prefersLargeTitles = false
         navigationBar.standardAppearance.configureWithTransparentBackground()
         navigationBar.scrollEdgeAppearance = navigationBar.standardAppearance

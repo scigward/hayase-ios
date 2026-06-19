@@ -29,6 +29,7 @@ final class HayaseSidebarButton: UIButton {
     private var iconImage: UIImage?
     private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
     private var iconSizeConstraint: NSLayoutConstraint?
+    private var isActiveRoute = false
 
     var onPress: (() -> Void)?
 
@@ -75,6 +76,12 @@ final class HayaseSidebarButton: UIButton {
         iconView.contentMode = .scaleAspectFit
         iconView.tintColor = tintColor
         iconView.isUserInteractionEnabled = false
+        if route == .donate {
+            iconView.layer.shadowColor = Self.donateColor.cgColor
+            iconView.layer.shadowOpacity = 0.9
+            iconView.layer.shadowRadius = 8
+            iconView.layer.shadowOffset = .zero
+        }
         addSubview(iconView)
 
         dotView.translatesAutoresizingMaskIntoConstraints = false
@@ -121,6 +128,7 @@ final class HayaseSidebarButton: UIButton {
 
     func setActive(_ active: Bool, animated: Bool) {
         let changes = {
+            self.isActiveRoute = active
             self.activeBackground.alpha = active ? 1 : 0
             self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
             self.iconView.tintColor = self.tintColor
@@ -148,7 +156,8 @@ final class HayaseSidebarButton: UIButton {
         if iconRenderingMode == .alwaysOriginal {
             iconView.image = iconImage
         } else {
-            iconView.image = iconImage
+            let tint = isActiveRoute ? Self.primaryForeground : tintForInactiveState()
+            iconView.image = iconImage?.withTintColor(tint, renderingMode: .alwaysOriginal)
             iconView.tintColor = tintColor
         }
     }

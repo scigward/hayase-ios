@@ -217,6 +217,7 @@ private final class SegmentedSeekBar: UIControl {
 
 private final class InterfaceSpinnerView: UIView {
     private let spinnerLayer = CAShapeLayer()
+    private var isAnimating = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -235,6 +236,13 @@ private final class InterfaceSpinnerView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if isAnimating {
+            ensureSpinAnimation()
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let inset = spinnerLayer.lineWidth / 2
@@ -245,22 +253,30 @@ private final class InterfaceSpinnerView: UIView {
                                          startAngle: -.pi / 2,
                                          endAngle: 0,
                                          clockwise: true).cgPath
+        if isAnimating {
+            ensureSpinAnimation()
+        }
     }
 
     func setAnimating(_ animating: Bool) {
-        guard animating != !isHidden else { return }
+        isAnimating = animating
         isHidden = !animating
         if animating {
-            let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
-            rotation.fromValue = 0
-            rotation.toValue = CGFloat.pi * 2
-            rotation.duration = 0.8
-            rotation.repeatCount = .infinity
-            rotation.timingFunction = CAMediaTimingFunction(name: .linear)
-            layer.add(rotation, forKey: "spin")
+            ensureSpinAnimation()
         } else {
-            layer.removeAnimation(forKey: "spin")
+            spinnerLayer.removeAnimation(forKey: "spin")
         }
+    }
+
+    private func ensureSpinAnimation() {
+        guard !isHidden, window != nil, spinnerLayer.animation(forKey: "spin") == nil else { return }
+        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotation.fromValue = 0
+        rotation.toValue = CGFloat.pi * 2
+        rotation.duration = 0.8
+        rotation.repeatCount = .infinity
+        rotation.timingFunction = CAMediaTimingFunction(name: .linear)
+        spinnerLayer.add(rotation, forKey: "spin")
     }
 }
 
@@ -640,7 +656,7 @@ final class VideoPlayerViewController: UIViewController {
         w2gPlayerDelegate = nil
     }
 
-    override var prefersStatusBarHidden: Bool              { !controlsVisible }
+    override var prefersStatusBarHidden: Bool              { true }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
     override var prefersHomeIndicatorAutoHidden: Bool      { !controlsVisible }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
@@ -1069,10 +1085,10 @@ final class VideoPlayerViewController: UIViewController {
         setControls(visible: !controlsVisible)
     }
 
-    /// Double-tap: seek forward/backward depending on which half was tapped.
+    /// Double-tap: left/right quarters seek; center toggles fullscreen.
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
         let tapLocation = gesture.location(in: surface)
-        performDoubleTapSeek(at: tapLocation)
+        handleInterfaceDoubleTap(at: tapLocation)
     }
 
     @objc private func handleHoldToFastForward(_ gesture: UILongPressGestureRecognizer) {
@@ -1092,25 +1108,40 @@ final class VideoPlayerViewController: UIViewController {
         return Double(stored) ?? 2
     }
 
-    /// Double-tap on the left half of the screen seeks backward; right half seeks forward.
-    /// The seek amount comes from the user's "Seek Duration" setting (pref_seekDuration).
-    private func performDoubleTapSeek(at location: CGPoint) {
-        let seekAmount = seekDurationSeconds
-        if location.x < surface.bounds.midX {
-            let newTime = max(0, currentTime - seekAmount)
-            let fraction = duration > 0 ? newTime / duration : 0
-            streamer?.seekTo(fraction: fraction)
-            surface.mpv.seek(by: -seekAmount)
-            lastSeekTime = Date()
-            showPlayerAnimation(icon: "rewind")
+    /// Mirrors player.svelte mobile overlay: left/right quarter double-taps seek,
+    /// the center double-tap falls through to fullscreen().
+    private func handleInterfaceDoubleTap(at location: CGPoint) {
+        let leftSeekEdge = surface.bounds.width * 0.25
+        let rightSeekEdge = surface.bounds.width * 0.75
+        if location.x < leftSeekEdge {
+            performDoubleTapSeek(forward: false)
+        } else if location.x > rightSeekEdge {
+            performDoubleTapSeek(forward: true)
         } else {
+            toggleFullscreenPresentation()
+        }
+    }
+
+    private func performDoubleTapSeek(forward: Bool) {
+        let seekAmount = seekDurationSeconds
+        if forward {
             let newTime = min(duration, currentTime + seekAmount)
             let fraction = duration > 0 ? newTime / duration : 0
             streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: seekAmount)
+            currentTime = newTime
             lastSeekTime = Date()
             showPlayerAnimation(icon: "fast-forward")
+        } else {
+            let newTime = max(0, currentTime - seekAmount)
+            let fraction = duration > 0 ? newTime / duration : 0
+            streamer?.seekTo(fraction: fraction)
+            surface.mpv.seek(by: -seekAmount)
+            currentTime = newTime
+            lastSeekTime = Date()
+            showPlayerAnimation(icon: "rewind")
         }
+        updateTimeUI()
     }
 
     private func showPlayerAnimation(icon: String) {
@@ -1931,10 +1962,9 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func toggleFullscreenPresentation() {
-        guard hayaseShouldEmbedPlayerInShell else { return }
         if isFullscreenPresentation {
             exitFullscreenPresentation()
-        } else {
+        } else if hayaseShouldEmbedPlayerInShell {
             enterFullscreenPresentation()
         }
     }
@@ -1956,14 +1986,18 @@ final class VideoPlayerViewController: UIViewController {
 
     private func exitFullscreenPresentation() {
         let nav = shellNavigationControllerBeforeFullscreen ?? presentingViewController?.hayaseShellNavigationController()
-        guard let nav = nav else { return }
+        guard let nav = nav else {
+            isMinimizing = false
+            dismiss(animated: true)
+            return
+        }
         isMinimizing = true
         dismiss(animated: true) { [weak self, weak nav] in
             guard let self = self, let nav = nav else { return }
             nav.setNavigationBarHidden(true, animated: false)
             nav.navigationBar.isHidden = true
-            nav.pushViewController(self, animated: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            nav.pushViewController(self, animated: false)
+            DispatchQueue.main.async {
                 self.isMinimizing = false
             }
         }

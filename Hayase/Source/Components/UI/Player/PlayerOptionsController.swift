@@ -100,12 +100,13 @@ final class PlayerOptionsController: UIViewController {
     /// `w-64 bg-black rounded-md border p-1 shadow-md`
     private let containerView = UIView()
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let stripedLayer = HayaseStripePattern.customBackground.makeLayer()
 
     /// Navigation stack for drill-down. Each entry is (title, items).
     private var navigationStack: [(title: String?, items: [OptionItem])] = []
 
     /// Width of the menu container (web: w-64 = 16rem ≈ 256px).
-    private let menuWidth: CGFloat = 264
+    private let menuWidth: CGFloat = 256
 
     /// Dynamic height constraint — updated whenever menu content changes.
     private var containerHeightConstraint: NSLayoutConstraint?
@@ -116,7 +117,9 @@ final class PlayerOptionsController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        view.backgroundColor = .clear
+        stripedLayer.frame = view.bounds
+        view.layer.addSublayer(stripedLayer)
 
         // Tap-to-dismiss background (matches options.svelte on:pointerdown|self={close})
         let tapBG = UITapGestureRecognizer(target: self, action: #selector(dismissSelf))
@@ -136,14 +139,22 @@ final class PlayerOptionsController: UIViewController {
 
     override var prefersStatusBarHidden: Bool { true }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if stripedLayer.frame != view.bounds {
+            stripedLayer.frame = view.bounds
+            stripedLayer.setNeedsDisplay()
+        }
+    }
+
     // MARK: - Container setup
 
     private func setupContainer() {
         // menu.svelte: bg-black rounded-md border p-1 shadow-md
-        containerView.backgroundColor = .black
+        containerView.backgroundColor = UIColor.HayaseTheme.background
         containerView.layer.cornerRadius = 6
         containerView.layer.borderWidth = 1
-        containerView.layer.borderColor = UIColor(white: 0.2, alpha: 1).cgColor
+        containerView.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         containerView.layer.shadowColor = UIColor.black.cgColor
         containerView.layer.shadowOpacity = 0.5
         containerView.layer.shadowRadius = 12
@@ -274,8 +285,9 @@ final class PlayerOptionsController: UIViewController {
 
         // Fullscreen (options.svelte: Fullscreen tree item)
         items.append(.toggle(title: "Fullscreen", isActive: isFullscreenActive) { [weak self] in
-            self?.onToggleFullscreen?()
-            self?.dismissSelf()
+            self?.dismissWithCompletion { [weak self] in
+                self?.onToggleFullscreen?()
+            }
         })
 
         // Picture in Picture (options.svelte: toggle)
@@ -353,8 +365,13 @@ final class PlayerOptionsController: UIViewController {
     // MARK: - Helpers
 
     @objc private func dismissSelf() {
+        dismissWithCompletion(nil)
+    }
+
+    private func dismissWithCompletion(_ completion: (() -> Void)?) {
         dismiss(animated: true) { [weak self] in
             self?.onDismiss?()
+            completion?()
         }
     }
 
@@ -510,26 +527,26 @@ private final class TreeItemCell: UITableViewCell {
         chevronImage.isHidden = !hasChevron
 
         if isActive {
-            // item.svelte: class:!bg-white={active} class:!text-black={active}
-            contentView.backgroundColor = .white
+            // item.svelte: class:!bg-primary={active} class:!text-background={active}
+            contentView.backgroundColor = UIColor.HayaseTheme.primary
             contentView.layer.cornerRadius = 3
-            titleLabel.textColor = .black
-            chevronImage.tintColor = .black
+            titleLabel.textColor = UIColor.HayaseTheme.background
+            chevronImage.tintColor = UIColor.HayaseTheme.background
         } else {
             contentView.backgroundColor = .clear
             contentView.layer.cornerRadius = 0
-            titleLabel.textColor = isBackRow ? UIColor(white: 0.6, alpha: 1) : .white
-            chevronImage.tintColor = .white
+            titleLabel.textColor = isBackRow ? UIColor.HayaseTheme.mutedForeground : UIColor.HayaseTheme.foreground
+            chevronImage.tintColor = UIColor.HayaseTheme.foreground
         }
     }
 
     override func setHighlighted(_ highlighted: Bool, animated: Bool) {
         super.setHighlighted(highlighted, animated: animated)
-        if highlighted && contentView.backgroundColor != .white {
+        if highlighted && contentView.backgroundColor != UIColor.HayaseTheme.primary {
             // hover:bg-accent
-            contentView.backgroundColor = UIColor(white: 0.15, alpha: 1)
+            contentView.backgroundColor = UIColor.HayaseTheme.accent
             contentView.layer.cornerRadius = 3
-        } else if !highlighted && contentView.backgroundColor != .white {
+        } else if !highlighted && contentView.backgroundColor != UIColor.HayaseTheme.primary {
             contentView.backgroundColor = .clear
         }
     }

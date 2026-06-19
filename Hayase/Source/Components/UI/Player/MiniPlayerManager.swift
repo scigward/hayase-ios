@@ -37,6 +37,7 @@ private final class PassthroughWindow: UIWindow {
 private final class PassthroughRootViewController: UIViewController {
     override var shouldAutorotate: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
+    override var prefersStatusBarHidden: Bool { true }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         MiniPlayerManager.shared.repositionContainer()
@@ -71,6 +72,8 @@ final class MiniPlayerManager {
     private let maxRestoreRetries = 30
     /// Delay between restore retries (seconds).
     private let restoreRetryDelay: TimeInterval = 1.0
+    private let innerContainerTag = 100
+    private let stripeOverlayTag = 101
 
     // MARK: - State
 
@@ -171,10 +174,11 @@ final class MiniPlayerManager {
         // Reparent the MPV surface into the mini-player container.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = true
-        guard let inner = container.viewWithTag(100) else { return }
+        guard let inner = container.viewWithTag(innerContainerTag) else { return }
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
+        addStripeOverlay(to: inner)
 
         // Add mini-player controls overlay.
         addOverlay(to: container)
@@ -298,7 +302,10 @@ final class MiniPlayerManager {
         revealedFrame = frame
         isSnappedToRight = true
         container.bounds.size = size
-        container.viewWithTag(100)?.frame = CGRect(origin: .zero, size: size)
+        if let inner = container.viewWithTag(innerContainerTag) {
+            inner.frame = CGRect(origin: .zero, size: size)
+            resizeStripeOverlay(in: inner)
+        }
         if isTucked {
             var tuckedFrame = frame
             tuckedFrame.origin.x = bounds.width - peekWidth
@@ -362,7 +369,7 @@ final class MiniPlayerManager {
         inner.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.clipsToBounds = true
         inner.layer.cornerRadius = cornerRadius
-        inner.tag = 100 // used to find inner view
+        inner.tag = innerContainerTag
         v.addSubview(inner)
 
         // Gestures (Hayase pointer events: drag + tap).
@@ -377,7 +384,7 @@ final class MiniPlayerManager {
 
     /// Adds the controls overlay (play/pause) to the mini-player.
     private func addOverlay(to container: UIView) {
-        guard let inner = container.viewWithTag(100) else { return }
+        guard let inner = container.viewWithTag(innerContainerTag) else { return }
 
         let overlay = UIView()
         overlay.translatesAutoresizingMaskIntoConstraints = false
@@ -405,6 +412,30 @@ final class MiniPlayerManager {
             ppBtn.widthAnchor.constraint(equalToConstant: 36),
             ppBtn.heightAnchor.constraint(equalToConstant: 36),
         ])
+    }
+
+    private func addStripeOverlay(to inner: UIView) {
+        inner.viewWithTag(stripeOverlayTag)?.removeFromSuperview()
+
+        let overlay = UIView(frame: inner.bounds)
+        overlay.tag = stripeOverlayTag
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.isUserInteractionEnabled = false
+        overlay.backgroundColor = .clear
+
+        let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
+        stripeLayer.frame = overlay.bounds
+        overlay.layer.addSublayer(stripeLayer)
+        inner.addSubview(overlay)
+    }
+
+    private func resizeStripeOverlay(in inner: UIView) {
+        guard let overlay = inner.viewWithTag(stripeOverlayTag) else { return }
+        overlay.frame = inner.bounds
+        overlay.layer.sublayers?.forEach { layer in
+            layer.frame = overlay.bounds
+            layer.setNeedsDisplay()
+        }
     }
 
     // MARK: - Gesture handlers (Hayase wrapper.svelte pointer events)
@@ -872,10 +903,11 @@ final class MiniPlayerManager {
         // Reparent the MPV surface into the mini-player container.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = true
-        guard let inner = container.viewWithTag(100) else { return }
+        guard let inner = container.viewWithTag(innerContainerTag) else { return }
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
+        addStripeOverlay(to: inner)
 
         addOverlay(to: container)
 

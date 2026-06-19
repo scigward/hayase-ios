@@ -13,7 +13,11 @@ import UIKit
 extension UIViewController {
     var hayaseShouldEmbedPlayerInShell: Bool {
         let traits = view.window?.traitCollection ?? traitCollection
-        return view.bounds.width >= 768 || traits.horizontalSizeClass == .regular
+        let bounds = view.window?.bounds ?? view.bounds
+        let isPhoneLandscape = traits.userInterfaceIdiom == .phone
+            && bounds.width > bounds.height
+            && bounds.width >= 568
+        return bounds.width >= 768 || traits.horizontalSizeClass == .regular || isPhoneLandscape
     }
 
     func presentHayasePlayer(_ player: VideoPlayerViewController,

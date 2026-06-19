@@ -15,44 +15,53 @@ enum HayaseStripePattern {
     case stripedMuted
 
     func makeLayer() -> CALayer {
-        let layer = CALayer()
-        layer.backgroundColor = UIColor(patternImage: makeImage()).cgColor
+        let layer = HayaseStripeRenderingLayer(pattern: self)
+        layer.contentsScale = UIScreen.main.scale
+        layer.needsDisplayOnBoundsChange = true
         return layer
     }
 
     func makeImage() -> UIImage {
+        let spec = renderSpec
+        return Self.makeRepeatingLinearGradientTile(size: spec.tileSize,
+                                                    angleDegrees: spec.angleDegrees,
+                                                    period: spec.period,
+                                                    stops: spec.stops)
+    }
+
+    fileprivate var renderSpec: HayaseStripeRenderSpec {
         switch self {
         case .customBackground:
-            return Self.makeRepeatingLinearGradientTile(size: CGSize(width: 120, height: 120),
-                                                        angleDegrees: 40,
-                                                        period: 10,
-                                                        stops: [
-                                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 0),
-                                                            (.init(white: 85.0 / 255.0, alpha: 4.0 / 15.0), 1),
-                                                            (.init(white: 85.0 / 255.0, alpha: 4.0 / 15.0), 5),
-                                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 6),
-                                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 10),
-                                                        ])
+            return HayaseStripeRenderSpec(tileSize: CGSize(width: 120, height: 120),
+                                          angleDegrees: 40,
+                                          period: 10,
+                                          stops: [
+                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 0),
+                                            (.init(white: 85.0 / 255.0, alpha: 4.0 / 15.0), 1),
+                                            (.init(white: 85.0 / 255.0, alpha: 4.0 / 15.0), 5),
+                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 6),
+                                            (.init(white: 17.0 / 255.0, alpha: 4.0 / 15.0), 10),
+                                          ])
         case .striped:
-            return Self.makeRepeatingLinearGradientTile(size: CGSize(width: 119, height: 119),
-                                                        angleDegrees: 45,
-                                                        period: 12,
-                                                        stops: [
-                                                            (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 0),
-                                                            (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 6),
-                                                            (UIColor(red: 0x2a / 255.0, green: 0x2a / 255.0, blue: 0x2a / 255.0, alpha: 1), 6),
-                                                            (UIColor(red: 0x2a / 255.0, green: 0x2a / 255.0, blue: 0x2a / 255.0, alpha: 1), 12),
-                                                        ])
+            return HayaseStripeRenderSpec(tileSize: CGSize(width: 119, height: 119),
+                                          angleDegrees: 45,
+                                          period: 12,
+                                          stops: [
+                                            (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 0),
+                                            (UIColor(red: 0x20 / 255.0, green: 0x20 / 255.0, blue: 0x20 / 255.0, alpha: 1), 6),
+                                            (UIColor(red: 0x2a / 255.0, green: 0x2a / 255.0, blue: 0x2a / 255.0, alpha: 1), 6),
+                                            (UIColor(red: 0x2a / 255.0, green: 0x2a / 255.0, blue: 0x2a / 255.0, alpha: 1), 12),
+                                          ])
         case .stripedMuted:
-            return Self.makeRepeatingLinearGradientTile(size: CGSize(width: 119, height: 119),
-                                                        angleDegrees: 45,
-                                                        period: 12,
-                                                        stops: [
-                                                            (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 0),
-                                                            (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 6),
-                                                            (UIColor(red: 0x16 / 255.0, green: 0x16 / 255.0, blue: 0x16 / 255.0, alpha: 1), 6),
-                                                            (UIColor(red: 0x16 / 255.0, green: 0x16 / 255.0, blue: 0x16 / 255.0, alpha: 1), 12),
-                                                        ])
+            return HayaseStripeRenderSpec(tileSize: CGSize(width: 119, height: 119),
+                                          angleDegrees: 45,
+                                          period: 12,
+                                          stops: [
+                                            (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 0),
+                                            (UIColor(red: 0x1e / 255.0, green: 0x1e / 255.0, blue: 0x1e / 255.0, alpha: 1), 6),
+                                            (UIColor(red: 0x16 / 255.0, green: 0x16 / 255.0, blue: 0x16 / 255.0, alpha: 1), 6),
+                                            (UIColor(red: 0x16 / 255.0, green: 0x16 / 255.0, blue: 0x16 / 255.0, alpha: 1), 12),
+                                          ])
         }
     }
 
@@ -83,12 +92,12 @@ enum HayaseStripePattern {
         }
     }
 
-    private static func positiveModulo(_ value: CGFloat, _ modulus: CGFloat) -> CGFloat {
+    fileprivate static func positiveModulo(_ value: CGFloat, _ modulus: CGFloat) -> CGFloat {
         let remainder = value.truncatingRemainder(dividingBy: modulus)
         return remainder >= 0 ? remainder : remainder + modulus
     }
 
-    private static func color(at position: CGFloat, stops: [(UIColor, CGFloat)]) -> UIColor {
+    fileprivate static func color(at position: CGFloat, stops: [(UIColor, CGFloat)]) -> UIColor {
         guard let first = stops.first else { return .clear }
         var previous = first
         for current in stops.dropFirst() {
@@ -112,5 +121,59 @@ enum HayaseStripePattern {
                        green: lg + (rg - lg) * t,
                        blue: lb + (rb - lb) * t,
                        alpha: la + (ra - la) * t)
+    }
+}
+
+fileprivate struct HayaseStripeRenderSpec {
+    let tileSize: CGSize
+    let angleDegrees: CGFloat
+    let period: CGFloat
+    let stops: [(UIColor, CGFloat)]
+}
+
+private final class HayaseStripeRenderingLayer: CALayer {
+    private let spec: HayaseStripeRenderSpec
+
+    init(pattern: HayaseStripePattern) {
+        self.spec = pattern.renderSpec
+        super.init()
+        isOpaque = false
+        setNeedsDisplay()
+    }
+
+    override init(layer: Any) {
+        if let layer = layer as? HayaseStripeRenderingLayer {
+            self.spec = layer.spec
+        } else {
+            self.spec = HayaseStripePattern.customBackground.renderSpec
+        }
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        self.spec = HayaseStripePattern.customBackground.renderSpec
+        super.init(coder: coder)
+    }
+
+    override func draw(in ctx: CGContext) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let scale = contentsScale > 0 ? contentsScale : UIScreen.main.scale
+        let pixelWidth = Int(ceil(bounds.width * scale))
+        let pixelHeight = Int(ceil(bounds.height * scale))
+        let angle = spec.angleDegrees * .pi / 180
+        let dx = sin(angle)
+        let dy = -cos(angle)
+        let pixelSize = 1 / scale
+
+        for py in 0..<pixelHeight {
+            for px in 0..<pixelWidth {
+                let x = CGFloat(px) / scale
+                let y = CGFloat(py) / scale
+                let projected = x * dx + y * dy
+                let position = HayaseStripePattern.positiveModulo(projected, spec.period)
+                ctx.setFillColor(HayaseStripePattern.color(at: position, stops: spec.stops).cgColor)
+                ctx.fill(CGRect(x: x, y: y, width: pixelSize, height: pixelSize))
+            }
+        }
     }
 }

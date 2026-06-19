@@ -49,6 +49,19 @@ final class HayaseSidebarController: UIViewController {
         updateLayoutForCurrentWidth()
     }
 
+    override var prefersStatusBarHidden: Bool { true }
+    override var childForStatusBarHidden: UIViewController? { nil }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        hideHostedNavigationBars()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        hideHostedNavigationBars()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateLayoutForCurrentWidth()
@@ -62,6 +75,8 @@ final class HayaseSidebarController: UIViewController {
 
     private func setupContentHost() {
         tabBarControllerHost.tabBar.isHidden = true
+        tabBarControllerHost.tabBar.alpha = 0
+        tabBarControllerHost.tabBar.isUserInteractionEnabled = false
         tabBarControllerHost.delegate = self
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -104,14 +119,28 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func hideHostedNavigationBars() {
-        for case let nav as UINavigationController in tabBarControllerHost.viewControllers ?? [] {
-            if !nav.isNavigationBarHidden {
-                nav.setNavigationBarHidden(true, animated: false)
-            }
+        hideNavigationChrome(in: tabBarControllerHost)
+    }
+
+    private func hideNavigationChrome(in viewController: UIViewController?) {
+        guard let viewController else { return }
+        if let tab = viewController as? UITabBarController {
+            tab.tabBar.isHidden = true
+            tab.tabBar.alpha = 0
+            tab.tabBar.isUserInteractionEnabled = false
+            tab.view.setNeedsLayout()
+        }
+        if let nav = viewController as? UINavigationController {
+            nav.setNavigationBarHidden(true, animated: false)
+            nav.isToolbarHidden = true
             nav.navigationBar.isHidden = true
             nav.navigationBar.alpha = 0
+            nav.navigationBar.isUserInteractionEnabled = false
+            nav.toolbar.isHidden = true
             nav.view.setNeedsLayout()
         }
+        viewController.children.forEach { hideNavigationChrome(in: $0) }
+        hideNavigationChrome(in: viewController.presentedViewController)
     }
 
     private func setupDesktopSidebar() {
@@ -238,7 +267,10 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateLayoutForCurrentWidth() {
-        let isDesktop = view.bounds.width >= 768 || traitCollection.horizontalSizeClass == .regular
+        let isPhoneLandscape = traitCollection.userInterfaceIdiom == .phone
+            && view.bounds.width > view.bounds.height
+            && view.bounds.width >= 568
+        let isDesktop = view.bounds.width >= 768 || traitCollection.horizontalSizeClass == .regular || isPhoneLandscape
         guard isDesktopMode != isDesktop else { return }
         isDesktopMode = isDesktop
         sidebarList.superview?.isHidden = !isDesktop
@@ -252,7 +284,8 @@ final class HayaseSidebarController: UIViewController {
 
     private func updateSidebarBackground() {
         let selectedRoute = HayaseSidebarRoute.allCases.first { $0.tabIndex == tabBarControllerHost.selectedIndex }
-        sidebarContainer.backgroundColor = selectedRoute == .home ? UIColor.HayaseTheme.background : .clear
+        sidebarContainer.backgroundColor = selectedRoute == .home ? .clear : UIColor.HayaseTheme.background
+        sidebarList.backgroundColor = .clear
     }
 
     @objc private func toggleMobileMenu() {

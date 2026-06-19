@@ -261,6 +261,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Stored constraints toggled between iPhone/iPad layouts
     // Clearlogo uses width constraints (web: w-[30rem] = 480pt on iPad, capped for mobile)
     private var clearlogoWidthMax: NSLayoutConstraint!
+    private var clearlogoHeightMax: NSLayoutConstraint!
+    private var clearlogoAspectConstraint: NSLayoutConstraint?
 
     // MARK: Init
 
@@ -351,6 +353,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Clearlogo constraints: web title anchor is w-[900px] max-w-[85%]
         // inside the left column; the logo image itself is w-[30rem].
         clearlogoWidthMax = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
+        clearlogoHeightMax = clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 150)
 
         // Tailwind image max-width: 100% makes this min(480pt, 85% of left column).
         let clearlogoMaxWidthPct = clearlogoImageView.widthAnchor.constraint(
@@ -385,6 +388,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             titleMaxWidthConstraint,
             descriptionMaxWidthConstraint,
             clearlogoWidthMax,
+            clearlogoHeightMax,
             clearlogoMaxWidthPct,
 
             buttonRow.widthAnchor.constraint(equalToConstant: 280),
@@ -425,6 +429,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             rightColumn.setCustomSpacing(16, after: descriptionLabel)
             // Clearlogo sizing: web w-[30rem] = 480pt
             clearlogoWidthMax.constant = 480
+            clearlogoHeightMax.constant = 150
             gradientView.setCompact(false)
             // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
             descriptionLabel.numberOfLines = 3
@@ -455,6 +460,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             genresStack.isHidden = true
             // Clearlogo sizing: web w-[30rem], capped by the parent max-w-[85%].
             clearlogoWidthMax.constant = 480
+            clearlogoHeightMax.constant = 120
             gradientView.setCompact(true)
             // Description: text-xs (0.75rem = 12pt), line-clamp-2
             descriptionLabel.numberOfLines = 2
@@ -674,6 +680,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private func showClearlogo(_ image: UIImage, forItemID: Int) {
         // Verify we're still on the same item
         guard currentIndex < items.count, items[currentIndex].id == forItemID else { return }
+        clearlogoAspectConstraint?.isActive = false
+        clearlogoAspectConstraint = clearlogoImageView.heightAnchor.constraint(
+            equalTo: clearlogoImageView.widthAnchor,
+            multiplier: image.size.height / max(image.size.width, 1)
+        )
+        clearlogoAspectConstraint?.priority = .defaultHigh
+        clearlogoAspectConstraint?.isActive = true
         clearlogoImageView.image = image
         UIView.animate(withDuration: 0.3) {
             self.clearlogoImageView.isHidden = false
