@@ -17,6 +17,9 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropAlphaKey = "alpha"
     private static let homeBannerBackdropScrollOffsetKey = "scrollOffset"
     private static let homeBannerBackdropHeightKey = "height"
+    private static let homeBannerBackdropRouteKey = "route"
+    private static let homeBannerBackdropHomeRoute = "home"
+    private static let homeBannerBackdropAnimeRoute = "anime"
 
     private let tabBarControllerHost: UITabBarController
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
@@ -282,6 +285,15 @@ final class HayaseSidebarController: UIViewController {
     @objc private func homeBannerBackdropDidChange(_ notification: Notification) {
         let userInfo = notification.userInfo ?? [:]
 
+        // The page banner is route-owned. Ignore late async image/fade updates
+        // from a page that is no longer visible, otherwise the sidebar can keep
+        // a stale detail/home backdrop until the app restarts.
+        if let route = userInfo[Self.homeBannerBackdropRouteKey] as? String,
+           let visibleRoute = visibleBannerBackdropRoute(),
+           route != visibleRoute {
+            return
+        }
+
         if let height = userInfo[Self.homeBannerBackdropHeightKey] as? CGFloat, height > 0 {
             sidebarBackdropHeightConstraint?.constant = height
         }
@@ -408,8 +420,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateSidebarBackground() {
-        let topController = topVisibleHostedController()
-        let isBannerRoute = topController is BrowseAnimeViewController || topController is AnimeDetailViewController
+        let isBannerRoute = visibleBannerBackdropRoute() != nil
         let hasBackdrop = sidebarBackdropImageView.image != nil || sidebarBackdropURL != nil
         let showsBannerBackdrop = isBannerRoute && hasBackdrop
 
@@ -420,6 +431,13 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
         sidebarList.backgroundColor = .clear
+    }
+
+    private func visibleBannerBackdropRoute() -> String? {
+        let topController = topVisibleHostedController()
+        if topController is BrowseAnimeViewController { return Self.homeBannerBackdropHomeRoute }
+        if topController is AnimeDetailViewController { return Self.homeBannerBackdropAnimeRoute }
+        return nil
     }
 
     private func topVisibleHostedController() -> UIViewController? {

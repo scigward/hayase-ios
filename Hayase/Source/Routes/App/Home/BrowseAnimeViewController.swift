@@ -15,6 +15,8 @@ private let hayaseHomeBannerBackdropURLKey = "url"
 private let hayaseHomeBannerBackdropAlphaKey = "alpha"
 private let hayaseHomeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseHomeBannerBackdropHeightKey = "height"
+private let hayaseHomeBannerBackdropRouteKey = "route"
+private let hayaseHomeBannerBackdropHomeRoute = "home"
 
 // MARK: - BannerGradientView
 
@@ -115,6 +117,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var rotationTimer: Timer?
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
+    private var currentSidebarBackdropURL: String?
     private var clearlogoTask: URLSessionDataTask?
     private var avatarTasks: [URLSessionDataTask] = []
     private var followingUsersByMediaID: [Int: [AniListUserSummary]] = [:]
@@ -799,7 +802,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 
     private func publishSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
-        var userInfo: [String: Any] = [hayaseHomeBannerBackdropHeightKey: currentBackdropHeight()]
+        var userInfo: [String: Any] = [
+            hayaseHomeBannerBackdropHeightKey: currentBackdropHeight(),
+            hayaseHomeBannerBackdropRouteKey: hayaseHomeBannerBackdropHomeRoute,
+        ]
         if let urlString { userInfo[hayaseHomeBannerBackdropURLKey] = urlString }
         if let scrollOffset { userInfo[hayaseHomeBannerBackdropScrollOffsetKey] = scrollOffset }
         if let alpha { userInfo[hayaseHomeBannerBackdropAlphaKey] = alpha }
@@ -811,6 +817,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerTask = nil
         fanartTask?.cancel()
         fanartTask = nil
+        currentSidebarBackdropURL = nil
         let biv = backgroundImageView
         let bannerFallback = item.bannerURL ?? item.coverURL
         // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
@@ -822,6 +829,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 return
             }
             DispatchQueue.main.async {
+                self?.currentSidebarBackdropURL = urlStr
                 self?.publishSidebarBackdrop(urlString: urlStr,
                                              scrollOffset: CGFloat(0),
                                              alpha: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1))
@@ -1276,7 +1284,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // transition-opacity duration-500 → UIView.animate withDuration: 0.5
         let shouldHide = scrollOffset > 100
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        publishSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
+        publishSidebarBackdrop(urlString: currentSidebarBackdropURL, scrollOffset: scrollOffset, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
         // Only fade the image — keep gradientView at full opacity so its bottom stop

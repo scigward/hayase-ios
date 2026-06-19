@@ -18,6 +18,8 @@ private let hayaseAnimeBannerBackdropURLKey = "url"
 private let hayaseAnimeBannerBackdropAlphaKey = "alpha"
 private let hayaseAnimeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseAnimeBannerBackdropHeightKey = "height"
+private let hayaseAnimeBannerBackdropRouteKey = "route"
+private let hayaseAnimeBannerBackdropAnimeRoute = "anime"
 
 // MARK: - PaddedLabel
 
@@ -719,7 +721,9 @@ final class AnimeInfoHeaderView: UIView {
     // MARK: - Sidebar banner bridge
 
     func publishSidebarBackdrop() {
-        postSidebarBackdrop(urlString: displayedBannerURL, scrollOffset: 0)
+        postSidebarBackdrop(urlString: displayedBannerURL,
+                            scrollOffset: 0,
+                            alpha: bannerHidden ? 0.05 : 1.0)
     }
 
     private func currentSidebarBackdropHeight() -> CGFloat {
@@ -728,11 +732,22 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     private func postSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
-        var userInfo: [String: Any] = [hayaseAnimeBannerBackdropHeightKey: currentSidebarBackdropHeight()]
+        var userInfo: [String: Any] = [
+            hayaseAnimeBannerBackdropHeightKey: currentSidebarBackdropHeight(),
+            hayaseAnimeBannerBackdropRouteKey: hayaseAnimeBannerBackdropAnimeRoute,
+        ]
         if let urlString { userInfo[hayaseAnimeBannerBackdropURLKey] = urlString }
         if let scrollOffset { userInfo[hayaseAnimeBannerBackdropScrollOffsetKey] = scrollOffset }
         if let alpha { userInfo[hayaseAnimeBannerBackdropAlphaKey] = alpha }
-        NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange, object: nil, userInfo: userInfo)
+
+        let post = {
+            NotificationCenter.default.post(name: hayaseAnimeBannerBackdropDidChange, object: nil, userInfo: userInfo)
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.async(execute: post)
+        }
     }
 
     func applyScrollFade(_ scrollOffset: CGFloat) {
@@ -836,7 +851,9 @@ final class AnimeInfoHeaderView: UIView {
         trailerButton.isHidden = true
 
         displayedBannerURL = anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM
-        postSidebarBackdrop(urlString: displayedBannerURL)
+        postSidebarBackdrop(urlString: displayedBannerURL,
+                            scrollOffset: 0,
+                            alpha: bannerHidden ? 0.05 : 1.0)
         loadImage(from: displayedBannerURL,
                   into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
@@ -903,7 +920,9 @@ final class AnimeInfoHeaderView: UIView {
             guard let self else { return }
             let urlStr = fanartURL ?? bannerFallback
             self.displayedBannerURL = urlStr
-            self.postSidebarBackdrop(urlString: urlStr)
+            self.postSidebarBackdrop(urlString: urlStr,
+                                     scrollOffset: 0,
+                                     alpha: self.bannerHidden ? 0.05 : 1.0)
             self.bannerImageTask?.cancel()
             self.bannerImageTask = nil
             guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -928,6 +947,9 @@ final class AnimeInfoHeaderView: UIView {
 
     func updateBanner(from urlString: String) {
         displayedBannerURL = urlString
+        postSidebarBackdrop(urlString: urlString,
+                            scrollOffset: 0,
+                            alpha: bannerHidden ? 0.05 : 1.0)
         loadImage(from: urlString, into: bannerImageView, task: &bannerImageTask)
     }
 
