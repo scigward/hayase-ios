@@ -147,6 +147,8 @@ final class HayaseSidebarListView: UIView {
         logoButton.accessibilityLabel = "Home"
         logoButton.addTarget(self, action: #selector(logoTapped), for: .touchUpInside)
         NSLayoutConstraint.activate([
+            // Logo.svelte: h-10 mb-1. The horizontal placement is handled
+            // inside HayaseSidebarLogoButton to mirror ml-2 px-2.5.
             logoButton.widthAnchor.constraint(equalToConstant: 48),
             logoButton.heightAnchor.constraint(equalToConstant: 40),
         ])
@@ -225,11 +227,14 @@ private final class HayaseSidebarLogoButton: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let side = min(bounds.width, bounds.height)
-        let inset: CGFloat = 10
-        let scale = (side - inset * 2) / 66.145833
-        var transform = CGAffineTransform(translationX: (bounds.width - side) / 2 + inset,
-                                          y: (bounds.height - side) / 2 + inset)
+        // Logo.svelte: h-10 ml-2 px-2.5. Keep the glyph 40pt tall,
+        // then apply the same 8pt left margin and 10pt horizontal padding.
+        let glyphSide: CGFloat = 40
+        let marginLeft: CGFloat = 8
+        let paddingX: CGFloat = 10
+        let scale = glyphSide / 66.145833
+        var transform = CGAffineTransform(translationX: marginLeft + paddingX,
+                                          y: max((bounds.height - glyphSide) / 2, 0))
             .scaledBy(x: scale, y: scale)
         shapeLayer.path = Self.logoPath().copy(using: &transform)
     }

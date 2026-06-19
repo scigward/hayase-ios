@@ -29,6 +29,7 @@ final class HayaseSidebarButton: UIButton {
     private var iconImage: UIImage?
     private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
     private var iconSizeConstraint: NSLayoutConstraint?
+    private var iconCenterXConstraint: NSLayoutConstraint?
     private var isActiveRoute = false
 
     var onPress: (() -> Void)?
@@ -91,10 +92,16 @@ final class HayaseSidebarButton: UIButton {
         dotView.isUserInteractionEnabled = false
         addSubview(dotView)
 
-        let side: CGFloat = sizeMode == .mobile ? 48 : 40
-        let width: CGFloat = sizeMode == .mobile ? 48 : 48
+        // Desktop mirrors SidebarButton.svelte: default h-9, md:w-12,
+        // md:pl-4, px-2. That makes the 18pt icon sit 4pt right of
+        // geometric center. Mobile mirrors icon-lg exactly.
+        let side: CGFloat = sizeMode == .mobile ? 48 : 36
+        let width: CGFloat = 48
         let iconSize = iconView.widthAnchor.constraint(equalToConstant: 18)
+        let iconCenterX = iconView.centerXAnchor.constraint(equalTo: centerXAnchor,
+                                                            constant: sizeMode == .desktop ? 4 : 0)
         iconSizeConstraint = iconSize
+        iconCenterXConstraint = iconCenterX
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: side),
@@ -102,7 +109,7 @@ final class HayaseSidebarButton: UIButton {
             activeBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             activeBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
             activeBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
-            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconCenterX,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconSize,
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),

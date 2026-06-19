@@ -218,10 +218,13 @@ final class HayaseSidebarController: UIViewController {
             sidebarBackdropGradientView.widthAnchor.constraint(equalTo: sidebarBackdropImageView.widthAnchor),
             sidebarBackdropGradientView.heightAnchor.constraint(equalTo: sidebarBackdropImageView.heightAnchor),
 
-            sidebarList.topAnchor.constraint(equalTo: sidebarContainer.safeAreaLayoutGuide.topAnchor, constant: 8),
+            // sidebar.svelte: w-14 p-2 md:pl-0. The web rail starts at
+            // the viewport edge, not the safe-area edge, because the app owns
+            // the full-screen layout.
+            sidebarList.topAnchor.constraint(equalTo: sidebarContainer.topAnchor, constant: 8),
             sidebarList.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
             sidebarList.trailingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor, constant: -8),
-            sidebarList.bottomAnchor.constraint(equalTo: sidebarContainer.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            sidebarList.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor, constant: -8),
         ])
     }
 
