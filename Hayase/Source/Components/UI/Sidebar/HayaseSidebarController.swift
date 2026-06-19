@@ -29,6 +29,7 @@ final class HayaseSidebarController: UIViewController {
     private var sidebarBackdropTask: URLSessionDataTask?
     private var sidebarBackdropURL: String?
     private var sidebarWidthConstraint: NSLayoutConstraint?
+    private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
@@ -189,6 +190,7 @@ final class HayaseSidebarController: UIViewController {
         view.addSubview(sidebarContainer)
 
         sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
+        sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
         NSLayoutConstraint.activate([
             sidebarContainer.topAnchor.constraint(equalTo: view.topAnchor),
             sidebarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -202,10 +204,9 @@ final class HayaseSidebarController: UIViewController {
             sidebarBackdropImageView.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
             sidebarBackdropImageView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
             sidebarBackdropImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-            // BannerImage uses h-[23rem] outside home. 23rem = 368pt at the
-            // app's 16pt root font, so the anime detail sidebar fades to the
-            // page background at the same height as interface.
-            sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368),
+            // Updated in updateSidebarBackground(): web BannerImage is 90vh on
+            // home at md+ widths and h-[23rem] on anime/detail routes.
+            sidebarBackdropHeightConstraint!,
 
             sidebarBackdropGradientView.topAnchor.constraint(equalTo: sidebarBackdropImageView.topAnchor),
             sidebarBackdropGradientView.leadingAnchor.constraint(equalTo: sidebarBackdropImageView.leadingAnchor),
@@ -382,13 +383,18 @@ final class HayaseSidebarController: UIViewController {
 
     private func updateSidebarBackground() {
         let topController = topVisibleHostedController()
-        let isHomeRoot = topController is BrowseAnimeViewController
-        let showsBannerBackdrop = topController is AnimeDetailViewController && sidebarBackdropImageView.image != nil
+        let isHomeRoute = topController is BrowseAnimeViewController
+        let isAnimeRoute = topController is AnimeDetailViewController
+        let allowsBannerBackdrop = isHomeRoute || isAnimeRoute
+        let showsBannerBackdrop = allowsBannerBackdrop && sidebarBackdropImageView.image != nil
 
-        // Matches sidebar.svelte:
-        //   home route  -> w-14 rail gets bg-background
-        //   anime route -> rail is transparent and BannerImage shows behind it
-        sidebarContainer.backgroundColor = isHomeRoot ? UIColor.HayaseTheme.background : .clear
+        // interface renders BannerImage from sidebarlist.svelte on both /app/home
+        // and /app/anime/*, clipped to w-14 behind the sidebar buttons. The
+        // image height comes from banner-image.svelte: md home = 90vh, anime = 23rem.
+        let homeHeight = max(view.bounds.height * 0.9, 368)
+        sidebarBackdropHeightConstraint?.constant = isHomeRoute ? homeHeight : 368
+
+        sidebarContainer.backgroundColor = showsBannerBackdrop ? .clear : UIColor.HayaseTheme.background
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
         sidebarList.backgroundColor = .clear
