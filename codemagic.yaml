@@ -1,0 +1,137 @@
+workflows:
+  hayase_unsigned_ipa:
+    name: Build Hayase Unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+
+    environment:
+      xcode: latest
+
+    triggering:
+      events:
+        - push
+
+    scripts:
+      - name: Checkout submodules
+        script: |
+          set -euo pipefail
+
+          git submodule update --init --recursive
+          git submodule update --remote --recursive Component/LibTorrent-Swift
+
+      - name: Install dependencies
+        script: |
+          set -euo pipefail
+
+          brew list xcodegen || brew install xcodegen
+          brew list boost || brew install boost
+          brew list openssl@3 || brew install openssl@3
+
+      - name: Generate Xcode project
+        script: |
+          set -euo pipefail
+
+          chmod +x ./scripts/generate_project.sh
+          ./scripts/generate_project.sh
+
+          test -d Hayase.xcodeproj
+          test -d Hayase.xcworkspace
+          test -d Component/LibTorrent-Swift/LibTorrent.xcodeproj
+
+      - name: Build LibTorrent
+        script: |
+          set -euo pipefail
+
+          chmod +x ./Component/LibTorrent-Swift/make.sh
+          OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
+
+      - name: Generate app icons
+        script: |
+          set -euo pipefail
+
+          ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
+          cd "$ICON_DIR"
+
+          test -f AppIcon.png
+
+          sips -z 58 58 AppIcon.png --out icon_29@2x.png
+          sips -z 87 87 AppIcon.png --out icon_29@3x.png
+          sips -z 80 80 AppIcon.png --out icon_40@2x.png
+          sips -z 120 120 AppIcon.png --out icon_40@3x.png
+          sips -z 120 120 AppIcon.png --out icon_60@2x.png
+          sips -z 180 180 AppIcon.png --out icon_60@3x.png
+
+          sips -z 29 29 AppIcon.png --out icon_ipad_29@1x.png
+          sips -z 58 58 AppIcon.png --out icon_ipad_29@2x.png
+          sips -z 40 40 AppIcon.png --out icon_ipad_40@1x.png
+          sips -z 80 80 AppIcon.png --out icon_ipad_40@2x.png
+          sips -z 76 76 AppIcon.png --out icon_ipad_76@1x.png
+          sips -z 152 152 AppIcon.png --out icon_ipad_76@2x.png
+          sips -z 167 167 AppIcon.png --out icon_ipad_83.5@2x.png
+
+          sips -z 1024 1024 AppIcon.png --out icon_marketing_1024.png
+
+      - name: Resolve Swift packages
+        script: |
+          set -euo pipefail
+
+          RESOLVED=false
+
+          for attempt in 1 2 3; do
+            echo "Resolve attempt $attempt/3"
+
+            if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
+              -workspace Hayase.xcworkspace \
+              -scheme Hayase \
+              -resolvePackageDependencies \
+              SYMROOT="$CM_BUILD_DIR/build/app"; then
+              RESOLVED=true
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ "$RESOLVED" != "true" ]; then
+            echo "Failed to resolve Swift packages"
+            exit 1
+          fi
+
+      - name: Build Hayase unsigned
+        script: |
+          set -euo pipefail
+
+          xcodebuild \
+            -workspace Hayase.xcworkspace \
+            -scheme Hayase \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -skipPackageUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SYMROOT="$CM_BUILD_DIR/build/app" \
+            clean build
+
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+
+          APP_PATH="$(find build/app -name 'Hayase.app' -not -path '*/Build/*' | head -1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "Hayase.app not found"
+            find build -maxdepth 6 -type d -name "*.app" || true
+            exit 1
+          fi
+
+          echo "Found app at: $APP_PATH"
+
+          rm -rf Payload Hayase.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/Hayase.app
+          zip -r Hayase.ipa Payload
+
+    artifacts:
+      - Hayase.ipa
