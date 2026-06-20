@@ -1086,7 +1086,12 @@ extension SearchViewController: UICollectionViewDataSource {
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-        cell.configure(with: animeResults[indexPath.item])
+        let item = animeResults[indexPath.item]
+        cell.configure(with: item)
+        Hover.shared.bind(to: cell,
+                          host: self,
+                          mediaProvider: { item },
+                          actions: hayasePreviewCardActions())
         return cell
     }
 }
@@ -1098,6 +1103,13 @@ extension SearchViewController: UICollectionViewDelegate {
                         didSelectItemAt indexPath: IndexPath) {
         guard !isShowingSkeleton else { return }
         let item = animeResults[indexPath.item]
+        if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+           Hover.shared.handleTouchSelection(source: cell,
+                                             host: self,
+                                             media: item,
+                                             actions: hayasePreviewCardActions()) {
+            return
+        }
         guard let vc = storyboard?.instantiateViewController(withIdentifier: "AnimeDetailVC")
                 as? AnimeDetailViewController else { return }
         vc.animeItem = item
@@ -1106,6 +1118,7 @@ extension SearchViewController: UICollectionViewDelegate {
 
     // Infinite scroll — matches use:infiniteScroll in Hayase
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        Hover.shared.scrollDidOccur()
         let offsetY = scrollView.contentOffset.y
         let total = scrollView.contentSize.height; let frame = scrollView.frame.height
         guard total > frame, offsetY > total - frame - 400 else { return }

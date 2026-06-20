@@ -2320,6 +2320,11 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
             if let anime = animeResultsController?.object(at: indexPath) {
                 cell.configure(with: anime)
+                let item = AnimeCollectionViewCell.animeItem(from: anime)
+                Hover.shared.bind(to: cell,
+                                  host: self,
+                                  mediaProvider: { item },
+                                  actions: hayasePreviewCardActions())
             }
             return cell
         }
@@ -2391,7 +2396,12 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         let rowSection = indexPath.section - 1
         cell.layer.zPosition = 10
         if rowSection < sections.count, indexPath.item < sections[rowSection].items.count {
-            cell.configure(with: sections[rowSection].items[indexPath.item])
+            let item = sections[rowSection].items[indexPath.item]
+            cell.configure(with: item)
+            Hover.shared.bind(to: cell,
+                              host: self,
+                              mediaProvider: { item },
+                              actions: hayasePreviewCardActions())
         }
         return cell
     }
@@ -2438,6 +2448,16 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
         if isSearching {
+            if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+               let anime = animeResultsController?.object(at: indexPath) {
+                let item = AnimeCollectionViewCell.animeItem(from: anime)
+                if Hover.shared.handleTouchSelection(source: cell,
+                                                     host: self,
+                                                     media: item,
+                                                     actions: hayasePreviewCardActions()) {
+                    return
+                }
+            }
             pendingAnimeItem = nil
             performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
             return
@@ -2456,13 +2476,22 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         let rowSection = indexPath.section - 1
         guard rowSection < sections.count,
               indexPath.item < sections[rowSection].items.count else { return }
-        pendingAnimeItem = sections[rowSection].items[indexPath.item]
+        let item = sections[rowSection].items[indexPath.item]
+        if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+           Hover.shared.handleTouchSelection(source: cell,
+                                             host: self,
+                                             media: item,
+                                             actions: hayasePreviewCardActions()) {
+            return
+        }
+        pendingAnimeItem = item
         performSegue(withIdentifier: "showAnimeDetail", sender: nil)
     }
 
     // MARK: - UIScrollViewDelegate (scroll-driven banner effects)
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        Hover.shared.scrollDidOccur()
         guard !isSearching else { return }
         syncBannerToCurrentScrollPosition()
     }
