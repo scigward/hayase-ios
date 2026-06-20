@@ -1690,6 +1690,11 @@ class BrowseAnimeViewController: UIViewController {
         syncBannerToCurrentScrollPosition()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyHomeCarouselOverflowBehavior()
+    }
+
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         guard isViewLoaded else { return }
@@ -1711,6 +1716,21 @@ class BrowseAnimeViewController: UIViewController {
         // Refresh the home layout (banner height changes between iPhone 70% and iPad 80%)
         if !isSearching {
             collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
+        }
+    }
+
+    private func applyHomeCarouselOverflowBehavior() {
+        guard !isSearching, let collectionView else { return }
+        disableOrthogonalScrollerClipping(in: collectionView, excluding: collectionView)
+    }
+
+    private func disableOrthogonalScrollerClipping(in view: UIView, excluding rootScrollView: UIScrollView) {
+        for subview in view.subviews {
+            if let scrollView = subview as? UIScrollView, scrollView !== rootScrollView {
+                scrollView.clipsToBounds = false
+                scrollView.layer.masksToBounds = false
+            }
+            disableOrthogonalScrollerClipping(in: subview, excluding: rootScrollView)
         }
     }
 

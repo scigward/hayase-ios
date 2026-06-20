@@ -105,6 +105,10 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         // Transparent background to match Hayase's dark page bg
         backgroundColor = .clear
         contentView.backgroundColor = .clear
+        clipsToBounds = false
+        layer.masksToBounds = false
+        contentView.clipsToBounds = false
+        contentView.layer.masksToBounds = false
 
         // Calendar icon for year
         let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar-days"))
