@@ -72,6 +72,119 @@ private final class BannerGradientView: UIView {
     }
 }
 
+// MARK: - HomeBannerBackdropView
+// Mirrors interface banner-image.svelte:
+// • Rendered at the app/page level behind the scrollable route
+// • Home height is 80vh on compact, 90vh on regular
+// • Opacity switches between 100% and 5% when scrollTop passes 100
+
+private final class HomeBannerBackdropView: UIView {
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.backgroundColor = .clear
+        return iv
+    }()
+
+    private let gradientView = BannerGradientView()
+    private var imageHeightConstraint: NSLayoutConstraint!
+    private var currentURLString: String?
+    private var isFaded = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+
+        [imageView, gradientView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageHeightConstraint,
+
+            gradientView.topAnchor.constraint(equalTo: imageView.topAnchor),
+            gradientView.leadingAnchor.constraint(equalTo: imageView.leadingAnchor),
+            gradientView.trailingAnchor.constraint(equalTo: imageView.trailingAnchor),
+            gradientView.heightAnchor.constraint(equalTo: imageView.heightAnchor),
+        ])
+    }
+
+    func configureForLayout(isRegular: Bool, viewHeight: CGFloat) {
+        imageHeightConstraint.constant = viewHeight * (isRegular ? 0.90 : 0.80)
+        gradientView.setCompact(!isRegular)
+    }
+
+    func setBackdrop(urlString: String?, image: UIImage?) {
+        guard let urlString else {
+            currentURLString = nil
+            imageView.image = nil
+            return
+        }
+
+        if currentURLString != urlString {
+            currentURLString = urlString
+        }
+
+        guard let image else { return }
+        guard currentURLString == urlString else { return }
+
+        if imageView.image == nil {
+            imageView.image = image
+        } else {
+            UIView.transition(with: imageView,
+                              duration: 0.3,
+                              options: .transitionCrossDissolve,
+                              animations: { self.imageView.image = image })
+        }
+    }
+
+    func applyOverscrollZoom(_ overscroll: CGFloat) {
+        guard overscroll > 0 else {
+            imageView.transform = .identity
+            gradientView.transform = .identity
+            return
+        }
+        let height = max(bounds.height, 1)
+        let scale = 1.0 + overscroll / height
+        let yShift = -overscroll / 2.0
+        let transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+        imageView.transform = transform
+        gradientView.transform = transform
+    }
+
+    func applyScrollFade(_ scrollOffset: CGFloat) {
+        let shouldFade = scrollOffset > 100
+        let targetAlpha: CGFloat = shouldFade ? 0.05 : 1.0
+        guard shouldFade != isFaded else {
+            imageView.alpha = targetAlpha
+            gradientView.alpha = targetAlpha
+            return
+        }
+        isFaded = shouldFade
+        UIView.animate(withDuration: 0.5) {
+            self.imageView.alpha = targetAlpha
+            self.gradientView.alpha = targetAlpha
+        }
+    }
+}
+
 // MARK: - FeaturedBannerCell
 // Matches Hayase's full-banner.svelte identically:
 // • Banner height = 70vh (70% of screen height) — matches banner.svelte h-[70vh]
@@ -111,6 +224,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     var onBadgeTapped: ((_ filterType: String, _ value: String, _ value2: String?) -> Void)?
     /// Callback for genre tap: passes the genre name for search navigation.
     var onGenreTapped: ((_ genre: String) -> Void)?
+    /// Supplies the resolved BannerImage source to the route-level backdrop.
+    var onBackdropImageChanged: ((_ urlString: String?, _ image: UIImage?) -> Void)?
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
@@ -141,13 +256,13 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private let gradientView = BannerGradientView()
 
     // Web renders BannerImage at the app-layout level, behind the scrollable page.
-    // The image is 90vh on desktop while the hero content is 80vh, so the fade
-    // naturally continues behind the first row. Keep this layer unclipped and
-    // control z-order instead of cutting it at the hero cell boundary.
+    // The cell keeps this hidden loader only so existing image/cache/fade logic
+    // can feed the owning route backdrop without drawing over later sections.
     private let bannerBackdropClipView: UIView = {
         let v = UIView()
         v.backgroundColor = .clear
-        v.clipsToBounds = false
+        v.clipsToBounds = true
+        v.isHidden = true
         return v
     }()
 
@@ -848,11 +963,15 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             let urlStr = fanartURL ?? bannerFallback
             guard let urlStr, let url = URL(string: urlStr) else {
-                DispatchQueue.main.async { biv.image = nil }
+                DispatchQueue.main.async {
+                    biv.image = nil
+                    self?.onBackdropImageChanged?(nil, nil)
+                }
                 return
             }
             DispatchQueue.main.async {
                 self?.currentSidebarBackdropURL = urlStr
+                self?.onBackdropImageChanged?(urlStr, nil)
                 self?.publishSidebarBackdrop(urlString: urlStr,
                                              scrollOffset: CGFloat(0),
                                              alpha: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1))
@@ -861,6 +980,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 DispatchQueue.main.async {
                     self?.applyContentMode(for: cached)
                     biv.image = cached
+                    self?.onBackdropImageChanged?(urlStr, cached)
                 }
                 return
             }
@@ -869,10 +989,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 guard let data, let image = UIImage(data: data) else { return }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
+                    guard self?.currentSidebarBackdropURL == captured else { return }
                     self?.applyContentMode(for: image)
                     UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
                                       options: .transitionCrossDissolve,
                                       animations: { biv?.image = image })
+                    self?.onBackdropImageChanged?(captured, image)
                 }
             }
             self?.fanartTask?.resume()
@@ -1652,6 +1774,8 @@ class BrowseAnimeViewController: UIViewController {
     private var personalSectionsLoadID = 0
     private var lastLocalContinueIDs: [Int] = []
 
+    private let homeBackdropView = HomeBannerBackdropView()
+
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
 
     required init?(coder: NSCoder) {
@@ -1670,6 +1794,7 @@ class BrowseAnimeViewController: UIViewController {
         // but the collection view itself doesn't clip (allows banner to extend upward during overscroll)
         view.clipsToBounds = true
         setupNavigationBar()
+        setupHomeBackdropView()
         setupCollectionView()
         setupOverlays()
         setupNotifications()
@@ -1690,6 +1815,12 @@ class BrowseAnimeViewController: UIViewController {
         syncBannerToCurrentScrollPosition()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateHomeBackdropLayout()
+        applyHomeCarouselOverflowBehavior()
+    }
+
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         guard isViewLoaded else { return }
@@ -1697,6 +1828,7 @@ class BrowseAnimeViewController: UIViewController {
             guard let self else { return }
             let layout = self.isSearching ? self.makeSearchLayout() : self.makeHomeLayout()
             self.collectionView.setCollectionViewLayout(layout, animated: false)
+            self.updateHomeBackdropLayout(for: size.height)
         })
     }
 
@@ -1708,9 +1840,31 @@ class BrowseAnimeViewController: UIViewController {
         if let bannerCell = collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell {
             bannerCell.applyLayoutForSizeClass(isRegular: isRegular)
         }
+        updateHomeBackdropLayout()
         // Refresh the home layout (banner height changes between iPhone 70% and iPad 80%)
         if !isSearching {
             collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
+        }
+    }
+
+    private func updateHomeBackdropLayout(for height: CGFloat? = nil) {
+        let viewHeight = height ?? (view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height)
+        homeBackdropView.configureForLayout(isRegular: traitCollection.horizontalSizeClass == .regular,
+                                            viewHeight: viewHeight)
+    }
+
+    private func applyHomeCarouselOverflowBehavior() {
+        guard !isSearching, let collectionView else { return }
+        disableOrthogonalScrollerClipping(in: collectionView, excluding: collectionView)
+    }
+
+    private func disableOrthogonalScrollerClipping(in view: UIView, excluding rootScrollView: UIScrollView) {
+        for subview in view.subviews {
+            if let scrollView = subview as? UIScrollView, scrollView !== rootScrollView {
+                scrollView.clipsToBounds = false
+                scrollView.layer.masksToBounds = false
+            }
+            disableOrthogonalScrollerClipping(in: subview, excluding: rootScrollView)
         }
     }
 
@@ -1732,6 +1886,19 @@ class BrowseAnimeViewController: UIViewController {
     private func setupNavigationBar() {
         // Hayase home/+page.svelte has no title — just content starting from the top
         title = nil
+    }
+
+    private func setupHomeBackdropView() {
+        view.backgroundColor = hayasePageBackground
+        homeBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(homeBackdropView)
+        NSLayoutConstraint.activate([
+            homeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
+            homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            homeBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        updateHomeBackdropLayout()
     }
 
     private func setupCollectionView() {
@@ -1916,6 +2083,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func loadSections() {
         isSearching = false
+        homeBackdropView.isHidden = false
         sections = []
         bannerItems = []
         isLoadingSections = true
@@ -2152,6 +2320,11 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
             if let anime = animeResultsController?.object(at: indexPath) {
                 cell.configure(with: anime)
+                let item = AnimeCollectionViewCell.animeItem(from: anime)
+                Hover.shared.bind(to: cell,
+                                  host: self,
+                                  mediaProvider: { item },
+                                  actions: hayasePreviewCardActions())
             }
             return cell
         }
@@ -2176,6 +2349,11 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
             cell.layer.zPosition = 0
+            cell.onBackdropImageChanged = { [weak self] urlString, image in
+                guard let self, !self.isSearching else { return }
+                self.homeBackdropView.setBackdrop(urlString: urlString, image: image)
+                self.syncBannerToCurrentScrollPosition()
+            }
             if !bannerItems.isEmpty {
                 cell.configure(with: bannerItems)
             }
@@ -2218,7 +2396,12 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         let rowSection = indexPath.section - 1
         cell.layer.zPosition = 10
         if rowSection < sections.count, indexPath.item < sections[rowSection].items.count {
-            cell.configure(with: sections[rowSection].items[indexPath.item])
+            let item = sections[rowSection].items[indexPath.item]
+            cell.configure(with: item)
+            Hover.shared.bind(to: cell,
+                              host: self,
+                              mediaProvider: { item },
+                              actions: hayasePreviewCardActions())
         }
         return cell
     }
@@ -2265,6 +2448,16 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
         if isSearching {
+            if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+               let anime = animeResultsController?.object(at: indexPath) {
+                let item = AnimeCollectionViewCell.animeItem(from: anime)
+                if Hover.shared.handleTouchSelection(source: cell,
+                                                     host: self,
+                                                     media: item,
+                                                     actions: hayasePreviewCardActions()) {
+                    return
+                }
+            }
             pendingAnimeItem = nil
             performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
             return
@@ -2283,13 +2476,22 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         let rowSection = indexPath.section - 1
         guard rowSection < sections.count,
               indexPath.item < sections[rowSection].items.count else { return }
-        pendingAnimeItem = sections[rowSection].items[indexPath.item]
+        let item = sections[rowSection].items[indexPath.item]
+        if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+           Hover.shared.handleTouchSelection(source: cell,
+                                             host: self,
+                                             media: item,
+                                             actions: hayasePreviewCardActions()) {
+            return
+        }
+        pendingAnimeItem = item
         performSegue(withIdentifier: "showAnimeDetail", sender: nil)
     }
 
     // MARK: - UIScrollViewDelegate (scroll-driven banner effects)
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        Hover.shared.scrollDidOccur()
         guard !isSearching else { return }
         syncBannerToCurrentScrollPosition()
     }
@@ -2310,10 +2512,14 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
         if offsetY < 0 {
             // User is pulling down past the top → zoom the banner image
+            homeBackdropView.applyOverscrollZoom(-offsetY)
+            homeBackdropView.applyScrollFade(0)
             bannerCell.applyOverscrollZoom(-offsetY)
             bannerCell.applyScrollFade(0)  // fully visible when at top
         } else {
             // User scrolling down → reset zoom and apply fade
+            homeBackdropView.applyOverscrollZoom(0)
+            homeBackdropView.applyScrollFade(offsetY)
             bannerCell.applyOverscrollZoom(0)
             bannerCell.applyScrollFade(offsetY)
         }
@@ -2376,6 +2582,7 @@ extension BrowseAnimeViewController: UISearchResultsUpdating {
 
         if !isSearching {
             isSearching = true
+            homeBackdropView.isHidden = true
             collectionView.setCollectionViewLayout(makeSearchLayout(), animated: false)
             collectionView.reloadData()
         }

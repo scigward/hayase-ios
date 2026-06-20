@@ -86,6 +86,10 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     private var currentURLString: String?
     private var imageTask: URLSessionDataTask?
+    private(set) var configuredAnimeItem: AnimeItem?
+    var hoverProvider: (() -> Void)?
+    var unhoverProvider: (() -> Void)?
+    private var hoverGesture: UIHoverGestureRecognizer?
 
     // MARK: Init
 
@@ -105,6 +109,16 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         // Transparent background to match Hayase's dark page bg
         backgroundColor = .clear
         contentView.backgroundColor = .clear
+        clipsToBounds = false
+        layer.masksToBounds = false
+        contentView.clipsToBounds = false
+        contentView.layer.masksToBounds = false
+
+        if #available(iOS 13.0, *) {
+            let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
+            addGestureRecognizer(hover)
+            hoverGesture = hover
+        }
 
         // Calendar icon for year
         let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar-days"))
@@ -176,10 +190,12 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         titleLabel.text = anime.animeTitleEnglish ?? anime.animeTitleJapanese ?? "Unknown"
         yearLabel.text = "TBA"   // Animes entity has no year field
         formatLabel.text = "TV"  // Animes entity has no format field
+        configuredAnimeItem = Self.animeItem(from: anime)
         loadCover(urlString: anime.animeImgL ?? anime.animeImgM ?? "")
     }
 
     func configure(with item: AnimeItem) {
+        configuredAnimeItem = item
         titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
         // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'
         let displayYear = item.year ?? item.startYear
@@ -259,6 +275,34 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         formatLabel.text = nil
         statusDotView.isHidden = true
         statusDotView.backgroundColor = nil
+        configuredAnimeItem = nil
+        hoverProvider = nil
+        unhoverProvider = nil
+    }
+
+    @objc private func handleHover(_ gesture: UIHoverGestureRecognizer) {
+        switch gesture.state {
+        case .began, .changed:
+            hoverProvider?()
+        case .ended, .cancelled, .failed:
+            unhoverProvider?()
+        default:
+            break
+        }
+    }
+
+    static func animeItem(from anime: Animes) -> AnimeItem {
+        AnimeItem(
+            id: anime.animeAnilistId?.intValue ?? 0,
+            titleEnglish: anime.animeTitleEnglish,
+            titleRomaji: anime.animeTitleJapanese,
+            coverURL: anime.animeImgL ?? anime.animeImgM ?? anime.animeImgS,
+            score: anime.animeScore?.floatValue,
+            status: anime.animeStatus,
+            episodes: anime.animeTotalEps?.intValue,
+            bannerURL: anime.animeImgL,
+            genres: [],
+            description: anime.animeDescription)
     }
 }
 
