@@ -1815,6 +1815,11 @@ class BrowseAnimeViewController: UIViewController {
         syncBannerToCurrentScrollPosition()
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        Hover.shared.unhoverLastElement()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateHomeBackdropLayout()

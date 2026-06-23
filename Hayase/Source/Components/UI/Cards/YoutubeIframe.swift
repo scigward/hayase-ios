@@ -57,20 +57,27 @@ final class YoutubeIframe: UIView {
         ])
         webView = view
 
-        let html = """
-        <!doctype html>
-        <html>
-        <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>html,body,iframe{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;}</style>
-        </head>
-        <body>
-          <iframe src="https://www.youtube.com/embed/\(id)?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist=\(id)"
-            frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-        </body>
-        </html>
-        """
-        view.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        var components = URLComponents(string: "https://www.youtube-nocookie.com/embed/\(id)")
+        components?.queryItems = [
+            URLQueryItem(name: "autoplay", value: "1"),
+            URLQueryItem(name: "controls", value: "0"),
+            URLQueryItem(name: "disablekb", value: "1"),
+            URLQueryItem(name: "cc_lang_pref", value: "ja"),
+            URLQueryItem(name: "rel", value: "0"),
+            URLQueryItem(name: "playsinline", value: "1"),
+            URLQueryItem(name: "fs", value: "0"),
+            URLQueryItem(name: "mute", value: "1"),
+            URLQueryItem(name: "enablejsapi", value: "1"),
+            URLQueryItem(name: "origin", value: "https://www.youtube-nocookie.com")
+        ]
+        guard let url = components?.url else {
+            reset()
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("https://www.youtube-nocookie.com", forHTTPHeaderField: "Referer")
+        view.load(request)
         onHide?(false)
     }
 

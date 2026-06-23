@@ -14,6 +14,8 @@ final class Hover: NSObject {
     private weak var activeHost: UIViewController?
     private var previewCard: PreviewCard?
     private var activeMediaID: Int?
+    private var activeSourceFrameInWindow: CGRect = .null
+    private var sourceTracker: CADisplayLink?
 
     private override init() {
         super.init()
@@ -72,6 +74,8 @@ final class Hover: NSObject {
             card.topAnchor.constraint(equalTo: window.topAnchor, constant: top),
         ])
         previewCard = card
+        activeSourceFrameInWindow = sourceFrame
+        startTrackingSourceFrame()
         card.animateIn()
     }
 
@@ -81,9 +85,11 @@ final class Hover: NSObject {
     }
 
     func unhoverLastElement() {
+        stopTrackingSourceFrame()
         activeMediaID = nil
         activeSource = nil
         activeHost = nil
+        activeSourceFrameInWindow = .null
         guard let card = previewCard else { return }
         previewCard = nil
         card.prepareForDismissal()
@@ -102,11 +108,51 @@ final class Hover: NSObject {
     func dragDidOccur() {
         unhoverLastElement()
     }
+
+    private func startTrackingSourceFrame() {
+        stopTrackingSourceFrame()
+        let link = CADisplayLink(target: self, selector: #selector(checkActiveSourceFrame))
+        link.add(to: .main, forMode: .common)
+        sourceTracker = link
+    }
+
+    private func stopTrackingSourceFrame() {
+        sourceTracker?.invalidate()
+        sourceTracker = nil
+    }
+
+    @objc private func checkActiveSourceFrame() {
+        guard let source = activeSource,
+              let host = activeHost,
+              let window = source.window,
+              host.view.window === window else {
+            unhoverLastElement()
+            return
+        }
+
+        let frame = source.convert(source.bounds, to: window)
+        guard frame.intersects(window.bounds) else {
+            unhoverLastElement()
+            return
+        }
+
+        if !activeSourceFrameInWindow.isNull {
+            let dx = abs(frame.midX - activeSourceFrameInWindow.midX)
+            let dy = abs(frame.midY - activeSourceFrameInWindow.midY)
+            if dx > 3 || dy > 3 {
+                unhoverLastElement()
+            }
+        }
+    }
+
 }
 
 extension UIViewController {
     func hayasePreviewCardActions() -> PreviewCardActions {
         PreviewCardActions(
+            open: { [weak self] media in
+                self?.openHayasePreviewAnime(media)
+            },
             play: { [weak self] media in
                 guard let self else { return }
                 let status = media.mediaListEntry?.status
@@ -144,6 +190,18 @@ extension UIViewController {
                     }
                 }
             })
+    }
+
+    private func openHayasePreviewAnime(_ media: AnimeItem) {
+        Hover.shared.unhoverLastElement()
+        guard let storyboard,
+              let detail = storyboard.instantiateViewController(withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
+        detail.animeItem = media
+        if let navigationController {
+            navigationController.pushViewController(detail, animated: true)
+        } else {
+            present(detail, animated: true)
+        }
     }
 
     private func presentHayasePreviewExtensionSearch(media: AnimeItem, episode: Int) {

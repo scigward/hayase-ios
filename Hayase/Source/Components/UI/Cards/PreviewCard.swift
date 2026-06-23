@@ -8,12 +8,13 @@
 import UIKit
 
 struct PreviewCardActions {
+    let open: (AnimeItem) -> Void
     let play: (AnimeItem) -> Void
     let favorite: (AnimeItem, @escaping (Bool) -> Void) -> Void
     let bookmark: (AnimeItem, @escaping (Bool) -> Void) -> Void
 }
 
-final class PreviewCard: UIView {
+final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     static let size = CGSize(width: 280, height: 320)
 
     private let bannerContainer: UIView = {
@@ -125,6 +126,7 @@ final class PreviewCard: UIView {
         addSubview(contentStack)
 
         configureButtons()
+        configureCardTap()
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.size.width),
@@ -176,6 +178,22 @@ final class PreviewCard: UIView {
         }
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
+    }
+
+    private func configureCardTap() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        addGestureRecognizer(tap)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view, current !== self {
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return true
     }
 
     func configure(media: AnimeItem, actions: PreviewCardActions) {
@@ -313,6 +331,11 @@ final class PreviewCard: UIView {
         case "MUSIC": return "Music"
         default: return raw.replacingOccurrences(of: "_", with: " ").capitalized
         }
+    }
+
+    @objc private func cardTapped() {
+        guard let media else { return }
+        actions?.open(media)
     }
 
     @objc private func playTapped() {
