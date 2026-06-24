@@ -543,7 +543,9 @@ private final class SidebarBackdropGradientView: UIView {
     }
 
     func setCompact(_ compact: Bool) {
-        centerX = compact ? 0.50 : 0.5918
+        let nextCenterX: CGFloat = compact ? 0.50 : 0.5918
+        guard abs(nextCenterX - centerX) > 0.0001 else { return }
+        centerX = nextCenterX
         setNeedsDisplay()
     }
 

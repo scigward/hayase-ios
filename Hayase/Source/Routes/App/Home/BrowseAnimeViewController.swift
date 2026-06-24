@@ -1406,14 +1406,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Matches interface: hideBanner = scrollTop > 100 → 5% opacity, else 100% opacity,
     /// with a 500ms animated transition.
     func applyScrollFade(_ scrollOffset: CGFloat) {
-        // Interface: hideBanner.value = target.scrollTop > 100
-        // Faded-out = 5% opacity (0.05), fully visible = 100% opacity (1.0).
-        // transition-opacity duration-500 → UIView.animate withDuration: 0.5
+        // Interface only changes hideBanner when the threshold flips. Avoid
+        // posting sidebar backdrop updates on every scroll tick; that forces the
+        // sidebar slice to redraw while the home banner is moving.
         let shouldHide = scrollOffset > 100
-        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        publishSidebarBackdrop(urlString: currentSidebarBackdropURL, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
+        let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
+        publishSidebarBackdrop(urlString: currentSidebarBackdropURL, alpha: targetAlpha)
         // Web applies opacity to the whole Banner component, including the radial
         // gradient pseudo-element. Fade both layers so the hero does not leave a
         // full-strength black veil over the first row after scrolling.
