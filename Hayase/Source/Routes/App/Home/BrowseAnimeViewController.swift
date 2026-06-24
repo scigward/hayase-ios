@@ -1908,6 +1908,8 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.delegate = self
         collectionView.dataSource = self
+        collectionView.bounces = false
+        collectionView.alwaysBounceVertical = false
         // Poster row cells
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
@@ -1924,7 +1926,6 @@ class BrowseAnimeViewController: UIViewController {
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
                                 withReuseIdentifier: SectionHeaderView.reuseID)
         view.addSubview(collectionView)
-        // Allow the banner to extend beyond the collection view bounds during overscroll zoom
         collectionView.clipsToBounds = false
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),

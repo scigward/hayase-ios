@@ -292,7 +292,8 @@ final class HayaseSidebarController: UIViewController {
         // The page banner is route-owned. Ignore late async image/fade updates
         // from a page that is no longer visible, otherwise the sidebar can keep
         // a stale detail/home backdrop until the app restarts.
-        if let route = userInfo[Self.homeBannerBackdropRouteKey] as? String {
+        let route = userInfo[Self.homeBannerBackdropRouteKey] as? String
+        if let route = route {
             if route == Self.homeBannerBackdropPlayerRoute {
                 clearSidebarBackdrop()
                 return
@@ -308,6 +309,8 @@ final class HayaseSidebarController: UIViewController {
 
         if let scrollOffset = userInfo[Self.homeBannerBackdropScrollOffsetKey] as? CGFloat {
             applySidebarBackdropScrollOffset(scrollOffset)
+        } else if route == Self.homeBannerBackdropHomeRoute {
+            applySidebarBackdropScrollOffset(0)
         }
 
         if let alpha = userInfo[Self.homeBannerBackdropAlphaKey] as? CGFloat {
@@ -451,6 +454,7 @@ final class HayaseSidebarController: UIViewController {
         sidebarContainer.backgroundColor = showsBannerBackdrop ? .clear : UIColor.HayaseTheme.background
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
+        sidebarBackdropGradientView.setCompact(view.bounds.width < 768)
         sidebarList.backgroundColor = .clear
     }
 
@@ -521,34 +525,51 @@ final class HayaseSidebarController: UIViewController {
 // MARK: - SidebarBackdropGradientView
 
 private final class SidebarBackdropGradientView: UIView {
-    override class var layerClass: AnyClass { CAGradientLayer.self }
-
-    private var gradientLayer: CAGradientLayer { layer as! CAGradientLayer }
+    private var centerX: CGFloat = 0.5918
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupGradient()
+        configureView()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupGradient()
+        configureView()
     }
 
-    private func setupGradient() {
+    private func configureView() {
         backgroundColor = .clear
         isOpaque = false
+    }
 
-        // Match banner-image.svelte / AnimeInfoHeaderView radial backdrop exactly.
-        gradientLayer.type = .radial
-        gradientLayer.startPoint = CGPoint(x: 0.59, y: 0.35)
-        gradientLayer.endPoint = CGPoint(x: 1.35, y: 1.0)
-        gradientLayer.colors = [
-            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-            UIColor.HayaseTheme.background.cgColor,
-        ]
-        gradientLayer.locations = [0.0, 0.3056, 1.0]
+    func setCompact(_ compact: Bool) {
+        centerX = compact ? 0.50 : 0.5918
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard bounds.width > 0, bounds.height > 0,
+              let context = UIGraphicsGetCurrentContext(),
+              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                        colors: [
+                                            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+                                            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+                                            UIColor.HayaseTheme.background.cgColor,
+                                        ] as CFArray,
+                                        locations: [0.0, 0.3056, 1.0]) else { return }
+
+        let center = CGPoint(x: bounds.width * centerX, y: bounds.height * 0.3497)
+        context.saveGState()
+        context.clip(to: bounds)
+        context.translateBy(x: center.x, y: center.y)
+        context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
+        context.drawRadialGradient(gradient,
+                                   startCenter: .zero,
+                                   startRadius: 0,
+                                   endCenter: .zero,
+                                   endRadius: 1,
+                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        context.restoreGState()
     }
 }
 

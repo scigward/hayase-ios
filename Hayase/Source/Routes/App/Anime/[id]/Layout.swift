@@ -753,7 +753,7 @@ final class AnimeInfoHeaderView: UIView {
     func applyScrollFade(_ scrollOffset: CGFloat) {
         let shouldHide = scrollOffset > 100
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        postSidebarBackdrop(alpha: targetAlpha)
+        postSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
         UIView.animate(withDuration: 0.5) {
@@ -1423,6 +1423,8 @@ class AnimeDetailViewController: UIViewController {
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.delegate = self
         tableView.dataSource = self
+        tableView.bounces = false
+        tableView.alwaysBounceVertical = false
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
         tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
