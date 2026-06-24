@@ -156,17 +156,8 @@ private final class HomeBannerBackdropView: UIView {
     }
 
     func applyOverscrollZoom(_ overscroll: CGFloat) {
-        guard overscroll > 0 else {
-            imageView.transform = .identity
-            gradientView.transform = .identity
-            return
-        }
-        let height = max(bounds.height, 1)
-        let scale = 1.0 + overscroll / height
-        let yShift = -overscroll / 2.0
-        let transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
-        imageView.transform = transform
-        gradientView.transform = transform
+        imageView.transform = .identity
+        gradientView.transform = .identity
     }
 
     func applyScrollFade(_ scrollOffset: CGFloat) {
@@ -932,11 +923,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 
     private func currentBackdropHeight() -> CGFloat {
-        if backgroundImageView.bounds.height > 0 { return backgroundImageView.bounds.height }
         if contentView.bounds.height > 0 {
             return contentView.bounds.height * (traitCollection.horizontalSizeClass == .regular ? 90.0 / 80.0 : 80.0 / 70.0)
         }
-        return 368
+        return UIScreen.main.bounds.height * (traitCollection.horizontalSizeClass == .regular ? 0.90 : 0.80)
     }
 
     private func publishSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
@@ -1407,16 +1397,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Applies the zoom effect when the user over-scrolls upward (negative contentOffset).
     /// `overscroll` is the magnitude of the overscroll in points (always ≥ 0).
     func applyOverscrollZoom(_ overscroll: CGFloat) {
-        guard overscroll > 0 else {
-            backgroundImageView.transform = .identity
-            gradientView.transform = .identity
-            return
-        }
-        let scale = 1.0 + overscroll / bounds.height
-        // Scale up from center-top so the bottom stays anchored and the image grows upward
-        let yShift = -overscroll / 2.0
-        backgroundImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
-        gradientView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+        backgroundImageView.transform = .identity
+        gradientView.transform = .identity
     }
 
     /// Applies the fade effect when the user scrolls down past the banner.
@@ -1429,7 +1411,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // transition-opacity duration-500 → UIView.animate withDuration: 0.5
         let shouldHide = scrollOffset > 100
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        publishSidebarBackdrop(urlString: currentSidebarBackdropURL, scrollOffset: scrollOffset, alpha: targetAlpha)
+        publishSidebarBackdrop(urlString: currentSidebarBackdropURL, alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
         // Web applies opacity to the whole Banner component, including the radial

@@ -753,7 +753,7 @@ final class AnimeInfoHeaderView: UIView {
     func applyScrollFade(_ scrollOffset: CGFloat) {
         let shouldHide = scrollOffset > 100
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
-        postSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
+        postSidebarBackdrop(alpha: targetAlpha)
         guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
         UIView.animate(withDuration: 0.5) {
@@ -812,17 +812,8 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func applyOverscrollZoom(_ overscroll: CGFloat) {
-        guard overscroll > 0 else {
-            if bannerImageView.transform != .identity {
-                bannerImageView.transform = .identity
-                bannerGradientView.transform = .identity
-            }
-            return
-        }
-        let scale = 1.0 + overscroll / AnimeInfoHeaderView.bannerHeight
-        let yShift = -overscroll / 2.0
-        bannerImageView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
-        bannerGradientView.transform = CGAffineTransform(translationX: 0, y: yShift).scaledBy(x: scale, y: scale)
+        bannerImageView.transform = .identity
+        bannerGradientView.transform = .identity
     }
 
     // MARK: - Configure (Animes CoreData entity)
