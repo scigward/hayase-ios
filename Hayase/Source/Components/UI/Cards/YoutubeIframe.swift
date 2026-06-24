@@ -107,6 +107,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
     private func setHidden(_ hidden: Bool) {
         webView?.alpha = hidden ? 0 : 1
         muteButton.isHidden = hidden
+        isUserInteractionEnabled = !hidden
         onHide?(hidden)
     }
 

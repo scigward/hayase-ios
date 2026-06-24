@@ -41,7 +41,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         return iv
     }()
 
-    private let bannerGradient = PreviewBannerGradientView()
+    private let bannerGradient: PreviewBannerGradientView = {
+        let view = PreviewBannerGradientView()
+        view.isUserInteractionEnabled = false
+        return view
+    }()
     private let youtubeIframe = YoutubeIframe()
     private let videoframe = Videoframe()
 
@@ -191,6 +195,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         var view = touch.view
         while let current = view, current !== self {
             if current is UIControl { return false }
+            if current === youtubeIframe { return false }
             view = current.superview
         }
         return true
