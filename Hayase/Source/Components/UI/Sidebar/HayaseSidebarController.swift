@@ -20,6 +20,7 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropRouteKey = "route"
     private static let homeBannerBackdropHomeRoute = "home"
     private static let homeBannerBackdropAnimeRoute = "anime"
+    private static let homeBannerBackdropPlayerRoute = "player"
 
     private let tabBarControllerHost: UITabBarController
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
@@ -291,10 +292,14 @@ final class HayaseSidebarController: UIViewController {
         // The page banner is route-owned. Ignore late async image/fade updates
         // from a page that is no longer visible, otherwise the sidebar can keep
         // a stale detail/home backdrop until the app restarts.
-        if let route = userInfo[Self.homeBannerBackdropRouteKey] as? String,
-           let visibleRoute = visibleBannerBackdropRoute(),
-           route != visibleRoute {
-            return
+        if let route = userInfo[Self.homeBannerBackdropRouteKey] as? String {
+            if route == Self.homeBannerBackdropPlayerRoute {
+                clearSidebarBackdrop()
+                return
+            }
+            if let visibleRoute = visibleBannerBackdropRoute(), route != visibleRoute {
+                return
+            }
         }
 
         if let height = userInfo[Self.homeBannerBackdropHeightKey] as? CGFloat, height > 0 {
@@ -354,6 +359,19 @@ final class HayaseSidebarController: UIViewController {
         let transform = CGAffineTransform(translationX: 0, y: y)
         sidebarBackdropImageView.transform = transform
         sidebarBackdropGradientView.transform = transform
+    }
+
+    private func clearSidebarBackdrop() {
+        sidebarBackdropTask?.cancel()
+        sidebarBackdropTask = nil
+        sidebarBackdropURL = nil
+        sidebarBackdropAlpha = 0
+        sidebarBackdropImageView.image = nil
+        sidebarBackdropImageView.alpha = 0
+        sidebarBackdropImageView.transform = .identity
+        sidebarBackdropGradientView.alpha = 0
+        sidebarBackdropGradientView.transform = .identity
+        updateSidebarBackground()
     }
 
     private func configureActions() {
@@ -444,11 +462,21 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func topVisibleHostedController() -> UIViewController? {
-        let selected = tabBarControllerHost.selectedViewController
-        if let nav = selected as? UINavigationController {
-            return nav.topViewController
+        topVisibleController(from: tabBarControllerHost.selectedViewController)
+    }
+
+    private func topVisibleController(from controller: UIViewController?) -> UIViewController? {
+        guard let controller else { return nil }
+        if let presented = controller.presentedViewController, !presented.isBeingDismissed {
+            return topVisibleController(from: presented)
         }
-        return selected
+        if let nav = controller as? UINavigationController {
+            return topVisibleController(from: nav.topViewController)
+        }
+        if let tab = controller as? UITabBarController {
+            return topVisibleController(from: tab.selectedViewController)
+        }
+        return controller
     }
 
     @objc private func toggleMobileMenu() {
@@ -493,41 +521,34 @@ final class HayaseSidebarController: UIViewController {
 // MARK: - SidebarBackdropGradientView
 
 private final class SidebarBackdropGradientView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    private var gradientLayer: CAGradientLayer { layer as! CAGradientLayer }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .clear
-        isOpaque = false
+        setupGradient()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        backgroundColor = .clear
-        isOpaque = false
+        setupGradient()
     }
 
-    override func draw(_ rect: CGRect) {
-        guard bounds.width > 0, bounds.height > 0,
-              let context = UIGraphicsGetCurrentContext(),
-              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                        colors: [
-                                            UIColor.black.withAlphaComponent(0.16).cgColor,
-                                            UIColor.black.withAlphaComponent(0.16).cgColor,
-                                            UIColor.black.cgColor,
-                                        ] as CFArray,
-                                        locations: [0.0, 0.3056, 1.0]) else { return }
+    private func setupGradient() {
+        backgroundColor = .clear
+        isOpaque = false
 
-        let center = CGPoint(x: bounds.width * 0.5918, y: bounds.height * 0.3497)
-        context.saveGState()
-        context.clip(to: bounds)
-        context.translateBy(x: center.x, y: center.y)
-        context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
-        context.drawRadialGradient(gradient,
-                                   startCenter: .zero,
-                                   startRadius: 0,
-                                   endCenter: .zero,
-                                   endRadius: 1,
-                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        context.restoreGState()
+        // Match banner-image.svelte / AnimeInfoHeaderView radial backdrop exactly.
+        gradientLayer.type = .radial
+        gradientLayer.startPoint = CGPoint(x: 0.59, y: 0.35)
+        gradientLayer.endPoint = CGPoint(x: 1.35, y: 1.0)
+        gradientLayer.colors = [
+            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+            UIColor.HayaseTheme.background.cgColor,
+        ]
+        gradientLayer.locations = [0.0, 0.3056, 1.0]
     }
 }
 

@@ -73,7 +73,11 @@ final class MiniPlayerManager {
     /// Delay between restore retries (seconds).
     private let restoreRetryDelay: TimeInterval = 1.0
     private let innerContainerTag = 100
-    private let stripeOverlayTag = 101
+
+    private static let bannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
+    private static let bannerBackdropRouteKey = "route"
+    private static let bannerBackdropAlphaKey = "alpha"
+    private static let bannerBackdropPlayerRoute = "player"
 
     // MARK: - State
 
@@ -178,7 +182,6 @@ final class MiniPlayerManager {
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
-        addStripeOverlay(to: inner)
 
         // Add mini-player controls overlay.
         addOverlay(to: container)
@@ -247,6 +250,7 @@ final class MiniPlayerManager {
 
         // Restore the player route. iPhone presents fullscreen; iPad returns
         // to the app shell route so the sidebar remains visible.
+        publishPlayerSidebarBackdropClear()
         player.isMinimizing = true          // prevent tearDownPlayer on restore too
         presenter.presentHayasePlayer(player) {
             player.isMinimizing = false
@@ -304,7 +308,6 @@ final class MiniPlayerManager {
         container.bounds.size = size
         if let inner = container.viewWithTag(innerContainerTag) {
             inner.frame = CGRect(origin: .zero, size: size)
-            resizeStripeOverlay(in: inner)
         }
         if isTucked {
             var tuckedFrame = frame
@@ -412,30 +415,6 @@ final class MiniPlayerManager {
             ppBtn.widthAnchor.constraint(equalToConstant: 36),
             ppBtn.heightAnchor.constraint(equalToConstant: 36),
         ])
-    }
-
-    private func addStripeOverlay(to inner: UIView) {
-        inner.viewWithTag(stripeOverlayTag)?.removeFromSuperview()
-
-        let overlay = UIView(frame: inner.bounds)
-        overlay.tag = stripeOverlayTag
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.isUserInteractionEnabled = false
-        overlay.backgroundColor = .clear
-
-        let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
-        stripeLayer.frame = overlay.bounds
-        overlay.layer.addSublayer(stripeLayer)
-        inner.addSubview(overlay)
-    }
-
-    private func resizeStripeOverlay(in inner: UIView) {
-        guard let overlay = inner.viewWithTag(stripeOverlayTag) else { return }
-        overlay.frame = inner.bounds
-        overlay.layer.sublayers?.forEach { layer in
-            layer.frame = overlay.bounds
-            layer.setNeedsDisplay()
-        }
     }
 
     // MARK: - Gesture handlers (Hayase wrapper.svelte pointer events)
@@ -613,6 +592,15 @@ final class MiniPlayerManager {
             vc = presented
         }
         return vc
+    }
+
+    private func publishPlayerSidebarBackdropClear() {
+        NotificationCenter.default.post(name: Self.bannerBackdropDidChange,
+                                        object: nil,
+                                        userInfo: [
+                                            Self.bannerBackdropRouteKey: Self.bannerBackdropPlayerRoute,
+                                            Self.bannerBackdropAlphaKey: CGFloat(0),
+                                        ])
     }
 
     /// Updates the play/pause icon in the mini-player. Called from the
@@ -907,7 +895,6 @@ final class MiniPlayerManager {
         surface.frame = inner.bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         inner.insertSubview(surface, at: 0)
-        addStripeOverlay(to: inner)
 
         addOverlay(to: container)
 

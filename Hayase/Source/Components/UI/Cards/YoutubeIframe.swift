@@ -8,12 +8,13 @@
 import UIKit
 import WebKit
 
-final class YoutubeIframe: UIView, WKScriptMessageHandler {
+final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDelegate {
     var onHide: ((Bool) -> Void)?
 
     private var webView: WKWebView?
     private var currentID: String?
     private var muted = true
+    private var isPlaying = false
 
     private let muteButton: UIButton = {
         let button = UIButton(type: .system)
@@ -47,6 +48,12 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
             muteButton.heightAnchor.constraint(equalToConstant: 24),
         ])
         muteButton.addTarget(self, action: #selector(toggleMute), for: .touchUpInside)
+
+        let trailerTap = UITapGestureRecognizer(target: self, action: #selector(togglePlayback))
+        trailerTap.cancelsTouchesInView = false
+        trailerTap.delegate = self
+        addGestureRecognizer(trailerTap)
+
         updateMuteButton()
     }
 
@@ -58,6 +65,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
         guard currentID != id else { return }
         currentID = id
         muted = true
+        isPlaying = false
         updateMuteButton()
         setHidden(true)
 
@@ -93,6 +101,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
     func reset() {
         currentID = nil
         muted = true
+        isPlaying = false
         removeWebView()
         setHidden(true)
     }
@@ -124,6 +133,30 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
         }
         muted.toggle()
         updateMuteButton()
+    }
+
+    @objc private func togglePlayback() {
+        if isPlaying {
+            callPlayer("pauseVideo")
+            isPlaying = false
+        } else {
+            callPlayer("playVideo")
+            isPlaying = true
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view, current !== self {
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
     }
 
     private func callPlayer(_ action: String, args: String = "null") {
@@ -160,8 +193,12 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
            let info = json["info"] as? [String: Any],
            let state = info["playerState"] as? Int {
             if state == 1 {
+                isPlaying = true
                 setHidden(false)
+            } else if state == 2 {
+                isPlaying = false
             } else if state == 0 {
+                isPlaying = false
                 restartCurrentVideo()
             }
         }
