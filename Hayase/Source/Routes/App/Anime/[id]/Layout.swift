@@ -141,7 +141,7 @@ final class AnimeInfoHeaderView: UIView {
     var displayedBannerURL: String?
     var storedAccentColor: UIColor = .white
 
-    static let bannerHeight: CGFloat = 400
+    static let bannerHeight: CGFloat = 368
 
     // MARK: - Stacks
 

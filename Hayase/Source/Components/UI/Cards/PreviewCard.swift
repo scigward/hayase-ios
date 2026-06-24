@@ -283,14 +283,15 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func refreshActionIcons() {
-        favoriteButton.setImage(isFavorite
-            ? UIImage.hayaseFilledIcon("heart", pointSize: 11)
-            : UIImage.hayaseIcon("heart")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)),
-            for: .normal)
-        bookmarkButton.setImage(isBookmarked
-            ? UIImage.hayaseFilledIcon("bookmark", pointSize: 11)
-            : UIImage.hayaseIcon("bookmark")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)),
-            for: .normal)
+        favoriteButton.setImage(previewActionIcon("heart", filled: isFavorite), for: .normal)
+        bookmarkButton.setImage(previewActionIcon("bookmark", filled: isBookmarked), for: .normal)
+    }
+
+    private func previewActionIcon(_ lucideId: String, filled: Bool) -> UIImage? {
+        if filled {
+            return UIImage.hayaseFilledIcon(lucideId, pointSize: 11)
+        }
+        return UIImage.hayaseIcon(lucideId, pointSize: 11)
     }
 
     private func loadBanner(for media: AnimeItem) {

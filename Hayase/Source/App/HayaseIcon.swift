@@ -243,6 +243,14 @@ extension UIImage {
         HayaseIcon.image(lucideId, withConfiguration: configuration)
     }
 
+    static func hayaseIcon(_ lucideId: String, pointSize: CGFloat) -> UIImage? {
+        guard let image = HayaseIcon.image(lucideId) else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: pointSize, height: pointSize))
+        return renderer.image { _ in
+            image.draw(in: CGRect(x: 0, y: 0, width: pointSize, height: pointSize))
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
     static func hayaseFilledIcon(_ lucideId: String, pointSize: CGFloat = 24) -> UIImage? {
         HayaseIcon.filledImage(lucideId, pointSize: pointSize)
     }

@@ -1775,6 +1775,8 @@ class BrowseAnimeViewController: UIViewController {
     private var lastLocalContinueIDs: [Int] = []
 
     private let homeBackdropView = HomeBannerBackdropView()
+    private var homeBackdropLeadingConstraint: NSLayoutConstraint?
+    private var homeBackdropTrailingConstraint: NSLayoutConstraint?
 
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
 
@@ -1854,7 +1856,10 @@ class BrowseAnimeViewController: UIViewController {
 
     private func updateHomeBackdropLayout(for height: CGFloat? = nil) {
         let viewHeight = height ?? (view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height)
-        homeBackdropView.configureForLayout(isRegular: traitCollection.horizontalSizeClass == .regular,
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        homeBackdropLeadingConstraint?.constant = isRegular ? -56 : 0
+        homeBackdropTrailingConstraint?.constant = 0
+        homeBackdropView.configureForLayout(isRegular: isRegular,
                                             viewHeight: viewHeight)
     }
 
@@ -1897,10 +1902,12 @@ class BrowseAnimeViewController: UIViewController {
         view.backgroundColor = hayasePageBackground
         homeBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(homeBackdropView)
+        homeBackdropLeadingConstraint = homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        homeBackdropTrailingConstraint = homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
             homeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            homeBackdropLeadingConstraint!,
+            homeBackdropTrailingConstraint!,
             homeBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         updateHomeBackdropLayout()
