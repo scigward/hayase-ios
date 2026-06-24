@@ -142,11 +142,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             contentStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
-            playButton.heightAnchor.constraint(equalToConstant: 32),
-            favoriteButton.widthAnchor.constraint(equalToConstant: 32),
-            favoriteButton.heightAnchor.constraint(equalToConstant: 32),
-            bookmarkButton.widthAnchor.constraint(equalToConstant: 32),
-            bookmarkButton.heightAnchor.constraint(equalToConstant: 32),
+            playButton.heightAnchor.constraint(equalToConstant: 26),
+            favoriteButton.widthAnchor.constraint(equalToConstant: 26),
+            favoriteButton.heightAnchor.constraint(equalToConstant: 26),
+            bookmarkButton.widthAnchor.constraint(equalToConstant: 26),
+            bookmarkButton.heightAnchor.constraint(equalToConstant: 26),
         ])
 
         [blurredImageView, bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
@@ -167,14 +167,14 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         playButton.tintColor = UIColor.HayaseTheme.primaryForeground
         playButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
         playButton.titleLabel?.font = .nunito(ofSize: 12, weight: .bold)
-        playButton.layer.cornerRadius = 4
-        playButton.setImage(UIImage.hayaseFilledIcon("play", pointSize: 12), for: .normal)
+        playButton.layer.cornerRadius = 2
+        playButton.setImage(UIImage.hayaseFilledIcon("play", pointSize: 10), for: .normal)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
 
         [favoriteButton, bookmarkButton].forEach {
             $0.backgroundColor = .clear
             $0.tintColor = UIColor.HayaseTheme.foreground
-            $0.layer.cornerRadius = 4
+            $0.layer.cornerRadius = 2
         }
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
@@ -284,12 +284,12 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private func refreshActionIcons() {
         favoriteButton.setImage(isFavorite
-            ? UIImage.hayaseFilledIcon("heart", pointSize: 16)
-            : UIImage.hayaseIcon("heart")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            ? UIImage.hayaseFilledIcon("heart", pointSize: 11)
+            : UIImage.hayaseIcon("heart")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)),
             for: .normal)
         bookmarkButton.setImage(isBookmarked
-            ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16)
-            : UIImage.hayaseIcon("bookmark")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            ? UIImage.hayaseFilledIcon("bookmark", pointSize: 11)
+            : UIImage.hayaseIcon("bookmark")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)),
             for: .normal)
     }
 
