@@ -142,6 +142,9 @@ final class PlayerOptionsController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if stripedLayer.frame != view.bounds {
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if stripedLayer.frame != view.bounds {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             stripedLayer.frame = view.bounds
