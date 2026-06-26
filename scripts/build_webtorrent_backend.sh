@@ -78,6 +78,7 @@ EOF
     --target=node24 \
     --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
     --alias:@silentbot1/nat-api=./.hayase-node-mobile-stubs/nat-api.js \
+    --alias:debug=./node_modules/debug/src/browser.js \
     --outfile="${OUTPUT_DIR}/index.js"
 )
 
@@ -103,8 +104,8 @@ fi
 node --check "${RESOURCE_DIR}/webtorrent-bridge.js"
 node --check "${OUTPUT_DIR}/index.js"
 
-if grep -q "child_process" "${OUTPUT_DIR}/index.js"; then
-  echo "error: WebTorrent backend bundle still references child_process, which is unavailable in NodeMobile ESM bundles." >&2
+if grep -Eq "child_process|__require\\(\"tty\"\\)|supports-color" "${OUTPUT_DIR}/index.js"; then
+  echo "error: WebTorrent backend bundle still references Node-only runtime modules unavailable in NodeMobile ESM bundles." >&2
   exit 1
 fi
 
