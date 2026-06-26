@@ -220,6 +220,15 @@ class DownloadsViewController: UIViewController {
     private var webLastError: Error?
 
     private var selectedLibraryHashes: Set<String> = []
+    private var pendingLibraryPlaybackService: VideoService?
+    private var pendingLibraryPlaybackObserver: NSObjectProtocol?
+    private var pendingLibraryPlaybackTimeout: DispatchWorkItem?
+    private static let libraryPlaybackTimeout: TimeInterval = 120
+
+    private var isCompactLibraryLayout: Bool {
+        view.bounds.width < 760
+    }
+
     private let librarySelectionLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 13)
@@ -292,9 +301,17 @@ class DownloadsViewController: UIViewController {
         stopTimer()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if selectedTabIndex == 4 {
+            libraryTableView?.reloadData()
+        }
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         stopTimer()
+        cancelPendingLibraryPlayback()
     }
 
     private var isWebTorrentMode: Bool {
@@ -1483,6 +1500,249 @@ class DownloadsViewController: UIViewController {
         librarySelectionLabel.text = "\(selectedLibraryHashes.count) of \(rowCount) row(s) selected."
     }
 
+    private func toggleLibrarySelection(hash: String, tableView: UITableView?, indexPath: IndexPath) {
+        if selectedLibraryHashes.contains(hash) {
+            selectedLibraryHashes.remove(hash)
+        } else {
+            selectedLibraryHashes.insert(hash)
+        }
+        updateLibrarySelectionLabel()
+        tableView?.reloadRows(at: [indexPath], with: .none)
+    }
+
+    private func openNativeLibraryEntry(_ entry: (hash: String, handle: TorrentHandle, entity: Torrents?)) {
+        selectedHex = entry.hash
+        selectedHandle = entry.handle
+        selectedEntity = entry.entity
+
+        guard let entity = entry.entity else {
+            selectedTabIndex = 0
+            updateTabButtonAppearances()
+            showTab(0)
+            return
+        }
+
+        if openNativePlayerIfPossible(entity: entity, handle: entry.handle) {
+            return
+        }
+
+        let videoList = VideoListViewController()
+        videoList.torrentEntity = entity
+        navigationController?.pushViewController(videoList, animated: true)
+    }
+
+    private func openNativePlayerIfPossible(entity: Torrents, handle: TorrentHandle) -> Bool {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        fetch.predicate = NSPredicate(format: "torrents == %@", entity)
+        fetch.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                                 NSSortDescriptor(key: "videoName", ascending: true)]
+        let videos = (try? context.fetch(fetch)) ?? []
+        guard let selectedVideo = videos.first else { return false }
+
+        let selectedIndex = selectedVideo.videoIndex?.uintValue ?? 0
+        let videoService = VideoService(torrentEntity: entity)
+        videoService.torrentHandle = handle
+        videoService.selectFileForStreaming(selectedIndex)
+        let resolvedPath = videoService.UpdateFilePathForFileIndex(selectedIndex)
+        if !resolvedPath.isEmpty, selectedVideo.videoPath != resolvedPath {
+            selectedVideo.videoPath = resolvedPath
+            try? context.save()
+        }
+
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        player.videoEntity = selectedVideo
+        player.torrentHandle = handle
+        player.videoService = videoService
+        player.fileIndex = selectedIndex
+        player.anilistID = entity.animes?.animeAnilistId?.intValue ?? 0
+        player.episodeNumber = TorrentBatchResolver.extractEpisodeNumber(from: selectedVideo.videoName ?? "") ?? 0
+        player.totalEpisodes = entity.animes?.animeTotalEps?.intValue ?? 0
+        player.allVideos = videos
+        player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        presentHayasePlayer(player)
+        return true
+    }
+
+    private func openWebTorrentLibraryEntry(_ entry: WebTorrentLibraryEntry) {
+        guard let torrentEntity = torrentEntityForLibraryEntry(entry) else { return }
+        selectedHex = entry.hash
+
+        let episode = entry.episode ?? 0
+        let mediaID = entry.mediaID ?? torrentEntity.animes?.animeAnilistId?.intValue ?? 0
+        let videoService = VideoService(torrentEntity: torrentEntity, episode: episode, backendKind: .webtorrent)
+        pendingLibraryPlaybackService = videoService
+
+        showLibraryPlaybackLoading(entryName: entry.name)
+
+        pendingLibraryPlaybackObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
+            object: nil,
+            queue: .main
+        ) { [weak self, weak videoService] _ in
+            guard let self, let videoService else { return }
+            self.finishWebTorrentLibraryPlayback(videoService: videoService,
+                                                 torrentEntity: torrentEntity,
+                                                 mediaID: mediaID,
+                                                 episode: episode)
+        }
+
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.presentedViewController?.dismiss(animated: false)
+            self.cancelPendingLibraryPlayback()
+            self.showLibraryPlaybackError("Timed out while preparing this torrent.")
+        }
+        pendingLibraryPlaybackTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.libraryPlaybackTimeout, execute: timeout)
+
+        videoService.UpdateLocalVideo()
+    }
+
+    private func torrentEntityForLibraryEntry(_ entry: WebTorrentLibraryEntry) -> Torrents? {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let request = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+        request.predicate = NSPredicate(format: "torrentHashString == %@", entry.hash)
+        request.fetchLimit = 1
+
+        let torrentEntity = (try? context.fetch(request).first)
+            ?? NSEntityDescription.insertNewObject(forEntityName: Torrents.entityName, into: context) as? Torrents
+
+        guard let torrentEntity else { return nil }
+        torrentEntity.torrentHashString = entry.hash
+        torrentEntity.torrentName = entry.name.isEmpty ? entry.hash : entry.name
+        if torrentEntity.torrentDownloadURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+            torrentEntity.torrentDownloadURL = "magnet:?xt=urn:btih:\(entry.hash)"
+        }
+        torrentEntity.torrentSize = NSNumber(value: Double(entry.size) / 1024.0 / 1024.0)
+
+        if let mediaID = entry.mediaID, mediaID > 0 {
+            torrentEntity.animes = animeEntity(mediaID: mediaID, fallbackTitle: entry.name)
+        }
+
+        try? context.save()
+        CoreDataService.sharedCoreDataService.saveRootContext {}
+        return torrentEntity
+    }
+
+    private func animeEntity(mediaID: Int, fallbackTitle: String) -> Animes? {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let request = NSFetchRequest<Animes>(entityName: Animes.entityName)
+        request.predicate = NSPredicate(format: "animeAnilistId == %@", NSNumber(value: mediaID))
+        request.fetchLimit = 1
+        if let existing = (try? context.fetch(request))?.first { return existing }
+
+        guard let anime = NSEntityDescription.insertNewObject(forEntityName: Animes.entityName, into: context) as? Animes else {
+            return nil
+        }
+        anime.animeAnilistId = NSNumber(value: mediaID)
+        anime.animeTitleEnglish = fallbackTitle
+        anime.animeTitleJapanese = fallbackTitle
+        return anime
+    }
+
+    private func finishWebTorrentLibraryPlayback(videoService: VideoService,
+                                                 torrentEntity: Torrents,
+                                                 mediaID: Int,
+                                                 episode: Int) {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        fetch.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
+        fetch.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                                 NSSortDescriptor(key: "videoName", ascending: true)]
+        let videos = (try? context.fetch(fetch)) ?? []
+
+        if videos.isEmpty && videoService.lastError == nil { return }
+
+        presentedViewController?.dismiss(animated: false)
+        cancelPendingLibraryPlayback(clearService: false)
+
+        guard videoService.lastError == nil, !videos.isEmpty else {
+            let message = videoService.lastError?.localizedDescription ?? "No playable video files were found."
+            pendingLibraryPlaybackService = nil
+            showLibraryPlaybackError(message)
+            return
+        }
+
+        let selectedVideo = bestVideoForLibraryPlayback(videos: videos, episode: episode)
+        let selectedIndex = selectedVideo.videoIndex?.uintValue ?? 0
+        videoService.selectFileForStreaming(selectedIndex)
+        let resolvedPath = videoService.UpdateFilePathForFileIndex(selectedIndex)
+        if !resolvedPath.isEmpty, selectedVideo.videoPath != resolvedPath {
+            selectedVideo.videoPath = resolvedPath
+            try? context.save()
+        }
+
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        player.videoEntity = selectedVideo
+        player.torrentHandle = nil
+        player.videoService = videoService
+        player.fileIndex = selectedIndex
+        player.anilistID = mediaID
+        player.episodeNumber = episode > 0 ? episode : (TorrentBatchResolver.extractEpisodeNumber(from: selectedVideo.videoName ?? "") ?? 0)
+        player.totalEpisodes = torrentEntity.animes?.animeTotalEps?.intValue ?? 0
+        player.allVideos = videos
+        player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        pendingLibraryPlaybackService = nil
+        presentHayasePlayer(player)
+    }
+
+    private func bestVideoForLibraryPlayback(videos: [Videos], episode: Int) -> Videos {
+        guard episode > 0 else { return videos.first! }
+
+        if let exact = videos.first(where: { TorrentBatchResolver.extractEpisodeNumber(from: $0.videoName ?? "") == episode }) {
+            return exact
+        }
+
+        let parsed = videos.compactMap { video -> (video: Videos, episode: Int)? in
+            guard let ep = TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "") else { return nil }
+            return (video, ep)
+        }.sorted { $0.episode < $1.episode }
+
+        if let match = parsed.first(where: { $0.episode == episode })?.video { return match }
+        if let first = parsed.first, let last = parsed.last, episode >= first.episode, episode <= last.episode {
+            return parsed.min { abs($0.episode - episode) < abs($1.episode - episode) }?.video ?? videos.first!
+        }
+        if episode <= videos.count {
+            let sorted = videos.sorted { ($0.videoName ?? "").localizedStandardCompare($1.videoName ?? "") == .orderedAscending }
+            return sorted[episode - 1]
+        }
+        return videos.first!
+    }
+
+    private func cancelPendingLibraryPlayback(clearService: Bool = true) {
+        if let observer = pendingLibraryPlaybackObserver {
+            NotificationCenter.default.removeObserver(observer)
+            pendingLibraryPlaybackObserver = nil
+        }
+        pendingLibraryPlaybackTimeout?.cancel()
+        pendingLibraryPlaybackTimeout = nil
+        if clearService { pendingLibraryPlaybackService = nil }
+    }
+
+    private func showLibraryPlaybackLoading(entryName: String) {
+        let alert = UIAlertController(title: "Preparing Player",
+                                      message: entryName.isEmpty ? "Loading torrent metadata…" : entryName,
+                                      preferredStyle: .alert)
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        alert.view.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: alert.view.centerXAnchor),
+            spinner.bottomAnchor.constraint(equalTo: alert.view.bottomAnchor, constant: -18),
+        ])
+        present(alert, animated: true)
+    }
+
+    private func showLibraryPlaybackError(_ message: String) {
+        let alert = UIAlertController(title: "Failed to Open Torrent", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+        present(alert, animated: true)
+    }
+
     @objc private func deleteSelectedLibraryEntries() {
         guard !selectedLibraryHashes.isEmpty else { return }
 
@@ -1723,8 +1983,12 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                     withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
                 guard indexPath.row < webFilteredLibraryEntries.count else { return cell }
                 let entry = webFilteredLibraryEntries[indexPath.row]
-                cell.configure(entry: entry)
-                cell.accessoryType = selectedLibraryHashes.contains(entry.hash) ? .checkmark : .none
+                cell.configure(entry: entry,
+                               isSelected: selectedLibraryHashes.contains(entry.hash),
+                               compact: isCompactLibraryLayout)
+                cell.onSelectionToggle = { [weak self, weak tableView] in
+                    self?.toggleLibrarySelection(hash: entry.hash, tableView: tableView, indexPath: indexPath)
+                }
                 return cell
             }
 
@@ -1735,8 +1999,13 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
-            cell.configure(handle: entry.handle, entity: entry.entity)
-            cell.accessoryType = selectedLibraryHashes.contains(entry.hash) ? .checkmark : .none
+            cell.configure(handle: entry.handle,
+                           entity: entry.entity,
+                           isSelected: selectedLibraryHashes.contains(entry.hash),
+                           compact: isCompactLibraryLayout)
+            cell.onSelectionToggle = { [weak self, weak tableView] in
+                self?.toggleLibrarySelection(hash: entry.hash, tableView: tableView, indexPath: indexPath)
+            }
             return cell
         }
         return UITableViewCell()
@@ -1748,27 +2017,13 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             if isWebTorrentMode {
                 guard indexPath.row < webFilteredLibraryEntries.count else { return }
                 let entry = webFilteredLibraryEntries[indexPath.row]
-                selectedHex = entry.hash
-                if selectedLibraryHashes.contains(entry.hash) {
-                    selectedLibraryHashes.remove(entry.hash)
-                } else {
-                    selectedLibraryHashes.insert(entry.hash)
-                }
-                updateLibrarySelectionLabel()
-                tableView.reloadRows(at: [indexPath], with: .none)
-                update()
+                openWebTorrentLibraryEntry(entry)
                 return
             }
 
             guard indexPath.row < filteredLibraryEntries.count else { return }
             let entry = filteredLibraryEntries[indexPath.row]
-            if selectedLibraryHashes.contains(entry.hash) {
-                selectedLibraryHashes.remove(entry.hash)
-            } else {
-                selectedLibraryHashes.insert(entry.hash)
-            }
-            updateLibrarySelectionLabel()
-            tableView.reloadRows(at: [indexPath], with: .none)
+            openNativeLibraryEntry(entry)
         }
     }
 
@@ -1795,18 +2050,25 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 ("Leechers", 65),
             ])
         } else if tableView === libraryTableView {
+            guard !isCompactLibraryLayout else { return nil }
             return makeColumnHeader(columns: [
-                ("Series", nil),
-                ("Episode", 55),
-                ("Files", 35),
-                ("Size", 50),
-                ("Status", 45),
+                ("Series", 140),
+                ("Episode", 60),
+                ("Files", 45),
+                ("Size", 76),
+                ("Status", 70),
+                ("Date", 96),
+                ("Torrent Name", nil),
+                ("", 36),
             ])
         }
         return nil
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if tableView === libraryTableView && isCompactLibraryLayout {
+            return 0
+        }
         if tableView === filesTableView || tableView === peersTableView || tableView === trackersTableView || tableView === libraryTableView {
             return 48
         }
@@ -1821,7 +2083,9 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         } else if tableView === trackersTableView {
             return webTrackerRows.isEmpty ? 160 : 52
         } else if tableView === libraryTableView {
-            return (isWebTorrentMode ? webFilteredLibraryEntries.isEmpty : filteredLibraryEntries.isEmpty) ? 160 : 56
+            let isEmpty = isWebTorrentMode ? webFilteredLibraryEntries.isEmpty : filteredLibraryEntries.isEmpty
+            if isEmpty { return 160 }
+            return isCompactLibraryLayout ? 88 : 56
         }
         return UITableView.automaticDimension
     }
@@ -2083,53 +2347,32 @@ final class FileEntryTableCell: UITableViewCell {
 
 // MARK: - LibraryColumnCell
 
-/// Columnar library cell matching Hayase table layout.
-/// Displays data aligned with column headers: Series | Episode | Files | Size | Status
+/// Library cell matching Hayase's library/table.svelte data model.
+/// It keeps the same columns on wide screens, then hides the least important
+/// columns on compact screens so the row remains readable instead of clipping.
 final class LibraryColumnCell: UITableViewCell {
     static let reuseID = "LibraryColumnCell"
 
-    private let seriesLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 14)
-        l.textColor = .label
-        l.numberOfLines = 2
-        l.lineBreakMode = .byTruncatingTail
-        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return l
-    }()
+    var onSelectionToggle: (() -> Void)?
 
-    private let episodeLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 14)
-        l.textColor = .secondaryLabel
-        l.textAlignment = .left
-        return l
-    }()
-
-    private let filesLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 14)
-        l.textColor = .label
-        l.textAlignment = .left
-        return l
-    }()
-
-    private let sizeLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 14)
-        l.textColor = .label
-        l.textAlignment = .left
-        return l
-    }()
-
+    private let seriesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label, lines: 1)
+    private let torrentNameLabel = LibraryColumnCell.makeLabel(size: 12, weight: .regular, color: .secondaryLabel, lines: 2)
+    private let episodeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .secondaryLabel)
+    private let filesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label)
+    private let sizeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label)
     private let statusLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12, weight: .medium)
-        l.textAlignment = .center
-        l.layer.cornerRadius = 4
-        l.clipsToBounds = true
-        return l
+        let label = LibraryColumnCell.makeLabel(size: 12, weight: .medium, color: .label)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 4
+        label.clipsToBounds = true
+        return label
+    }()
+    private let dateLabel = LibraryColumnCell.makeLabel(size: 12, weight: .regular, color: .secondaryLabel)
+    private let selectButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.tintColor = .label
+        button.accessibilityLabel = "Select torrent"
+        return button
     }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -2142,11 +2385,39 @@ final class LibraryColumnCell: UITableViewCell {
         setupCellUI()
     }
 
-    private func setupCellUI() {
-        selectionStyle = .none
-        backgroundColor = .clear
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onSelectionToggle = nil
+    }
 
-        let stack = UIStackView(arrangedSubviews: [seriesLabel, episodeLabel, filesLabel, sizeLabel, statusLabel])
+    private static func makeLabel(size: CGFloat, weight: UIFont.Weight, color: UIColor, lines: Int = 1) -> UILabel {
+        let label = UILabel()
+        label.font = .nunito(ofSize: size, weight: weight)
+        label.textColor = color
+        label.numberOfLines = lines
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontSizeToFitWidth = lines == 1
+        label.minimumScaleFactor = 0.7
+        return label
+    }
+
+    private func setupCellUI() {
+        selectionStyle = .default
+        backgroundColor = .clear
+        selectedBackgroundView = UIView()
+        selectedBackgroundView?.backgroundColor = .secondarySystemBackground
+
+        selectButton.addTarget(self, action: #selector(selectionButtonTapped), for: .touchUpInside)
+        selectButton.setContentHuggingPriority(.required, for: .horizontal)
+        selectButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let nameStack = UIStackView(arrangedSubviews: [seriesLabel, torrentNameLabel])
+        nameStack.axis = .vertical
+        nameStack.spacing = 2
+        nameStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        nameStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [nameStack, episodeLabel, filesLabel, sizeLabel, statusLabel, dateLabel, selectButton])
         stack.axis = .horizontal
         stack.spacing = 8
         stack.alignment = .center
@@ -2156,85 +2427,93 @@ final class LibraryColumnCell: UITableViewCell {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
 
-            // Match column header widths exactly
-            episodeLabel.widthAnchor.constraint(equalToConstant: 55),
-            filesLabel.widthAnchor.constraint(equalToConstant: 35),
-            sizeLabel.widthAnchor.constraint(equalToConstant: 50),
-            statusLabel.widthAnchor.constraint(equalToConstant: 45),
+            episodeLabel.widthAnchor.constraint(equalToConstant: 60),
+            filesLabel.widthAnchor.constraint(equalToConstant: 45),
+            sizeLabel.widthAnchor.constraint(equalToConstant: 76),
+            statusLabel.widthAnchor.constraint(equalToConstant: 70),
+            dateLabel.widthAnchor.constraint(equalToConstant: 96),
+            selectButton.widthAnchor.constraint(equalToConstant: 32),
+            selectButton.heightAnchor.constraint(equalToConstant: 32),
         ])
 
-        episodeLabel.setContentHuggingPriority(.required, for: .horizontal)
-        episodeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        filesLabel.setContentHuggingPriority(.required, for: .horizontal)
-        filesLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
-        sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
-        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        for label in [episodeLabel, filesLabel, sizeLabel, statusLabel, dateLabel] {
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
     }
 
-    func configure(entry: WebTorrentLibraryEntry) {
-        seriesLabel.text = entry.name.isEmpty ? entry.hash : entry.name
-        if let episode = entry.episode, episode > 0 {
-            episodeLabel.text = "\(episode)"
-        } else {
-            episodeLabel.text = "?"
-        }
+    @objc private func selectionButtonTapped() {
+        onSelectionToggle?()
+    }
+
+    func configure(entry: WebTorrentLibraryEntry, isSelected: Bool, compact: Bool) {
+        applyLayout(compact: compact)
+        seriesLabel.text = entry.mediaID.map { "AniList #\($0)" } ?? "?"
+        episodeLabel.text = compact ? "E" + (entry.episode.map { String($0) } ?? "?") : (entry.episode.map { String($0) } ?? "?")
         filesLabel.text = "\(entry.files)"
         sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
-        if entry.progress >= 0.999 {
-            statusLabel.text = "✓"
-            statusLabel.textColor = .systemGreen
-        } else {
-            statusLabel.text = String(format: "%.0f%%", max(0, min(entry.progress, 1)) * 100)
-            statusLabel.textColor = .systemBlue
-        }
+        dateLabel.text = formattedDate(entry.date)
+        torrentNameLabel.text = entry.name.isEmpty ? entry.hash : entry.name
+        configureStatus(progress: entry.progress)
+        configureSelection(isSelected)
     }
 
-    func configure(handle: TorrentHandle, entity: Torrents?) {
+    func configure(handle: TorrentHandle, entity: Torrents?, isSelected: Bool, compact: Bool) {
+        applyLayout(compact: compact)
         let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
             activeHandle.snapshot
         }
-        guard let snap else {
-            seriesLabel.text = entity?.animes?.animeTitleEnglish ?? entity?.animes?.animeTitleJapanese ?? "?"
-            episodeLabel.text = "?"
-            filesLabel.text = "0"
-            sizeLabel.text = "—"
-            statusLabel.text = "—"
-            statusLabel.textColor = .secondaryLabel
-            return
+
+        seriesLabel.text = entity?.animes?.animeTitleEnglish ?? entity?.animes?.animeTitleJapanese ?? "?"
+        let episodeCount = entity?.videos?.count ?? 0
+        episodeLabel.text = compact ? "E\(episodeCount > 0 ? String(episodeCount) : "?")" : (episodeCount > 0 ? "\(episodeCount)" : "?")
+        torrentNameLabel.text = entity?.torrentName ?? snap?.name ?? handle.infoHashes.best.hex
+        filesLabel.text = "\(snap?.files.count ?? 0)"
+        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(snap?.total ?? 0)
+        dateLabel.text = "—"
+
+        let progress: Double
+        if let snap, snap.total > 0 {
+            progress = Double(snap.totalDone) / Double(snap.total)
+        } else {
+            progress = 0
         }
+        configureStatus(progress: progress)
+        configureSelection(isSelected)
+    }
 
-        // Series name from CoreData
-        let animeName = entity?.animes?.animeTitleEnglish
-            ?? entity?.animes?.animeTitleJapanese
-            ?? "?"
-        seriesLabel.text = animeName
+    private func applyLayout(compact: Bool) {
+        dateLabel.isHidden = compact
+        filesLabel.isHidden = compact
+    }
 
-        // Episode count
-        let videoCount = entity?.videos?.count ?? 0
-        episodeLabel.text = videoCount > 0 ? "\(videoCount)" : "?"
+    private func configureSelection(_ isSelected: Bool) {
+        let icon = isSelected ? "square-check" : "square"
+        selectButton.setImage(UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)), for: .normal)
+        selectButton.accessibilityValue = isSelected ? "Selected" : "Not selected"
+    }
 
-        // Files count
-        filesLabel.text = "\(snap.files.count)"
-
-        // Size
-        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(snap.total)
-
-        // Status
-        let isComplete = snap.total > 0 && snap.totalDone >= snap.total
-        if isComplete {
-            statusLabel.text = "✓"
+    private func configureStatus(progress: Double) {
+        let clamped = max(0, min(progress, 1))
+        if clamped >= 0.999 {
+            statusLabel.text = "Done"
             statusLabel.textColor = .systemGreen
         } else {
-            let progress: Float = snap.total > 0
-                ? Float(Double(snap.totalDone) / Double(snap.total))
-                : 0
-            statusLabel.text = String(format: "%.0f%%", progress * 100)
+            statusLabel.text = String(format: "%.0f%%", clamped * 100)
             statusLabel.textColor = .systemBlue
         }
+    }
+
+    private func formattedDate(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp, timestamp > 0 else { return "—" }
+        let date = Date(timeIntervalSince1970: timestamp / (timestamp > 10_000_000_000 ? 1000 : 1))
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }
 
