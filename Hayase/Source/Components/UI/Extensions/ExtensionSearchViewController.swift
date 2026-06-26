@@ -1132,9 +1132,9 @@ final class ExtensionSearchViewController: UIViewController {
         let videos = (try? context.fetch(req)) ?? []
         guard !videos.isEmpty else { return } // Still waiting for metadata; will be called again.
 
-        func fileIndex(from value: Int?) -> UInt? {
-            guard let value, value >= 0 else { return nil }
-            return UInt(value)
+        func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
+            guard let value else { return nil }
+            return UInt(exactly: value)
         }
 
         // Auto-resolve the target file.

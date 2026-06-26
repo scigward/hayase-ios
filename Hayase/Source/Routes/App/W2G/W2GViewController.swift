@@ -828,9 +828,9 @@ extension W2GViewController {
         let resolvedVideos = resolver.resolveAll(files: handle.snapshot.files)
         let playableFiles = resolvedVideos.isEmpty ? handle.snapshot.files : resolvedVideos.map { $0.entry }
         let playableFileIndices = Set(playableFiles.map { Int($0.index) })
-        func fileIndex(from value: Int?) -> UInt? {
-            guard let value, value >= 0 else { return nil }
-            return UInt(value)
+        func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
+            guard let value else { return nil }
+            return UInt(exactly: value)
         }
         guard var targetIndex = fileIndex(from: playableFiles.first?.index) else { return }
         if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode),

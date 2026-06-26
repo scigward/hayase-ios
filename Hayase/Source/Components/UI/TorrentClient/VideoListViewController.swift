@@ -276,9 +276,13 @@ class VideoListViewController: UIViewController {
         return videoResultsController?.object(at: indexPath)
     }
 
-    private func fileIndex(from value: Int) -> UInt? {
-        guard value >= 0 else { return nil }
-        return UInt(value)
+    private func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
+        guard let value else { return nil }
+        return UInt(exactly: value)
+    }
+
+    private func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
+        fileIndex(from: Optional(value))
     }
 
     private func startPeriodicRefresh() {
