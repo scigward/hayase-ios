@@ -72,6 +72,10 @@ final class TorrentBackendManager {
         webTorrentBackend.protocolStatus(hash: hash, completion: completion)
     }
 
+    func webTorrentTrackers(hash: String, completion: @escaping (Result<[String: WebTorrentTrackerInfo], Error>) -> Void) {
+        webTorrentBackend.trackers(hash: hash, completion: completion)
+    }
+
     func deleteWebTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         webTorrentBackend.deleteTorrents(hashes: hashes, completion: completion)
     }

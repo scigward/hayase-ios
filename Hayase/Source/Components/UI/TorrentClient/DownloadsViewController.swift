@@ -28,7 +28,7 @@ class DownloadsViewController: UIViewController {
     private var libraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
 
     private var selectedTabIndex: Int = 0
-    private static let settingsTabIndex = 4
+    private static let settingsTabIndex = 5
 
     // MARK: - Page header
 
@@ -172,6 +172,15 @@ class DownloadsViewController: UIViewController {
     private var peersTableView: UITableView!
     private var peerInfos: [PeerInfo] = []
 
+    // MARK: - Trackers tab
+
+    private let trackersView = UIView()
+    private var trackersTableView: UITableView!
+    private var webTrackerRows: [(announce: String, info: WebTorrentTrackerInfo)] = []
+    private var webTrackersInFlight = false
+    private var lastWebTrackerRefresh = Date.distantPast
+    private let trackerRefreshInterval: TimeInterval = 10
+
     // MARK: - Library tab
 
     private let libraryView = UIView()
@@ -262,6 +271,7 @@ class DownloadsViewController: UIViewController {
         buildOverviewUI()
         buildFilesUI()
         buildPeersUI()
+        buildTrackersUI()
         buildLibraryUI()
         setupNotifications()
 
@@ -295,9 +305,11 @@ class DownloadsViewController: UIViewController {
 
     private func startTimer() {
         stopTimer()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.update()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
     }
 
     private func stopTimer() {
@@ -452,7 +464,7 @@ class DownloadsViewController: UIViewController {
 
         tabButtons.removeAll()
 
-        let titles = ["Overview", "Files", "Peers", "Library", "Settings"]
+        let titles = ["Overview", "Files", "Peers", "Trackers", "Library", "Settings"]
         for rowStart in stride(from: 0, to: titles.count, by: 2) {
             let hStack = UIStackView()
             hStack.axis = .horizontal
@@ -528,6 +540,9 @@ class DownloadsViewController: UIViewController {
             pageTitleLabel.text = "Peer List"
             pageSubtitleLabel.text = "Peers connected to the currently active torrent, their statistics, region etc."
         case 3:
+            pageTitleLabel.text = "Tracker Status"
+            pageSubtitleLabel.text = "Trackers for the currently active torrent, their status, and statistics about seeders/leechers and download amount."
+        case 4:
             pageTitleLabel.text = "Torrent Library"
             pageSubtitleLabel.text = "All of your downloaded torrents. If Persist Files is enabled then your previously downloaded torrents will show up here."
         default:
@@ -541,6 +556,7 @@ class DownloadsViewController: UIViewController {
         overviewScrollView.removeFromSuperview()
         filesView.removeFromSuperview()
         peersView.removeFromSuperview()
+        trackersView.removeFromSuperview()
         libraryView.removeFromSuperview()
 
         updatePageHeader(for: index)
@@ -581,7 +597,19 @@ class DownloadsViewController: UIViewController {
                 peersView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
 
-        case 3:  // Library
+        case 3:  // Trackers
+            trackersView.isHidden = false
+            containerView.addSubview(trackersView)
+            trackersView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                trackersView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                trackersView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                trackersView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                trackersView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            ])
+            refreshTrackers(force: true)
+
+        case 4:  // Library
             libraryView.isHidden = false
             containerView.addSubview(libraryView)
             libraryView.translatesAutoresizingMaskIntoConstraints = false
@@ -807,8 +835,11 @@ class DownloadsViewController: UIViewController {
             refreshPeers()
         }
 
-        // Update library tab if visible
         if selectedTabIndex == 3 {
+            refreshTrackers(force: false)
+        }
+
+        if selectedTabIndex == 4 {
             refreshLibrary()
         }
     }
@@ -922,8 +953,10 @@ class DownloadsViewController: UIViewController {
         emptyLabel.isHidden = hasTorrent
         if !hasTorrent {
             clearWebTorrentOverview(error: error)
+            webTrackerRows = []
             refreshFiles()
             refreshPeers()
+            refreshTrackers(force: false)
             refreshLibrary()
             return
         }
@@ -975,7 +1008,8 @@ class DownloadsViewController: UIViewController {
 
         if selectedTabIndex == 1 { refreshFiles() }
         if selectedTabIndex == 2 { refreshPeers() }
-        if selectedTabIndex == 3 { refreshLibrary() }
+        if selectedTabIndex == 3 { refreshTrackers(force: false) }
+        if selectedTabIndex == 4 { refreshLibrary() }
     }
 
     private func webTorrentETA(fromMilliseconds value: Double?) -> String? {
@@ -1241,6 +1275,78 @@ class DownloadsViewController: UIViewController {
             peersTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
             peersTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
         ])
+    }
+
+    // MARK: - Build Trackers UI
+
+    private func buildTrackersUI() {
+        trackersView.backgroundColor = .systemBackground
+
+        let borderContainer = UIView()
+        borderContainer.layer.cornerRadius = 6
+        borderContainer.layer.borderWidth = 1
+        borderContainer.layer.borderColor = UIColor.separator.cgColor
+        borderContainer.clipsToBounds = true
+        borderContainer.translatesAutoresizingMaskIntoConstraints = false
+        trackersView.addSubview(borderContainer)
+
+        trackersTableView = UITableView(frame: .zero, style: .plain)
+        trackersTableView.translatesAutoresizingMaskIntoConstraints = false
+        trackersTableView.delegate = self
+        trackersTableView.dataSource = self
+        trackersTableView.register(TrackerStatusCell.self, forCellReuseIdentifier: TrackerStatusCell.reuseID)
+        trackersTableView.rowHeight = 52
+        trackersTableView.estimatedRowHeight = 52
+        trackersTableView.backgroundColor = .systemBackground
+        trackersTableView.separatorInset = .zero
+        trackersTableView.allowsSelection = false
+        if #available(iOS 15.0, *) {
+            trackersTableView.sectionHeaderTopPadding = 0
+        }
+        borderContainer.addSubview(trackersTableView)
+
+        NSLayoutConstraint.activate([
+            borderContainer.topAnchor.constraint(equalTo: trackersView.topAnchor, constant: 16),
+            borderContainer.leadingAnchor.constraint(equalTo: trackersView.leadingAnchor, constant: 16),
+            borderContainer.trailingAnchor.constraint(equalTo: trackersView.trailingAnchor, constant: -16),
+            borderContainer.bottomAnchor.constraint(equalTo: trackersView.bottomAnchor, constant: -16),
+
+            trackersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            trackersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            trackersTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            trackersTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+        ])
+    }
+
+    private func refreshTrackers(force: Bool) {
+        guard isWebTorrentMode else {
+            webTrackerRows = []
+            trackersTableView?.reloadData()
+            return
+        }
+        guard !selectedHex.isEmpty else {
+            webTrackerRows = []
+            trackersTableView?.reloadData()
+            return
+        }
+        guard force || Date().timeIntervalSince(lastWebTrackerRefresh) >= trackerRefreshInterval else { return }
+        guard !webTrackersInFlight else { return }
+
+        webTrackersInFlight = true
+        let hash = selectedHex
+        TorrentBackendManager.shared.webTorrentTrackers(hash: hash) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.webTrackersInFlight = false
+                self.lastWebTrackerRefresh = Date()
+                if case .success(let trackers) = result {
+                    self.webTrackerRows = trackers
+                        .map { (announce: $0.key, info: $0.value) }
+                        .sorted { $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending }
+                }
+                self.trackersTableView?.reloadData()
+            }
+        }
     }
 
     // MARK: - Build Library UI
@@ -1546,6 +1652,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             return max(isWebTorrentMode ? webFilteredFileInfos.count : filteredFileEntries.count, 1)
         } else if tableView === peersTableView {
             return max(isWebTorrentMode ? webPeerInfos.count : peerInfos.count, 1)
+        } else if tableView === trackersTableView {
+            return max(webTrackerRows.count, 1)
         } else if tableView === libraryTableView {
             return max(isWebTorrentMode ? webFilteredLibraryEntries.count : filteredLibraryEntries.count, 1)
         }
@@ -1595,6 +1703,16 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
             guard indexPath.row < peerInfos.count else { return cell }
             cell.configure(peer: peerInfos[indexPath.row])
+            return cell
+        } else if tableView === trackersTableView {
+            if webTrackerRows.isEmpty {
+                return emptyTableCell(text: isWebTorrentMode ? "Loading..." : "Trackers are only available for WebTorrent." )
+            }
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: TrackerStatusCell.reuseID, for: indexPath) as? TrackerStatusCell else { return UITableViewCell() }
+            guard indexPath.row < webTrackerRows.count else { return cell }
+            let row = webTrackerRows[indexPath.row]
+            cell.configure(announce: row.announce, info: row.info)
             return cell
         } else if tableView === libraryTableView {
             if isWebTorrentMode {
@@ -1668,6 +1786,14 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 ("Up", 40),
                 ("Flags", 40),
             ])
+        } else if tableView === trackersTableView {
+            return makeColumnHeader(columns: [
+                ("Tracker", nil),
+                ("Status", 70),
+                ("Downloaded", 80),
+                ("Seeders", 60),
+                ("Leechers", 65),
+            ])
         } else if tableView === libraryTableView {
             return makeColumnHeader(columns: [
                 ("Series", nil),
@@ -1681,7 +1807,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if tableView === filesTableView || tableView === peersTableView || tableView === libraryTableView {
+        if tableView === filesTableView || tableView === peersTableView || tableView === trackersTableView || tableView === libraryTableView {
             return 48
         }
         return 0
@@ -1692,6 +1818,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             return (isWebTorrentMode ? webFilteredFileInfos.isEmpty : filteredFileEntries.isEmpty) ? 160 : Self.filesRowHeight
         } else if tableView === peersTableView {
             return (isWebTorrentMode ? webPeerInfos.isEmpty : peerInfos.isEmpty) ? 160 : 48
+        } else if tableView === trackersTableView {
+            return webTrackerRows.isEmpty ? 160 : 52
         } else if tableView === libraryTableView {
             return (isWebTorrentMode ? webFilteredLibraryEntries.isEmpty : filteredLibraryEntries.isEmpty) ? 160 : 56
         }
@@ -2107,6 +2235,93 @@ final class LibraryColumnCell: UITableViewCell {
             statusLabel.text = String(format: "%.0f%%", progress * 100)
             statusLabel.textColor = .systemBlue
         }
+    }
+}
+
+
+// MARK: - TrackerStatusCell
+
+final class TrackerStatusCell: UITableViewCell {
+    static let reuseID = "TrackerStatusCell"
+
+    private let announceLabel: UILabel = {
+        let l = UILabel()
+        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        l.textColor = .label
+        l.numberOfLines = 2
+        l.lineBreakMode = .byTruncatingMiddle
+        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return l
+    }()
+
+    private let statusLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12, weight: .medium)
+        l.textAlignment = .center
+        l.layer.cornerRadius = 4
+        l.clipsToBounds = true
+        return l
+    }()
+
+    private let downloadedLabel = TrackerStatusCell.makeNumberLabel()
+    private let seedersLabel = TrackerStatusCell.makeNumberLabel()
+    private let leechersLabel = TrackerStatusCell.makeNumberLabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupCellUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupCellUI()
+    }
+
+    private static func makeNumberLabel() -> UILabel {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12)
+        l.textColor = .label
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }
+
+    private func setupCellUI() {
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        let stack = UIStackView(arrangedSubviews: [announceLabel, statusLabel, downloadedLabel, seedersLabel, leechersLabel])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            statusLabel.widthAnchor.constraint(equalToConstant: 70),
+            downloadedLabel.widthAnchor.constraint(equalToConstant: 80),
+            seedersLabel.widthAnchor.constraint(equalToConstant: 60),
+            leechersLabel.widthAnchor.constraint(equalToConstant: 65),
+        ])
+
+        for label in [statusLabel, downloadedLabel, seedersLabel, leechersLabel] {
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
+    }
+
+    func configure(announce: String, info: WebTorrentTrackerInfo) {
+        announceLabel.text = announce
+        statusLabel.text = info.failed ? "Failed" : "Working"
+        statusLabel.textColor = info.failed ? .systemRed : .systemGreen
+        downloadedLabel.text = "\(info.downloaded)"
+        seedersLabel.text = "\(info.complete)"
+        leechersLabel.text = "\(info.incomplete)"
     }
 }
 

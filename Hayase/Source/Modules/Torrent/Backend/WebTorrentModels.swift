@@ -84,6 +84,13 @@ struct WebTorrentLibraryEntry: Decodable {
     let name: String
 }
 
+struct WebTorrentTrackerInfo: Decodable {
+    let complete: Int
+    let downloaded: Int
+    let incomplete: Int
+    let failed: Bool
+}
+
 struct WebTorrentProtocolStatus: Decodable {
     let dht: Bool
     let lsd: Bool

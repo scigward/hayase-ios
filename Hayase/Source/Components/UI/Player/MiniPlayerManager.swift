@@ -72,6 +72,13 @@ final class MiniPlayerManager {
     private let maxRestoreRetries = 30
     /// Delay between restore retries (seconds).
     private let restoreRetryDelay: TimeInterval = 1.0
+    /// Keep the WebTorrent restore VideoService alive until metadata has been
+    /// fetched and a player owns it. Without this strong reference the service
+    /// is deallocated before its async playTorrent callback can post results.
+    private var pendingWebTorrentRestoreService: VideoService?
+    private var pendingWebTorrentRestoreObserver: NSObjectProtocol?
+    private var pendingWebTorrentRestoreTimeout: DispatchWorkItem?
+    private let webTorrentRestoreTimeout: TimeInterval = 120
     private let innerContainerTag = 100
 
     private static let bannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
@@ -269,6 +276,7 @@ final class MiniPlayerManager {
         guard let player = activePlayer else { return }
 
         cancelAutoHideTimer()
+        cancelPendingWebTorrentRestore()
         isTucked = false
 
         // Clear persisted session so it won't auto-restore on next launch.
@@ -928,6 +936,8 @@ final class MiniPlayerManager {
                                           anilistID: Int,
                                           episodeNumber: Int,
                                           totalEpisodes: Int) {
+        cancelPendingWebTorrentRestore()
+
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let torrentEntity: Torrents
         let request = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
@@ -945,66 +955,112 @@ final class MiniPlayerManager {
             return
         }
 
+        let restoredSource = (state["torrentLink"] as? String)
+            ?? (state["magnetLink"] as? String)
+            ?? (state["source"] as? String)
+            ?? ""
         torrentEntity.torrentName = (state["torrentName"] as? String) ?? torrentEntity.torrentName ?? hash
         if torrentEntity.torrentDownloadURL?.isEmpty ?? true {
-            torrentEntity.torrentDownloadURL = (state["torrentLink"] as? String)
-                ?? (state["magnetLink"] as? String)
-                ?? ""
+            torrentEntity.torrentDownloadURL = restoredSource
         }
         try? context.save()
+        CoreDataService.sharedCoreDataService.saveRootContext {}
 
         let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber, backendKind: .webtorrent)
-        var observer: NSObjectProtocol?
-        observer = NotificationCenter.default.addObserver(
+        pendingWebTorrentRestoreService = videoService
+
+        pendingWebTorrentRestoreObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
             object: nil,
             queue: .main
         ) { [weak self, weak videoService] _ in
             guard let self, let videoService else { return }
-
-            let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
-            fetch.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
-            fetch.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
-                                     NSSortDescriptor(key: "videoName", ascending: true)]
-            let videos = (try? context.fetch(fetch)) ?? []
-
-            if videos.isEmpty && videoService.lastError == nil {
-                return
-            }
-
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-
-            guard videoService.lastError == nil, !videos.isEmpty else {
-                print("MiniPlayerManager: WebTorrent restore failed: \(videoService.lastError?.localizedDescription ?? "no playable files")")
-                self.clearSessionState()
-                return
-            }
-
-            let selectedVideo = videos.first { ($0.videoIndex?.uintValue ?? UInt.max) == fileIndex } ?? videos.first!
-            let selectedIndex = selectedVideo.videoIndex?.uintValue ?? fileIndex
-            _ = videoService.UpdateFilePathForFileIndex(selectedIndex)
-
-            let player = VideoPlayerViewController()
-            player.videoEntity = selectedVideo
-            player.torrentHandle = nil
-            player.videoService = videoService
-            player.fileIndex = selectedIndex
-            player.anilistID = anilistID
-            player.episodeNumber = episodeNumber
-            player.totalEpisodes = totalEpisodes
-            player.allVideos = videos
-            player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
-            player.onEpisodeChange = { [weak self] episode in
-                self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
-            }
-            player.shouldStartPaused = true
-            _ = player.view
-            self.showAsMiniPlayer(player)
+            self.finishWebTorrentSessionRestore(videoService: videoService,
+                                                torrentEntity: torrentEntity,
+                                                hash: hash,
+                                                fileIndex: fileIndex,
+                                                anilistID: anilistID,
+                                                episodeNumber: episodeNumber,
+                                                totalEpisodes: totalEpisodes)
         }
 
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            print("MiniPlayerManager: WebTorrent restore timed out for \(hash)")
+            self.cancelPendingWebTorrentRestore()
+            self.clearSessionState()
+        }
+        pendingWebTorrentRestoreTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + webTorrentRestoreTimeout, execute: timeout)
+
         videoService.UpdateLocalVideo()
+    }
+
+    private func finishWebTorrentSessionRestore(videoService: VideoService,
+                                                torrentEntity: Torrents,
+                                                hash: String,
+                                                fileIndex: UInt,
+                                                anilistID: Int,
+                                                episodeNumber: Int,
+                                                totalEpisodes: Int) {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        fetch.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
+        fetch.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                                 NSSortDescriptor(key: "videoName", ascending: true)]
+        let videos = (try? context.fetch(fetch)) ?? []
+
+        if videos.isEmpty && videoService.lastError == nil {
+            return
+        }
+
+        cancelPendingWebTorrentRestore(clearService: false)
+
+        guard videoService.lastError == nil, !videos.isEmpty else {
+            print("MiniPlayerManager: WebTorrent restore failed: \(videoService.lastError?.localizedDescription ?? "no playable files")")
+            pendingWebTorrentRestoreService = nil
+            clearSessionState()
+            return
+        }
+
+        let selectedVideo = videos.first { ($0.videoIndex?.uintValue ?? UInt.max) == fileIndex } ?? videos.first!
+        let selectedIndex = selectedVideo.videoIndex?.uintValue ?? fileIndex
+        let resolvedPath = videoService.UpdateFilePathForFileIndex(selectedIndex)
+        if !resolvedPath.isEmpty, selectedVideo.videoPath != resolvedPath {
+            selectedVideo.videoPath = resolvedPath
+            try? context.save()
+        }
+
+        let player = VideoPlayerViewController()
+        player.videoEntity = selectedVideo
+        player.torrentHandle = nil
+        player.videoService = videoService
+        player.fileIndex = selectedIndex
+        player.anilistID = anilistID
+        player.episodeNumber = episodeNumber
+        player.totalEpisodes = totalEpisodes
+        player.allVideos = videos
+        player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        player.onEpisodeChange = { [weak self] episode in
+            self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
+        }
+        player.shouldStartPaused = true
+        _ = player.view
+
+        showAsMiniPlayer(player)
+        pendingWebTorrentRestoreService = nil
+    }
+
+    private func cancelPendingWebTorrentRestore(clearService: Bool = true) {
+        if let observer = pendingWebTorrentRestoreObserver {
+            NotificationCenter.default.removeObserver(observer)
+            pendingWebTorrentRestoreObserver = nil
+        }
+        pendingWebTorrentRestoreTimeout?.cancel()
+        pendingWebTorrentRestoreTimeout = nil
+        if clearService {
+            pendingWebTorrentRestoreService = nil
+        }
     }
 
     /// Shows a player directly as a mini-player (no dismiss animation).
