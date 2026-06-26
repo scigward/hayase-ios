@@ -10,7 +10,7 @@ import LibTorrent
 // MARK: - DownloadsViewController
 
 /// Hayase-style torrent client page with tabbed interface:
-/// Overview, Files, Peers, Library, Settings.
+/// Overview, Files, Peers, Trackers, Library, Settings.
 /// Auto-selects the first active torrent and updates every second.
 class DownloadsViewController: UIViewController {
 
@@ -35,7 +35,7 @@ class DownloadsViewController: UIViewController {
     private let pageTitleLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 22, weight: .bold)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.text = "Torrent Client"
         return l
     }()
@@ -43,11 +43,19 @@ class DownloadsViewController: UIViewController {
     private let pageSubtitleLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 14, weight: .regular)
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.text = "Monitor your torrents, and configure settings for your torrent client."
         l.numberOfLines = 0
         return l
     }()
+
+    private var pageTitleTopConstraint: NSLayoutConstraint?
+    private var pageTitleLeadingConstraint: NSLayoutConstraint?
+    private var pageTitleTrailingConstraint: NSLayoutConstraint?
+    private var pageSubtitleTrailingConstraint: NSLayoutConstraint?
+    private var headerSeparatorTopConstraint: NSLayoutConstraint?
+    private var headerSeparatorLeadingConstraint: NSLayoutConstraint?
+    private var headerSeparatorTrailingConstraint: NSLayoutConstraint?
 
     // MARK: - Tab bar & containers
 
@@ -57,10 +65,24 @@ class DownloadsViewController: UIViewController {
     private let tabStackView = UIStackView()
     private let bodyStackView = UIStackView()
     private let headerSeparator = UIView()
+    private let globeView = Globe()
+    private let webTorrentVersionLabel: UILabel = {
+        let label = UILabel()
+        label.text = "WebTorrent v3.0.16"
+        label.font = .nunito(ofSize: 12, weight: .light)
+        label.textColor = TorrentClientStyle.mutedForeground
+        label.numberOfLines = 1
+        return label
+    }()
     private var tabBarWidthConstraint: NSLayoutConstraint?
     private var tabBarHeightConstraint: NSLayoutConstraint?
     private var tabStackWidthConstraint: NSLayoutConstraint?
     private var tabStackHeightConstraint: NSLayoutConstraint?
+    private var tabScrollBottomToContainerConstraint: NSLayoutConstraint?
+    private var tabScrollBottomToFooterConstraint: NSLayoutConstraint?
+    private var bodyTopConstraint: NSLayoutConstraint?
+    private var bodyLeadingConstraint: NSLayoutConstraint?
+    private var bodyTrailingConstraint: NSLayoutConstraint?
     private var lastWideClientLayout: Bool?
     private var lastCompactLibraryLayout: Bool?
 
@@ -82,7 +104,7 @@ class DownloadsViewController: UIViewController {
     private let nameLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 24, weight: .bold)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail
         return l
@@ -91,7 +113,7 @@ class DownloadsViewController: UIViewController {
     private let statusBadge: TorrentPillBadge = {
         let l = TorrentPillBadge(horizontalPadding: 10, verticalPadding: 4)
         l.font = .nunito(ofSize: 12, weight: .bold)
-        l.textColor = .white
+        l.textColor = TorrentClientStyle.primaryForeground
         l.textAlignment = .center
         return l
     }()
@@ -99,7 +121,7 @@ class DownloadsViewController: UIViewController {
     private let hashLabel: UILabel = {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingMiddle
         return l
@@ -108,7 +130,7 @@ class DownloadsViewController: UIViewController {
     private let bigPercentLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 24, weight: .bold)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         return l
     }()
 
@@ -116,8 +138,8 @@ class DownloadsViewController: UIViewController {
         let pv = UIProgressView(progressViewStyle: .bar)
         pv.layer.cornerRadius = 6
         pv.clipsToBounds = true
-        pv.trackTintColor = .secondarySystemFill
-        pv.progressTintColor = .white
+        pv.trackTintColor = TorrentClientStyle.accent
+        pv.progressTintColor = TorrentClientStyle.primary
         return pv
     }()
 
@@ -144,31 +166,14 @@ class DownloadsViewController: UIViewController {
     private let forwardDot   = TorrentDetailViewController.makeDotLabel()
     private let persistDot   = TorrentDetailViewController.makeDotLabel()
     private let streamingDot = TorrentDetailViewController.makeDotLabel()
+    private weak var overviewStatsStack: UIStackView?
+    private weak var protocolColumnsStack: UIStackView?
 
     // MARK: - Files tab
 
     private let filesView = UIView()
     private var filesTableView: UITableView!
-    private let filesSearchField: UITextField = {
-        let tf = UITextField()
-        tf.placeholder = "Search by File Name..."
-        tf.font = .nunito(ofSize: 14)
-        tf.borderStyle = .none
-        tf.backgroundColor = .secondarySystemBackground
-        tf.layer.cornerRadius = 6
-        tf.clipsToBounds = true
-        tf.clearButtonMode = .whileEditing
-        tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage.hayaseIcon("search"))
-        icon.tintColor = .secondaryLabel
-        icon.contentMode = .scaleAspectFit
-        icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 32, height: 20))
-        container.addSubview(icon)
-        tf.leftView = container
-        tf.leftViewMode = .always
-        return tf
-    }()
+    private let filesSearchField = TorrentClientStyle.makeSearchField(placeholder: "Search by File Name...")
     private var fileEntries: [FileEntry] = []
     private var filteredFileEntries: [FileEntry] = []
 
@@ -199,26 +204,7 @@ class DownloadsViewController: UIViewController {
 
     private let libraryView = UIView()
     private var libraryTableView: UITableView!
-    private let librarySearchField: UITextField = {
-        let tf = UITextField()
-        tf.placeholder = "Search by Torrent Name..."
-        tf.font = .nunito(ofSize: 14)
-        tf.borderStyle = .none
-        tf.backgroundColor = .secondarySystemBackground
-        tf.layer.cornerRadius = 6
-        tf.clipsToBounds = true
-        tf.clearButtonMode = .whileEditing
-        tf.returnKeyType = .search
-        let icon = UIImageView(image: UIImage.hayaseIcon("search"))
-        icon.tintColor = .secondaryLabel
-        icon.contentMode = .scaleAspectFit
-        icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 32, height: 20))
-        container.addSubview(icon)
-        tf.leftView = container
-        tf.leftViewMode = .always
-        return tf
-    }()
+    private let librarySearchField = TorrentClientStyle.makeSearchField(placeholder: "Search by Torrent Name...")
     private var filteredLibraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
 
     private var webStatus: WebTorrentBridgeStatus?
@@ -248,18 +234,20 @@ class DownloadsViewController: UIViewController {
     private let librarySelectionLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 13)
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.text = "0 of 0 row(s) selected."
         l.textAlignment = .right
         return l
     }()
+    private let libraryRescanButton = UIButton(type: .system)
+    private let libraryDeleteButton = UIButton(type: .system)
 
     // MARK: - Empty state
 
     private let emptyLabel: UILabel = {
         let l = UILabel()
         l.text = "No active downloads"
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.font = .nunito(ofSize: 17)
         l.textAlignment = .center
         l.isHidden = true
@@ -287,7 +275,7 @@ class DownloadsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Torrent Client"
-        view.backgroundColor = .systemBackground
+        TorrentClientStyle.configureRootView(view)
         navigationController?.navigationBar.prefersLargeTitles = false
 
         setupPageHeader()
@@ -434,25 +422,34 @@ class DownloadsViewController: UIViewController {
     private func setupPageHeader() {
         pageTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         pageSubtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerSeparator.backgroundColor = .separator
+        TorrentClientStyle.configureSeparator(headerSeparator)
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(pageTitleLabel)
         view.addSubview(pageSubtitleLabel)
         view.addSubview(headerSeparator)
 
+        pageTitleTopConstraint = pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: TorrentClientStyle.compactPadding)
+        pageTitleLeadingConstraint = pageTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        pageTitleTrailingConstraint = pageTitleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        pageSubtitleTrailingConstraint = pageSubtitleLabel.trailingAnchor.constraint(equalTo: pageTitleLabel.trailingAnchor)
+        headerSeparatorTopConstraint = headerSeparator.topAnchor.constraint(equalTo: pageSubtitleLabel.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
+        headerSeparatorLeadingConstraint = headerSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        headerSeparatorTrailingConstraint = headerSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+
         NSLayoutConstraint.activate([
-            pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            pageTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            pageTitleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            pageTitleTopConstraint!,
+            pageTitleLeadingConstraint!,
+            pageTitleTrailingConstraint!,
+            pageTitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.contentMaxWidth),
 
             pageSubtitleLabel.topAnchor.constraint(equalTo: pageTitleLabel.bottomAnchor, constant: 4),
             pageSubtitleLabel.leadingAnchor.constraint(equalTo: pageTitleLabel.leadingAnchor),
-            pageSubtitleLabel.trailingAnchor.constraint(equalTo: pageTitleLabel.trailingAnchor),
+            pageSubtitleTrailingConstraint!,
 
-            headerSeparator.topAnchor.constraint(equalTo: pageSubtitleLabel.bottomAnchor, constant: 12),
-            headerSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            headerSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            headerSeparatorTopConstraint!,
+            headerSeparatorLeadingConstraint!,
+            headerSeparatorTrailingConstraint!,
             headerSeparator.heightAnchor.constraint(equalToConstant: 0.5),
         ])
     }
@@ -468,20 +465,34 @@ class DownloadsViewController: UIViewController {
 
         tabBarContainer.translatesAutoresizingMaskIntoConstraints = false
         containerView.translatesAutoresizingMaskIntoConstraints = false
+        TorrentClientStyle.configurePlainContentView(tabBarContainer)
+        TorrentClientStyle.configurePlainContentView(containerView)
         bodyStackView.addArrangedSubview(tabBarContainer)
         bodyStackView.addArrangedSubview(containerView)
         view.addSubview(bodyStackView)
 
-        tabBarWidthConstraint = tabBarContainer.widthAnchor.constraint(equalToConstant: 240)
+        globeView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(globeView)
+
+        tabBarWidthConstraint = tabBarContainer.widthAnchor.constraint(equalToConstant: TorrentClientStyle.sidebarWidth)
         tabBarHeightConstraint = tabBarContainer.heightAnchor.constraint(equalToConstant: 44)
         tabBarHeightConstraint?.isActive = true
+        bodyTopConstraint = bodyStackView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
+        bodyLeadingConstraint = bodyStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        bodyTrailingConstraint = bodyStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
 
         NSLayoutConstraint.activate([
-            bodyStackView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: 12),
-            bodyStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            bodyStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            bodyStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            bodyTopConstraint!,
+            bodyLeadingConstraint!,
+            bodyTrailingConstraint!,
+            bodyStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bodyStackView.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.contentMaxWidth),
             containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
+            containerView.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.clientContentMaxWidth),
+            globeView.widthAnchor.constraint(equalToConstant: 400),
+            globeView.heightAnchor.constraint(equalTo: globeView.widthAnchor),
+            globeView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            globeView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
     }
 
@@ -507,6 +518,7 @@ class DownloadsViewController: UIViewController {
                 tabView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             ])
         }
+        containerView.sendSubviewToBack(globeView)
         containerView.bringSubviewToFront(emptyLabel)
     }
 
@@ -534,21 +546,28 @@ class DownloadsViewController: UIViewController {
 
         tabScrollView.addSubview(tabStackView)
         tabBarContainer.addSubview(tabScrollView)
+        webTorrentVersionLabel.translatesAutoresizingMaskIntoConstraints = false
+        tabBarContainer.addSubview(webTorrentVersionLabel)
 
         tabStackWidthConstraint = tabStackView.widthAnchor.constraint(equalTo: tabScrollView.frameLayoutGuide.widthAnchor)
         tabStackHeightConstraint = tabStackView.heightAnchor.constraint(equalTo: tabScrollView.frameLayoutGuide.heightAnchor)
         tabStackHeightConstraint?.isActive = true
+        tabScrollBottomToContainerConstraint = tabScrollView.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor)
+        tabScrollBottomToFooterConstraint = tabScrollView.bottomAnchor.constraint(equalTo: webTorrentVersionLabel.topAnchor, constant: -12)
+        tabScrollBottomToContainerConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
             tabScrollView.topAnchor.constraint(equalTo: tabBarContainer.topAnchor),
             tabScrollView.leadingAnchor.constraint(equalTo: tabBarContainer.leadingAnchor),
             tabScrollView.trailingAnchor.constraint(equalTo: tabBarContainer.trailingAnchor),
-            tabScrollView.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor),
 
             tabStackView.topAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.topAnchor),
             tabStackView.leadingAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.leadingAnchor),
             tabStackView.trailingAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.trailingAnchor),
             tabStackView.bottomAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.bottomAnchor),
+            webTorrentVersionLabel.leadingAnchor.constraint(equalTo: tabBarContainer.leadingAnchor, constant: 8),
+            webTorrentVersionLabel.trailingAnchor.constraint(lessThanOrEqualTo: tabBarContainer.trailingAnchor, constant: -8),
+            webTorrentVersionLabel.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor, constant: -20),
         ])
     }
 
@@ -568,12 +587,11 @@ class DownloadsViewController: UIViewController {
     }
 
     private func updateResponsiveClientLayoutIfNeeded() {
-        let wide = view.bounds.width >= 900
-        guard lastWideClientLayout != wide else { return }
+        let wide = TorrentClientStyle.isWideClientLayout(width: view.bounds.width)
         lastWideClientLayout = wide
 
         bodyStackView.axis = wide ? .horizontal : .vertical
-        bodyStackView.spacing = wide ? 48 : 8
+        bodyStackView.spacing = wide ? TorrentClientStyle.sidebarGap : 8
         tabStackView.axis = wide ? .vertical : .horizontal
         tabStackView.spacing = wide ? 4 : 8
         tabScrollView.alwaysBounceHorizontal = !wide
@@ -583,18 +601,39 @@ class DownloadsViewController: UIViewController {
         tabBarHeightConstraint?.isActive = !wide
         tabStackWidthConstraint?.isActive = wide
         tabStackHeightConstraint?.isActive = !wide
+        tabScrollBottomToContainerConstraint?.isActive = !wide
+        tabScrollBottomToFooterConstraint?.isActive = wide
+        webTorrentVersionLabel.isHidden = !wide
+        globeView.isHidden = !wide
+        globeView.transform = wide ? CGAffineTransform(scaleX: 1.5, y: 1.5) : .identity
+
+        let padding = wide ? TorrentClientStyle.regularPadding : TorrentClientStyle.compactPadding
+        let separatorSpacing = wide ? TorrentClientStyle.regularSeparatorSpacing : TorrentClientStyle.compactSeparatorSpacing
+        pageTitleTopConstraint?.constant = padding
+        pageTitleLeadingConstraint?.constant = padding
+        pageTitleTrailingConstraint?.constant = -padding
+        headerSeparatorTopConstraint?.constant = separatorSpacing
+        headerSeparatorLeadingConstraint?.constant = padding
+        headerSeparatorTrailingConstraint?.constant = -padding
+        bodyTopConstraint?.constant = separatorSpacing
+        bodyLeadingConstraint?.constant = padding
+        bodyTrailingConstraint?.constant = -padding
+        overviewStatsStack?.axis = view.bounds.width >= 1280 ? .horizontal : .vertical
+        overviewStatsStack?.distribution = view.bounds.width >= 1280 ? .fillEqually : .fill
+        protocolColumnsStack?.axis = wide ? .horizontal : .vertical
+        protocolColumnsStack?.distribution = wide ? .fillEqually : .fill
 
         updateTabButtonAppearances()
     }
 
     private func updateTabButtonAppearance(_ btn: UIButton, isSelected: Bool) {
-        let wide = lastWideClientLayout ?? (view.bounds.width >= 900)
+        let wide = lastWideClientLayout ?? TorrentClientStyle.isWideClientLayout(width: view.bounds.width)
         if isSelected {
-            btn.backgroundColor = .label
-            btn.setTitleColor(.systemBackground, for: .normal)
+            btn.backgroundColor = TorrentClientStyle.primary
+            btn.setTitleColor(TorrentClientStyle.primaryForeground, for: .normal)
         } else {
-            btn.backgroundColor = wide ? .clear : .secondarySystemBackground
-            btn.setTitleColor(.label, for: .normal)
+            btn.backgroundColor = wide ? .clear : TorrentClientStyle.muted
+            btn.setTitleColor(TorrentClientStyle.foreground, for: .normal)
         }
     }
 
@@ -674,17 +713,14 @@ class DownloadsViewController: UIViewController {
     // MARK: - Files tab
 
     private func buildFilesUI() {
-        filesView.backgroundColor = .systemBackground
+        TorrentClientStyle.configurePlainContentView(filesView)
 
         filesSearchField.translatesAutoresizingMaskIntoConstraints = false
         filesSearchField.addTarget(self, action: #selector(filesSearchChanged), for: .editingChanged)
         filesView.addSubview(filesSearchField)
 
         let borderContainer = UIView()
-        borderContainer.layer.cornerRadius = 6
-        borderContainer.layer.borderWidth = 1
-        borderContainer.layer.borderColor = UIColor.separator.cgColor
-        borderContainer.clipsToBounds = true
+        TorrentClientStyle.configureTableShell(borderContainer)
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         filesView.addSubview(borderContainer)
 
@@ -695,23 +731,19 @@ class DownloadsViewController: UIViewController {
         filesTableView.register(FileEntryTableCell.self, forCellReuseIdentifier: FileEntryTableCell.reuseID)
         filesTableView.rowHeight = Self.filesRowHeight
         filesTableView.estimatedRowHeight = Self.filesRowHeight
-        filesTableView.backgroundColor = .systemBackground
-        filesTableView.separatorInset = .zero
-        if #available(iOS 15.0, *) {
-            filesTableView.sectionHeaderTopPadding = 0
-        }
+        TorrentClientStyle.configureTableView(filesTableView)
         borderContainer.addSubview(filesTableView)
 
         NSLayoutConstraint.activate([
-            filesSearchField.topAnchor.constraint(equalTo: filesView.topAnchor, constant: 16),
-            filesSearchField.leadingAnchor.constraint(equalTo: filesView.leadingAnchor, constant: 16),
-            filesSearchField.trailingAnchor.constraint(equalTo: filesView.trailingAnchor, constant: -16),
+            filesSearchField.topAnchor.constraint(equalTo: filesView.topAnchor),
+            filesSearchField.leadingAnchor.constraint(equalTo: filesView.leadingAnchor),
+            filesSearchField.trailingAnchor.constraint(equalTo: filesView.trailingAnchor),
             filesSearchField.heightAnchor.constraint(equalToConstant: 36),
 
-            borderContainer.topAnchor.constraint(equalTo: filesSearchField.bottomAnchor, constant: 12),
-            borderContainer.leadingAnchor.constraint(equalTo: filesView.leadingAnchor, constant: 16),
-            borderContainer.trailingAnchor.constraint(equalTo: filesView.trailingAnchor, constant: -16),
-            borderContainer.bottomAnchor.constraint(equalTo: filesView.bottomAnchor, constant: -16),
+            borderContainer.topAnchor.constraint(equalTo: filesSearchField.bottomAnchor, constant: 8),
+            borderContainer.leadingAnchor.constraint(equalTo: filesView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: filesView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: filesView.bottomAnchor),
 
             filesTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
             filesTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
@@ -1070,7 +1102,7 @@ class DownloadsViewController: UIViewController {
         nameLabel.text = error?.localizedDescription ?? "No active WebTorrent download"
         hashLabel.text = "—"
         statusBadge.text = error == nil ? "Idle" : "Error"
-        statusBadge.backgroundColor = error == nil ? .secondaryLabel : .systemRed
+        statusBadge.backgroundColor = error == nil ? TorrentClientStyle.mutedForeground : .systemRed
         bigPercentLabel.text = "0.0%"
         progressBar.progress = 0
         for label in [downloadedValue, uploadedValue, totalSizeValue, piecesValue,
@@ -1090,20 +1122,26 @@ class DownloadsViewController: UIViewController {
     // MARK: - Build Overview UI
 
     private func buildOverviewUI() {
+        overviewScrollView.backgroundColor = .clear
         overviewScrollView.translatesAutoresizingMaskIntoConstraints = false
+        [downloadedValue, uploadedValue, totalSizeValue, piecesValue,
+         downSpeedValue, upSpeedValue, etaValue, elapsedValue,
+         seedersValue, leechersValue, wiresValue].forEach {
+            $0.textColor = TorrentClientStyle.foreground
+        }
 
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 32
+        stack.spacing = 48
         stack.translatesAutoresizingMaskIntoConstraints = false
         overviewScrollView.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: overviewScrollView.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: overviewScrollView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: overviewScrollView.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: overviewScrollView.bottomAnchor, constant: -24),
-            stack.widthAnchor.constraint(equalTo: overviewScrollView.widthAnchor, constant: -32),
+            stack.topAnchor.constraint(equalTo: overviewScrollView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: overviewScrollView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: overviewScrollView.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: overviewScrollView.bottomAnchor, constant: -8),
+            stack.widthAnchor.constraint(equalTo: overviewScrollView.widthAnchor),
         ])
 
         // 1. Header
@@ -1142,11 +1180,11 @@ class DownloadsViewController: UIViewController {
         titleRow.alignment = .center
         titleRow.spacing = 6
 
-        let dlIcon = makeIcon("hard-drive-download", tint: .label, size: 20)
+        let dlIcon = makeIcon("hard-drive-download", tint: TorrentClientStyle.foreground, size: 20)
         let progressTitle = UILabel()
         progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
-        progressTitle.textColor = .label
+        progressTitle.textColor = TorrentClientStyle.foreground
 
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -1177,6 +1215,7 @@ class DownloadsViewController: UIViewController {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = 0
+        overviewStatsStack = stack
 
         // Speed & Transfer
         stack.addArrangedSubview(makeFlatSection(
@@ -1217,11 +1256,11 @@ class DownloadsViewController: UIViewController {
         container.axis = .vertical
         container.spacing = 12
 
-        let iconView = makeIcon("network", tint: .label, size: 20)
+        let iconView = makeIcon("network", tint: TorrentClientStyle.foreground, size: 20)
         let title = UILabel()
         title.text = "Protocol Status"
         title.font = .nunito(ofSize: 24, weight: .bold)
-        title.textColor = .label
+        title.textColor = TorrentClientStyle.foreground
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
         titleRow.spacing = 8
@@ -1232,6 +1271,7 @@ class DownloadsViewController: UIViewController {
         columns.axis = .horizontal
         columns.distribution = .fillEqually
         columns.spacing = 8
+        protocolColumnsStack = columns
 
         columns.addArrangedSubview(makeProtocolColumn("Network Discovery", [
             ("DHT", "Distributed Hash Table for peer discovery", dhtDot),
@@ -1259,19 +1299,19 @@ class DownloadsViewController: UIViewController {
         let headerLabel = UILabel()
         headerLabel.text = header
         headerLabel.font = .nunito(ofSize: 14, weight: .medium)
-        headerLabel.textColor = .label
+        headerLabel.textColor = TorrentClientStyle.foreground
         col.addArrangedSubview(headerLabel)
 
         for (name, desc, dot) in rows {
             let nameLabel = UILabel()
             nameLabel.text = name
             nameLabel.font = .nunito(ofSize: 13, weight: .regular)
-            nameLabel.textColor = .label
+            nameLabel.textColor = TorrentClientStyle.foreground
 
             let descLabel = UILabel()
             descLabel.text = desc
             descLabel.font = .nunito(ofSize: 10, weight: .regular)
-            descLabel.textColor = .secondaryLabel
+            descLabel.textColor = TorrentClientStyle.mutedForeground
             descLabel.numberOfLines = 2
 
             let textStack = UIStackView(arrangedSubviews: [nameLabel, descLabel])
@@ -1291,13 +1331,10 @@ class DownloadsViewController: UIViewController {
     // MARK: - Build Peers UI
 
     private func buildPeersUI() {
-        peersView.backgroundColor = .systemBackground
+        TorrentClientStyle.configurePlainContentView(peersView)
 
         let borderContainer = UIView()
-        borderContainer.layer.cornerRadius = 6
-        borderContainer.layer.borderWidth = 1
-        borderContainer.layer.borderColor = UIColor.separator.cgColor
-        borderContainer.clipsToBounds = true
+        TorrentClientStyle.configureTableShell(borderContainer)
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         peersView.addSubview(borderContainer)
 
@@ -1308,16 +1345,15 @@ class DownloadsViewController: UIViewController {
         peersTableView.register(PeerInfoCell.self, forCellReuseIdentifier: PeerInfoCell.reuseID)
         peersTableView.rowHeight = 48
         peersTableView.estimatedRowHeight = 48
-        peersTableView.backgroundColor = .systemBackground
-        peersTableView.separatorInset = .zero
+        TorrentClientStyle.configureTableView(peersTableView)
         peersTableView.allowsSelection = false
         borderContainer.addSubview(peersTableView)
 
         NSLayoutConstraint.activate([
-            borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor, constant: 16),
-            borderContainer.leadingAnchor.constraint(equalTo: peersView.leadingAnchor, constant: 16),
-            borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor, constant: -16),
-            borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor, constant: -16),
+            borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor),
+            borderContainer.leadingAnchor.constraint(equalTo: peersView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor),
 
             peersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
             peersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
@@ -1329,13 +1365,10 @@ class DownloadsViewController: UIViewController {
     // MARK: - Build Trackers UI
 
     private func buildTrackersUI() {
-        trackersView.backgroundColor = .systemBackground
+        TorrentClientStyle.configurePlainContentView(trackersView)
 
         let borderContainer = UIView()
-        borderContainer.layer.cornerRadius = 6
-        borderContainer.layer.borderWidth = 1
-        borderContainer.layer.borderColor = UIColor.separator.cgColor
-        borderContainer.clipsToBounds = true
+        TorrentClientStyle.configureTableShell(borderContainer)
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         trackersView.addSubview(borderContainer)
 
@@ -1346,19 +1379,15 @@ class DownloadsViewController: UIViewController {
         trackersTableView.register(TrackerStatusCell.self, forCellReuseIdentifier: TrackerStatusCell.reuseID)
         trackersTableView.rowHeight = 52
         trackersTableView.estimatedRowHeight = 52
-        trackersTableView.backgroundColor = .systemBackground
-        trackersTableView.separatorInset = .zero
+        TorrentClientStyle.configureTableView(trackersTableView)
         trackersTableView.allowsSelection = false
-        if #available(iOS 15.0, *) {
-            trackersTableView.sectionHeaderTopPadding = 0
-        }
         borderContainer.addSubview(trackersTableView)
 
         NSLayoutConstraint.activate([
-            borderContainer.topAnchor.constraint(equalTo: trackersView.topAnchor, constant: 16),
-            borderContainer.leadingAnchor.constraint(equalTo: trackersView.leadingAnchor, constant: 16),
-            borderContainer.trailingAnchor.constraint(equalTo: trackersView.trailingAnchor, constant: -16),
-            borderContainer.bottomAnchor.constraint(equalTo: trackersView.bottomAnchor, constant: -16),
+            borderContainer.topAnchor.constraint(equalTo: trackersView.topAnchor),
+            borderContainer.leadingAnchor.constraint(equalTo: trackersView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: trackersView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: trackersView.bottomAnchor),
 
             trackersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
             trackersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
@@ -1401,31 +1430,25 @@ class DownloadsViewController: UIViewController {
     // MARK: - Build Library UI
 
     private func buildLibraryUI() {
-        libraryView.backgroundColor = .systemBackground
+        TorrentClientStyle.configurePlainContentView(libraryView)
 
         librarySearchField.translatesAutoresizingMaskIntoConstraints = false
         librarySearchField.addTarget(self, action: #selector(librarySearchChanged), for: .editingChanged)
         libraryView.addSubview(librarySearchField)
 
-        let rescanBtn = UIButton(type: .system)
         let rescanConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        rescanBtn.setImage(UIImage.hayaseIcon("refresh-cw", withConfiguration: rescanConfig), for: .normal)
-        rescanBtn.tintColor = .label
-        rescanBtn.backgroundColor = .secondarySystemBackground
-        rescanBtn.layer.cornerRadius = 6
-        rescanBtn.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
-        rescanBtn.translatesAutoresizingMaskIntoConstraints = false
+        libraryRescanButton.setImage(UIImage.hayaseIcon("folder-sync", withConfiguration: rescanConfig), for: .normal)
+        TorrentClientStyle.configureIconButton(libraryRescanButton, variant: .secondary)
+        libraryRescanButton.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
+        libraryRescanButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let deleteBtn = UIButton(type: .system)
         let deleteConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        deleteBtn.setImage(UIImage.hayaseIcon("trash-2", withConfiguration: deleteConfig), for: .normal)
-        deleteBtn.tintColor = .white
-        deleteBtn.backgroundColor = .systemRed
-        deleteBtn.layer.cornerRadius = 6
-        deleteBtn.addTarget(self, action: #selector(deleteSelectedLibraryEntries), for: .touchUpInside)
-        deleteBtn.translatesAutoresizingMaskIntoConstraints = false
+        libraryDeleteButton.setImage(UIImage.hayaseIcon("trash", withConfiguration: deleteConfig), for: .normal)
+        TorrentClientStyle.configureIconButton(libraryDeleteButton, variant: .destructive)
+        libraryDeleteButton.addTarget(self, action: #selector(deleteSelectedLibraryEntries), for: .touchUpInside)
+        libraryDeleteButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let buttonRow = UIStackView(arrangedSubviews: [rescanBtn, deleteBtn])
+        let buttonRow = UIStackView(arrangedSubviews: [libraryRescanButton, libraryDeleteButton])
         buttonRow.axis = .horizontal
         buttonRow.spacing = 8
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
@@ -1435,10 +1458,7 @@ class DownloadsViewController: UIViewController {
         libraryView.addSubview(librarySelectionLabel)
 
         let borderContainer = UIView()
-        borderContainer.layer.cornerRadius = 6
-        borderContainer.layer.borderWidth = 1
-        borderContainer.layer.borderColor = UIColor.separator.cgColor
-        borderContainer.clipsToBounds = true
+        TorrentClientStyle.configureTableShell(borderContainer)
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         libraryView.addSubview(borderContainer)
 
@@ -1449,32 +1469,31 @@ class DownloadsViewController: UIViewController {
         libraryTableView.register(LibraryColumnCell.self, forCellReuseIdentifier: LibraryColumnCell.reuseID)
         libraryTableView.rowHeight = 56
         libraryTableView.estimatedRowHeight = 56
-        libraryTableView.backgroundColor = .systemBackground
-        libraryTableView.separatorInset = .zero
+        TorrentClientStyle.configureTableView(libraryTableView)
         borderContainer.addSubview(libraryTableView)
 
         NSLayoutConstraint.activate([
-            rescanBtn.widthAnchor.constraint(equalToConstant: 36),
-            rescanBtn.heightAnchor.constraint(equalToConstant: 36),
-            deleteBtn.widthAnchor.constraint(equalToConstant: 36),
-            deleteBtn.heightAnchor.constraint(equalToConstant: 36),
+            libraryRescanButton.widthAnchor.constraint(equalToConstant: 36),
+            libraryRescanButton.heightAnchor.constraint(equalToConstant: 36),
+            libraryDeleteButton.widthAnchor.constraint(equalToConstant: 36),
+            libraryDeleteButton.heightAnchor.constraint(equalToConstant: 36),
 
-            librarySearchField.topAnchor.constraint(equalTo: libraryView.topAnchor, constant: 16),
-            librarySearchField.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
+            librarySearchField.topAnchor.constraint(equalTo: libraryView.topAnchor),
+            librarySearchField.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor),
             librarySearchField.trailingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: -8),
             librarySearchField.heightAnchor.constraint(equalToConstant: 36),
 
-            buttonRow.topAnchor.constraint(equalTo: libraryView.topAnchor, constant: 16),
-            buttonRow.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+            buttonRow.topAnchor.constraint(equalTo: libraryView.topAnchor),
+            buttonRow.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor),
 
             librarySelectionLabel.topAnchor.constraint(equalTo: librarySearchField.bottomAnchor, constant: 8),
-            librarySelectionLabel.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
-            librarySelectionLabel.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
+            librarySelectionLabel.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor),
+            librarySelectionLabel.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor),
 
             borderContainer.topAnchor.constraint(equalTo: librarySelectionLabel.bottomAnchor, constant: 8),
-            borderContainer.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor, constant: 16),
-            borderContainer.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor, constant: -16),
-            borderContainer.bottomAnchor.constraint(equalTo: libraryView.bottomAnchor, constant: -16),
+            borderContainer.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor),
+            borderContainer.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor),
+            borderContainer.bottomAnchor.constraint(equalTo: libraryView.bottomAnchor),
 
             libraryTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
             libraryTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
@@ -1552,6 +1571,9 @@ class DownloadsViewController: UIViewController {
     private func updateLibrarySelectionLabel() {
         let rowCount = isWebTorrentMode ? webFilteredLibraryEntries.count : filteredLibraryEntries.count
         librarySelectionLabel.text = "\(selectedLibraryHashes.count) of \(rowCount) row(s) selected."
+        let hasSelection = !selectedLibraryHashes.isEmpty
+        TorrentClientStyle.setIconButtonEnabled(libraryRescanButton, enabled: hasSelection, variant: .secondary)
+        TorrentClientStyle.setIconButtonEnabled(libraryDeleteButton, enabled: hasSelection, variant: .destructive)
     }
 
     private func toggleLibrarySelection(hash: String, tableView: UITableView?, indexPath: IndexPath) {
@@ -1884,11 +1906,11 @@ class DownloadsViewController: UIViewController {
         container.axis = .vertical
         container.spacing = 12
 
-        let iconView = makeIcon(icon, tint: .label, size: 20)
+        let iconView = makeIcon(icon, tint: TorrentClientStyle.foreground, size: 20)
         let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.font = .nunito(ofSize: 24, weight: .bold)
-        titleLabel.textColor = .label
+        titleLabel.textColor = TorrentClientStyle.foreground
 
         let titleRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
         titleRow.axis = .horizontal
@@ -1921,7 +1943,7 @@ class DownloadsViewController: UIViewController {
         let titleLabel = UILabel()
         titleLabel.text = item.title
         titleLabel.font = .nunito(ofSize: 13, weight: .medium)
-        titleLabel.textColor = .secondaryLabel
+        titleLabel.textColor = TorrentClientStyle.mutedForeground
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
         topRow.axis = .horizontal
@@ -1952,7 +1974,7 @@ class DownloadsViewController: UIViewController {
         let titleLabel = UILabel()
         titleLabel.text = item.title
         titleLabel.font = .nunito(ofSize: 12, weight: .regular)
-        titleLabel.textColor = .secondaryLabel
+        titleLabel.textColor = TorrentClientStyle.mutedForeground
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
         topRow.axis = .horizontal
@@ -1976,9 +1998,10 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     private func emptyTableCell(text: String) -> UITableViewCell {
         let cell = UITableViewCell()
+        TorrentClientStyle.configureTableCell(cell)
         cell.textLabel?.text = text
         cell.textLabel?.textAlignment = .center
-        cell.textLabel?.textColor = .secondaryLabel
+        cell.textLabel?.textColor = TorrentClientStyle.mutedForeground
         cell.textLabel?.font = .nunito(ofSize: 14)
         cell.selectionStyle = .none
         return cell
@@ -2121,13 +2144,14 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         } else if tableView === peersTableView {
             return makeColumnHeader(columns: [
                 ("IP Address", nil),
-                ("Client", 55),
-                ("Progress", 50),
-                ("DL", 35),
-                ("UL", 35),
-                ("Down", 40),
-                ("Up", 40),
-                ("Flags", 40),
+                ("Client", 80),
+                ("Progress", 70),
+                ("Download", 60),
+                ("Upload", 60),
+                ("Downloaded", 70),
+                ("Uploaded", 70),
+                ("Country", 56),
+                ("Flags", 48),
             ])
         } else if tableView === trackersTableView {
             return makeColumnHeader(columns: [
@@ -2179,57 +2203,14 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     private func makeColumnHeader(columns: [(String, CGFloat?)]) -> UIView {
-        let header = UIView()
-        header.backgroundColor = .systemBackground
-
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.spacing = 8
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-        ])
-
-        for (title, fixedWidth) in columns {
-            let label = UILabel()
-            label.text = title
-            label.font = .nunito(ofSize: 12, weight: .medium)
-            label.textColor = .secondaryLabel
-            if let w = fixedWidth {
-                label.widthAnchor.constraint(equalToConstant: w).isActive = true
-                label.setContentHuggingPriority(.required, for: .horizontal)
-                label.setContentCompressionResistancePriority(.required, for: .horizontal)
-            } else {
-                label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            }
-            stack.addArrangedSubview(label)
-        }
-
-        let separator = UIView()
-        separator.backgroundColor = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        header.addSubview(separator)
-        NSLayoutConstraint.activate([
-            separator.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: header.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 0.5),
-        ])
-
-        return header
+        ColumnHeader.make(columns: columns)
     }
 
     /// Builds a sortable column header for the Files tab.
     /// Matches Hayase's addSortBy plugin: tapping a column cycles asc → desc → clear.
     private func makeFileColumnHeader() -> UIView {
         let header = UIView()
-        header.backgroundColor = .systemBackground
+        header.backgroundColor = TorrentClientStyle.background
 
         let columns: [(String, CGFloat?, FileSortColumn)] = [
             ("File Name", nil, .name),
@@ -2268,8 +2249,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 btn.titleEdgeInsets = .zero
             }
             btn.titleLabel?.font = .nunito(ofSize: 12, weight: .medium)
-            btn.setTitleColor(isActive ? .label : .secondaryLabel, for: .normal)
-            btn.tintColor = isActive ? .secondaryLabel : .clear
+            btn.setTitleColor(isActive ? TorrentClientStyle.foreground : TorrentClientStyle.mutedForeground, for: .normal)
+            btn.tintColor = isActive ? TorrentClientStyle.mutedForeground : .clear
             btn.contentHorizontalAlignment = .left
             btn.addTarget(self, action: #selector(fileColumnHeaderTapped(_:)), for: .touchUpInside)
 
@@ -2285,7 +2266,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         }
 
         let separator = UIView()
-        separator.backgroundColor = .separator
+        TorrentClientStyle.configureSeparator(separator)
         separator.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(separator)
         NSLayoutConstraint.activate([
@@ -2325,7 +2306,7 @@ final class FileEntryTableCell: UITableViewCell {
     private let nameLabel: UILabel = {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingTail
         l.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -2336,7 +2317,7 @@ final class FileEntryTableCell: UITableViewCell {
     private let sizeLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 12)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         return l
     }()
@@ -2345,15 +2326,15 @@ final class FileEntryTableCell: UITableViewCell {
         let pv = UIProgressView(progressViewStyle: .bar)
         pv.layer.cornerRadius = 3
         pv.clipsToBounds = true
-        pv.trackTintColor = .secondarySystemFill
-        pv.progressTintColor = .white
+        pv.trackTintColor = TorrentClientStyle.accent
+        pv.progressTintColor = TorrentClientStyle.primary
         return pv
     }()
 
     private let progressLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 10)
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.textAlignment = .center
         return l
     }()
@@ -2361,7 +2342,7 @@ final class FileEntryTableCell: UITableViewCell {
     private let streamsLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 12)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         return l
     }()
@@ -2378,6 +2359,7 @@ final class FileEntryTableCell: UITableViewCell {
 
     private func setupCellUI() {
         selectionStyle = .none
+        TorrentClientStyle.configureTableCell(self)
 
         // Progress: bar on top, label below
         let progressStack = UIStackView(arrangedSubviews: [progressBar, progressLabel])
@@ -2444,13 +2426,13 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
     var onOpen: (() -> Void)?
     var onSelectionToggle: (() -> Void)?
 
-    private let seriesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label, lines: 1)
-    private let torrentNameLabel = LibraryColumnCell.makeLabel(size: 12, weight: .regular, color: .secondaryLabel, lines: 2)
-    private let episodeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .secondaryLabel)
-    private let filesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label)
-    private let sizeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label)
+    private let seriesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground, lines: 1)
+    private let torrentNameLabel = LibraryColumnCell.makeLabel(size: 12, weight: .regular, color: TorrentClientStyle.foreground, lines: 2)
+    private let episodeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.mutedForeground)
+    private let filesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
+    private let sizeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
     private let statusLabel: UILabel = {
-        let label = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: .label)
+        let label = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: TorrentClientStyle.foreground)
         label.textAlignment = .left
         return label
     }()
@@ -2467,10 +2449,10 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
         stack.alignment = .center
         return stack
     }()
-    private let dateLabel = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: .secondaryLabel)
+    private let dateLabel = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: TorrentClientStyle.mutedForeground)
     private let selectButton: UIButton = {
         let button = UIButton(type: .system)
-        button.tintColor = .label
+        button.tintColor = TorrentClientStyle.foreground
         button.accessibilityLabel = "Select torrent"
         return button
     }()
@@ -2504,9 +2486,9 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
 
     private func setupCellUI() {
         selectionStyle = .default
-        backgroundColor = .clear
+        TorrentClientStyle.configureTableCell(self)
         selectedBackgroundView = UIView()
-        selectedBackgroundView?.backgroundColor = .secondarySystemBackground
+        selectedBackgroundView?.backgroundColor = TorrentClientStyle.accent
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(rowTapped))
         tap.cancelsTouchesInView = true
@@ -2518,7 +2500,7 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
         selectButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         torrentNameLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        torrentNameLabel.textColor = .label
+        torrentNameLabel.textColor = TorrentClientStyle.foreground
         torrentNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         torrentNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -2627,7 +2609,7 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
             statusLabel.text = "In Progress"
             statusDot.backgroundColor = .systemBlue
         }
-        statusLabel.textColor = .label
+        statusLabel.textColor = TorrentClientStyle.foreground
     }
 
     private func formattedDate(_ timestamp: TimeInterval?) -> String {
@@ -2649,7 +2631,7 @@ final class TrackerStatusCell: UITableViewCell {
     private let announceLabel: UILabel = {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.numberOfLines = 2
         l.lineBreakMode = .byTruncatingMiddle
         l.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -2683,7 +2665,7 @@ final class TrackerStatusCell: UITableViewCell {
     private static func makeNumberLabel() -> UILabel {
         let l = UILabel()
         l.font = .nunito(ofSize: 12)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
         l.minimumScaleFactor = 0.7
@@ -2692,7 +2674,7 @@ final class TrackerStatusCell: UITableViewCell {
 
     private func setupCellUI() {
         selectionStyle = .none
-        backgroundColor = .clear
+        TorrentClientStyle.configureTableCell(self)
 
         let stack = UIStackView(arrangedSubviews: [announceLabel, statusLabel, downloadedLabel, seedersLabel, leechersLabel])
         stack.axis = .horizontal
@@ -2730,14 +2712,21 @@ final class TrackerStatusCell: UITableViewCell {
 // MARK: - PeerInfoCell
 
 /// Peer info cell matching Hayase peers table.
-/// Columns: IP Address | Client | Progress | DL | UL | Downloaded | Uploaded | Flags
+/// Columns: IP Address | Client | Progress | Download | Upload | Downloaded | Uploaded | Country | Flags
 final class PeerInfoCell: UITableViewCell {
     static let reuseID = "PeerInfoCell"
+
+    private let peerDot: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 4
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
 
     private let ipLabel: UILabel = {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.lineBreakMode = .byTruncatingTail
         l.setContentHuggingPriority(.defaultLow, for: .horizontal)
         l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -2747,7 +2736,7 @@ final class PeerInfoCell: UITableViewCell {
     private let clientLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 11)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.lineBreakMode = .byTruncatingTail
         return l
     }()
@@ -2755,7 +2744,7 @@ final class PeerInfoCell: UITableViewCell {
     private let progressLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 11)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         return l
     }()
@@ -2763,7 +2752,7 @@ final class PeerInfoCell: UITableViewCell {
     private let dlSpeedLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 10)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
         l.minimumScaleFactor = 0.7
@@ -2773,7 +2762,7 @@ final class PeerInfoCell: UITableViewCell {
     private let ulSpeedLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 10)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
         l.minimumScaleFactor = 0.7
@@ -2783,7 +2772,7 @@ final class PeerInfoCell: UITableViewCell {
     private let downloadedLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 10)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
         l.minimumScaleFactor = 0.7
@@ -2793,7 +2782,17 @@ final class PeerInfoCell: UITableViewCell {
     private let uploadedLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 10)
-        l.textColor = .label
+        l.textColor = TorrentClientStyle.foreground
+        l.textAlignment = .left
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.7
+        return l
+    }()
+
+    private let countryLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 10)
+        l.textColor = TorrentClientStyle.mutedForeground
         l.textAlignment = .left
         l.adjustsFontSizeToFitWidth = true
         l.minimumScaleFactor = 0.7
@@ -2803,7 +2802,7 @@ final class PeerInfoCell: UITableViewCell {
     private let flagsLabel: UILabel = {
         let l = UILabel()
         l.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
-        l.textColor = .secondaryLabel
+        l.textColor = TorrentClientStyle.mutedForeground
         l.textAlignment = .left
         l.lineBreakMode = .byTruncatingTail
         return l
@@ -2821,12 +2820,17 @@ final class PeerInfoCell: UITableViewCell {
 
     private func setupCellUI() {
         selectionStyle = .none
-        backgroundColor = .clear
+        TorrentClientStyle.configureTableCell(self)
+
+        let ipStack = UIStackView(arrangedSubviews: [peerDot, ipLabel])
+        ipStack.axis = .horizontal
+        ipStack.spacing = 8
+        ipStack.alignment = .center
 
         let stack = UIStackView(arrangedSubviews: [
-            ipLabel, clientLabel, progressLabel,
+            ipStack, clientLabel, progressLabel,
             dlSpeedLabel, ulSpeedLabel,
-            downloadedLabel, uploadedLabel, flagsLabel
+            downloadedLabel, uploadedLabel, countryLabel, flagsLabel
         ])
         stack.axis = .horizontal
         stack.spacing = 8
@@ -2840,17 +2844,20 @@ final class PeerInfoCell: UITableViewCell {
             stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             // Match column header widths
-            clientLabel.widthAnchor.constraint(equalToConstant: 55),
-            progressLabel.widthAnchor.constraint(equalToConstant: 50),
-            dlSpeedLabel.widthAnchor.constraint(equalToConstant: 35),
-            ulSpeedLabel.widthAnchor.constraint(equalToConstant: 35),
-            downloadedLabel.widthAnchor.constraint(equalToConstant: 40),
-            uploadedLabel.widthAnchor.constraint(equalToConstant: 40),
-            flagsLabel.widthAnchor.constraint(equalToConstant: 40),
+            peerDot.widthAnchor.constraint(equalToConstant: 8),
+            peerDot.heightAnchor.constraint(equalToConstant: 8),
+            clientLabel.widthAnchor.constraint(equalToConstant: 80),
+            progressLabel.widthAnchor.constraint(equalToConstant: 70),
+            dlSpeedLabel.widthAnchor.constraint(equalToConstant: 60),
+            ulSpeedLabel.widthAnchor.constraint(equalToConstant: 60),
+            downloadedLabel.widthAnchor.constraint(equalToConstant: 70),
+            uploadedLabel.widthAnchor.constraint(equalToConstant: 70),
+            countryLabel.widthAnchor.constraint(equalToConstant: 56),
+            flagsLabel.widthAnchor.constraint(equalToConstant: 48),
         ])
 
         for label in [clientLabel, progressLabel, dlSpeedLabel, ulSpeedLabel,
-                      downloadedLabel, uploadedLabel, flagsLabel] {
+                      downloadedLabel, uploadedLabel, countryLabel, flagsLabel] {
             label.setContentHuggingPriority(.required, for: .horizontal)
             label.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -2858,23 +2865,27 @@ final class PeerInfoCell: UITableViewCell {
 
     func configure(peer: PeerInfo) {
         ipLabel.text = peer.ip
+        peerDot.backgroundColor = peer.progress >= 0.999 ? .systemGreen : .systemBlue
         clientLabel.text = String(peer.client.prefix(21))
         progressLabel.text = String(format: "%.1f%%", peer.progress * 100)
         dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.downloadSpeed)) * 8) + "/s"
         ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.uploadSpeed)) * 8) + "/s"
         downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalDownload)))
         uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalUpload)))
+        countryLabel.text = "?"
         flagsLabel.text = peer.connectionFlags.joined(separator: " ")
     }
 
     func configure(peer: WebTorrentPeerInfo) {
         ipLabel.text = peer.ip
+        peerDot.backgroundColor = peer.seeder ? .systemGreen : .systemBlue
         clientLabel.text = String(peer.client.prefix(21))
         progressLabel.text = String(format: "%.1f%%", max(0, min(peer.progress, 1)) * 100)
         dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.down * 8) + "/s"
         ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.up * 8) + "/s"
         downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.downloaded)
         uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.uploaded)
+        countryLabel.text = "?"
         flagsLabel.text = peer.flags.joined(separator: " ")
     }
 }
