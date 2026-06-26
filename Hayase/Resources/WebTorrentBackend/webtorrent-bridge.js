@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v3'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v4'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -19,7 +19,24 @@ const port = Number(arg('--port', '43817'))
 const downloadPath = arg('--download-path', '')
 const tempPath = arg('--temp-path', downloadPath)
 
-let settings = null
+const DEFAULT_SETTINGS = Object.freeze({
+  torrentPersist: false,
+  torrentDHT: false,
+  torrentStreamedDownload: true,
+  torrentSpeed: 80,
+  maxConns: 55,
+  torrentPort: 0,
+  dhtPort: 0,
+  torrentPeX: false,
+  nzbDomain: '',
+  nzbLogin: '',
+  nzbPassword: '',
+  nzbPort: 0,
+  nzbPoolSize: 0,
+  path: ''
+})
+
+let settings = { ...DEFAULT_SETTINGS }
 let client = null
 let loadError = null
 let clientObserversInstalled = false
@@ -69,6 +86,37 @@ function preview (value) {
   if (!value) return null
   const string = String(value)
   return string.length > 180 ? string.slice(0, 177) + '...' : string
+}
+
+function clampedInteger (value, fallback, min, max) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(Math.max(Math.round(number), min), max)
+}
+
+function normalizedSettings (value = {}) {
+  const merged = { ...DEFAULT_SETTINGS, ...(value ?? {}) }
+  return {
+    ...merged,
+    torrentPersist: Boolean(merged.torrentPersist),
+    torrentDHT: Boolean(merged.torrentDHT),
+    torrentStreamedDownload: merged.torrentStreamedDownload !== false,
+    torrentSpeed: clampedInteger(merged.torrentSpeed, DEFAULT_SETTINGS.torrentSpeed, 1, 999),
+    maxConns: clampedInteger(merged.maxConns, DEFAULT_SETTINGS.maxConns, 1, 512),
+    torrentPort: clampedInteger(merged.torrentPort, DEFAULT_SETTINGS.torrentPort, 0, 65535),
+    dhtPort: clampedInteger(merged.dhtPort, DEFAULT_SETTINGS.dhtPort, 0, 65535),
+    torrentPeX: Boolean(merged.torrentPeX),
+    nzbDomain: String(merged.nzbDomain ?? ''),
+    nzbLogin: String(merged.nzbLogin ?? ''),
+    nzbPassword: String(merged.nzbPassword ?? ''),
+    nzbPort: clampedInteger(merged.nzbPort, DEFAULT_SETTINGS.nzbPort, 0, 65535),
+    nzbPoolSize: clampedInteger(merged.nzbPoolSize, DEFAULT_SETTINGS.nzbPoolSize, 0, 128),
+    path: String(merged.path ?? '')
+  }
+}
+
+function clientSettings () {
+  return normalizedSettings({ ...settings, path: downloadPath })
 }
 
 function sourceDescription (id) {
@@ -326,9 +374,10 @@ async function loadTorrentClient () {
     setPhase('loading-client')
     const module = await import('./torrent-client/index.js')
     const TorrentClient = module.default
-    client = new TorrentClient({ ...settings, path: downloadPath }, tempPath)
-    status.dht = settings?.torrentDHT === false
-    status.pex = settings?.torrentPeX === false
+    const initialSettings = clientSettings()
+    client = new TorrentClient(initialSettings, tempPath)
+    status.dht = initialSettings.torrentDHT === false
+    status.pex = initialSettings.torrentPeX === false
     status.webRTC = false
     installClientObservers()
     setPhase('idle')
@@ -345,10 +394,11 @@ async function handleRPC (payload) {
   const params = payload.params ?? {}
 
   if (payload.method === 'updateSettings') {
-    settings = params.settings ?? {}
-    status.dht = settings?.torrentDHT === false
-    status.pex = settings?.torrentPeX === false
-    if (client) client.updateSettings({ ...settings, path: downloadPath })
+    settings = normalizedSettings(params.settings ?? {})
+    const currentSettings = clientSettings()
+    status.dht = currentSettings.torrentDHT === false
+    status.pex = currentSettings.torrentPeX === false
+    if (client) client.updateSettings(currentSettings)
     return {}
   }
 

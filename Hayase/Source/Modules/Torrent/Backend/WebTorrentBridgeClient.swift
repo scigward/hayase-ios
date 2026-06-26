@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v3"
+    static let expectedVersion = "hayase-webtorrent-bridge-v4"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
