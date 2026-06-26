@@ -13,7 +13,11 @@ import Foundation
 final class KitsuAuth {
 
     static func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
-        var request = URLRequest(url: URL(string: "https://kitsu.app/api/oauth/token")!)
+        guard let url = URL(string: "https://kitsu.app/api/oauth/token") else {
+            completion(false)
+            return
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         let body = "grant_type=password&username=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
@@ -37,7 +41,11 @@ final class KitsuAuth {
     }
 
     static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
-        var request = URLRequest(url: URL(string: "https://kitsu.app/api/edge/users?filter[self]=true&fields[users]=name,avatar")!)
+        guard let url = URL(string: "https://kitsu.app/api/edge/users?filter[self]=true&fields[users]=name,avatar") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.api+json", forHTTPHeaderField: "Accept")
 

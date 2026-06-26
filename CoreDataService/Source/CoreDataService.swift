@@ -22,7 +22,10 @@ DispatchQueue.main.async {
 completionHandler()
 }
 } catch let error {
-fatalError("Failed to save root context: \(error as NSError)")
+print("Failed to save root context: \(error as NSError)")
+DispatchQueue.main.async {
+completionHandler()
+}
 }
 }
 }

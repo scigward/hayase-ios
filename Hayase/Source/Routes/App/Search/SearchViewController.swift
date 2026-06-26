@@ -1091,7 +1091,7 @@ extension SearchViewController: UICollectionViewDataSource {
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-        let item = animeResults[indexPath.item]
+        guard let item = animeResults[safe: indexPath.item] else { return cell }
         cell.configure(with: item)
         Hover.shared.bind(to: cell,
                           host: self,
@@ -1106,8 +1106,8 @@ extension SearchViewController: UICollectionViewDataSource {
 extension SearchViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
-        guard !isShowingSkeleton else { return }
-        let item = animeResults[indexPath.item]
+        guard !isShowingSkeleton,
+              let item = animeResults[safe: indexPath.item] else { return }
         if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
            Hover.shared.handleTouchSelection(source: cell,
                                              host: self,

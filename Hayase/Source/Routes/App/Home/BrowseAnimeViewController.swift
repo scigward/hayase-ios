@@ -199,7 +199,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         return viewHeight * (isRegular ? 0.80 : 0.70)
     }
 
-    var currentItem: AnimeItem? { items.isEmpty ? nil : items[currentIndex] }
+    var currentItem: AnimeItem? { items[safe: currentIndex] }
 
     /// Exposes the background image view so the parent VC can apply scroll-driven zoom.
     var bannerImageView: UIImageView { backgroundImageView }
@@ -1311,7 +1311,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Matches Hayase full-banner.svelte dot behavior:
         //   inactive: bg-white/20, width 1.5rem (24pt)
         //   active:   bg-custom (coverImage.color), width 3rem (48pt), fill animation over 15s
-        let item = items.isEmpty ? nil : items[currentIndex]
+        let item = items[safe: currentIndex]
         let customColor = Self.uiColor(fromHex: item?.coverColor) ?? .white
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
             let active = i == currentIndex

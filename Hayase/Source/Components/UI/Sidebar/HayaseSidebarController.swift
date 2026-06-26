@@ -397,7 +397,9 @@ final class HayaseSidebarController: UIViewController {
         closeMobileMenu()
 
         if route == .donate {
-            UIApplication.shared.open(URL(string: route.href)!)
+            if let url = URL(string: route.href) {
+                UIApplication.shared.open(url)
+            }
             return
         }
 

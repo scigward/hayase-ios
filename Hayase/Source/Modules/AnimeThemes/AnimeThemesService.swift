@@ -15,7 +15,10 @@ final class AnimeThemesService {
     // MARK: - Themes
 
     func themes(anilistID: Int, completion: @escaping (AnimeThemesResponse?) -> Void) {
-        var components = URLComponents(string: "https://api.animethemes.moe/anime/")!
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.animethemes.moe"
+        components.path = "/anime/"
         components.percentEncodedQuery = [
             "fields%5Baudio%5D=id,basename,link,size",
             "fields%5Bvideo%5D=id,basename,link,tags",

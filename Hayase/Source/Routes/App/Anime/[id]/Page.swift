@@ -287,12 +287,12 @@ extension AnimeDetailViewController: UITableViewDelegate {
         switch Section(rawValue: indexPath.section) {
         case .episodes:
             if episodeColumnCount >= 2 { break }
-            let ep = paginatedEpisodes[indexPath.row]
+            guard let ep = paginatedEpisodes[safe: indexPath.row] else { return }
             openExtensionSearch(episode: ep.number)
         case .threads:
             if threadColumnCount >= 2 { break }
             guard !threadsLoading, !threads.isEmpty else { return }
-            let thread = threads[indexPath.row]
+            guard let thread = threads[safe: indexPath.row] else { return }
             let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
             navigationController?.pushViewController(threadVC, animated: true)
         case .themes:
@@ -320,13 +320,15 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
             else { return UICollectionViewCell() }
-            cell.configure(with: relations[indexPath.item])
+            guard let relation = relations[safe: indexPath.item] else { return cell }
+            cell.configure(with: relation)
             return cell
         case 300:
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: StaffCardCell.reuseID, for: indexPath) as? StaffCardCell
             else { return UICollectionViewCell() }
-            cell.configure(with: staff[indexPath.item])
+            guard let staffMember = staff[safe: indexPath.item] else { return cell }
+            cell.configure(with: staffMember)
             return cell
         default:
             return UICollectionViewCell()
@@ -339,7 +341,7 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
 extension AnimeDetailViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard collectionView.tag == 100 else { return }
-        let relation = relations[indexPath.item]
+        guard let relation = relations[safe: indexPath.item] else { return }
         guard let detailVC = storyboard?.instantiateViewController(
             withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
         detailVC.animeItem = relation.media

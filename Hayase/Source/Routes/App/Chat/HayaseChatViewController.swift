@@ -101,7 +101,9 @@ final class HayaseChatViewController: UIViewController {
         buttons.spacing = 12
         buttons.alignment = .center
         buttons.distribution = .fillEqually
-        stack.setCustomSpacing(28, after: stack.arrangedSubviews.last!)
+        if let lastSubview = stack.arrangedSubviews.last {
+            stack.setCustomSpacing(28, after: lastSubview)
+        }
         stack.addArrangedSubview(buttons)
 
         let nope = makeButton(title: "Nope", background: UIColor.HayaseTheme.accent, foreground: UIColor.HayaseTheme.foreground)

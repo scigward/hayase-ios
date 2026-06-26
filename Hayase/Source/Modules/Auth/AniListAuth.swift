@@ -20,14 +20,26 @@ final class AniListAuth {
     }
 
     static var authorizeURL: URL {
-        URL(string: "https://anilist.co/api/v2/oauth/authorize?client_id=\(clientID)&response_type=token")!
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "anilist.co"
+        components.path = "/api/v2/oauth/authorize"
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "response_type", value: "token")
+        ]
+        return components.url ?? URL(string: "https://anilist.co/api/v2/oauth/authorize")!
     }
 
     static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
         let query = """
         { Viewer { id name avatar { large } } }
         """
-        var request = URLRequest(url: URL(string: "https://graphql.anilist.co")!)
+        guard let url = URL(string: "https://graphql.anilist.co") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -147,7 +147,23 @@ final class LocalStreamServer {
         listener?.start(queue: queue)
 
         // Wait up to 2s for the listener to be ready and port to be assigned.
-        let waitResult = readySemaphore.wait(timeout: .now() + 2.0)
+        // If start() is called from UIKit, keep the main run loop pumping while
+        // the NWListener reports readiness instead of blocking UI input outright.
+        let waitResult: DispatchTimeoutResult
+        if Thread.isMainThread {
+            let deadline = Date().addingTimeInterval(2.0)
+            var didSignal = false
+            while Date() < deadline {
+                if readySemaphore.wait(timeout: .now()) == .success {
+                    didSignal = true
+                    break
+                }
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            waitResult = didSignal ? .success : .timedOut
+        } else {
+            waitResult = readySemaphore.wait(timeout: .now() + 2.0)
+        }
         if waitResult == .timedOut {
             stop()
             throw NSError(domain: "LocalStreamServer", code: 1,

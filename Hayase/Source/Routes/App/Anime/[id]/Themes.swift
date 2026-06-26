@@ -120,7 +120,7 @@ extension AnimeDetailViewController {
                 text: "No themes found.",
                 loading: themesLoading)
         }
-        let theme = themes[indexPath.row]
+        guard let theme = themes[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
         cell.selectionStyle = .none

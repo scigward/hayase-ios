@@ -468,7 +468,7 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
             let fallback = CalendarDayCell()
             return fallback
         }()
-        let day = calendarDays[indexPath.item]
+        guard let day = calendarDays[safe: indexPath.item] else { return cell }
         let isToday = Calendar.current.isDateInToday(day.date)
         let eps = episodes(for: day.date)
         cell.configure(day: day.number, isToday: isToday,
@@ -483,7 +483,7 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
     }
 
     func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let day = calendarDays[indexPath.item]
+        guard let day = calendarDays[safe: indexPath.item] else { return }
         let eps = episodes(for: day.date)
         guard !eps.isEmpty else { return }
 

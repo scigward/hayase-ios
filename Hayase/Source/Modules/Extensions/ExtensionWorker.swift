@@ -345,22 +345,28 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         })();
         """
         let result: Any = try await withCheckedThrowingContinuation { cont in
-            pending[callId] = { cont.resume(with: $0) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    cont.resume(throwing: WorkerError.notLoaded)
+                    return
+                }
+                self.pending[callId] = { cont.resume(with: $0) }
 
-            // Match the upstream web loader's extension check timeout.
-            let timeoutWork = DispatchWorkItem { [weak self] in
-                guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
-                self.callTimeouts.removeValue(forKey: callId)
-                handler(.failure(WorkerError.callFailed("Extension check timed out.")))
-            }
-            callTimeouts[callId] = timeoutWork
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeoutWork)
+                // Match the upstream web loader's extension check timeout.
+                let timeoutWork = DispatchWorkItem { [weak self] in
+                    guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
+                    self.callTimeouts.removeValue(forKey: callId)
+                    handler(.failure(WorkerError.callFailed("Extension check timed out.")))
+                }
+                self.callTimeouts[callId] = timeoutWork
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeoutWork)
 
-            webView?.evaluateJavaScript(js) { [weak self] _, err in
-                guard let self, let err else { return }
-                self.callTimeouts.removeValue(forKey: callId)?.cancel()
-                if let handler = self.pending.removeValue(forKey: callId) {
-                    handler(.failure(err))
+                self.webView?.evaluateJavaScript(js) { [weak self] _, err in
+                    guard let self, let err else { return }
+                    self.callTimeouts.removeValue(forKey: callId)?.cancel()
+                    if let handler = self.pending.removeValue(forKey: callId) {
+                        handler(.failure(err))
+                    }
                 }
             }
         }

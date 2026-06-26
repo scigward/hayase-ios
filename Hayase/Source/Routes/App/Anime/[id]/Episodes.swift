@@ -784,7 +784,7 @@ extension AnimeDetailViewController {
                 withIdentifier: EpisodeCell.reuseID, for: indexPath) as? EpisodeCell else {
                 return UITableViewCell()
             }
-            let ep = paginatedEpisodes[indexPath.row]
+            guard let ep = paginatedEpisodes[safe: indexPath.row] else { return cell }
             cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
                            accentColor: currentAnimeAccent, isListCompleted: isCompleted)
             cell.cardView.onTap = { [weak self] epNumber in
@@ -1122,7 +1122,7 @@ extension AnimeDetailViewController {
             _fillerMapCallbacks.append { map in completion(map[anilistId] ?? []) }
             guard isFirst else { return }
 
-            let url = URL(string: "https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json")!
+            guard let url = URL(string: "https://raw.githubusercontent.com/ThaUnknown/filler-scrape/master/filler.json") else { return }
             URLSession.shared.dataTask(with: url) { data, _, _ in
                 var map: [Int: Set<Int>] = [:]
                 if let data = data,

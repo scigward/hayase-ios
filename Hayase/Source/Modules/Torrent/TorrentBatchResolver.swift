@@ -392,7 +392,18 @@ struct TorrentBatchResolver {
                                       offset: Int,
                                       rootMedia: AnimeItem,
                                       force: Bool,
+                                      visited: Set<Int> = [],
                                       completion: @escaping (SeasonResolveResult) -> Void) {
+        guard !visited.contains(media.id) else {
+            completion(SeasonResolveResult(media: media,
+                                           episode: episode - offset,
+                                           offset: offset,
+                                           increment: increment ?? true,
+                                           rootMedia: rootMedia,
+                                           failed: true))
+            return
+        }
+        let nextVisited = visited.union([media.id])
         let rootHighest = rootMedia.episodes ?? 1
 
         let resolveWithPrequel: (AnimeItem?) -> Void = { prequel in
@@ -405,6 +416,7 @@ struct TorrentBatchResolver {
                                       rootMedia: rootMedia,
                                       rootHighest: rootHighest,
                                       force: force,
+                                      visited: nextVisited,
                                       completion: completion)
                 return
             }
@@ -428,6 +440,7 @@ struct TorrentBatchResolver {
                                           rootMedia: rootMedia,
                                           rootHighest: rootHighest,
                                           force: force,
+                                          visited: nextVisited,
                                           completion: completion)
                 }
             } else {
@@ -455,6 +468,7 @@ struct TorrentBatchResolver {
                                               rootMedia: AnimeItem,
                                               rootHighest: Int,
                                               force: Bool,
+                                              visited: Set<Int>,
                                               completion: @escaping (SeasonResolveResult) -> Void) {
         AniListClient.shared.fetchResolverMediaById(edge.id) { fetched in
             let nextMedia = fetched ?? edge
@@ -479,6 +493,7 @@ struct TorrentBatchResolver {
                           offset: nextOffset,
                           rootMedia: nextRootMedia,
                           force: force,
+                          visited: visited,
                           completion: completion)
         }
     }

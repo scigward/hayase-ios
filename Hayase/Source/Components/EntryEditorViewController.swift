@@ -672,8 +672,9 @@ final class CenteredDialogPresentationController: UIPresentationController {
 
         // Read the scroll view's content size for the actual content height
         var contentHeight: CGFloat = 0
-        for subview in pv.subviews where subview is UIScrollView {
-            contentHeight = (subview as! UIScrollView).contentSize.height
+        for subview in pv.subviews {
+            guard let scrollView = subview as? UIScrollView else { continue }
+            contentHeight = scrollView.contentSize.height
             break
         }
 

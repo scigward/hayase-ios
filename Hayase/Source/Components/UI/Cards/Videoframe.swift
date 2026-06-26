@@ -40,6 +40,7 @@ final class Videoframe: UIView {
             return
         }
         guard currentURLString != src else { return }
+        reset()
         currentURLString = src
 
         let player = AVPlayer(url: url)

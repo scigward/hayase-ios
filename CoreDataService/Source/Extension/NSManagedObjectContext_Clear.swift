@@ -27,7 +27,7 @@ extension NSManagedObjectContext {
 
     func deleteAllData(_ request: NSFetchRequest<NSFetchRequestResult>) {
         do {
-            let objs = try self.fetch(request) as! [NSManagedObject]
+            let objs = try self.fetch(request).compactMap { $0 as? NSManagedObject }
             for obj in objs {
                 self.delete(obj)
             }

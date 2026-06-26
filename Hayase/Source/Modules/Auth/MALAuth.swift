@@ -21,22 +21,29 @@ final class MALAuth {
 
     static func generateCodeVerifier() -> String {
         let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
-        return String((0..<128).map { _ in chars.randomElement()! })
+        return String((0..<128).compactMap { _ in chars.randomElement() })
     }
 
     static func authorizeURL(codeChallenge: String) -> URL {
-        var components = URLComponents(string: "https://myanimelist.net/v1/oauth2/authorize")!
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "myanimelist.net"
+        components.path = "/v1/oauth2/authorize"
         components.queryItems = [
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "code_challenge", value: codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "plain"),
         ]
-        return components.url!
+        return components.url ?? URL(string: "https://myanimelist.net/v1/oauth2/authorize")!
     }
 
     static func exchangeCode(_ code: String, codeVerifier: String, completion: @escaping (String?) -> Void) {
-        var request = URLRequest(url: URL(string: "https://myanimelist.net/v1/oauth2/token")!)
+        guard let url = URL(string: "https://myanimelist.net/v1/oauth2/token") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         let body = "client_id=\(clientID)&grant_type=authorization_code&code=\(code)&code_verifier=\(codeVerifier)"
@@ -54,7 +61,11 @@ final class MALAuth {
     }
 
     static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
-        var request = URLRequest(url: URL(string: "https://api.myanimelist.net/v2/users/@me?fields=anime_statistics")!)
+        guard let url = URL(string: "https://api.myanimelist.net/v2/users/@me?fields=anime_statistics") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         URLSession.shared.dataTask(with: request) { data, _, _ in

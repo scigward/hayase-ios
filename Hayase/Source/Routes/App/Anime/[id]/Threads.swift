@@ -314,8 +314,8 @@ extension AnimeDetailViewController {
                 ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
             let leftIdx = indexPath.row * 2
             let rightIdx = leftIdx + 1
-            let leftThread = threads[leftIdx]
-            let rightThread = rightIdx < threads.count ? threads[rightIdx] : nil
+            guard let leftThread = threads[safe: leftIdx] else { return UITableViewCell() }
+            let rightThread = threads[safe: rightIdx]
             cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
             cell.onTapThread = { [weak self] threadID in
                 guard let self = self else { return }
@@ -331,7 +331,7 @@ extension AnimeDetailViewController {
                 text: "No threads found.",
                 loading: threadsLoading)
         }
-        let thread = threads[indexPath.row]
+        guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
         cell.selectionStyle = .default

@@ -70,7 +70,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDe
         setHidden(true)
 
         let controller = WKUserContentController()
-        controller.add(self, name: "youtube")
+        controller.add(WeakScriptMessageHandler(delegate: self), name: "youtube")
 
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
@@ -282,5 +282,17 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDe
         </body>
         </html>
         """
+    }
+}
+
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var delegate: WKScriptMessageHandler?
+
+    init(delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        delegate?.userContentController(userContentController, didReceive: message)
     }
 }

@@ -1603,7 +1603,7 @@ private final class AnitomyParser {
                         let afterX = chars[(i + 1)...]
                         guard !afterX.isEmpty else { continue }
                         // Allow optional trailing p/P/i/I after height digits
-                        let lastChar = afterX.last!
+                        guard let lastChar = afterX.last else { continue }
                         let hasSuffix = lastChar == "p" || lastChar == "P" || lastChar == "i" || lastChar == "I"
                         let heightPart = hasSuffix ? afterX.dropLast() : ArraySlice(afterX)
                         let heightOk = !heightPart.isEmpty && heightPart.allSatisfy { isNumericChar($0) }

@@ -1897,7 +1897,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func mergeCachedTrackMetadata(into freshTracks: [MPVTrack]) -> [MPVTrack] {
         guard !tracks.isEmpty else { return freshTracks }
-        let cachedByKey = Dictionary(uniqueKeysWithValues: tracks.map { (trackKey($0), $0) })
+        let cachedByKey = Dictionary(tracks.map { (trackKey($0), $0) }, uniquingKeysWith: { first, _ in first })
 
         return freshTracks.map { fresh in
             guard let cached = cachedByKey[trackKey(fresh)] else { return fresh }

@@ -545,11 +545,11 @@ public final class AniListClient: NSObject {
             if leftDistance == rightDistance {
                 let leftDate = resolverStartDate(lhs)
                 let rightDate = resolverStartDate(rhs)
-                if leftDate != nil || rightDate != nil {
-                    return (leftDate ?? Date()) <= (rightDate ?? Date())
+                if leftDate != rightDate {
+                    return (leftDate ?? Date()) < (rightDate ?? Date())
                 }
             }
-            return leftDistance <= rightDistance
+            return leftDistance < rightDistance
         }
     }
 

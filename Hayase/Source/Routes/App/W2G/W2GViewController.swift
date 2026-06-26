@@ -553,16 +553,15 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === chatTableView {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GChatCell.reuseID, for: indexPath) as? W2GChatCell else { return UITableViewCell() }
             let msgs = reversedMessages
-            if indexPath.row < msgs.count {
-                let msg = msgs[indexPath.row]
+            if let msg = msgs[safe: indexPath.row] {
                 // Message grouping (mirrors web Messages.svelte groupMessages):
                 // In the flipped table, row 0 = newest. The visual "above" is row+1.
                 // Show header (name+time) when this is the first message in a group
                 // (the message visually above is from a different user or doesn't exist).
                 // Show avatar when this is the last message in a group (the message
                 // visually below is from a different user or doesn't exist).
-                let prevSameUser = indexPath.row + 1 < msgs.count && msgs[indexPath.row + 1].user.id == msg.user.id
-                let nextSameUser = indexPath.row - 1 >= 0 && msgs[indexPath.row - 1].user.id == msg.user.id
+                let prevSameUser = msgs[safe: indexPath.row + 1]?.user.id == msg.user.id
+                let nextSameUser = indexPath.row > 0 && msgs[safe: indexPath.row - 1]?.user.id == msg.user.id
                 let showHeader = !prevSameUser  // first in group (top in visual order)
                 let showAvatar = !nextSameUser  // last in group (bottom in visual order)
                 cell.configure(with: msg, showHeader: showHeader, showAvatar: showAvatar)
@@ -572,8 +571,8 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
         } else {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GUserCell.reuseID, for: indexPath) as? W2GUserCell else { return UITableViewCell() }
             let users = sortedUsers
-            if indexPath.row < users.count {
-                cell.configure(with: users[indexPath.row])
+            if let user = users[safe: indexPath.row] {
+                cell.configure(with: user)
             }
             return cell
         }
@@ -871,7 +870,8 @@ extension W2GViewController {
             if let clientIndex = W2GLobby.shared.client?.index,
                clientIndex > 0,
                clientIndex < playableFiles.count {
-                targetIndex = UInt(playableFiles[clientIndex].index)
+                guard let playableFile = playableFiles[safe: clientIndex] else { return }
+                targetIndex = UInt(playableFile.index)
             }
 
             let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
