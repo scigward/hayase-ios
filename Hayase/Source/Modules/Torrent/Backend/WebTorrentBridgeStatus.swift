@@ -25,6 +25,12 @@ struct WebTorrentBridgeStatus: Decodable {
     let peers: Int
     let wires: Int
     let files: Int
+    let downloaded: UInt64?
+    let uploaded: UInt64?
+    let total: UInt64?
+    let downloadSpeed: UInt64?
+    let uploadSpeed: UInt64?
+    let progress: Double?
     let dht: Bool?
     let pex: Bool?
     let webRTC: Bool?
@@ -38,6 +44,8 @@ struct WebTorrentBridgeStatus: Decodable {
         switch phase {
         case "booting", "listening", "loading-client":
             message = "Starting WebTorrent backend…"
+        case "idle":
+            message = "WebTorrent backend is idle."
         case "resolving-source":
             message = "Resolving torrent source…"
         case "fetching-torrent-file":
@@ -82,6 +90,12 @@ struct WebTorrentBridgeStatus: Decodable {
                                peers: 0,
                                wires: 0,
                                files: 0,
+                               downloaded: nil,
+                               uploaded: nil,
+                               total: nil,
+                               downloadSpeed: nil,
+                               uploadSpeed: nil,
+                               progress: nil,
                                dht: nil,
                                pex: nil,
                                webRTC: nil,

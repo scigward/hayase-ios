@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v2"
+    static let expectedVersion = "hayase-webtorrent-bridge-v3"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -128,6 +128,33 @@ final class WebTorrentBridgeClient {
             "mediaID": mediaID,
             "episode": episode,
         ], completion: completion)
+    }
+
+
+    func library(completion: @escaping (Result<[WebTorrentLibraryEntry], Error>) -> Void) {
+        call(method: "library", params: [:], completion: completion)
+    }
+
+    func torrentInfo(hash: String, completion: @escaping (Result<WebTorrentTorrentInfo, Error>) -> Void) {
+        call(method: "torrentInfo", params: ["hash": hash], completion: completion)
+    }
+
+    func peerInfo(hash: String, completion: @escaping (Result<[WebTorrentPeerInfo], Error>) -> Void) {
+        call(method: "peerInfo", params: ["hash": hash], completion: completion)
+    }
+
+    func fileInfo(hash: String, completion: @escaping (Result<[WebTorrentFileInfo], Error>) -> Void) {
+        call(method: "fileInfo", params: ["hash": hash], completion: completion)
+    }
+
+    func protocolStatus(hash: String, completion: @escaping (Result<WebTorrentProtocolStatus, Error>) -> Void) {
+        call(method: "protocolStatus", params: ["hash": hash], completion: completion)
+    }
+
+    func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
+        call(method: "deleteTorrents", params: ["hashes": hashes]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
     }
 
     private func call<T: Decodable>(method: String,

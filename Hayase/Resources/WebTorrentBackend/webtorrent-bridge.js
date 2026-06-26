@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v2'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v3'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -38,6 +38,12 @@ const status = {
   peers: 0,
   wires: 0,
   files: 0,
+  downloaded: 0,
+  uploaded: 0,
+  total: 0,
+  downloadSpeed: 0,
+  uploadSpeed: 0,
+  progress: 0,
   dht: null,
   pex: null,
   webRTC: false,
@@ -126,6 +132,12 @@ function refreshTorrentStatus () {
     status.peers = 0
     status.wires = 0
     status.files = 0
+    status.downloaded = 0
+    status.uploaded = 0
+    status.total = 0
+    status.downloadSpeed = 0
+    status.uploadSpeed = 0
+    status.progress = 0
     status.infoHash = null
     return status
   }
@@ -137,6 +149,12 @@ function refreshTorrentStatus () {
   status.peers = torrentPeerCount(torrent)
   status.wires = torrent.wires?.length ?? 0
   status.files = torrent.files?.length ?? 0
+  status.downloaded = Number(torrent.downloaded ?? 0)
+  status.uploaded = Number(torrent.uploaded ?? 0)
+  status.total = Number(torrent.length ?? 0)
+  status.downloadSpeed = Number(torrent.downloadSpeed ?? 0)
+  status.uploadSpeed = Number(torrent.uploadSpeed ?? 0)
+  status.progress = Number(torrent.progress ?? 0)
   status.updatedAt = Date.now()
   return status
 }
@@ -156,6 +174,23 @@ function shortStatus () {
 function statusPayload () {
   refreshTorrentStatus()
   return { ...status, events: events.slice(-12) }
+}
+
+async function removeRunningTorrents (hashes) {
+  const webtorrent = getInnerClient()
+  if (!webtorrent || !Array.isArray(hashes) || hashes.length === 0) return
+
+  const wanted = new Set(hashes)
+  const torrents = webtorrent.torrents?.filter(torrent => wanted.has(torrent.infoHash)) ?? []
+  for (const torrent of torrents) {
+    await new Promise((resolve, reject) => {
+      webtorrent.remove(torrent, { destroyStore: true }, error => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+    if (activeTorrent === torrent) activeTorrent = null
+  }
 }
 
 function observeTorrent (torrent) {
@@ -352,10 +387,17 @@ async function handleRPC (payload) {
       return await activeClient.trackers(params.hash)
     case 'protocolStatus':
       return await activeClient.protocolStatus(params.hash)
-    case 'deleteTorrents':
-      return await activeClient.deleteTorrents(params.hashes ?? [])
+    case 'deleteTorrents': {
+      const hashes = params.hashes ?? []
+      await removeRunningTorrents(hashes)
+      await activeClient.deleteTorrents(hashes)
+      activeTorrent = null
+      refreshTorrentStatus()
+      return {}
+    }
     case 'rescanTorrents':
-      return await activeClient.rescanTorrents(params.hashes ?? [])
+      await activeClient.rescanTorrents(params.hashes ?? [])
+      return {}
     case 'cachedTorrents':
       return await activeClient.cached()
     default:

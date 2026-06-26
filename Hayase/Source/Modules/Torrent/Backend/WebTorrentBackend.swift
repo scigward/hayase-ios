@@ -82,6 +82,55 @@ final class WebTorrentBackend {
         }
     }
 
+
+    func library(completion: @escaping (Result<[WebTorrentLibraryEntry], Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.library(completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func torrentInfo(hash: String, completion: @escaping (Result<WebTorrentTorrentInfo, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.torrentInfo(hash: hash, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func peerInfo(hash: String, completion: @escaping (Result<[WebTorrentPeerInfo], Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.peerInfo(hash: hash, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func fileInfo(hash: String, completion: @escaping (Result<[WebTorrentFileInfo], Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.fileInfo(hash: hash, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func protocolStatus(hash: String, completion: @escaping (Result<WebTorrentProtocolStatus, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.protocolStatus(hash: hash, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.deleteTorrents(hashes: hashes, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
     func playTorrent(torrentEntity: Torrents,
                      mediaID: Int,
                      episode: Int,
@@ -107,6 +156,19 @@ final class WebTorrentBackend {
                 }
             case .failure(let error):
                 completion(.failure(error))
+            }
+        }
+    }
+
+    private func withReadyBridge(_ body: @escaping (WebTorrentBridgeClient) -> Void,
+                                 failure: @escaping (Error) -> Void) {
+        ensureStarted { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                body(self.bridge)
+            case .failure(let error):
+                failure(error)
             }
         }
     }

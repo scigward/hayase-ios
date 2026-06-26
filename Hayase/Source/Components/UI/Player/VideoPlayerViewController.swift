@@ -1410,7 +1410,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func startStatsTimer() {
         statsTimer?.invalidate()
-        guard torrentHandle != nil else { return }
+        guard torrentHandle != nil || isWebTorrentPlayback else { return }
         statsHUD.isHidden = false
         updateStats()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -1418,8 +1418,36 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
+    private var isWebTorrentPlayback: Bool {
+        guard torrentHandle == nil,
+              videoEntity?.torrents != nil,
+              let path = videoEntity?.videoPath?.lowercased() else { return false }
+        return path.hasPrefix("http://") || path.hasPrefix("https://")
+    }
+
     private func updateStats() {
-        guard let handle = torrentHandle else { return }
+        if let handle = torrentHandle {
+            updateNativeTorrentStats(handle: handle)
+            return
+        }
+
+        guard isWebTorrentPlayback else { return }
+        TorrentBackendManager.shared.webTorrentStatus { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard case .success(let status) = result else { return }
+                let peers = status.peers > 0 ? status.peers : status.wires
+                let downBits = self.fmtBits((status.downloadSpeed ?? 0) * 8)
+                let upBits = self.fmtBits((status.uploadSpeed ?? 0) * 8)
+                self.statsHUD.isHidden = false
+                self.statsPeersLabel.text = "\(peers)"
+                self.statsDownLabel.text = "\(downBits)/s"
+                self.statsUpLabel.text = "\(upBits)/s"
+            }
+        }
+    }
+
+    private func updateNativeTorrentStats(handle: TorrentHandle) {
         let state: (TorrentHandle.Snapshot, Bool)? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
             activeHandle.updateSnapshot()
             let snap = activeHandle.snapshot

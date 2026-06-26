@@ -197,6 +197,19 @@ class DownloadsViewController: UIViewController {
         return tf
     }()
     private var filteredLibraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
+
+    private var webStatus: WebTorrentBridgeStatus?
+    private var webInfo: WebTorrentTorrentInfo?
+    private var webProtocol: WebTorrentProtocolStatus?
+    private var webFileInfos: [WebTorrentFileInfo] = []
+    private var webFilteredFileInfos: [WebTorrentFileInfo] = []
+    private var webFileInfoHash: String?
+    private var webPeerInfos: [WebTorrentPeerInfo] = []
+    private var webLibraryEntries: [WebTorrentLibraryEntry] = []
+    private var webFilteredLibraryEntries: [WebTorrentLibraryEntry] = []
+    private var webUpdateInFlight = false
+    private var webLastError: Error?
+
     private var selectedLibraryHashes: Set<String> = []
     private let librarySelectionLabel: UILabel = {
         let l = UILabel()
@@ -274,6 +287,10 @@ class DownloadsViewController: UIViewController {
         stopTimer()
     }
 
+    private var isWebTorrentMode: Bool {
+        TorrentBackendManager.shared.currentKind == .webtorrent
+    }
+
     // MARK: - Timer
 
     private func startTimer() {
@@ -316,6 +333,16 @@ class DownloadsViewController: UIViewController {
     // MARK: - Torrent selection
 
     private func autoSelectFirstTorrent() {
+        if isWebTorrentMode {
+            selectedHandle = nil
+            selectedEntity = nil
+            if selectedHex.isEmpty {
+                selectedHex = webStatus?.infoHash ?? webLibraryEntries.first?.hash ?? ""
+            }
+            emptyLabel.isHidden = !selectedHex.isEmpty || webStatus != nil || !webLibraryEntries.isEmpty
+            return
+        }
+
         let handles = TorrentService.sharedTorrentService.handles
         // Keep current selection if still valid
         if !selectedHex.isEmpty,
@@ -625,6 +652,11 @@ class DownloadsViewController: UIViewController {
     }
 
     private func refreshFiles() {
+        if isWebTorrentMode {
+            refreshWebTorrentFiles()
+            return
+        }
+
         fileEntries = readSnapshot(from: selectedHandle, default: []) { $0.files }
         let query = filesSearchField.text?.lowercased() ?? ""
         if query.isEmpty {
@@ -654,7 +686,36 @@ class DownloadsViewController: UIViewController {
         filesTableView?.reloadData()
     }
 
+    private func refreshWebTorrentFiles() {
+        let query = filesSearchField.text?.lowercased() ?? ""
+        webFilteredFileInfos = query.isEmpty
+            ? webFileInfos
+            : webFileInfos.filter { $0.name.lowercased().contains(query) }
+
+        if let sortCol = filesSortColumn {
+            let ascending = filesSortAscending
+            webFilteredFileInfos.sort { a, b in
+                switch sortCol {
+                case .name:
+                    return ascending ? a.name < b.name : a.name > b.name
+                case .size:
+                    return ascending ? a.size < b.size : a.size > b.size
+                case .progress:
+                    return ascending ? a.progress < b.progress : a.progress > b.progress
+                case .streams:
+                    return ascending ? a.selections < b.selections : a.selections > b.selections
+                }
+            }
+        }
+        filesTableView?.reloadData()
+    }
+
     private func refreshPeers() {
+        if isWebTorrentMode {
+            peersTableView?.reloadData()
+            return
+        }
+
         if let selectedHandle {
             peerInfos = TorrentService.sharedTorrentService.withActiveHandle(selectedHandle, default: []) { $0.peerInfo() }
         } else {
@@ -666,6 +727,11 @@ class DownloadsViewController: UIViewController {
     // MARK: - Data update
 
     private func update() {
+        if isWebTorrentMode {
+            updateWebTorrent()
+            return
+        }
+
         let snap = readSnapshot(from: selectedHandle, default: nil) { Optional($0) }
         guard let snap else { return }
 
@@ -744,6 +810,188 @@ class DownloadsViewController: UIViewController {
         // Update library tab if visible
         if selectedTabIndex == 3 {
             refreshLibrary()
+        }
+    }
+
+    private func updateWebTorrent() {
+        guard !webUpdateInFlight else { return }
+        webUpdateInFlight = true
+
+        let manager = TorrentBackendManager.shared
+        manager.webTorrentStatus { [weak self] statusResult in
+            guard let self else { return }
+
+            let status = try? statusResult.get()
+            let requestedHash = status?.infoHash ?? self.selectedHex
+
+            let group = DispatchGroup()
+            var nextInfo: WebTorrentTorrentInfo?
+            var nextFiles: [WebTorrentFileInfo] = []
+            var nextPeers: [WebTorrentPeerInfo] = []
+            var nextLibrary: [WebTorrentLibraryEntry] = []
+            var nextProtocol: WebTorrentProtocolStatus?
+            var nextError: Error?
+
+            if case .failure(let error) = statusResult {
+                nextError = error
+            }
+
+            group.enter()
+            manager.webTorrentLibrary { result in
+                if case .success(let entries) = result { nextLibrary = entries }
+                group.leave()
+            }
+
+            if !requestedHash.isEmpty {
+                group.enter()
+                manager.webTorrentInfo(hash: requestedHash) { result in
+                    if case .success(let info) = result { nextInfo = info }
+                    group.leave()
+                }
+
+                group.enter()
+                manager.webTorrentFileInfo(hash: requestedHash) { result in
+                    if case .success(let files) = result { nextFiles = files }
+                    group.leave()
+                }
+
+                group.enter()
+                manager.webTorrentPeerInfo(hash: requestedHash) { result in
+                    if case .success(let peers) = result { nextPeers = peers }
+                    group.leave()
+                }
+
+                group.enter()
+                manager.webTorrentProtocolStatus(hash: requestedHash) { result in
+                    if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) { [weak self] in
+                guard let self else { return }
+                self.webUpdateInFlight = false
+                self.applyWebTorrentState(status: status,
+                                           info: nextInfo,
+                                           files: nextFiles,
+                                           peers: nextPeers,
+                                           library: nextLibrary,
+                                           protocolStatus: nextProtocol,
+                                           error: nextError)
+            }
+        }
+    }
+
+    private func applyWebTorrentState(status: WebTorrentBridgeStatus?,
+                                      info: WebTorrentTorrentInfo?,
+                                      files: [WebTorrentFileInfo],
+                                      peers: [WebTorrentPeerInfo],
+                                      library: [WebTorrentLibraryEntry],
+                                      protocolStatus: WebTorrentProtocolStatus?,
+                                      error: Error?) {
+        webStatus = status
+        webInfo = info
+        webProtocol = protocolStatus
+        webPeerInfos = peers
+        webLibraryEntries = library
+        webLastError = error
+
+        let knownHashes = Set(library.map { $0.hash } + [status?.infoHash, info?.hash].compactMap { $0 })
+        if !selectedHex.isEmpty && !knownHashes.isEmpty && !knownHashes.contains(selectedHex) {
+            selectedHex = ""
+        }
+        if selectedHex.isEmpty {
+            selectedHex = status?.infoHash ?? info?.hash ?? library.first?.hash ?? ""
+        }
+
+        if webFileInfoHash != selectedHex {
+            webFileInfos = []
+            webFileInfoHash = selectedHex.isEmpty ? nil : selectedHex
+        }
+        if !files.isEmpty {
+            webFileInfos = files
+            webFileInfoHash = selectedHex.isEmpty ? (info?.hash ?? status?.infoHash) : selectedHex
+        }
+
+        let hasTorrent = !selectedHex.isEmpty || status?.infoHash != nil || info != nil || !library.isEmpty
+        emptyLabel.isHidden = hasTorrent
+        if !hasTorrent {
+            clearWebTorrentOverview(error: error)
+            refreshFiles()
+            refreshPeers()
+            refreshLibrary()
+            return
+        }
+
+        let currentLibraryEntry = library.first { $0.hash == selectedHex } ?? library.first
+        nameLabel.text = info?.name ?? currentLibraryEntry?.name ?? status?.source ?? "WebTorrent"
+        hashLabel.text = selectedHex.isEmpty ? (status?.infoHash ?? "—") : selectedHex
+
+        let progress = info?.progress ?? status?.progress ?? currentLibraryEntry?.progress ?? 0
+        let completed = progress >= 0.999
+        statusBadge.text = completed ? "Seeding" : status?.phase.replacingOccurrences(of: "-", with: " ").capitalized ?? "Downloading"
+        statusBadge.backgroundColor = completed ? .systemBlue : .systemGreen
+        bigPercentLabel.text = String(format: "%.1f%%", progress * 100)
+        progressBar.progress = Float(max(0, min(progress, 1)))
+
+        let downloaded = info?.size.downloaded ?? status?.downloaded ?? 0
+        let uploaded = info?.size.uploaded ?? status?.uploaded ?? 0
+        let total = info?.size.total ?? status?.total ?? currentLibraryEntry?.size ?? 0
+        downloadedValue.text = TorrentDetailViewController.fastPrettyBytes(downloaded)
+        uploadedValue.text = TorrentDetailViewController.fastPrettyBytes(uploaded)
+        totalSizeValue.text = TorrentDetailViewController.fastPrettyBytes(total)
+
+        if let pieces = info?.pieces, pieces.total > 0 {
+            piecesValue.text = "\(pieces.total) × \(TorrentDetailViewController.fastPrettyBytes(pieces.size))"
+        } else {
+            piecesValue.text = "—"
+        }
+
+        let down = info?.speed.down ?? status?.downloadSpeed ?? 0
+        let up = info?.speed.up ?? status?.uploadSpeed ?? 0
+        downSpeedValue.text = TorrentDetailViewController.fastPrettyBits(down * 8) + "/s"
+        upSpeedValue.text = TorrentDetailViewController.fastPrettyBits(up * 8) + "/s"
+        etaValue.text = webTorrentETA(fromMilliseconds: info?.time.remaining)
+            ?? TorrentDetailViewController.eta(remaining: total > downloaded ? total - downloaded : 0, rate: down)
+        elapsedValue.text = webTorrentETA(fromMilliseconds: info?.time.elapsed)
+            ?? TorrentDetailViewController.eta(seconds: Int(max(0, -startDate.timeIntervalSinceNow)))
+
+        seedersValue.text = "\(info?.peers.seeders ?? 0)"
+        leechersValue.text = "\(info?.peers.leechers ?? 0)"
+        wiresValue.text = "\(info?.peers.wires ?? status?.wires ?? status?.peers ?? 0)"
+
+        setDot(dhtDot, enabled: protocolStatus?.dht ?? status?.dht ?? false)
+        setDot(lsdDot, enabled: protocolStatus?.lsd ?? false)
+        setDot(pexDot, enabled: protocolStatus?.pex ?? status?.pex ?? false)
+        setDot(natDot, enabled: protocolStatus?.nat ?? false)
+        setDot(forwardDot, enabled: protocolStatus?.forwarding ?? false)
+        setDot(persistDot, enabled: protocolStatus?.persisting ?? UserDefaults.standard.bool(forKey: "pref_persistFiles"))
+        setDot(streamingDot, enabled: protocolStatus?.streaming ?? false)
+
+        if selectedTabIndex == 1 { refreshFiles() }
+        if selectedTabIndex == 2 { refreshPeers() }
+        if selectedTabIndex == 3 { refreshLibrary() }
+    }
+
+    private func webTorrentETA(fromMilliseconds value: Double?) -> String? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return TorrentDetailViewController.eta(seconds: Int(value / 1000))
+    }
+
+    private func clearWebTorrentOverview(error: Error?) {
+        nameLabel.text = error?.localizedDescription ?? "No active WebTorrent download"
+        hashLabel.text = "—"
+        statusBadge.text = error == nil ? "Idle" : "Error"
+        statusBadge.backgroundColor = error == nil ? .secondaryLabel : .systemRed
+        bigPercentLabel.text = "0.0%"
+        progressBar.progress = 0
+        for label in [downloadedValue, uploadedValue, totalSizeValue, piecesValue,
+                      downSpeedValue, upSpeedValue, etaValue, elapsedValue,
+                      seedersValue, leechersValue, wiresValue] {
+            label.text = "—"
+        }
+        for dot in [dhtDot, lsdDot, pexDot, natDot, forwardDot, persistDot, streamingDot] {
+            setDot(dot, enabled: false)
         }
     }
 
@@ -1080,10 +1328,26 @@ class DownloadsViewController: UIViewController {
     }
 
     @objc private func rescanLibrary() {
-        refreshLibrary()
+        if isWebTorrentMode {
+            update()
+        } else {
+            refreshLibrary()
+        }
     }
 
     private func refreshLibrary() {
+        if isWebTorrentMode {
+            let query = librarySearchField.text?.lowercased() ?? ""
+            webFilteredLibraryEntries = query.isEmpty
+                ? webLibraryEntries
+                : webLibraryEntries.filter { $0.name.lowercased().contains(query) || $0.hash.lowercased().contains(query) }
+            let currentHashes = Set(webFilteredLibraryEntries.map { $0.hash })
+            selectedLibraryHashes.formIntersection(currentHashes)
+            updateLibrarySelectionLabel()
+            libraryTableView?.reloadData()
+            return
+        }
+
         libraryEntries = TorrentService.sharedTorrentService.handles
             .map { (hash: $0.key, handle: $0.value,
                     entity: TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash($0.key).first) }
@@ -1104,7 +1368,8 @@ class DownloadsViewController: UIViewController {
     }
 
     private func updateLibrarySelectionLabel() {
-        librarySelectionLabel.text = "\(selectedLibraryHashes.count) of \(filteredLibraryEntries.count) row(s) selected."
+        let rowCount = isWebTorrentMode ? webFilteredLibraryEntries.count : filteredLibraryEntries.count
+        librarySelectionLabel.text = "\(selectedLibraryHashes.count) of \(rowCount) row(s) selected."
     }
 
     @objc private func deleteSelectedLibraryEntries() {
@@ -1118,14 +1383,28 @@ class DownloadsViewController: UIViewController {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
             guard let self = self else { return }
+            let hashes = Array(self.selectedLibraryHashes)
+
+            if self.isWebTorrentMode {
+                TorrentBackendManager.shared.deleteWebTorrents(hashes: hashes) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        if hashes.contains(self.selectedHex) { self.selectedHex = "" }
+                        self.selectedLibraryHashes.removeAll()
+                        self.update()
+                    }
+                }
+                return
+            }
+
             let service = TorrentService.sharedTorrentService
-            for hash in self.selectedLibraryHashes {
+            for hash in hashes {
                 if let handle = service.handles[hash] {
                     service.safeRemoveTorrent(handle, deleteFiles: true)
                 }
             }
             // Clear selected torrent if it was deleted
-            if self.selectedLibraryHashes.contains(self.selectedHex) {
+            if hashes.contains(self.selectedHex) {
                 self.selectedHandle = nil
                 self.selectedHex = ""
                 self.selectedEntity = nil
@@ -1243,31 +1522,46 @@ class DownloadsViewController: UIViewController {
 
 extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
+    private func emptyTableCell(text: String) -> UITableViewCell {
+        let cell = UITableViewCell()
+        cell.textLabel?.text = text
+        cell.textLabel?.textAlignment = .center
+        cell.textLabel?.textColor = .secondaryLabel
+        cell.textLabel?.font = .nunito(ofSize: 14)
+        cell.selectionStyle = .none
+        return cell
+    }
+
     func numberOfSections(in tableView: UITableView) -> Int {
         return 1
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if tableView === filesTableView {
-            return max(filteredFileEntries.count, 1)
+            return max(isWebTorrentMode ? webFilteredFileInfos.count : filteredFileEntries.count, 1)
         } else if tableView === peersTableView {
-            return max(peerInfos.count, 1)
+            return max(isWebTorrentMode ? webPeerInfos.count : peerInfos.count, 1)
         } else if tableView === libraryTableView {
-            return max(filteredLibraryEntries.count, 1)
+            return max(isWebTorrentMode ? webFilteredLibraryEntries.count : filteredLibraryEntries.count, 1)
         }
         return 0
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if tableView === filesTableView {
-            if filteredFileEntries.isEmpty {
-                let cell = UITableViewCell()
-                cell.textLabel?.text = "No files downloaded yet."
-                cell.textLabel?.textAlignment = .center
-                cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .nunito(ofSize: 14)
-                cell.selectionStyle = .none
+            if isWebTorrentMode {
+                if webFilteredFileInfos.isEmpty {
+                    return emptyTableCell(text: "No files loaded yet.")
+                }
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
+                guard indexPath.row < webFilteredFileInfos.count else { return cell }
+                cell.configure(entry: webFilteredFileInfos[indexPath.row])
                 return cell
+            }
+
+            if filteredFileEntries.isEmpty {
+                return emptyTableCell(text: "No files downloaded yet.")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
@@ -1278,14 +1572,19 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             cell.configure(entry: entry, streamCount: isStreaming ? 1 : 0)
             return cell
         } else if tableView === peersTableView {
-            if peerInfos.isEmpty {
-                let cell = UITableViewCell()
-                cell.textLabel?.text = "No peers connected yet."
-                cell.textLabel?.textAlignment = .center
-                cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .nunito(ofSize: 14)
-                cell.selectionStyle = .none
+            if isWebTorrentMode {
+                if webPeerInfos.isEmpty {
+                    return emptyTableCell(text: "No peers connected yet.")
+                }
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
+                guard indexPath.row < webPeerInfos.count else { return cell }
+                cell.configure(peer: webPeerInfos[indexPath.row])
                 return cell
+            }
+
+            if peerInfos.isEmpty {
+                return emptyTableCell(text: "No peers connected yet.")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
@@ -1293,14 +1592,21 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             cell.configure(peer: peerInfos[indexPath.row])
             return cell
         } else if tableView === libraryTableView {
-            if filteredLibraryEntries.isEmpty {
-                let cell = UITableViewCell()
-                cell.textLabel?.text = "No torrents downloaded yet."
-                cell.textLabel?.textAlignment = .center
-                cell.textLabel?.textColor = .secondaryLabel
-                cell.textLabel?.font = .nunito(ofSize: 14)
-                cell.selectionStyle = .none
+            if isWebTorrentMode {
+                if webFilteredLibraryEntries.isEmpty {
+                    return emptyTableCell(text: "No torrents downloaded yet.")
+                }
+                guard let cell = tableView.dequeueReusableCell(
+                    withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
+                guard indexPath.row < webFilteredLibraryEntries.count else { return cell }
+                let entry = webFilteredLibraryEntries[indexPath.row]
+                cell.configure(entry: entry)
+                cell.accessoryType = selectedLibraryHashes.contains(entry.hash) ? .checkmark : .none
                 return cell
+            }
+
+            if filteredLibraryEntries.isEmpty {
+                return emptyTableCell(text: "No torrents downloaded yet.")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
@@ -1316,6 +1622,21 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         if tableView === libraryTableView {
+            if isWebTorrentMode {
+                guard indexPath.row < webFilteredLibraryEntries.count else { return }
+                let entry = webFilteredLibraryEntries[indexPath.row]
+                selectedHex = entry.hash
+                if selectedLibraryHashes.contains(entry.hash) {
+                    selectedLibraryHashes.remove(entry.hash)
+                } else {
+                    selectedLibraryHashes.insert(entry.hash)
+                }
+                updateLibrarySelectionLabel()
+                tableView.reloadRows(at: [indexPath], with: .none)
+                update()
+                return
+            }
+
             guard indexPath.row < filteredLibraryEntries.count else { return }
             let entry = filteredLibraryEntries[indexPath.row]
             if selectedLibraryHashes.contains(entry.hash) {
@@ -1363,11 +1684,11 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if tableView === filesTableView {
-            return filteredFileEntries.isEmpty ? 160 : Self.filesRowHeight
+            return (isWebTorrentMode ? webFilteredFileInfos.isEmpty : filteredFileEntries.isEmpty) ? 160 : Self.filesRowHeight
         } else if tableView === peersTableView {
-            return peerInfos.isEmpty ? 160 : 48
+            return (isWebTorrentMode ? webPeerInfos.isEmpty : peerInfos.isEmpty) ? 160 : 48
         } else if tableView === libraryTableView {
-            return filteredLibraryEntries.isEmpty ? 160 : 56
+            return (isWebTorrentMode ? webFilteredLibraryEntries.isEmpty : filteredLibraryEntries.isEmpty) ? 160 : 56
         }
         return UITableView.automaticDimension
     }
@@ -1616,6 +1937,15 @@ final class FileEntryTableCell: UITableViewCell {
         progressLabel.text = String(format: "%.1f%%", progress * 100)
         streamsLabel.text = "\(streamCount)"
     }
+
+    func configure(entry: WebTorrentFileInfo) {
+        nameLabel.text = entry.name
+        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
+        let progress = Float(max(0, min(entry.progress, 1)))
+        progressBar.progress = progress
+        progressLabel.text = String(format: "%.1f%%", progress * 100)
+        streamsLabel.text = "\(entry.selections)"
+    }
 }
 
 // MARK: - LibraryColumnCell
@@ -1710,6 +2040,24 @@ final class LibraryColumnCell: UITableViewCell {
         sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         statusLabel.setContentHuggingPriority(.required, for: .horizontal)
         statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    func configure(entry: WebTorrentLibraryEntry) {
+        seriesLabel.text = entry.name.isEmpty ? entry.hash : entry.name
+        if let episode = entry.episode, episode > 0 {
+            episodeLabel.text = "\(episode)"
+        } else {
+            episodeLabel.text = "?"
+        }
+        filesLabel.text = "\(entry.files)"
+        sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
+        if entry.progress >= 0.999 {
+            statusLabel.text = "✓"
+            statusLabel.textColor = .systemGreen
+        } else {
+            statusLabel.text = String(format: "%.0f%%", max(0, min(entry.progress, 1)) * 100)
+            statusLabel.textColor = .systemBlue
+        }
     }
 
     func configure(handle: TorrentHandle, entity: Torrents?) {
@@ -1895,5 +2243,16 @@ final class PeerInfoCell: UITableViewCell {
         downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalDownload)))
         uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalUpload)))
         flagsLabel.text = peer.connectionFlags.joined(separator: " ")
+    }
+
+    func configure(peer: WebTorrentPeerInfo) {
+        ipLabel.text = peer.ip
+        clientLabel.text = String(peer.client.prefix(21))
+        progressLabel.text = String(format: "%.1f%%", max(0, min(peer.progress, 1)) * 100)
+        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.down * 8) + "/s"
+        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.up * 8) + "/s"
+        downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.downloaded)
+        uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.uploaded)
+        flagsLabel.text = peer.flags.joined(separator: " ")
     }
 }

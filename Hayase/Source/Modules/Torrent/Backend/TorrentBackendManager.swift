@@ -51,4 +51,28 @@ final class TorrentBackendManager {
     func webTorrentStatus(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
         webTorrentBackend.status(completion: completion)
     }
+
+    func webTorrentLibrary(completion: @escaping (Result<[WebTorrentLibraryEntry], Error>) -> Void) {
+        webTorrentBackend.library(completion: completion)
+    }
+
+    func webTorrentInfo(hash: String, completion: @escaping (Result<WebTorrentTorrentInfo, Error>) -> Void) {
+        webTorrentBackend.torrentInfo(hash: hash, completion: completion)
+    }
+
+    func webTorrentPeerInfo(hash: String, completion: @escaping (Result<[WebTorrentPeerInfo], Error>) -> Void) {
+        webTorrentBackend.peerInfo(hash: hash, completion: completion)
+    }
+
+    func webTorrentFileInfo(hash: String, completion: @escaping (Result<[WebTorrentFileInfo], Error>) -> Void) {
+        webTorrentBackend.fileInfo(hash: hash, completion: completion)
+    }
+
+    func webTorrentProtocolStatus(hash: String, completion: @escaping (Result<WebTorrentProtocolStatus, Error>) -> Void) {
+        webTorrentBackend.protocolStatus(hash: hash, completion: completion)
+    }
+
+    func deleteWebTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
+        webTorrentBackend.deleteTorrents(hashes: hashes, completion: completion)
+    }
 }
