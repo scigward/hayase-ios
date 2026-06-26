@@ -44,6 +44,7 @@ targets:
       - path: Hayase/Resources
         excludes:
           - Info.plist
+          - WebTorrentBackend/**
     settings:
       base:
         INFOPLIST_FILE: Hayase/Resources/Info.plist
@@ -72,6 +73,21 @@ targets:
       - package: Starscream
 
     postBuildScripts:
+      - name: Embed WebTorrent backend resources
+        script: |
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebTorrentBackend"
+          SRC="${PROJECT_DIR}/Hayase/Resources/WebTorrentBackend"
+          if [ -d "${SRC}" ]; then
+            mkdir -p "${DEST}"
+            rsync -av --delete \
+              --exclude=".DS_Store" \
+              --exclude="*.node" \
+              "${SRC}/" "${DEST}/"
+          else
+            echo "warning: WebTorrent backend resources not found at ${SRC}, skipping embed"
+          fi
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/WebTorrentBackend/webtorrent-bridge.js
       - name: Embed LibTorrent.framework
         script: |
           DEST="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
