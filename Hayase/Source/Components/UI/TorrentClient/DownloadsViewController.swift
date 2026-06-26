@@ -2420,7 +2420,7 @@ final class FileEntryTableCell: UITableViewCell {
 /// Library cell matching Hayase's library/table.svelte data model.
 /// It keeps the same columns on wide screens, then hides the least important
 /// columns on compact screens so the row remains readable instead of clipping.
-final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
+final class LibraryColumnCell: UITableViewCell {
     static let reuseID = "LibraryColumnCell"
 
     var onOpen: (() -> Void)?
@@ -2543,7 +2543,7 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
         onSelectionToggle?()
     }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var view = touch.view
         while let current = view {
             if current === selectButton { return false }
