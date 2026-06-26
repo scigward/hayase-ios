@@ -217,7 +217,7 @@ public class VideoService: NSObject {
             let snapshotPieceCount = Int(handle.snapshot.numberOfPieces)
             let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEnd
             let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
-            for piece in begin...end {
+            forEachPiece(from: begin, through: end) { piece in
                 handle.setPiecePriority(piece, priority: 1)
             }
         }
@@ -247,6 +247,11 @@ public class VideoService: NSObject {
     /// Deadline increment per additional metadata piece (ms).
     private static let metadataDeadlineStep: Int32 = 50
 
+    private func forEachPiece(from start: Int, through end: Int, _ body: (Int) -> Void) {
+        guard start <= end else { return }
+        for piece in start...end { body(piece) }
+    }
+
     /// Requests the head and tail pieces of a file with priority 7 and tight
     /// deadlines. These contain MKV metadata (SeekHead, Info, Tracks, Cues)
     /// that MPV needs to display duration and subtitle tracks at stream start.
@@ -275,7 +280,7 @@ public class VideoService: NSObject {
         // Head pieces (MKV SeekHead/Info/Tracks) — tight deadlines so MPV
         // can parse the header immediately when it opens the HTTP stream.
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
-        for piece in beginPiece...headEnd {
+        forEachPiece(from: beginPiece, through: headEnd) { piece in
             handle.setPiecePriority(piece, priority: 7)
             let deadline = Self.metadataDeadlineBase + Int32(piece - beginPiece) * Self.metadataDeadlineStep
             handle.setPieceDeadline(piece, deadline: deadline)
@@ -289,7 +294,7 @@ public class VideoService: NSObject {
         // ensures tail pieces download before background pieces without
         // disrupting the critical head window.
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
-        for piece in tailStart...endPiece {
+        forEachPiece(from: tailStart, through: endPiece) { piece in
             handle.setPiecePriority(piece, priority: 7)
         }
 

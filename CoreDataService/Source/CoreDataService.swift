@@ -68,7 +68,13 @@ NSInferMappingModelAutomaticallyOption: true
 do {
 try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
 } catch let error {
-fatalError("Error creating persistent store \(error as NSError)")
+print("CoreDataService: failed to open persistent store, resetting local store: \(error as NSError)")
+Self.moveAsidePersistentStoreFiles(at: persistentStoreURL)
+do {
+try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
+} catch let retryError {
+fatalError("Error creating persistent store after reset \(retryError as NSError)")
+}
 }
 
 rootContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
@@ -78,6 +84,25 @@ rootContext.undoManager = nil
 mainQueueContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
 mainQueueContext.parent = rootContext
 mainQueueContext.undoManager = nil
+}
+
+private static func moveAsidePersistentStoreFiles(at storeURL: URL) {
+let fileManager = FileManager.default
+let timestamp = Int(Date().timeIntervalSince1970)
+let urls = [
+storeURL,
+URL(fileURLWithPath: storeURL.path + "-wal"),
+URL(fileURLWithPath: storeURL.path + "-shm")
+]
+for url in urls where fileManager.fileExists(atPath: url.path) {
+let backupURL = url.deletingLastPathComponent()
+.appendingPathComponent("\(url.lastPathComponent).corrupt.\(timestamp)")
+do {
+try fileManager.moveItem(at: url, to: backupURL)
+} catch {
+try? fileManager.removeItem(at: url)
+}
+}
 }
 
 // MARK: Properties

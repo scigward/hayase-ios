@@ -260,6 +260,28 @@ class TorrentListViewController: UIViewController {
         try? torrentResultsController?.performFetch()
     }
 
+    private func torrent(at indexPath: IndexPath) -> Torrents? {
+        guard indexPath.section >= 0,
+              let sections = torrentResultsController?.sections,
+              indexPath.section < sections.count,
+              indexPath.row >= 0,
+              indexPath.row < sections[indexPath.section].numberOfObjects else { return nil }
+        return torrentResultsController?.object(at: indexPath)
+    }
+
+    private func configurePopover(_ alert: UIAlertController,
+                                  from tableView: UITableView,
+                                  at indexPath: IndexPath) {
+        guard let popover = alert.popoverPresentationController else { return }
+        if let cell = tableView.cellForRow(at: indexPath) {
+            popover.sourceView = cell
+            popover.sourceRect = cell.bounds
+        } else {
+            popover.sourceView = tableView
+            popover.sourceRect = tableView.rectForRow(at: indexPath)
+        }
+    }
+
     private func reloadUI() {
         performFetch()
         tableView.reloadData()
@@ -282,7 +304,7 @@ class TorrentListViewController: UIViewController {
               let cell = sender as? TorrentTableViewCell,
               let indexPath = tableView.indexPath(for: cell),
               let destination = segue.destination as? VideoListViewController else { return }
-        destination.torrentEntity = torrentResultsController?.object(at: indexPath)
+        destination.torrentEntity = torrent(at: indexPath)
     }
 }
 
@@ -298,7 +320,7 @@ extension TorrentListViewController: UITableViewDataSource {
             withIdentifier: TorrentTableViewCell.reuseID, for: indexPath) as? TorrentTableViewCell else {
             return UITableViewCell()
         }
-        if let torrent = torrentResultsController?.object(at: indexPath) {
+        if let torrent = torrent(at: indexPath) {
             cell.configure(with: torrent)
         }
         return cell
@@ -310,7 +332,7 @@ extension TorrentListViewController: UITableViewDataSource {
 extension TorrentListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let torrent = torrentResultsController?.object(at: indexPath) else { return }
+        guard let torrent = torrent(at: indexPath) else { return }
 
         let name = torrent.torrentName ?? "Unknown torrent"
         let sizeMB = torrent.torrentSize?.floatValue ?? 0
@@ -329,6 +351,7 @@ extension TorrentListViewController: UITableViewDelegate {
             self.performSegue(withIdentifier: "showVideoList", sender: cell)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        configurePopover(alert, from: tableView, at: indexPath)
         present(alert, animated: true)
     }
 }

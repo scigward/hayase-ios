@@ -2094,8 +2094,9 @@ class BrowseAnimeViewController: UIViewController {
             guard let self = self else { return }
             if !bannerResults.isEmpty {
                 self.bannerItems = bannerResults
-                // Reload banner cell if it already exists
-                if self.collectionView.numberOfSections > 0 {
+                // Reload banner cell if it already exists.
+                if self.collectionView.numberOfSections > 0,
+                   self.collectionView.numberOfItems(inSection: 0) > 0 {
                     self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
                     // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
                     DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
@@ -2244,6 +2245,15 @@ class BrowseAnimeViewController: UIViewController {
         try? animeResultsController?.performFetch()
     }
 
+    private func anime(at indexPath: IndexPath) -> Animes? {
+        guard indexPath.section >= 0,
+              let sections = animeResultsController?.sections,
+              indexPath.section < sections.count,
+              indexPath.item >= 0,
+              indexPath.item < sections[indexPath.section].numberOfObjects else { return nil }
+        return animeResultsController?.object(at: indexPath)
+    }
+
     private func reloadUI() {
         performFetch()
         collectionView.reloadData()
@@ -2275,7 +2285,7 @@ class BrowseAnimeViewController: UIViewController {
             destination.animeItem = item
             pendingAnimeItem = nil
         } else if let indexPath = sender as? IndexPath {
-            destination.animeEntity = animeResultsController?.object(at: indexPath)
+            destination.animeEntity = anime(at: indexPath)
         }
     }
 }
@@ -2313,7 +2323,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: AnimeCollectionViewCell.reuseID,
                 for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-            if let anime = animeResultsController?.object(at: indexPath) {
+            if let anime = anime(at: indexPath) {
                 cell.configure(with: anime)
                 let item = AnimeCollectionViewCell.animeItem(from: anime)
                 Hover.shared.bind(to: cell,
@@ -2444,7 +2454,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
                         didSelectItemAt indexPath: IndexPath) {
         if isSearching {
             if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
-               let anime = animeResultsController?.object(at: indexPath) {
+               let anime = anime(at: indexPath) {
                 let item = AnimeCollectionViewCell.animeItem(from: anime)
                 if Hover.shared.handleTouchSelection(source: cell,
                                                      host: self,

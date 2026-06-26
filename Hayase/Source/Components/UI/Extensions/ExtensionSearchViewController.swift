@@ -1132,13 +1132,18 @@ final class ExtensionSearchViewController: UIViewController {
         let videos = (try? context.fetch(req)) ?? []
         guard !videos.isEmpty else { return } // Still waiting for metadata; will be called again.
 
+        func fileIndex(from value: Int?) -> UInt? {
+            guard let value, value >= 0 else { return nil }
+            return UInt(value)
+        }
+
         // Auto-resolve the target file.
         var targetVideo: Videos?
         var targetIndex: UInt = 0
 
         if videos.count == 1 {
             targetVideo = videos[0]
-            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
+            targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         } else if let handle = vs.torrentHandle {
             let resolver = TorrentBatchResolver()
             if let animeItem {
@@ -1148,15 +1153,17 @@ final class ExtensionSearchViewController: UIViewController {
                     self.isResolvingPendingMetadata = false
                     var resolvedVideo: Videos?
                     var resolvedIndex: UInt = 0
-                    if let match = result.target {
-                        resolvedIndex = UInt(match.entry.index)
+                    if let match = result.target,
+                       let index = fileIndex(from: match.entry.index) {
+                        resolvedIndex = index
                         resolvedVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
                     }
                     self.presentPendingVideo(vs: vs, entity: entity, targetVideo: resolvedVideo, targetIndex: resolvedIndex, videos: videos)
                 }
                 return
-            } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode) {
-                targetIndex = UInt(match.entry.index)
+            } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode),
+                      let index = fileIndex(from: match.entry.index) {
+                targetIndex = index
                 targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
             }
         }
@@ -1171,7 +1178,11 @@ final class ExtensionSearchViewController: UIViewController {
         // Fallback to first video if no match found.
         if targetVideo == nil {
             targetVideo = videos.first
-            targetIndex = UInt(targetVideo?.videoIndex?.intValue ?? 0)
+            if let value = targetVideo?.videoIndex?.intValue, value >= 0 {
+                targetIndex = UInt(value)
+            } else {
+                targetIndex = 0
+            }
         }
 
         guard let video = targetVideo else { return }

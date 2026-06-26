@@ -67,7 +67,7 @@ final class W2GPeer: NSObject {
         "stun:global.stun.twilio.com:3478"
     ]
 
-    init(isInitiator: Bool, offerID: String, iceServers: [String] = []) {
+    init?(isInitiator: Bool, offerID: String, iceServers: [String] = []) {
         self.id = ""
         self.isInitiator = isInitiator
         self.offerID = offerID
@@ -83,7 +83,8 @@ final class W2GPeer: NSObject {
             optionalConstraints: ["DtlsSrtpKeyAgreement": kRTCMediaConstraintsValueTrue]
         )
         guard let pc = W2GPeer.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
-            fatalError("W2GPeer: failed to create RTCPeerConnection")
+            print("W2GPeer: failed to create RTCPeerConnection")
+            return nil
         }
         self.peerConnection = pc
         super.init()

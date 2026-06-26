@@ -1223,9 +1223,9 @@ final class VideoPlayerViewController: UIViewController {
     /// a remote W2G index event.
     /// Mirrors web mediahandler.svelte: `$: $w2globby?.on('index', index => { current = fileToMedaInfo(mediaInfo.resolvedFiles[index]) })`
     func applyRemoteW2GIndex(_ newIndex: Int) {
+        guard newIndex >= 0, newIndex < allVideos.count else { return }
         let idx = UInt(newIndex)
         guard idx != fileIndex else { return }
-        guard newIndex >= 0, newIndex < allVideos.count else { return }
         let video = allVideos[newIndex]
         // Estimate episode number from index offset (batch torrents map 1:1).
         // Same assumption as findVideoInBatch/switchToVideo — episode = base + delta.
@@ -1801,7 +1801,7 @@ final class VideoPlayerViewController: UIViewController {
         currentVideoIndex = match.index
         videoEntity = match.video
         episodeNumber = episode
-        if let idx = videoEntity?.videoIndex {
+        if let idx = videoEntity?.videoIndex, idx.intValue >= 0 {
             fileIndex = UInt(idx.intValue)
             videoService?.selectFileForStreaming(fileIndex)
             _ = videoService?.UpdateFilePathForFileIndex(fileIndex)

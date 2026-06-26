@@ -267,6 +267,20 @@ class VideoListViewController: UIViewController {
         try? videoResultsController?.performFetch()
     }
 
+    private func video(at indexPath: IndexPath) -> Videos? {
+        guard indexPath.section >= 0,
+              let sections = videoResultsController?.sections,
+              indexPath.section < sections.count,
+              indexPath.row >= 0,
+              indexPath.row < sections[indexPath.section].numberOfObjects else { return nil }
+        return videoResultsController?.object(at: indexPath)
+    }
+
+    private func fileIndex(from value: Int) -> UInt? {
+        guard value >= 0 else { return nil }
+        return UInt(value)
+    }
+
     private func startPeriodicRefresh() {
         updateTimer?.invalidate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -334,19 +348,18 @@ class VideoListViewController: UIViewController {
         }
 
         if let pending = pendingAutoOpenIndexPath,
-           let video = videoResultsController?.object(at: pending),
+           let video = video(at: pending),
            let vs = videoService,
-           let indexNum = video.videoIndex {
-            let index = UInt(indexNum.intValue)
-            if vs.downloadedBytesForFileIndex(index) > 0 {
-                pendingAutoOpenIndexPath = nil
-                presentPlayer(at: pending)
-            }
+           let indexNum = video.videoIndex,
+           let index = fileIndex(from: indexNum.intValue),
+           vs.downloadedBytesForFileIndex(index) > 0 {
+            pendingAutoOpenIndexPath = nil
+            presentPlayer(at: pending)
         }
     }
 
     private func selectAndOpenResolvedMatch(_ match: TorrentBatchResolver.ResolvedFile, videoService vs: VideoService) {
-        let fileIdx = UInt(match.entry.index)
+        guard let fileIdx = fileIndex(from: match.entry.index) else { return }
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -402,10 +415,10 @@ class VideoListViewController: UIViewController {
     // MARK: - Navigation
 
     private func presentPlayer(at indexPath: IndexPath) {
-        guard let video = videoResultsController?.object(at: indexPath),
+        guard let video = video(at: indexPath),
               let vs = videoService,
               let indexNum = video.videoIndex else { return }
-        let fileIdx = UInt(indexNum.intValue)
+        guard let fileIdx = fileIndex(from: indexNum.intValue) else { return }
         vs.UpdateFilePathForFileIndex(fileIdx)
 
         let allVids = (videoResultsController?.sections?.first?.objects as? [Videos]) ?? [video]
@@ -434,10 +447,10 @@ extension VideoListViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: VideoTableViewCell.reuseID, for: indexPath) as? VideoTableViewCell else { return UITableViewCell() }
-        guard let video = videoResultsController?.object(at: indexPath),
+        guard let video = video(at: indexPath),
               let vs = videoService,
               let indexNum = video.videoIndex else { return cell }
-        let index = UInt(indexNum.intValue)
+        guard let index = fileIndex(from: indexNum.intValue) else { return cell }
         let isDoNotDownload = vs.CheckIsDoNotDownloadForFileIndex(index) ?? true
         let downloaded = isDoNotDownload ? 0 : vs.downloadedBytesForFileIndex(index)
         let total = vs.totalBytesForFileIndex(index)
@@ -451,11 +464,11 @@ extension VideoListViewController: UITableViewDataSource {
 extension VideoListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         defer { tableView.deselectRow(at: indexPath, animated: true) }
-        guard let video = videoResultsController?.object(at: indexPath),
+        guard let video = video(at: indexPath),
               let vs = videoService,
               let indexNum = video.videoIndex else { return }
-        let index = UInt(indexNum.intValue)
-        guard vs.totalBytesForFileIndex(index) > 0 else { return }  // metadata not yet ready
+        guard let index = fileIndex(from: indexNum.intValue),
+              vs.totalBytesForFileIndex(index) > 0 else { return }  // metadata not yet ready
 
         // Hayase: focus all download bandwidth on this one episode
         vs.selectFileForStreaming(index)
@@ -473,10 +486,10 @@ extension VideoListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
         -> UISwipeActionsConfiguration? {
-        guard let video = videoResultsController?.object(at: indexPath),
+        guard let video = video(at: indexPath),
               let vs = videoService,
-              let indexNum = video.videoIndex else { return nil }
-        let index = UInt(indexNum.intValue)
+              let indexNum = video.videoIndex,
+              let index = fileIndex(from: indexNum.intValue) else { return nil }
         let isSkipped = vs.CheckIsDoNotDownloadForFileIndex(index) ?? false
 
         let title = isSkipped ? "Prioritize" : "Skip"

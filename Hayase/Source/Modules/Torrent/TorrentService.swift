@@ -144,6 +144,13 @@ public class TorrentService: NSObject, SessionDelegate {
         NotificationCenter.default.post(name: NSNotification.Name(Self.SettingsDidChangeNotification), object: nil)
     }
 
+    func hasHandle(_ hash: String) -> Bool {
+        if Thread.isMainThread {
+            return handles[hash] != nil
+        }
+        return DispatchQueue.main.sync { handles[hash] != nil }
+    }
+
     // MARK: - SessionDelegate
     // didAddTorrent fires synchronously from addTorrent() on the calling thread (main).
     // Call updateSnapshot() synchronously here — this matches iTorrent's prepareToAdd()

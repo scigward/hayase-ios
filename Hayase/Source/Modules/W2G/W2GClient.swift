@@ -438,9 +438,24 @@ final class W2GClient {
         var remaining = count
         let lock = NSLock()
 
+        func finishOfferGenerationIfNeeded() {
+            lock.lock()
+            let done = remaining == 0
+            lock.unlock()
+            if done {
+                DispatchQueue.main.async { completion(offers) }
+            }
+        }
+
         for _ in 0..<count {
             let offerID = Self.generateRandomHex(length: 40)
-            let peer = W2GPeer(isInitiator: true, offerID: offerID)
+            guard let peer = W2GPeer(isInitiator: true, offerID: offerID) else {
+                lock.lock()
+                remaining -= 1
+                lock.unlock()
+                finishOfferGenerationIfNeeded()
+                continue
+            }
             peer.delegate = self
             pendingOffers[offerID] = peer
             peer.createOffer()
@@ -582,7 +597,7 @@ extension W2GClient: W2GTrackerClientDelegate {
         // and send back an answer through the tracker.
         guard let sdpString = sdp["sdp"] as? String else { return }
 
-        let peer = W2GPeer(isInitiator: false, offerID: offerID)
+        guard let peer = W2GPeer(isInitiator: false, offerID: offerID) else { return }
         peer.delegate = self
 
         // CRITICAL: Store the peer to prevent ARC deallocation before the WebRTC

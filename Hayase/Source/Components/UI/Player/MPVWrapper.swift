@@ -24,6 +24,7 @@ final class MPVWrapper {
     
     private let displayLayer: AVSampleBufferDisplayLayer
     private let queue = DispatchQueue(label: "mpv.avfoundation", qos: .userInitiated)
+    private let queueKey = DispatchSpecificKey<Void>()
     private let stateQueue = DispatchQueue(label: "mpv.avfoundation.state", attributes: .concurrent)
     
     private var mpv: OpaquePointer?
@@ -96,7 +97,27 @@ final class MPVWrapper {
     
     init(displayLayer: AVSampleBufferDisplayLayer) {
         self.displayLayer = displayLayer
+        queue.setSpecific(key: queueKey, value: ())
         observeDisplayLayerStatus()
+    }
+
+    private var isOnQueue: Bool {
+        DispatchQueue.getSpecific(key: queueKey) != nil
+    }
+
+    private func withHandle<T>(_ defaultValue: T, _ body: (OpaquePointer) -> T) -> T {
+        let work = { () -> T in
+            guard let handle = self.mpv, !self.isStopping else { return defaultValue }
+            return body(handle)
+        }
+        return isOnQueue ? work() : queue.sync(execute: work)
+    }
+
+    private func withHandleAsync(_ body: @escaping (OpaquePointer) -> Void) {
+        queue.async { [weak self] in
+            guard let self, let handle = self.mpv, !self.isStopping else { return }
+            body(handle)
+        }
     }
     
     private func observeDisplayLayerStatus() {
@@ -254,33 +275,34 @@ final class MPVWrapper {
     
     func applyPreset(_ preset: PlayerPreset) {
         currentPreset = preset
-        guard let handle = mpv else { return }
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.apply(commands: preset.commands, on: handle)
+        withHandleAsync { [weak self] handle in
+            self?.apply(commands: preset.commands, on: handle)
         }
     }
     
     // MARK: - Property Helpers
     
     private func setOption(name: String, value: String) {
-        guard let handle = mpv else { return }
-        checkError(mpv_set_option_string(handle, name, value))
+        withHandle(()) { handle in
+            checkError(mpv_set_option_string(handle, name, value))
+        }
     }
     
     private func setProperty(name: String, value: String) {
-        guard let handle = mpv else { return }
-        let status = mpv_set_property_string(handle, name, value)
-        if status < 0 {
-            Logger.shared.log("Failed to set property \(name)=\(value) (\(status))", type: "Warn")
+        withHandle(()) { handle in
+            let status = mpv_set_property_string(handle, name, value)
+            if status < 0 {
+                Logger.shared.log("Failed to set property \(name)=\(value) (\(status))", type: "Warn")
+            }
         }
     }
     
     private func clearProperty(name: String) {
-        guard let handle = mpv else { return }
-        let status = mpv_set_property_string(handle, name, "")
-        if status < 0 {
-            Logger.shared.log("Failed to clear property \(name) (\(status))", type: "Warn")
+        withHandle(()) { handle in
+            let status = mpv_set_property_string(handle, name, "")
+            if status < 0 {
+                Logger.shared.log("Failed to clear property \(name) (\(status))", type: "Warn")
+            }
         }
     }
     
@@ -567,17 +589,19 @@ final class MPVWrapper {
     }
     
     func seek(to seconds: Double) {
-        guard let handle = mpv else { return }
         let clamped = max(0, seconds)
         cachedPosition = clamped
-        commandSync(handle, ["seek", String(clamped), "absolute"])
+        withHandle(()) { handle in
+            commandSync(handle, ["seek", String(clamped), "absolute"])
+        }
     }
 
     func seek(by seconds: Double) {
-        guard let handle = mpv else { return }
         let newPosition = max(0, cachedPosition + seconds)
         cachedPosition = newPosition
-        commandSync(handle, ["seek", String(seconds), "relative"])
+        withHandle(()) { handle in
+            commandSync(handle, ["seek", String(seconds), "relative"])
+        }
     }
     
     func syncTimebase() { }
@@ -588,68 +612,66 @@ final class MPVWrapper {
     }
     
     func getSpeed() -> Double {
-        guard let handle = mpv else { return 1.0 }
-        var speed: Double = 1.0
-        getProperty(handle: handle, name: "speed", format: MPV_FORMAT_DOUBLE, value: &speed)
-        return speed
+        withHandle(1.0) { handle in
+            var speed: Double = 1.0
+            getProperty(handle: handle, name: "speed", format: MPV_FORMAT_DOUBLE, value: &speed)
+            return speed
+        }
     }
     
     // MARK: - Subtitle Controls
     
     func getSubtitleTracks(mkvFileURL: URL? = nil) -> [[String: Any]] {
-        guard let handle = mpv else {
-            Logger.shared.log("getSubtitleTracks: mpv handle is nil", type: "Warn")
-            return []
-        }
-        var tracks: [[String: Any]] = []
+        withHandle([[String: Any]]()) { handle in
+            var tracks: [[String: Any]] = []
 
-        let mkvLanguages: [Int: String]
-        if let fileURL = mkvFileURL {
-            mkvLanguages = MatroskaMetadataService.shared.subtitleLanguages(for: fileURL)
-        } else {
-            mkvLanguages = [:]
-        }
-        
-        var trackCount: Int64 = 0
-        getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
-        
-        for i in 0..<trackCount {
-            guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
-                  trackType == "sub" else { continue }
-            
-            var trackId: Int64 = 0
-            getProperty(handle: handle, name: "track-list/\(i)/id", format: MPV_FORMAT_INT64, value: &trackId)
-            
-            var track: [String: Any] = ["id": Int(trackId)]
-            
-            if let title = getStringProperty(handle: handle, name: "track-list/\(i)/title") {
-                track["title"] = title
+            let mkvLanguages: [Int: String]
+            if let fileURL = mkvFileURL {
+                mkvLanguages = MatroskaMetadataService.shared.subtitleLanguages(for: fileURL)
+            } else {
+                mkvLanguages = [:]
             }
-            
-            if let mkvLang = mkvLanguages[Int(trackId)], mkvLang != "und" {
-                track["lang"] = mkvLang
-            } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang"), lang != "und" {
-                track["lang"] = lang
-            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang"), demuxLang != "und" {
-                track["lang"] = demuxLang
-            } else if let title = track["title"] as? String {
-                if let parsed = Self.parseLanguageFromTitle(title) {
+
+            var trackCount: Int64 = 0
+            getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
+
+            for i in 0..<trackCount {
+                guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
+                      trackType == "sub" else { continue }
+
+                var trackId: Int64 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/id", format: MPV_FORMAT_INT64, value: &trackId)
+
+                var track: [String: Any] = ["id": Int(trackId)]
+
+                if let title = getStringProperty(handle: handle, name: "track-list/\(i)/title") {
+                    track["title"] = title
+                }
+
+                if let mkvLang = mkvLanguages[Int(trackId)], mkvLang != "und" {
+                    track["lang"] = mkvLang
+                } else if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang"), lang != "und" {
+                    track["lang"] = lang
+                } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang"), demuxLang != "und" {
+                    track["lang"] = demuxLang
+                } else if let title = track["title"] as? String,
+                          let parsed = Self.parseLanguageFromTitle(title) {
                     track["lang"] = parsed
                 }
+
+                var selected: Int32 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
+                track["selected"] = selected != 0
+
+                Logger.shared.log("getSubtitleTracks: found sub track id=\(trackId), title=\(track["title"] ?? "none"), lang=\(track["lang"] ?? "none")", type: "Info")
+                tracks.append(track)
             }
-            
-            var selected: Int32 = 0
-            getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
-            track["selected"] = selected != 0
-            
-            Logger.shared.log("getSubtitleTracks: found sub track id=\(trackId), title=\(track["title"] ?? "none"), lang=\(track["lang"] ?? "none")", type: "Info")
-            tracks.append(track)
+
+            return tracks
         }
-        return tracks
     }
-    
+
     func setSubtitleTrack(_ trackId: Int) {
-        guard mpv != nil else { return }
         if trackId < 0 {
             setProperty(name: "sid", value: "no")
         } else {
@@ -662,16 +684,18 @@ final class MPVWrapper {
     }
     
     func getCurrentSubtitleTrack() -> Int {
-        guard let handle = mpv else { return 0 }
-        var sid: Int64 = 0
-        getProperty(handle: handle, name: "sid", format: MPV_FORMAT_INT64, value: &sid)
-        return Int(sid)
+        withHandle(0) { handle in
+            var sid: Int64 = 0
+            getProperty(handle: handle, name: "sid", format: MPV_FORMAT_INT64, value: &sid)
+            return Int(sid)
+        }
     }
     
     func addSubtitleFile(url: String, select: Bool = true) {
-        guard let handle = mpv else { return }
         let flag = select ? "select" : "cached"
-        commandSync(handle, ["sub-add", url, flag])
+        withHandle(()) { handle in
+            commandSync(handle, ["sub-add", url, flag])
+        }
     }
     
     // MARK: - Subtitle Positioning
@@ -701,57 +725,64 @@ final class MPVWrapper {
     // MARK: - Deband
     
     func setDeband(_ enabled: Bool) {
-        guard let handle = mpv else { return }
-        if enabled {
-            #if !targetEnvironment(simulator)
-            commandSync(handle, ["set", "hwdec", "videotoolbox-copy"])
-            #endif
-            commandSync(handle, ["vf", "add", "@deband:deband"])
-        } else {
-            commandSync(handle, ["vf", "remove", "@deband"])
-            #if !targetEnvironment(simulator)
-            commandSync(handle, ["set", "hwdec", "videotoolbox"])
-            #endif
+        withHandle(()) { handle in
+            if enabled {
+                #if !targetEnvironment(simulator)
+                commandSync(handle, ["set", "hwdec", "videotoolbox-copy"])
+                #endif
+                commandSync(handle, ["vf", "add", "@deband:deband"])
+            } else {
+                commandSync(handle, ["vf", "remove", "@deband"])
+                #if !targetEnvironment(simulator)
+                commandSync(handle, ["set", "hwdec", "videotoolbox"])
+                #endif
+            }
         }
     }
 
     // MARK: - Audio Track Controls
     
     func getAudioTracks() -> [[String: Any]] {
-        guard let handle = mpv else { return [] }
-        var tracks: [[String: Any]] = []
-        var trackCount: Int64 = 0
-        getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
-        for i in 0..<trackCount {
-            guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
-                  trackType == "audio" else { continue }
-            var trackId: Int64 = 0
-            getProperty(handle: handle, name: "track-list/\(i)/id", format: MPV_FORMAT_INT64, value: &trackId)
-            var track: [String: Any] = ["id": Int(trackId)]
-            if let title = getStringProperty(handle: handle, name: "track-list/\(i)/title") {
-                track["title"] = title
-            }
-            if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
-                track["lang"] = lang
-            } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
-                track["lang"] = demuxLang
-            } else if let title = track["title"] as? String {
-                if let parsed = Self.parseLanguageFromTitle(title) {
+        withHandle([[String: Any]]()) { handle in
+            var tracks: [[String: Any]] = []
+            var trackCount: Int64 = 0
+            getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
+
+            for i in 0..<trackCount {
+                guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
+                      trackType == "audio" else { continue }
+
+                var trackId: Int64 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/id", format: MPV_FORMAT_INT64, value: &trackId)
+
+                var track: [String: Any] = ["id": Int(trackId)]
+                if let title = getStringProperty(handle: handle, name: "track-list/\(i)/title") {
+                    track["title"] = title
+                }
+                if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang") {
+                    track["lang"] = lang
+                } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang") {
+                    track["lang"] = demuxLang
+                } else if let title = track["title"] as? String,
+                          let parsed = Self.parseLanguageFromTitle(title) {
                     track["lang"] = parsed
                 }
+                if let codec = getStringProperty(handle: handle, name: "track-list/\(i)/codec") {
+                    track["codec"] = codec
+                }
+
+                var channels: Int64 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/audio-channels", format: MPV_FORMAT_INT64, value: &channels)
+                if channels > 0 { track["channels"] = Int(channels) }
+
+                var selected: Int32 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
+                track["selected"] = selected != 0
+                tracks.append(track)
             }
-            if let codec = getStringProperty(handle: handle, name: "track-list/\(i)/codec") {
-                track["codec"] = codec
-            }
-            var channels: Int64 = 0
-            getProperty(handle: handle, name: "track-list/\(i)/audio-channels", format: MPV_FORMAT_INT64, value: &channels)
-            if channels > 0 { track["channels"] = Int(channels) }
-            var selected: Int32 = 0
-            getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
-            track["selected"] = selected != 0
-            tracks.append(track)
+
+            return tracks
         }
-        return tracks
     }
 
     static func parseLanguageFromTitle(_ title: String) -> String? {
@@ -781,73 +812,77 @@ final class MPVWrapper {
     }
     
     func setAudioTrack(_ trackId: Int) {
-        guard mpv != nil else { return }
         setProperty(name: "aid", value: String(trackId))
     }
     
     func getCurrentAudioTrack() -> Int {
-        guard let handle = mpv else { return 0 }
-        var aid: Int64 = 0
-        getProperty(handle: handle, name: "aid", format: MPV_FORMAT_INT64, value: &aid)
-        return Int(aid)
+        withHandle(0) { handle in
+            var aid: Int64 = 0
+            getProperty(handle: handle, name: "aid", format: MPV_FORMAT_INT64, value: &aid)
+            return Int(aid)
+        }
     }
 
     // MARK: - Chapters
     
     func getChapters() -> [MPVChapter] {
-        guard let handle = mpv else { return [] }
-        var chapterCount: Int64 = 0
-        getProperty(handle: handle, name: "chapter-list/count", format: MPV_FORMAT_INT64, value: &chapterCount)
-        guard chapterCount > 0 else { return [] }
-        var chapters: [MPVChapter] = []
-        for i in 0..<chapterCount {
-            let title = getStringProperty(handle: handle, name: "chapter-list/\(i)/title") ?? "Chapter \(i + 1)"
-            var time: Double = 0
-            getProperty(handle: handle, name: "chapter-list/\(i)/time", format: MPV_FORMAT_DOUBLE, value: &time)
-            chapters.append(MPVChapter(index: Int(i), title: title, time: time))
+        withHandle([MPVChapter]()) { handle in
+            var chapterCount: Int64 = 0
+            getProperty(handle: handle, name: "chapter-list/count", format: MPV_FORMAT_INT64, value: &chapterCount)
+            guard chapterCount > 0 else { return [] }
+            var chapters: [MPVChapter] = []
+            for i in 0..<chapterCount {
+                let title = getStringProperty(handle: handle, name: "chapter-list/\(i)/title") ?? "Chapter \(i + 1)"
+                var time: Double = 0
+                getProperty(handle: handle, name: "chapter-list/\(i)/time", format: MPV_FORMAT_DOUBLE, value: &time)
+                chapters.append(MPVChapter(index: Int(i), title: title, time: time))
+            }
+            return chapters
         }
-        return chapters
     }
 
     // MARK: - Technical Info
     
     func getTechnicalInfo() -> [String: Any] {
-        guard let handle = mpv else { return [:] }
-        var info: [String: Any] = [:]
-        var videoWidth: Int64 = 0, videoHeight: Int64 = 0
-        if getProperty(handle: handle, name: "video-params/w", format: MPV_FORMAT_INT64, value: &videoWidth) >= 0 {
-            info["videoWidth"] = Int(videoWidth)
+        withHandle([String: Any]()) { handle in
+            var info: [String: Any] = [:]
+            var videoWidth: Int64 = 0, videoHeight: Int64 = 0
+            if getProperty(handle: handle, name: "video-params/w", format: MPV_FORMAT_INT64, value: &videoWidth) >= 0 {
+                info["videoWidth"] = Int(videoWidth)
+            }
+            if getProperty(handle: handle, name: "video-params/h", format: MPV_FORMAT_INT64, value: &videoHeight) >= 0 {
+                info["videoHeight"] = Int(videoHeight)
+            }
+            if let videoCodec = getStringProperty(handle: handle, name: "video-format") {
+                info["videoCodec"] = videoCodec
+            }
+            if let audioCodec = getStringProperty(handle: handle, name: "audio-codec-name") {
+                info["audioCodec"] = audioCodec
+            }
+
+            var fps: Double = 0
+            if getProperty(handle: handle, name: "container-fps", format: MPV_FORMAT_DOUBLE, value: &fps) >= 0 && fps > 0 {
+                info["fps"] = fps
+            }
+            var videoBitrate: Int64 = 0
+            if getProperty(handle: handle, name: "video-bitrate", format: MPV_FORMAT_INT64, value: &videoBitrate) >= 0 && videoBitrate > 0 {
+                info["videoBitrate"] = Int(videoBitrate)
+            }
+            var audioBitrate: Int64 = 0
+            if getProperty(handle: handle, name: "audio-bitrate", format: MPV_FORMAT_INT64, value: &audioBitrate) >= 0 && audioBitrate > 0 {
+                info["audioBitrate"] = Int(audioBitrate)
+            }
+            var cacheSeconds: Double = 0
+            if getProperty(handle: handle, name: "demuxer-cache-duration", format: MPV_FORMAT_DOUBLE, value: &cacheSeconds) >= 0 {
+                info["cacheSeconds"] = cacheSeconds
+            }
+            var droppedFrames: Int64 = 0
+            if getProperty(handle: handle, name: "frame-drop-count", format: MPV_FORMAT_INT64, value: &droppedFrames) >= 0 {
+                info["droppedFrames"] = Int(droppedFrames)
+            }
+
+            return info
         }
-        if getProperty(handle: handle, name: "video-params/h", format: MPV_FORMAT_INT64, value: &videoHeight) >= 0 {
-            info["videoHeight"] = Int(videoHeight)
-        }
-        if let videoCodec = getStringProperty(handle: handle, name: "video-format") {
-            info["videoCodec"] = videoCodec
-        }
-        if let audioCodec = getStringProperty(handle: handle, name: "audio-codec-name") {
-            info["audioCodec"] = audioCodec
-        }
-        var fps: Double = 0
-        if getProperty(handle: handle, name: "container-fps", format: MPV_FORMAT_DOUBLE, value: &fps) >= 0 && fps > 0 {
-            info["fps"] = fps
-        }
-        var videoBitrate: Int64 = 0
-        if getProperty(handle: handle, name: "video-bitrate", format: MPV_FORMAT_INT64, value: &videoBitrate) >= 0 && videoBitrate > 0 {
-            info["videoBitrate"] = Int(videoBitrate)
-        }
-        var audioBitrate: Int64 = 0
-        if getProperty(handle: handle, name: "audio-bitrate", format: MPV_FORMAT_INT64, value: &audioBitrate) >= 0 && audioBitrate > 0 {
-            info["audioBitrate"] = Int(audioBitrate)
-        }
-        var cacheSeconds: Double = 0
-        if getProperty(handle: handle, name: "demuxer-cache-duration", format: MPV_FORMAT_DOUBLE, value: &cacheSeconds) >= 0 {
-            info["cacheSeconds"] = cacheSeconds
-        }
-        var droppedFrames: Int64 = 0
-        if getProperty(handle: handle, name: "frame-drop-count", format: MPV_FORMAT_INT64, value: &droppedFrames) >= 0 {
-            info["droppedFrames"] = Int(droppedFrames)
-        }
-        return info
     }
 }
 

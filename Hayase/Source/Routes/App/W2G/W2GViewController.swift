@@ -828,9 +828,14 @@ extension W2GViewController {
         let resolvedVideos = resolver.resolveAll(files: handle.snapshot.files)
         let playableFiles = resolvedVideos.isEmpty ? handle.snapshot.files : resolvedVideos.map { $0.entry }
         let playableFileIndices = Set(playableFiles.map { Int($0.index) })
-        var targetIndex = UInt(playableFiles.first?.index ?? 0)
-        if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode) {
-            targetIndex = UInt(match.entry.index)
+        func fileIndex(from value: Int?) -> UInt? {
+            guard let value, value >= 0 else { return nil }
+            return UInt(value)
+        }
+        guard var targetIndex = fileIndex(from: playableFiles.first?.index) else { return }
+        if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode),
+           let index = fileIndex(from: match.entry.index) {
+            targetIndex = index
         }
 
         // Ensure Video CoreData entities exist for the torrent's files.
@@ -870,8 +875,9 @@ extension W2GViewController {
             if let clientIndex = W2GLobby.shared.client?.index,
                clientIndex > 0,
                clientIndex < playableFiles.count {
-                guard let playableFile = playableFiles[safe: clientIndex] else { return }
-                targetIndex = UInt(playableFile.index)
+                guard let playableFile = playableFiles[safe: clientIndex],
+                      let index = fileIndex(from: playableFile.index) else { return }
+                targetIndex = index
             }
 
             let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
@@ -896,7 +902,7 @@ extension W2GViewController {
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
             resolver.resolve(files: handle.snapshot.files, targetEpisode: episode, targetMedia: targetMedia) { result in
-                let resolvedIndex = result.target.map { UInt($0.entry.index) } ?? targetIndex
+                let resolvedIndex = result.target.flatMap { fileIndex(from: $0.entry.index) } ?? targetIndex
                 presentResolved(resolvedIndex)
             }
         } else {
