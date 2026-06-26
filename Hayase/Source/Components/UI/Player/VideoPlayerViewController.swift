@@ -1420,8 +1420,18 @@ final class VideoPlayerViewController: UIViewController {
 
     private func updateStats() {
         guard let handle = torrentHandle else { return }
-        let snap = handle.snapshot
-        if isFileFullyDownloaded() {
+        let state: (TorrentHandle.Snapshot, Bool)? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snap = activeHandle.snapshot
+            if snap.isSeed { return (snap, true) }
+            if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
+                return (snap, entry.size > 0 && entry.downloaded >= entry.size)
+            }
+            return (snap, false)
+        }
+        guard let (snap, isComplete) = state else { return }
+
+        if isComplete {
             // Stop the streamer — piece management is no longer needed.
             // Do NOT stop streamServer here: MPV is still reading from the
             // HTTP URL. Stopping the server mid-playback causes read errors
@@ -1479,15 +1489,17 @@ final class VideoPlayerViewController: UIViewController {
     /// TorrentStreamer has set most pieces to priority 0.
     private func isFileFullyDownloaded() -> Bool {
         guard let handle = torrentHandle else { return true }
-        handle.updateSnapshot()
-        let snap = handle.snapshot
-        // isSeed means the entire torrent is downloaded — always reliable.
-        if snap.isSeed { return true }
-        // Check byte-level progress for the specific file we're playing.
-        if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
-            return entry.size > 0 && entry.downloaded >= entry.size
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: true) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snap = activeHandle.snapshot
+            // isSeed means the entire torrent is downloaded — always reliable.
+            if snap.isSeed { return true }
+            // Check byte-level progress for the specific file we're playing.
+            if let entry = snap.files.first(where: { $0.index == Int(self.fileIndex) }) {
+                return entry.size > 0 && entry.downloaded >= entry.size
+            }
+            return false
         }
-        return false
     }
 
     // MARK: - Watch progress

@@ -242,17 +242,19 @@ final class TorrentStreamer {
         self.fileIndex = Int(fileIndex)
     }
 
+    private func withTorrentHandle<T>(_ defaultValue: T, _ body: (TorrentHandle) -> T) -> T {
+        TorrentService.sharedTorrentService.withActiveHandle(torrentHandle, default: defaultValue, body)
+    }
+
     // MARK: - Setup
 
-    /// Reads file piece boundaries and configures streaming.
-    /// Enables sequential download and sets all pieces to low priority,
-    /// then boosts head/tail pieces and initial window with tight deadlines
     private func forEachPiece(from start: Int, through end: Int, _ body: (Int) -> Void) {
         guard start <= end else { return }
         for piece in start...end { body(piece) }
     }
 
-    /// so playback can start quickly and metadata is available immediately.
+    /// Reads file piece boundaries and configures streaming.
+    /// Enables sequential download and boosts the pieces needed to start playback quickly.
     func start() {
         guard !isActive else { return }
         isActive = true
@@ -260,8 +262,13 @@ final class TorrentStreamer {
         // Read streamed download mode at start time.
         streamedDownloadMode = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
 
-        torrentHandle.updateSnapshot()
-        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else {
+        let setupState: (TorrentHandle.Snapshot, FileEntry)? = withTorrentHandle(nil) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snapshot = activeHandle.snapshot
+            guard let entry = snapshot.files.first(where: { $0.index == fileIndex }) else { return nil }
+            return (snapshot, entry)
+        }
+        guard let (snapshot, entry) = setupState else {
             if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: file index \(fileIndex) not found in snapshot") }
             return
         }
@@ -275,12 +282,12 @@ final class TorrentStreamer {
         // the torrent's actual piece count to avoid setting priority/deadline
         // on non-existent piece indices.
         let rawEndPiece = Int(entry.end_idx)
-        let snapshotPieceCount = Int(torrentHandle.snapshot.numberOfPieces)
+        let snapshotPieceCount = Int(snapshot.numberOfPieces)
         let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEndPiece
         endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
         // Compute byte-aware metadata piece counts from the actual piece size.
-        let pl = max(Int(torrentHandle.snapshot.pieceLength), 1)
+        let pl = max(Int(snapshot.pieceLength), 1)
         headPieceCount = max(1, min(8, Self.headByteTarget / pl))
         tailPieceCount = max(1, min(16, Self.tailByteTarget / pl))
 
@@ -294,22 +301,25 @@ final class TorrentStreamer {
         // Sequential ordering ensures pieces near playback are preferred by
         // the piece picker. Deadlines on critical pieces handle immediate
         // urgency; no need to switch between sequential and rarest-first.
-        torrentHandle.setSequentialDownload(true)
+        withTorrentHandle(()) { activeHandle in
+            activeHandle.setSequentialDownload(true)
 
-        // Set non-metadata file pieces to a background priority.
-        // In streamed download mode: priority 0 (not wanted) — only download
-        // what's needed for playback to save bandwidth.
-        // In normal mode: priority 1 (low but wanted) — keeps all peers
-        // connected and contributing even for pieces not yet needed.
-        // IMPORTANT: Skip head and tail pieces — VideoService's early
-        // requestMetadataPieces() may have already set them to priority 7
-        // with time-critical deadlines.
-        let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
-        let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
-        let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
-        forEachPiece(from: beginPiece, through: endPiece) { piece in
-            if piece <= headEnd || piece >= tailStart { return }
-            torrentHandle.setPiecePriority(piece, priority: bgPriority)
+            // Set non-metadata file pieces to a background priority.
+            // In streamed download mode: priority 0 (not wanted) — only download
+            // what's needed for playback to save bandwidth.
+            // In normal mode: priority 1 (low but wanted) — keeps all peers
+            // connected and contributing even for pieces not yet needed.
+            // IMPORTANT: Skip head and tail pieces — VideoService's early
+            // requestMetadataPieces() may have already set them to priority 7
+            // with time-critical deadlines.
+            let bgPriority: UInt8 = streamedDownloadMode ? 0 : 1
+            let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
+            let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
+            forEachPiece(from: beginPiece, through: endPiece) { piece in
+                if piece <= headEnd || piece >= tailStart { return }
+                activeHandle.setPiecePriority(piece, priority: bgPriority)
+            }
+            activeHandle.forceReannounce()
         }
 
         let plMB = String(format: "%.1f", Double(pl) / 1_048_576)
@@ -324,8 +334,6 @@ final class TorrentStreamer {
         // to all trackers embedded in the magnet URI / .torrent file, and the
         // responses arrive asynchronously, bringing in fresh peer connections
         // for the pieces we need.
-        torrentHandle.forceReannounce()
-
         // Request head pieces for MKV SeekHead/Info/Tracks (duration + subtitle defs).
         requestHeadPieces()
 
@@ -363,9 +371,11 @@ final class TorrentStreamer {
         // in the Downloads view caused by most pieces being at priority 0
         // (which makes libtorrent's progress metric count only the few
         // high-priority pieces that were downloaded).
-        forEachPiece(from: beginPiece, through: endPiece) { piece in
-            torrentHandle.setPiecePriority(piece, priority: 4) // default
-            torrentHandle.resetPieceDeadline(piece)
+        withTorrentHandle(()) { activeHandle in
+            forEachPiece(from: beginPiece, through: endPiece) { piece in
+                activeHandle.setPiecePriority(piece, priority: 4) // default
+                activeHandle.resetPieceDeadline(piece)
+            }
         }
         lastDeadlinePiece = -1
         if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("TorrentStreamer: stopped") }
@@ -439,7 +449,7 @@ final class TorrentStreamer {
         //    internal time-critical list so the next set_piece_deadline call
         //    triggers cancel_non_critical(), which sends CANCEL messages to
         //    peers for every in-flight block that isn't time-critical.
-        torrentHandle.clearPieceDeadlines()
+        withTorrentHandle(()) { $0.clearPieceDeadlines() }
 
         // 2. Set old window pieces to priority 0 (dont_download). This makes
         //    libtorrent drop any remaining requests for those pieces. In normal
@@ -451,7 +461,7 @@ final class TorrentStreamer {
             forEachPiece(from: oldWindowStart, through: oldWindowEnd) { piece in
                 if piece <= headEnd { return }
                 if piece >= tailStart { return }
-                torrentHandle.setPiecePriority(piece, priority: 0)
+                withTorrentHandle(()) { $0.setPiecePriority(piece, priority: 0) }
             }
         }
 
@@ -473,7 +483,7 @@ final class TorrentStreamer {
                 if piece >= activeWindowStart && piece <= activeWindowEnd { return }
                 if piece <= headEnd { return }
                 if piece >= tailStart { return }
-                torrentHandle.setPiecePriority(piece, priority: bgPriority)
+                withTorrentHandle(()) { $0.setPiecePriority(piece, priority: bgPriority) }
             }
         }
 
@@ -483,7 +493,7 @@ final class TorrentStreamer {
         // fresh announce can surface seeders or peers with the tail of
         // the file, significantly reducing the time to start playback
         // at the new position.
-        torrentHandle.forceReannounce()
+        withTorrentHandle(()) { $0.forceReannounce() }
     }
 
     // MARK: - Buffer metrics
@@ -493,22 +503,24 @@ final class TorrentStreamer {
     func consecutiveBufferedPieces(fromFraction fraction: Double) -> Int {
         guard isActive, totalFilePieces > 0 else { return 0 }
 
-        torrentHandle.updateSnapshot()
-        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-              let pieces = entry.pieces as? [NSNumber] else { return 0 }
+        return withTorrentHandle(0) { activeHandle in
+            activeHandle.updateSnapshot()
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+                  let pieces = entry.pieces as? [NSNumber] else { return 0 }
 
-        let clampedFraction = max(0, min(1, fraction))
-        let startLocal = Int(clampedFraction * Double(totalFilePieces))
+            let clampedFraction = max(0, min(1, fraction))
+            let startLocal = Int(clampedFraction * Double(totalFilePieces))
 
-        var count = 0
-        for i in startLocal..<pieces.count {
-            if pieces[i].boolValue {
-                count += 1
-            } else {
-                break
+            var count = 0
+            for i in startLocal..<pieces.count {
+                if pieces[i].boolValue {
+                    count += 1
+                } else {
+                    break
+                }
             }
+            return count
         }
-        return count
     }
 
     /// Returns true if at least `minimumCount` consecutive pieces starting from
@@ -535,28 +547,32 @@ final class TorrentStreamer {
     func areTailPiecesReady() -> Bool {
         guard isActive, totalFilePieces > 0 else { return false }
 
-        torrentHandle.updateSnapshot()
-        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-              let pieces = entry.pieces as? [NSNumber], !pieces.isEmpty else { return false }
+        return withTorrentHandle(false) { activeHandle in
+            activeHandle.updateSnapshot()
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+                  let pieces = entry.pieces as? [NSNumber], !pieces.isEmpty else { return false }
 
-        // Check the last `tailPieceCount` entries in the file's local piece array.
-        // Using pieces.count directly avoids any ambiguity with endPiece being
-        // inclusive vs exclusive.
-        let count = pieces.count
-        let tailStart = max(0, count - tailPieceCount)
-        for i in tailStart..<count {
-            if !pieces[i].boolValue { return false }
+            // Check the last `tailPieceCount` entries in the file's local piece array.
+            // Using pieces.count directly avoids any ambiguity with endPiece being
+            // inclusive vs exclusive.
+            let count = pieces.count
+            let tailStart = max(0, count - tailPieceCount)
+            for i in tailStart..<count {
+                if !pieces[i].boolValue { return false }
+            }
+            return true
         }
-        return true
     }
 
     /// Returns the fraction (0–1) of the file that has been downloaded.
     func downloadedFraction() -> Double {
         guard isActive, totalFilePieces > 0 else { return 0 }
 
-        torrentHandle.updateSnapshot()
-        guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) else { return 0 }
-        return entry.size > 0 ? Double(entry.downloaded) / Double(entry.size) : 0
+        return withTorrentHandle(0) { activeHandle in
+            activeHandle.updateSnapshot()
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == fileIndex }) else { return 0 }
+            return entry.size > 0 ? Double(entry.downloaded) / Double(entry.size) : 0
+        }
     }
 
     // MARK: - Private
@@ -626,12 +642,14 @@ final class TorrentStreamer {
         // Only these trigger libtorrent's cancel_non_critical() — the equivalent
         // of WebTorrent's hotswap mechanism. This focuses ALL deadline-driven
         // bandwidth on just 1–2 pieces instead of spreading across 50+.
-        for i in 0..<criticalLength {
-            let piece = start + i
-            guard piece <= endPiece else { break }
-            torrentHandle.setPiecePriority(piece, priority: 7)
-            let deadline = critBase + Int32(i) * critStep
-            torrentHandle.setPieceDeadline(piece, deadline: deadline)
+        withTorrentHandle(()) { activeHandle in
+            for i in 0..<criticalLength {
+                let piece = start + i
+                guard piece <= endPiece else { break }
+                activeHandle.setPiecePriority(piece, priority: 7)
+                let deadline = critBase + Int32(i) * critStep
+                activeHandle.setPieceDeadline(piece, deadline: deadline)
+            }
         }
 
         // Look-ahead pieces: priority 7, NO deadlines.
@@ -639,10 +657,12 @@ final class TorrentStreamer {
         // priority (7) keeps them ahead of background pieces (1). No
         // deadlines means they don't compete with critical pieces for
         // libtorrent's time-critical scheduling.
-        for i in criticalLength..<bufTotal {
-            let piece = start + i
-            guard piece <= endPiece else { break }
-            torrentHandle.setPiecePriority(piece, priority: 7)
+        withTorrentHandle(()) { activeHandle in
+            for i in criticalLength..<bufTotal {
+                let piece = start + i
+                guard piece <= endPiece else { break }
+                activeHandle.setPiecePriority(piece, priority: 7)
+            }
         }
 
         activeWindowStart = start
@@ -660,11 +680,13 @@ final class TorrentStreamer {
     /// subtitle tracks when the stream first opens.
     private func requestHeadPieces() {
         let headEnd = min(beginPiece + headPieceCount - 1, endPiece)
-        forEachPiece(from: beginPiece, through: headEnd) { piece in
-            torrentHandle.setPiecePriority(piece, priority: 7) // top priority
-            let offset = Int32(piece - beginPiece)
-            let deadline = criticalDeadlineBase + offset * criticalDeadlineStep
-            torrentHandle.setPieceDeadline(piece, deadline: deadline)
+        withTorrentHandle(()) { activeHandle in
+            forEachPiece(from: beginPiece, through: headEnd) { piece in
+                activeHandle.setPiecePriority(piece, priority: 7) // top priority
+                let offset = Int32(piece - beginPiece)
+                let deadline = criticalDeadlineBase + offset * criticalDeadlineStep
+                activeHandle.setPieceDeadline(piece, deadline: deadline)
+            }
         }
     }
 
@@ -690,8 +712,10 @@ final class TorrentStreamer {
     /// deadlines reactively on exactly the pieces needed at that moment.
     private func requestTailPieces() {
         let tailStart = max(endPiece - tailPieceCount + 1, beginPiece)
-        forEachPiece(from: tailStart, through: endPiece) { piece in
-            torrentHandle.setPiecePriority(piece, priority: 7)
+        withTorrentHandle(()) { activeHandle in
+            forEachPiece(from: tailStart, through: endPiece) { piece in
+                activeHandle.setPiecePriority(piece, priority: 7)
+            }
         }
     }
 
@@ -748,10 +772,14 @@ final class TorrentStreamer {
             }
 
             guard isActive else { break }
-            torrentHandle.updateSnapshot()
-            let snap = torrentHandle.snapshot
-            guard let entry = snap.files.first(where: { $0.index == fileIndex }),
-                  let pieces = entry.pieces as? [NSNumber] else {
+            let metadataState: (TorrentHandle.Snapshot, FileEntry, [NSNumber])? = withTorrentHandle(nil) { activeHandle in
+                activeHandle.updateSnapshot()
+                let snapshot = activeHandle.snapshot
+                guard let entry = snapshot.files.first(where: { $0.index == fileIndex }),
+                      let pieces = entry.pieces as? [NSNumber] else { return nil }
+                return (snapshot, entry, pieces)
+            }
+            guard let (snap, entry, pieces) = metadataState else {
                 Thread.sleep(forTimeInterval: pollInterval)
                 continue
             }
@@ -834,8 +862,10 @@ final class TorrentStreamer {
             if piece <= headEnd { return }
             // Don't reset tail pieces — they must stay active for MKV Cues/index.
             if piece >= tailStart { return }
-            torrentHandle.setPiecePriority(piece, priority: bgPriority)
-            torrentHandle.resetPieceDeadline(piece)
+            withTorrentHandle(()) { activeHandle in
+                activeHandle.setPiecePriority(piece, priority: bgPriority)
+                activeHandle.resetPieceDeadline(piece)
+            }
         }
     }
 
@@ -848,8 +878,10 @@ final class TorrentStreamer {
         forEachPiece(from: activeWindowStart, through: activeWindowEnd) { piece in
             if piece <= headEnd { return }
             if piece >= tailStart { return }
-            torrentHandle.setPiecePriority(piece, priority: bgPriority)
-            torrentHandle.resetPieceDeadline(piece)
+            withTorrentHandle(()) { activeHandle in
+                activeHandle.setPiecePriority(piece, priority: bgPriority)
+                activeHandle.resetPieceDeadline(piece)
+            }
         }
         activeWindowStart = -1
         activeWindowEnd = -1

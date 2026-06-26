@@ -82,11 +82,15 @@ public class VideoService: NSObject {
 
         // Fast path: if metadata is already available (re-open of existing torrent or
         // .torrent file add), populate CoreData immediately.
-        handle.updateSnapshot()
-        let files = handle.snapshot.files
-        if !files.isEmpty {
-            print("VideoService: metadata available immediately, \(files.count) files")
-            insertVideosFromSnapshot(files, snapshot: handle.snapshot)
+        let state: (TorrentHandle.Snapshot, [FileEntry])? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snapshot = activeHandle.snapshot
+            return (snapshot, snapshot.files)
+        }
+
+        if let state, !state.1.isEmpty {
+            print("VideoService: metadata available immediately, \(state.1.count) files")
+            insertVideosFromSnapshot(state.1, snapshot: state.0)
         } else {
             print("VideoService: metadata not yet available — spinner stays until didReceiveUpdateForTorrent")
         }
@@ -124,31 +128,39 @@ public class VideoService: NSObject {
         // Read live download progress from the snapshot (updated by TorrentService background queue).
         // Do NOT write back to CoreData here — progress is display-only and saving during
         // cellForRowAt causes unnecessary CoreData churn every refresh tick.
-        let files = handle.snapshot.files
-        guard let entry = files.first(where: { $0.index == Int(index) }) else { return 0 }
-        return Float(entry.progress)
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: 0) { activeHandle in
+            let files = activeHandle.snapshot.files
+            guard let entry = files.first(where: { $0.index == Int(index) }) else { return 0 }
+            return Float(entry.progress)
+        }
     }
 
     /// Returns the number of bytes already downloaded for this file index (live from snapshot).
     func downloadedBytesForFileIndex(_ index: UInt) -> UInt64 {
         guard let handle = torrentHandle else { return 0 }
-        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
-        return entry.downloaded
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: 0) { activeHandle in
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
+            return entry.downloaded
+        }
     }
 
     /// Returns the total size in bytes for this file index (live from snapshot).
     func totalBytesForFileIndex(_ index: UInt) -> UInt64 {
         guard let handle = torrentHandle else { return 0 }
-        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
-        return entry.size
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: 0) { activeHandle in
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
+            return entry.size
+        }
     }
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
         guard let handle = torrentHandle else { return "" }
-        // Use the already-updated snapshot (set by background queue in TorrentService)
-        let snap = handle.snapshot
-        guard let entry = snap.files.first(where: { $0.index == Int(index) }) else { return "" }
-        let filePath = resolvedPath(for: entry, in: snap)
+        let filePath = TorrentService.sharedTorrentService.withActiveHandle(handle, default: "") { activeHandle in
+            let snap = activeHandle.snapshot
+            guard let entry = snap.files.first(where: { $0.index == Int(index) }) else { return "" }
+            return resolvedPath(for: entry, in: snap)
+        }
+        guard !filePath.isEmpty else { return "" }
         guard let hashHex = torrentEntity.torrentHashString else { return filePath }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
@@ -162,15 +174,18 @@ public class VideoService: NSObject {
 
     func CheckIsDoNotDownloadForFileIndex(_ index: UInt) -> Bool? {
         guard let handle = torrentHandle else { return nil }
-        // Use the snapshot already updated by TorrentService's background queue
-        guard let entry = handle.snapshot.files.first(where: { $0.index == Int(index) }) else { return nil }
-        return entry.priority == FileEntry.Priority.dontDownload
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return nil }
+            return entry.priority == FileEntry.Priority.dontDownload
+        }
     }
 
     func SetDoNotDownloadForFileIndex(_ index: UInt, flag: Bool) {
         guard let handle = torrentHandle else { return }
         let priority: FileEntry.Priority = flag ? .dontDownload : .defaultPriority
-        handle.setFilePriority(priority, at: Int(index))
+        TorrentService.sharedTorrentService.withActiveHandle(handle, default: ()) { activeHandle in
+            activeHandle.setFilePriority(priority, at: Int(index))
+        }
     }
 
     /// Hayase approach: focus download bandwidth on the selected episode.
@@ -189,49 +204,52 @@ public class VideoService: NSObject {
     func selectFileForStreaming(_ fileIndex: UInt) {
         guard let handle = torrentHandle else { return }
 
-        // Refresh snapshot so we have up-to-date file entries and piece indices.
-        handle.updateSnapshot()
+        TorrentService.sharedTorrentService.withActiveHandle(handle, default: ()) { activeHandle in
+            // Refresh snapshot so we have up-to-date file entries and piece indices.
+            activeHandle.updateSnapshot()
+            let snapshot = activeHandle.snapshot
 
-        for entry in handle.snapshot.files {
-            let isTargetVideo = entry.index == Int(fileIndex)
-            let isSubtitleOrFont = Self.isSubtitleOrFontFile(entry.name)
-            let priority: FileEntry.Priority = (isTargetVideo || isSubtitleOrFont) ? .defaultPriority : .dontDownload
-            handle.setFilePriority(priority, at: Int(entry.index))
-        }
-
-        // Enable sequential download so libtorrent biases toward beginning
-        // pieces, naturally fetching MKV header/metadata first.
-        handle.setSequentialDownload(true)
-
-        // Override all target-file pieces to priority 1 at the PIECE level.
-        // setFilePriority(.defaultPriority) sets them to 4 at the file level,
-        // but we want the gap between metadata pieces (7) and everything else
-        // to be as large as possible so libtorrent strongly prefers metadata.
-        // Without this, the priority-4 pieces compete with priority-7 head/tail
-        // pieces for bandwidth on low-seeder torrents with few peers.
-        if let entry = handle.snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
-            let begin = Int(entry.begin_idx)
-            // Clamp endIdx: LibTorrent-Swift uses integer division which can
-            // give one-past-the-last for piece-aligned files.
-            let rawEnd = Int(entry.end_idx)
-            let snapshotPieceCount = Int(handle.snapshot.numberOfPieces)
-            let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEnd
-            let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
-            forEachPiece(from: begin, through: end) { piece in
-                handle.setPiecePriority(piece, priority: 1)
+            for entry in snapshot.files {
+                let isTargetVideo = entry.index == Int(fileIndex)
+                let isSubtitleOrFont = Self.isSubtitleOrFontFile(entry.name)
+                let priority: FileEntry.Priority = (isTargetVideo || isSubtitleOrFont) ? .defaultPriority : .dontDownload
+                activeHandle.setFilePriority(priority, at: Int(entry.index))
             }
+
+            // Enable sequential download so libtorrent biases toward beginning
+            // pieces, naturally fetching MKV header/metadata first.
+            activeHandle.setSequentialDownload(true)
+
+            // Override all target-file pieces to priority 1 at the PIECE level.
+            // setFilePriority(.defaultPriority) sets them to 4 at the file level,
+            // but we want the gap between metadata pieces (7) and everything else
+            // to be as large as possible so libtorrent strongly prefers metadata.
+            // Without this, the priority-4 pieces compete with priority-7 head/tail
+            // pieces for bandwidth on low-seeder torrents with few peers.
+            if let entry = snapshot.files.first(where: { $0.index == Int(fileIndex) }) {
+                let begin = Int(entry.begin_idx)
+                // Clamp endIdx: LibTorrent-Swift uses integer division which can
+                // give one-past-the-last for piece-aligned files.
+                let rawEnd = Int(entry.end_idx)
+                let snapshotPieceCount = Int(snapshot.numberOfPieces)
+                let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEnd
+                let end = totalTorrentPieces > 0 ? min(rawEnd, totalTorrentPieces - 1) : rawEnd
+                forEachPiece(from: begin, through: end) { piece in
+                    activeHandle.setPiecePriority(piece, priority: 1)
+                }
+            }
+
+            // Immediately request head + tail pieces for MKV metadata.
+            // Head pieces contain SeekHead/Info(duration)/Tracks(subtitle defs).
+            // Tail pieces contain Cues (seek index). Requesting these NOW — before
+            // the player opens — gives them maximum download time.
+            // These MUST be set AFTER the priority-1 loop above so they override
+            // the low priority with priority 7 + tight deadlines.
+            requestMetadataPieces(handle: activeHandle, fileIndex: fileIndex)
+
+            // Force re-announce to all trackers so we discover peers immediately.
+            activeHandle.forceReannounce()
         }
-
-        // Immediately request head + tail pieces for MKV metadata.
-        // Head pieces contain SeekHead/Info(duration)/Tracks(subtitle defs).
-        // Tail pieces contain Cues (seek index). Requesting these NOW — before
-        // the player opens — gives them maximum download time.
-        // These MUST be set AFTER the priority-1 loop above so they override
-        // the low priority with priority 7 + tight deadlines.
-        requestMetadataPieces(handle: handle, fileIndex: fileIndex)
-
-        // Force re-announce to all trackers so we discover peers immediately.
-        handle.forceReannounce()
     }
 
     /// Target bytes from file start to request for MKV header metadata.
@@ -325,12 +343,18 @@ public class VideoService: NSObject {
             // Metadata not yet committed to CoreData. For magnet links, hasMetadata is false
             // until the ut_metadata extension downloads it from DHT/peers. Once true, files
             // will also be populated (torrent_file() is non-null when has_metadata is true).
-            guard handle.snapshot.hasMetadata else {
-                let peers = handle.snapshot.numberOfPeers
+            let state: (TorrentHandle.Snapshot, [FileEntry])? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
+                let snapshot = activeHandle.snapshot
+                return (snapshot, snapshot.files)
+            }
+            guard let state else { return }
+
+            guard state.0.hasMetadata else {
+                let peers = state.0.numberOfPeers
                 print("VideoService: snapshot update — hasMetadata=false, peers=\(peers) (waiting for metadata)")
                 return  // Keep spinner running; post no notification.
             }
-            let files = handle.snapshot.files
+            let files = state.1
             print("VideoService: metadata arrived via update, \(files.count) files — populating CoreData")
 
             // Clear any stale video rows for this entity without touching the session.
@@ -347,7 +371,7 @@ public class VideoService: NSObject {
             // Re-store handle and hash (ClearCurrentTorrentEntityAndVideos would have nil'd them).
             self.torrentHandle = handle
             torrentEntity.torrentHashString = handleHex
-            insertVideosFromSnapshot(files, snapshot: handle.snapshot)
+            insertVideosFromSnapshot(files, snapshot: state.0)
         } else {
             // CoreData already has video rows. Just notify the UI to refresh progress
             // values read live from handle.snapshot.

@@ -1084,7 +1084,10 @@ final class ExtensionSearchViewController: UIViewController {
         // Update the HUD with live torrent status while waiting.
         metadataStatusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self, let vs = self.pendingVideoService, let hud = self.pendingHud else { return }
-            guard let snap = vs.torrentHandle?.snapshot else {
+            guard let handle = vs.torrentHandle,
+                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                      activeHandle.snapshot
+                  }) else {
                 hud.message = "Connecting to peers…"
                 return
             }
@@ -1144,11 +1147,15 @@ final class ExtensionSearchViewController: UIViewController {
         if videos.count == 1 {
             targetVideo = videos[0]
             targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
-        } else if let handle = vs.torrentHandle {
+        } else if let handle = vs.torrentHandle,
+                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                      activeHandle.snapshot
+                  }) {
             let resolver = TorrentBatchResolver()
+            let files = snap.files
             if let animeItem {
                 isResolvingPendingMetadata = true
-                resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode, targetMedia: animeItem) { [weak self] result in
+                resolver.resolve(files: files, targetEpisode: currentEpisode, targetMedia: animeItem) { [weak self] result in
                     guard let self else { return }
                     self.isResolvingPendingMetadata = false
                     var resolvedVideo: Videos?
@@ -1161,7 +1168,7 @@ final class ExtensionSearchViewController: UIViewController {
                     self.presentPendingVideo(vs: vs, entity: entity, targetVideo: resolvedVideo, targetIndex: resolvedIndex, videos: videos)
                 }
                 return
-            } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: currentEpisode),
+            } else if let match = resolver.resolve(files: files, targetEpisode: currentEpisode),
                       let index = fileIndex(from: match.entry.index) {
                 targetIndex = index
                 targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }

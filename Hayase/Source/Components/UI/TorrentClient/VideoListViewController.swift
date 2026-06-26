@@ -293,7 +293,10 @@ class VideoListViewController: UIViewController {
             let count = self.videoResultsController?.sections?.first?.objects?.count ?? 0
             // While the spinner is animating (loading phase), show live torrent state.
             if self.loadingIndicator.isAnimating {
-                if let snap = self.videoService?.torrentHandle?.snapshot {
+                if let handle = self.videoService?.torrentHandle,
+                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                       activeHandle.snapshot
+                   }) {
                     let peers = snap.numberOfPeers
                     switch snap.state {
                     case .downloadingMetadata:
@@ -337,15 +340,21 @@ class VideoListViewController: UIViewController {
         // episode, use TorrentBatchResolver to pick the correct file and start
         // streaming it immediately (skip the manual file-selection step).
         if !didAutoResolve, count > 1, let ep = targetEpisode {
-            if let vs = videoService, let handle = vs.torrentHandle, handle.snapshot.hasMetadata {
+            if let vs = videoService,
+               let handle = vs.torrentHandle,
+               let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                   activeHandle.snapshot
+               }),
+               snap.hasMetadata {
                 didAutoResolve = true
                 let resolver = TorrentBatchResolver()
+                let files = snap.files
                 if let targetMedia = resolverTargetMedia() {
-                    resolver.resolve(files: handle.snapshot.files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
+                    resolver.resolve(files: files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
                         guard let self, let match = result.target else { return }
                         self.selectAndOpenResolvedMatch(match, videoService: vs)
                     }
-                } else if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: ep) {
+                } else if let match = resolver.resolve(files: files, targetEpisode: ep) {
                     selectAndOpenResolvedMatch(match, videoService: vs)
                 }
             }

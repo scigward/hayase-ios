@@ -378,10 +378,22 @@ final class TorrentDetailViewController: UIViewController {
         filesViewController = nil
     }
 
+    private func readSnapshot<T>(from handle: TorrentHandle?, default defaultValue: T, _ body: (TorrentHandle.Snapshot) -> T) -> T {
+        guard let handle else { return defaultValue }
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: defaultValue) { activeHandle in
+            body(activeHandle.snapshot)
+        }
+    }
+
+    private func snapshotName(for handle: TorrentHandle) -> String {
+        readSnapshot(from: handle, default: "") { $0.name }
+    }
+
     // MARK: - Data update (matches overview.svelte live binding)
 
     private func update() {
-        guard let snap = handle?.snapshot else { return }
+        let snap = readSnapshot(from: handle, default: nil) { Optional($0) }
+        guard let snap else { return }
 
         // Header
         nameLabel.text = snap.name.isEmpty ? "No Name Provided" : snap.name
@@ -459,7 +471,8 @@ final class TorrentDetailViewController: UIViewController {
     }
 
     private func updatePeersTab() {
-        guard let snap = handle?.snapshot else { return }
+        let snap = readSnapshot(from: handle, default: nil) { Optional($0) }
+        guard let snap else { return }
         peerSeedersValue.text  = "\(snap.numberOfSeeds)"
         peerLeechersValue.text = "\(snap.numberOfLeechers)"
         peerWiresValue.text    = "\(snap.numberOfPeers)"
@@ -770,7 +783,7 @@ final class TorrentDetailViewController: UIViewController {
     private func refreshLibrary() {
         libraryEntries = TorrentService.sharedTorrentService.handles
             .map { (hash: $0.key, handle: $0.value, entity: TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash($0.key).first) }
-            .sorted { $0.handle.snapshot.name < $1.handle.snapshot.name }
+            .sorted { snapshotName(for: $0.handle) < snapshotName(for: $1.handle) }
         libraryTableView?.reloadData()
 
         // Resize table to fit content
@@ -1098,7 +1111,10 @@ final class LibraryEntryCell: UITableViewCell {
     }
 
     func configure(handle: TorrentHandle, entity: Torrents?) {
-        let snap = handle.snapshot
+        let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
+            activeHandle.snapshot
+        }
+        guard let snap else { return }
 
         // Series name from CoreData Animes entity
         let animeName = entity?.animes?.animeTitleEnglish

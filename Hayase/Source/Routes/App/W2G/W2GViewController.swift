@@ -777,8 +777,11 @@ extension W2GViewController {
 
     /// Polls the torrent handle until metadata is available, then presents the player.
     private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController, attempt: Int = 0) {
-        handle.updateSnapshot()
-        let snap = handle.snapshot
+        let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
+            activeHandle.updateSnapshot()
+            return activeHandle.snapshot
+        }
+        guard let snap else { return }
 
         // Update HUD status.
         let peers = snap.numberOfPeers
@@ -824,16 +827,21 @@ extension W2GViewController {
         vs.torrentHandle = handle
 
         // Resolve the target file index for the episode.
+        let snapshot = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
+            activeHandle.snapshot
+        }
+        guard let snapshot else { return }
+        let files = snapshot.files
         let resolver = TorrentBatchResolver()
-        let resolvedVideos = resolver.resolveAll(files: handle.snapshot.files)
-        let playableFiles = resolvedVideos.isEmpty ? handle.snapshot.files : resolvedVideos.map { $0.entry }
+        let resolvedVideos = resolver.resolveAll(files: files)
+        let playableFiles = resolvedVideos.isEmpty ? files : resolvedVideos.map { $0.entry }
         let playableFileIndices = Set(playableFiles.map { Int($0.index) })
         func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
             guard let value else { return nil }
             return UInt(exactly: value)
         }
         guard var targetIndex = fileIndex(from: playableFiles.first?.index) else { return }
-        if let match = resolver.resolve(files: handle.snapshot.files, targetEpisode: episode),
+        if let match = resolver.resolve(files: files, targetEpisode: episode),
            let index = fileIndex(from: match.entry.index) {
             targetIndex = index
         }
@@ -848,14 +856,13 @@ extension W2GViewController {
             .filter { playableFileIndices.contains($0.videoIndex?.intValue ?? -1) }
         if videos.isEmpty {
             // Populate from torrent file list.
-            let snap = handle.snapshot
             for file in playableFiles {
                 let v = Videos(context: context)
                 v.videoName = file.name
                 v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
                 v.videoIndex = NSNumber(value: file.index)
                 // Build absolute path from downloadPath + relative file path.
-                if let base = snap.downloadPath {
+                if let base = snapshot.downloadPath {
                     v.videoPath = base.appendingPathComponent(file.path).path
                 } else {
                     v.videoPath = file.path
@@ -901,7 +908,7 @@ extension W2GViewController {
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
-            resolver.resolve(files: handle.snapshot.files, targetEpisode: episode, targetMedia: targetMedia) { result in
+            resolver.resolve(files: files, targetEpisode: episode, targetMedia: targetMedia) { result in
                 let resolvedIndex = result.target.flatMap { fileIndex(from: $0.entry.index) } ?? targetIndex
                 presentResolved(resolvedIndex)
             }

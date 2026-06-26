@@ -34,6 +34,8 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Internally guarded because libtorrent callbacks and player teardown can
     /// arrive from different queues.
     private let handlesLock = NSRecursiveLock()
+    private let handleOperationLock = NSRecursiveLock()
+    private var removingHashes: Set<String> = []
     private var _handles: [String: TorrentHandle] = [:]
     private(set) var handles: [String: TorrentHandle] {
         get {
@@ -79,9 +81,9 @@ public class TorrentService: NSObject, SessionDelegate {
         // data while updateSnapshot() is holding a lock on the same torrent.
         session.pause()
         for handle in session.torrents {
-            handle.updateSnapshot()
-            handles[handle.infoHashes.best.hex] = handle
-            print("TorrentService: restored torrent '\(handle.snapshot.name)' hex=\(handle.infoHashes.best.hex)")
+            storeActiveHandle(handle, refreshSnapshot: true)
+            let name = withActiveHandle(handle, default: "") { $0.snapshot.name }
+            print("TorrentService: restored torrent '\(name)' hex=\(handle.infoHashes.best.hex)")
         }
         session.resume()
         session.add(self)   // register delegate AFTER pause/resume
@@ -161,7 +163,68 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     func hasHandle(_ hash: String) -> Bool {
-        handles[hash] != nil
+        handleOperationLock.lock()
+        defer { handleOperationLock.unlock() }
+
+        handlesLock.lock()
+        defer { handlesLock.unlock() }
+        return _handles[hash] != nil && !removingHashes.contains(hash)
+    }
+
+    /// Runs native TorrentHandle work only while the handle is still active.
+    /// This serializes libtorrent handle access across player/server/timer paths
+    /// and avoids touching handles after they are marked for removal.
+    @discardableResult
+    func withActiveHandle<T>(_ handle: TorrentHandle, default defaultValue: T, _ operation: (TorrentHandle) -> T) -> T {
+        let hex = handle.infoHashes.best.hex
+        handleOperationLock.lock()
+        defer { handleOperationLock.unlock() }
+
+        handlesLock.lock()
+        let isActive = _handles[hex] != nil && !removingHashes.contains(hex)
+        handlesLock.unlock()
+
+        guard isActive else { return defaultValue }
+        return operation(handle)
+    }
+
+    @discardableResult
+    func refreshSnapshot(for handle: TorrentHandle) -> Bool {
+        withActiveHandle(handle, default: false) { activeHandle in
+            activeHandle.updateSnapshot()
+            return true
+        }
+    }
+
+    private func storeActiveHandle(_ handle: TorrentHandle, refreshSnapshot: Bool = false) {
+        handleOperationLock.lock()
+        defer { handleOperationLock.unlock() }
+
+        let hex = handle.infoHashes.best.hex
+        guard !removingHashes.contains(hex) else { return }
+        if refreshSnapshot { handle.updateSnapshot() }
+
+        handlesLock.lock()
+        _handles[hex] = handle
+        handlesLock.unlock()
+    }
+
+    private func markHandleRemoving(_ hex: String) {
+        handleOperationLock.lock()
+        removingHashes.insert(hex)
+        handleOperationLock.unlock()
+    }
+
+    private func removeStoredHandle(_ hex: String) {
+        handlesLock.lock()
+        _handles.removeValue(forKey: hex)
+        handlesLock.unlock()
+    }
+
+    private func finishHandleRemoval(_ hex: String) {
+        handleOperationLock.lock()
+        removingHashes.remove(hex)
+        handleOperationLock.unlock()
     }
 
     // MARK: - SessionDelegate
@@ -169,13 +232,13 @@ public class TorrentService: NSObject, SessionDelegate {
     // Call updateSnapshot() synchronously here — this matches iTorrent's prepareToAdd()
     // which calls updateSnapshot() synchronously before returning.
     public func torrentManager(_ manager: Session, didAddTorrent torrent: TorrentHandle) {
-        torrent.updateSnapshot()
-        handles[torrent.infoHashes.best.hex] = torrent
+        storeActiveHandle(torrent, refreshSnapshot: true)
     }
 
     public func torrentManager(_ manager: Session, didRemoveTorrentWithHash hashesData: TorrentHashes) {
         let hex = hashesData.best.hex
-        DispatchQueue.main.async { self.handles.removeValue(forKey: hex) }
+        removeStoredHandle(hex)
+        finishHandleRemoval(hex)
     }
 
     // didReceiveUpdateForTorrent fires on the LibTorrent alerts background thread.
@@ -184,13 +247,9 @@ public class TorrentService: NSObject, SessionDelegate {
     public func torrentManager(_ manager: Session, didReceiveUpdateForTorrent torrent: TorrentHandle) {
         let hex = torrent.infoHashes.best.hex
         DispatchQueue.global(qos: .userInitiated).async {
-            torrent.updateSnapshot()
+            guard self.refreshSnapshot(for: torrent) else { return }
             DispatchQueue.main.async {
-                // Guard against zombie updates: if the handle was removed between
-                // the background snapshot and this main-thread callback (e.g. by
-                // safeRemoveTorrent / removeOtherTorrents), don't re-add it.
-                guard self.handles[hex] != nil else { return }
-                self.handles[hex] = torrent
+                guard self.hasHandle(hex) else { return }
                 NotificationCenter.default.post(
                     name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification),
                     object: self,
@@ -225,12 +284,7 @@ public class TorrentService: NSObject, SessionDelegate {
         let toRemove = handles.filter { $0.key != exceptHash }
         for (hex, handle) in toRemove {
             print("TorrentService: persist OFF — removing torrent \(hex)")
-            notifyWillRemove(hex: hex)
-            // Remove from handles BEFORE session.removeTorrent() so that any
-            // in-flight didReceiveUpdateForTorrent dispatches see the key is
-            // gone and skip re-adding the zombie handle.
-            handles.removeValue(forKey: hex)
-            session.removeTorrent(handle, deleteFiles: true)
+            safeRemoveTorrent(handle, deleteFiles: true)
         }
     }
 
@@ -261,11 +315,16 @@ public class TorrentService: NSObject, SessionDelegate {
     /// tear down first, preventing use-after-free crashes.
     func safeRemoveTorrent(_ handle: TorrentHandle, deleteFiles: Bool) {
         let hex = handle.infoHashes.best.hex
+        markHandleRemoving(hex)
+        removeStoredHandle(hex)
         notifyWillRemove(hex: hex)
-        // Remove from handles BEFORE session.removeTorrent() so that any
-        // in-flight didReceiveUpdateForTorrent dispatches see the key is
-        // gone and skip re-adding the zombie handle.
-        handles.removeValue(forKey: hex)
+
+        handleOperationLock.lock()
+        defer {
+            removingHashes.remove(hex)
+            handleOperationLock.unlock()
+        }
+
         session.removeTorrent(handle, deleteFiles: deleteFiles)
     }
 
@@ -287,8 +346,7 @@ public class TorrentService: NSObject, SessionDelegate {
         //    but our handles dict missed it — can happen if the hash format
         //    (v1 vs v2) changed between sessions.
         if let existing = session.torrents.first(where: { $0.infoHashes.best.hex == hash }) {
-            existing.updateSnapshot()
-            handles[hash] = existing
+            storeActiveHandle(existing, refreshSnapshot: true)
             print("TorrentService: readdTorrent — found in session.torrents \(hash)")
             return existing
         }
@@ -309,15 +367,14 @@ public class TorrentService: NSObject, SessionDelegate {
         }
         if let handle = session.addTorrent(magnetURI) {
             let hex = handle.infoHashes.best.hex
-            handles[hex] = handle
-            handle.forceReannounce()
+            storeActiveHandle(handle)
+            withActiveHandle(handle, default: ()) { $0.forceReannounce() }
             print("TorrentService: readdTorrent — added magnet, hex=\(hex)")
             return handle
         }
         // 4. addTorrent returned nil → duplicate; scan session.torrents again.
         if let existing = session.torrents.first(where: { $0.infoHashes.best.hex == hash }) {
-            existing.updateSnapshot()
-            handles[hash] = existing
+            storeActiveHandle(existing, refreshSnapshot: true)
             print("TorrentService: readdTorrent — duplicate, found after add attempt \(hash)")
             return existing
         }
@@ -408,7 +465,7 @@ public class TorrentService: NSObject, SessionDelegate {
             if let hex = hexHash, let existing = self.handles[hex] {
                 print("TorrentService: magnet already in session, reusing handle \(hex)")
                 self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
-                existing.forceReannounce()   // re-announce so we pick up fresh peers
+                self.withActiveHandle(existing, default: ()) { $0.forceReannounce() }   // re-announce so we pick up fresh peers
                 completion(.success(existing))
                 return
             }
@@ -424,7 +481,7 @@ public class TorrentService: NSObject, SessionDelegate {
             if let handle = self.session.addTorrent(magnetURI) {
                 let hex = handle.infoHashes.best.hex
                 print("TorrentService: addTorrent(magnet) ok, hex=\(hex)")
-                self.handles[hex] = handle
+                self.storeActiveHandle(handle)
                 self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
                 if hexHash == nil {
                     torrentEntity.torrentHashString = hex
@@ -432,7 +489,7 @@ public class TorrentService: NSObject, SessionDelegate {
                 }
                 // Force-reannounce immediately so trackers are contacted right away
                 // instead of waiting for libtorrent's default announce interval.
-                handle.forceReannounce()
+                self.withActiveHandle(handle, default: ()) { $0.forceReannounce() }
                 completion(.success(handle))
                 return
             }
@@ -441,9 +498,9 @@ public class TorrentService: NSObject, SessionDelegate {
             if let hex = hexHash,
                let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hex }) {
                 print("TorrentService: magnet duplicate, found in session.torrents \(hex)")
-                self.handles[hex] = existing
+                self.storeActiveHandle(existing)
                 self.cleanupOtherTorrentsIfNeeded(keepingHash: hex)
-                existing.forceReannounce()
+                self.withActiveHandle(existing, default: ()) { $0.forceReannounce() }
                 completion(.success(existing))
                 return
             }
@@ -508,14 +565,14 @@ public class TorrentService: NSObject, SessionDelegate {
                     return
                 }
                 if let handle = self.session.addTorrent(torrentFile) {
-                    self.handles[hexHash] = handle
+                    self.storeActiveHandle(handle)
                     self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
-                    handle.forceReannounce()
+                    self.withActiveHandle(handle, default: ()) { $0.forceReannounce() }
                     completion(.success(handle))
                     return
                 }
                 if let existing = self.session.torrents.first(where: { $0.infoHashes.best.hex == hexHash }) {
-                    self.handles[hexHash] = existing
+                    self.storeActiveHandle(existing)
                     self.cleanupOtherTorrentsIfNeeded(keepingHash: hexHash)
                     completion(.success(existing))
                     return

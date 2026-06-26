@@ -65,8 +65,6 @@ final class LocalStreamServer {
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "LocalStreamServer", qos: .userInitiated)
-    /// Serial queue to protect torrentHandle.updateSnapshot() calls.
-    private let snapshotQueue = DispatchQueue(label: "LocalStreamServer.snapshot")
     /// Lock that protects the `connections` array.  `stop()` can be called from
     /// any thread (typically main) while `handleConnection`/`removeConnection`
     /// run on `queue`, so a lock is required to prevent concurrent array mutations.
@@ -98,6 +96,10 @@ final class LocalStreamServer {
         URL(string: "http://127.0.0.1:\(port)/video.mkv")!
     }
 
+    private func withTorrentHandle<T>(_ defaultValue: T, _ body: (TorrentHandle) -> T) -> T {
+        TorrentService.sharedTorrentService.withActiveHandle(torrentHandle, default: defaultValue, body)
+    }
+
     // MARK: - Init
 
     init(torrentHandle: TorrentHandle, fileIndex: UInt, filePath: String) {
@@ -106,11 +108,16 @@ final class LocalStreamServer {
         self.fileIndex = idx
         self.filePath = filePath
 
-        torrentHandle.updateSnapshot()
-        let snap = torrentHandle.snapshot
-        let entry = snap.files.first(where: { $0.index == idx })
+        let state: (TorrentHandle.Snapshot, FileEntry?)? = TorrentService.sharedTorrentService.withActiveHandle(torrentHandle, default: nil) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snapshot = activeHandle.snapshot
+            return (snapshot, snapshot.files.first(where: { $0.index == idx }))
+        }
+
+        let snap = state?.0
+        let entry = state?.1
         self.fileSize = entry?.size ?? 0
-        self.pieceLength = Int(snap.pieceLength)
+        self.pieceLength = Int(snap?.pieceLength ?? 0)
         self.totalPieces = Int(entry?.num_pieces ?? 0)
         self.beginPiece = Int(entry?.begin_idx ?? 0)
 
@@ -120,7 +127,7 @@ final class LocalStreamServer {
         // the torrent's actual piece count so we never set priority/deadline
         // on a non-existent piece index.
         let rawEndPiece = Int(entry?.end_idx ?? 0)
-        let snapshotPieceCount = Int(snap.numberOfPieces)
+        let snapshotPieceCount = Int(snap?.numberOfPieces ?? 0)
         let totalTorrentPieces = snapshotPieceCount > 0 ? snapshotPieceCount : rawEndPiece
         self.endPiece = totalTorrentPieces > 0 ? min(rawEndPiece, totalTorrentPieces - 1) : rawEndPiece
 
@@ -469,7 +476,7 @@ final class LocalStreamServer {
                 // All zeros: piece data not flushed at all. Retry with flush.
                 for _ in 0..<5 {
                     guard !isStopped else { break }
-                    torrentHandle.flushCache()
+                    withTorrentHandle(()) { $0.flushCache() }
                     Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
                     data = fileHandle.readData(ofLength: readLength)
@@ -492,7 +499,7 @@ final class LocalStreamServer {
                     // Data changed — flush was still in progress. Use newer
                     // read and give one more chance for it to stabilize.
                     data = verifyData
-                    if !isStopped { torrentHandle.flushCache() }
+                    if !isStopped { withTorrentHandle(()) { $0.flushCache() } }
                     Thread.sleep(forTimeInterval: 0.05)
                     fileHandle.seek(toFileOffset: currentOffset)
                     let finalData = fileHandle.readData(ofLength: readLength)
@@ -513,7 +520,10 @@ final class LocalStreamServer {
                 semaphore.signal()
             })
 
-            semaphore.wait()
+            if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                connection.cancel()
+                break
+            }
             if sendError != nil { break }
 
             currentOffset = readEnd + 1
@@ -548,12 +558,11 @@ final class LocalStreamServer {
     }
 
     /// Checks if a local piece (0-based index within the file) has been downloaded.
-    /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
     private func isLocalPieceDownloaded(_ localIndex: Int) -> Bool {
         guard !isStopped else { return false }
-        return snapshotQueue.sync {
-            torrentHandle.updateSnapshot()
-            guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
+        return withTorrentHandle(false) { activeHandle in
+            activeHandle.updateSnapshot()
+            guard let entry = activeHandle.snapshot.files.first(where: { $0.index == fileIndex }),
                   localIndex >= 0, localIndex < entry.pieces.count else { return false }
             return entry.pieces[localIndex].boolValue
         }
@@ -566,7 +575,8 @@ final class LocalStreamServer {
     /// TorrentStreamer starts all pieces at priority 1 (low), so this boosts
     /// the needed pieces to top priority.
     ///
-    /// Thread-safe: uses snapshotQueue to serialize torrentHandle access.
+    /// TorrentHandle access is routed through TorrentService so removal and
+    /// snapshot refreshes cannot race with this polling loop.
     ///
     /// - Parameters:
     ///   - firstLocal: First local piece index (0-based within file).
@@ -596,46 +606,48 @@ final class LocalStreamServer {
         let readAheadCount = streamedMode ? 5 : 50
 
         func applyPriorityBoost() {
-            // Set priority + deadlines on the immediately-needed pieces.
-            // These are the "critical" pieces — equivalent to WebTorrent's
-            // critical() marking. Only these get deadlines, so libtorrent's
-            // cancel_non_critical() focuses ALL bandwidth on them.
-            // Priority must be > 0 or libtorrent ignores the deadline.
-            //
-            // Deadline values: 10 ms base + 50 ms/piece — identical to
-            // TorrentStreamer.criticalDeadlineBase/Step. Using the same values
-            // ensures applyPriorityBoost never overrides TorrentStreamer's
-            // tighter seek deadlines (seekDeadlineBase = 5 ms + 30 ms/piece)
-            // with a much looser value. Previously 500 ms + 200 ms/piece
-            // was used but this was far too loose, overriding seek deadlines
-            // and delaying resume by ~500 ms after each 1-second reboost tick.
-            for localIdx in safeFirst...safeLast {
-                let globalIdx = beginPiece + localIdx
-                torrentHandle.setPiecePriority(globalIdx, priority: 7)
-                let offset = min(localIdx - safeFirst, 1000) // clamp: avoid Int32 overflow
-                let deadline = Int32(10 + offset * 50)   // 10 ms base + 50 ms/piece
-                torrentHandle.setPieceDeadline(globalIdx, deadline: deadline)
-            }
-
-            // Read-ahead: boost priority on pieces beyond the current chunk
-            // so libtorrent downloads them via sequential ordering. Priority
-            // only, NO deadlines — this matches WebTorrent's approach where
-            // only the critical 1–2 pieces get deadline treatment. Read-ahead
-            // pieces are downloaded by sequential mode + elevated priority
-            // without competing for deadline-driven bandwidth.
-            let upperBound: Int
-            if maxLocalPiece > 0 {
-                upperBound = maxLocalPiece
-            } else if totalPieces > 0 {
-                upperBound = totalPieces - 1
-            } else {
-                upperBound = safeLast
-            }
-            let readAheadEnd = min(safeLast + readAheadCount, upperBound)
-            if readAheadEnd > safeLast {
-                for localIdx in (safeLast + 1)...readAheadEnd {
+            withTorrentHandle(()) { activeHandle in
+                // Set priority + deadlines on the immediately-needed pieces.
+                // These are the "critical" pieces — equivalent to WebTorrent's
+                // critical() marking. Only these get deadlines, so libtorrent's
+                // cancel_non_critical() focuses ALL bandwidth on them.
+                // Priority must be > 0 or libtorrent ignores the deadline.
+                //
+                // Deadline values: 10 ms base + 50 ms/piece — identical to
+                // TorrentStreamer.criticalDeadlineBase/Step. Using the same values
+                // ensures applyPriorityBoost never overrides TorrentStreamer's
+                // tighter seek deadlines (seekDeadlineBase = 5 ms + 30 ms/piece)
+                // with a much looser value. Previously 500 ms + 200 ms/piece
+                // was used but this was far too loose, overriding seek deadlines
+                // and delaying resume by ~500 ms after each 1-second reboost tick.
+                for localIdx in safeFirst...safeLast {
                     let globalIdx = beginPiece + localIdx
-                    torrentHandle.setPiecePriority(globalIdx, priority: 7)
+                    activeHandle.setPiecePriority(globalIdx, priority: 7)
+                    let offset = min(localIdx - safeFirst, 1000) // clamp: avoid Int32 overflow
+                    let deadline = Int32(10 + offset * 50)   // 10 ms base + 50 ms/piece
+                    activeHandle.setPieceDeadline(globalIdx, deadline: deadline)
+                }
+
+                // Read-ahead: boost priority on pieces beyond the current chunk
+                // so libtorrent downloads them via sequential ordering. Priority
+                // only, NO deadlines — this matches WebTorrent's approach where
+                // only the critical 1–2 pieces get deadline treatment. Read-ahead
+                // pieces are downloaded by sequential mode + elevated priority
+                // without competing for deadline-driven bandwidth.
+                let upperBound: Int
+                if maxLocalPiece > 0 {
+                    upperBound = maxLocalPiece
+                } else if totalPieces > 0 {
+                    upperBound = totalPieces - 1
+                } else {
+                    upperBound = safeLast
+                }
+                let readAheadEnd = min(safeLast + readAheadCount, upperBound)
+                if readAheadEnd > safeLast {
+                    for localIdx in (safeLast + 1)...readAheadEnd {
+                        let globalIdx = beginPiece + localIdx
+                        activeHandle.setPiecePriority(globalIdx, priority: 7)
+                    }
                 }
             }
         }
@@ -655,53 +667,47 @@ final class LocalStreamServer {
         var didLogInitialWait = false
 
         while !isStopped {
-            var allReady = true
-            var missingPieces = 0
             guard !isStopped else { break }
-            snapshotQueue.sync {
-                guard !isStopped else { return }
-                torrentHandle.updateSnapshot()
-                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) {
-                    let pieces = entry.pieces
+            let readiness = withTorrentHandle((allReady: false, missingPieces: 1)) { activeHandle -> (allReady: Bool, missingPieces: Int) in
+                guard !isStopped else { return (false, 1) }
+                activeHandle.updateSnapshot()
+                let snapshot = activeHandle.snapshot
+                guard let entry = snapshot.files.first(where: { $0.index == fileIndex }) else {
+                    return (false, 1)
+                }
 
-                    for localIdx in safeFirst...safeLast {
-                        if localIdx < pieces.count {
-                            // Normal case: check the file's local piece array.
-                            if !pieces[localIdx].boolValue {
-                                allReady = false
-                                missingPieces += 1
-                                break
+                let pieces = entry.pieces
+                for localIdx in safeFirst...safeLast {
+                    if localIdx < pieces.count {
+                        // Normal case: check the file's local piece array.
+                        if !pieces[localIdx].boolValue {
+                            return (false, 1)
+                        }
+                    } else {
+                        // Beyond the file's local piece array. This happens
+                        // for multi-file/batch torrents where the file doesn't
+                        // end on a piece boundary — the boundary piece is shared
+                        // with the next file and num_pieces (integer division)
+                        // underestimates by 1. Fall back to the GLOBAL torrent
+                        // piece status array to check if it's downloaded.
+                        // Without this fallback, the server would block forever
+                        // on the boundary piece (pieces[OOB] → allReady=false).
+                        let globalIdx = beginPiece + localIdx
+                        if let globalPieces = snapshot.pieces,
+                           globalIdx >= 0, globalIdx < globalPieces.count {
+                            if !globalPieces[globalIdx].boolValue {
+                                return (false, 1)
                             }
                         } else {
-                            // Beyond the file's local piece array. This happens
-                            // for multi-file/batch torrents where the file doesn't
-                            // end on a piece boundary — the boundary piece is shared
-                            // with the next file and num_pieces (integer division)
-                            // underestimates by 1. Fall back to the GLOBAL torrent
-                            // piece status array to check if it's downloaded.
-                            // Without this fallback, the server would block forever
-                            // on the boundary piece (pieces[OOB] → allReady=false).
-                            let globalIdx = beginPiece + localIdx
-                            if let globalPieces = torrentHandle.snapshot.pieces,
-                               globalIdx >= 0, globalIdx < globalPieces.count {
-                                if !globalPieces[globalIdx].boolValue {
-                                    allReady = false
-                                    missingPieces += 1
-                                    break
-                                }
-                            } else {
-                                // Can't verify via global array either — not ready.
-                                allReady = false
-                                missingPieces += 1
-                                break
-                            }
+                            // Can't verify via global array either — not ready.
+                            return (false, 1)
                         }
                     }
-                } else {
-                    // Can't read piece status — not ready.
-                    allReady = false
                 }
+                return (true, 0)
             }
+            let allReady = readiness.allReady
+            let missingPieces = readiness.missingPieces
 
             if allReady {
                 guard !isStopped else { break }
@@ -713,7 +719,7 @@ final class LocalStreamServer {
                     // 50ms sleep wastes time for every chunk served from a file
                     // that is already buffered (WebTorrent: zero delay for cached
                     // reads via store.get callback).
-                    torrentHandle.flushCache()
+                    withTorrentHandle(()) { $0.flushCache() }
                     // Give libtorrent's disk I/O thread time to complete the flush.
                     // flushCache() posts a job asynchronously — data may not be in
                     // the OS page cache yet when it returns. 50ms handles typical
@@ -744,7 +750,7 @@ final class LocalStreamServer {
             // that can supply the pieces we're stuck on.
             if now.timeIntervalSince(lastReannounce) >= reannounceInterval {
                 guard !isStopped else { break }
-                torrentHandle.forceReannounce()
+                withTorrentHandle(()) { $0.forceReannounce() }
                 lastReannounce = now
             }
             if now.timeIntervalSince(lastStatusLog) >= statusInterval {
@@ -757,18 +763,20 @@ final class LocalStreamServer {
             // Log peer/seed count every 5 s so users can see connection status
             // for low-seeder torrents via the streaming logger overlay.
             if now.timeIntervalSince(lastPeerLog) >= 5.0 {
-                var peers = 0
-                var seeds = 0
-                var dlMB = "0.0"
-                snapshotQueue.sync {
-                    guard !isStopped else { return }
-                    let snap = torrentHandle.snapshot
-                    peers = Int(snap.numberOfPeers)
-                    seeds = Int(snap.numberOfSeeds)
+                let peerState = withTorrentHandle((peers: 0, seeds: 0, dlMB: "0.0")) { activeHandle -> (peers: Int, seeds: Int, dlMB: String) in
+                    guard !isStopped else { return (0, 0, "0.0") }
+                    let snap = activeHandle.snapshot
+                    let dlMB: String
                     if let entry = snap.files.first(where: { $0.index == fileIndex }) {
                         dlMB = String(format: "%.1f", Double(entry.downloaded) / 1_048_576)
+                    } else {
+                        dlMB = "0.0"
                     }
+                    return (Int(snap.numberOfPeers), Int(snap.numberOfSeeds), dlMB)
                 }
+                let peers = peerState.peers
+                let seeds = peerState.seeds
+                let dlMB = peerState.dlMB
                 StreamingLogger.shared.info("Waiting for pieces… peers=\(peers) seeds=\(seeds) dl=\(dlMB) MB")
                 lastPeerLog = now
             }

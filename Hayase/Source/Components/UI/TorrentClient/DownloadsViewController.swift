@@ -302,6 +302,17 @@ class DownloadsViewController: UIViewController {
         update()
     }
 
+    private func readSnapshot<T>(from handle: TorrentHandle?, default defaultValue: T, _ body: (TorrentHandle.Snapshot) -> T) -> T {
+        guard let handle else { return defaultValue }
+        return TorrentService.sharedTorrentService.withActiveHandle(handle, default: defaultValue) { activeHandle in
+            body(activeHandle.snapshot)
+        }
+    }
+
+    private func snapshotName(for handle: TorrentHandle) -> String {
+        readSnapshot(from: handle, default: "") { $0.name }
+    }
+
     // MARK: - Torrent selection
 
     private func autoSelectFirstTorrent() {
@@ -315,7 +326,7 @@ class DownloadsViewController: UIViewController {
             return
         }
         // Auto-select first handle sorted by name
-        if let first = handles.sorted(by: { $0.value.snapshot.name < $1.value.snapshot.name }).first {
+        if let first = handles.sorted(by: { snapshotName(for: $0.value) < snapshotName(for: $1.value) }).first {
             selectedHex = first.key
             selectedHandle = first.value
             selectedEntity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(first.key).first
@@ -614,7 +625,7 @@ class DownloadsViewController: UIViewController {
     }
 
     private func refreshFiles() {
-        fileEntries = selectedHandle?.snapshot.files ?? []
+        fileEntries = readSnapshot(from: selectedHandle, default: []) { $0.files }
         let query = filesSearchField.text?.lowercased() ?? ""
         if query.isEmpty {
             filteredFileEntries = fileEntries
@@ -624,7 +635,7 @@ class DownloadsViewController: UIViewController {
         // Apply column sort (mirrors Hayase addSortBy plugin: asc → desc → clear)
         if let sortCol = filesSortColumn {
             let ascending = filesSortAscending
-            let sequential = selectedHandle?.snapshot.isSequential == true
+            let sequential = readSnapshot(from: selectedHandle, default: false) { $0.isSequential }
             filteredFileEntries.sort { a, b in
                 switch sortCol {
                 case .name:
@@ -644,14 +655,19 @@ class DownloadsViewController: UIViewController {
     }
 
     private func refreshPeers() {
-        peerInfos = selectedHandle?.peerInfo() ?? []
+        if let selectedHandle {
+            peerInfos = TorrentService.sharedTorrentService.withActiveHandle(selectedHandle, default: []) { $0.peerInfo() }
+        } else {
+            peerInfos = []
+        }
         peersTableView?.reloadData()
     }
 
     // MARK: - Data update
 
     private func update() {
-        guard let snap = selectedHandle?.snapshot else { return }
+        let snap = readSnapshot(from: selectedHandle, default: nil) { Optional($0) }
+        guard let snap else { return }
 
         // Header
         nameLabel.text = snap.name.isEmpty ? "No Name Provided" : snap.name
@@ -1071,13 +1087,13 @@ class DownloadsViewController: UIViewController {
         libraryEntries = TorrentService.sharedTorrentService.handles
             .map { (hash: $0.key, handle: $0.value,
                     entity: TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash($0.key).first) }
-            .sorted { $0.handle.snapshot.name < $1.handle.snapshot.name }
+            .sorted { snapshotName(for: $0.handle) < snapshotName(for: $1.handle) }
         let query = librarySearchField.text?.lowercased() ?? ""
         if query.isEmpty {
             filteredLibraryEntries = libraryEntries
         } else {
             filteredLibraryEntries = libraryEntries.filter {
-                $0.handle.snapshot.name.lowercased().contains(query)
+                snapshotName(for: $0.handle).lowercased().contains(query)
             }
         }
         // Prune selections that no longer exist
@@ -1257,7 +1273,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
             guard indexPath.row < filteredFileEntries.count else { return cell }
             let entry = filteredFileEntries[indexPath.row]
-            let isStreaming = selectedHandle?.snapshot.isSequential == true
+            let isStreaming = readSnapshot(from: selectedHandle, default: false) { $0.isSequential }
                 && entry.priority != .dontDownload
             cell.configure(entry: entry, streamCount: isStreaming ? 1 : 0)
             return cell
@@ -1697,7 +1713,18 @@ final class LibraryColumnCell: UITableViewCell {
     }
 
     func configure(handle: TorrentHandle, entity: Torrents?) {
-        let snap = handle.snapshot
+        let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
+            activeHandle.snapshot
+        }
+        guard let snap else {
+            seriesLabel.text = entity?.animes?.animeTitleEnglish ?? entity?.animes?.animeTitleJapanese ?? "?"
+            episodeLabel.text = "?"
+            filesLabel.text = "0"
+            sizeLabel.text = "—"
+            statusLabel.text = "—"
+            statusLabel.textColor = .secondaryLabel
+            return
+        }
 
         // Series name from CoreData
         let animeName = entity?.animes?.animeTitleEnglish

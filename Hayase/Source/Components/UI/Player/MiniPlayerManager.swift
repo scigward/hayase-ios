@@ -728,12 +728,26 @@ final class MiniPlayerManager {
         // directory, so the path is correct even if the sandbox container UUID
         // changed between launches. This avoids relying on stale paths stored
         // in CoreData or UserDefaults.
-        handle.updateSnapshot()
-        let snapshot = handle.snapshot
+        let snapshotState: (TorrentHandle.Snapshot, String)? = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
+            activeHandle.updateSnapshot()
+            let snapshot = activeHandle.snapshot
+            let resolvedPath: String
+            if let entry = snapshot.files.first(where: { $0.index == Int(fileIndex) }),
+               let base = snapshot.downloadPath {
+                resolvedPath = base.appendingPathComponent(entry.path).path
+            } else {
+                resolvedPath = ""
+            }
+            return (snapshot, resolvedPath)
+        }
+        guard let (snapshot, resolvedSnapshotPath) = snapshotState else {
+            clearSessionState()
+            return
+        }
+
         let resolvedPath: String
-        if let entry = snapshot.files.first(where: { $0.index == Int(fileIndex) }),
-           let base = snapshot.downloadPath {
-            resolvedPath = base.appendingPathComponent(entry.path).path
+        if !resolvedSnapshotPath.isEmpty {
+            resolvedPath = resolvedSnapshotPath
         } else if snapshot.files.isEmpty {
             // Metadata not yet available (fastResume hasn't finished parsing).
             // Retry after a short delay so libtorrent has time to restore the
