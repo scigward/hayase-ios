@@ -4,6 +4,11 @@ import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v2'
+const MAX_EVENTS = 40
+const TORRENT_FETCH_TIMEOUT_MS = 30_000
+const METADATA_TIMEOUT_MS = 90_000
+
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
   const index = args.indexOf(name)
@@ -17,18 +22,191 @@ const tempPath = arg('--temp-path', downloadPath)
 let settings = null
 let client = null
 let loadError = null
+let clientObserversInstalled = false
+let addPatched = false
+let activeTorrent = null
+
+const events = []
+const status = {
+  version: BRIDGE_VERSION,
+  phase: 'booting',
+  sourceKind: null,
+  source: null,
+  infoHash: null,
+  ready: false,
+  metadata: false,
+  peers: 0,
+  wires: 0,
+  files: 0,
+  dht: null,
+  pex: null,
+  webRTC: false,
+  lastWarning: null,
+  lastError: null,
+  updatedAt: Date.now()
+}
 
 // esbuild's ESM output still uses a CommonJS require helper for Node builtins
 // and some dependencies. NodeMobile runs this file as ESM, so provide a real
 // require rooted at the bundled torrent-client before importing the bundle.
 globalThis.require = createRequire(new URL('./torrent-client/index.js', import.meta.url))
 
-
-const TORRENT_FETCH_TIMEOUT_MS = 30_000
-const METADATA_TIMEOUT_MS = 90_000
-
 function isHTTPURL (value) {
   return typeof value === 'string' && /^https?:\/\//i.test(value)
+}
+
+function isMagnet (value) {
+  return typeof value === 'string' && /^magnet:/i.test(value)
+}
+
+function preview (value) {
+  if (!value) return null
+  const string = String(value)
+  return string.length > 180 ? string.slice(0, 177) + '...' : string
+}
+
+function sourceDescription (id) {
+  if (id && typeof id === 'object') {
+    if (id.kind === 'torrentFileBase64') {
+      return { kind: 'torrent-file', source: preview(id.source ?? 'base64 payload') }
+    }
+    return { kind: String(id.kind ?? 'object'), source: preview(id.source ?? '[object]') }
+  }
+
+  if (isMagnet(id)) return { kind: 'magnet', source: preview(id) }
+  if (isHTTPURL(id)) return { kind: 'torrent-url', source: preview(id) }
+  if (typeof id === 'string') return { kind: 'info-hash', source: preview(id) }
+  return { kind: typeof id, source: preview(id) }
+}
+
+function setPhase (phase) {
+  status.phase = phase
+  status.updatedAt = Date.now()
+}
+
+function record (level, message, detail = {}) {
+  const text = message instanceof Error ? message.message : String(message)
+  const event = {
+    time: Date.now(),
+    level,
+    message: text,
+    ...detail
+  }
+  events.push(event)
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS)
+
+  if (level === 'error') status.lastError = text
+  if (level === 'warning') status.lastWarning = text
+  status.updatedAt = Date.now()
+
+  const logger = level === 'error' ? console.error : level === 'warning' ? console.warn : console.log
+  logger(`[WebTorrentBridge] ${text}`)
+}
+
+function getInnerClient () {
+  if (!client) return null
+  const clientSymbol = Object.getOwnPropertySymbols(client).find(symbol => symbol.description === 'client')
+  return clientSymbol ? client[clientSymbol] : null
+}
+
+function torrentPeerCount (torrent) {
+  if (!torrent) return 0
+  if (typeof torrent.numPeers === 'number') return torrent.numPeers
+  if (typeof torrent._peersLength === 'number') return torrent._peersLength
+  if (torrent._peers && typeof torrent._peers === 'object') return Object.keys(torrent._peers).length
+  return 0
+}
+
+function refreshTorrentStatus () {
+  const webtorrent = getInnerClient()
+  const torrent = activeTorrent ?? webtorrent?.torrents?.[0]
+  if (!torrent) {
+    status.ready = false
+    status.metadata = false
+    status.peers = 0
+    status.wires = 0
+    status.files = 0
+    status.infoHash = null
+    return status
+  }
+
+  activeTorrent = torrent
+  status.infoHash = torrent.infoHash ?? status.infoHash
+  status.ready = Boolean(torrent.ready)
+  status.metadata = Boolean(torrent.metadata || torrent.ready || torrent.files?.length)
+  status.peers = torrentPeerCount(torrent)
+  status.wires = torrent.wires?.length ?? 0
+  status.files = torrent.files?.length ?? 0
+  status.updatedAt = Date.now()
+  return status
+}
+
+function shortStatus () {
+  refreshTorrentStatus()
+  const parts = [status.phase]
+  if (status.sourceKind) parts.push(`source=${status.sourceKind}`)
+  if (status.infoHash) parts.push(`hash=${status.infoHash}`)
+  parts.push(`peers=${status.peers}`)
+  parts.push(`wires=${status.wires}`)
+  if (status.lastWarning) parts.push(`lastWarning=${status.lastWarning}`)
+  if (status.lastError) parts.push(`lastError=${status.lastError}`)
+  return parts.join(', ')
+}
+
+function statusPayload () {
+  refreshTorrentStatus()
+  return { ...status, events: events.slice(-12) }
+}
+
+function observeTorrent (torrent) {
+  if (!torrent || torrent.__hayaseObserved) return torrent
+  torrent.__hayaseObserved = true
+  activeTorrent = torrent
+  refreshTorrentStatus()
+
+  const update = phase => {
+    if (phase) setPhase(phase)
+    refreshTorrentStatus()
+  }
+
+  torrent.on?.('metadata', () => update('metadata-received'))
+  torrent.on?.('ready', () => update('ready'))
+  torrent.on?.('done', () => update('done'))
+  torrent.on?.('wire', () => update('peer-connected'))
+  torrent.on?.('noPeers', announceType => {
+    record('warning', `No peers from ${announceType ?? 'tracker/DHT'}`)
+    update('metadata-pending')
+  })
+  torrent.on?.('warning', error => {
+    record('warning', error?.message ?? error)
+    refreshTorrentStatus()
+  })
+  torrent.on?.('error', error => {
+    record('error', error?.message ?? error)
+    refreshTorrentStatus()
+  })
+
+  return torrent
+}
+
+function installClientObservers () {
+  const webtorrent = getInnerClient()
+  if (!webtorrent || clientObserversInstalled) return
+  clientObserversInstalled = true
+
+  webtorrent.on?.('torrent', torrent => observeTorrent(torrent))
+  webtorrent.on?.('warning', error => record('warning', error?.message ?? error))
+  webtorrent.on?.('error', error => record('error', error?.message ?? error))
+
+  if (!addPatched && typeof webtorrent.add === 'function') {
+    const originalAdd = webtorrent.add.bind(webtorrent)
+    webtorrent.add = (...addArgs) => {
+      const torrent = originalAdd(...addArgs)
+      setPhase('metadata-pending')
+      return observeTorrent(torrent)
+    }
+    addPatched = true
+  }
 }
 
 async function withTimeout (promise, timeoutMs, message) {
@@ -50,7 +228,6 @@ async function fetchTorrentFile (url) {
       redirect: 'follow',
       signal: controller.signal,
       headers: {
-        // Some torrent indexes reject Node's default undici user agent.
         'user-agent': 'curl/7.81.0',
         'accept': 'application/x-bittorrent,*/*;q=0.8'
       }
@@ -73,38 +250,31 @@ function torrentFileFromBase64 (value) {
 }
 
 async function resolveTorrentID (id) {
-  // Swift passes real .torrent bytes for HTTP(S) extension results when it can.
-  // That avoids relying on Node Mobile/undici for providers that are happier
-  // with URLSession. Keep the string path for magnets, info hashes, and URL
-  // fallback so extension output is preserved instead of forcing everything
-  // through an info-hash magnet.
+  const source = sourceDescription(id)
+  status.sourceKind = source.kind
+  status.source = source.source
+  status.lastError = null
+  status.lastWarning = null
+  setPhase('resolving-source')
+  record('info', `Resolved WebTorrent source: ${source.kind}`, { source: source.source })
+
   if (id && typeof id === 'object') {
-    if (id.kind === 'torrentFileBase64') return torrentFileFromBase64(id.data ?? '')
+    if (id.kind === 'torrentFileBase64') {
+      setPhase('using-torrent-file')
+      return torrentFileFromBase64(id.data ?? '')
+    }
     throw new Error(`Unsupported torrent source: ${id.kind ?? 'unknown'}`)
   }
 
   if (!isHTTPURL(id)) return id
 
+  setPhase('fetching-torrent-file')
   try {
     return await fetchTorrentFile(id)
   } catch (error) {
-    console.error(`Torrent URL prefetch failed, falling back to WebTorrent URL handling: ${error?.message ?? error}`)
+    record('warning', `Torrent URL prefetch failed; handing URL to WebTorrent: ${error?.message ?? error}`)
     return id
   }
-}
-
-function currentTorrentStatus () {
-  if (!client) return 'client not initialized'
-  const clientSymbol = Object.getOwnPropertySymbols(client).find(symbol => symbol.description === 'client')
-  const webtorrent = clientSymbol ? client[clientSymbol] : null
-  const torrent = webtorrent?.torrents?.[0]
-  if (!torrent) return 'no active torrent'
-
-  const peers = torrent._peersLength ?? torrent.numPeers ?? 0
-  const wires = torrent.wires?.length ?? 0
-  const ready = torrent.ready ? 'ready' : 'metadata pending'
-  const hash = torrent.infoHash ? ` hash=${torrent.infoHash}` : ''
-  return `${ready}, peers=${peers}, wires=${wires}${hash}`
 }
 
 async function readBody (request) {
@@ -118,12 +288,20 @@ async function loadTorrentClient () {
   if (loadError) throw loadError
 
   try {
+    setPhase('loading-client')
     const module = await import('./torrent-client/index.js')
     const TorrentClient = module.default
     client = new TorrentClient({ ...settings, path: downloadPath }, tempPath)
+    status.dht = settings?.torrentDHT === false
+    status.pex = settings?.torrentPeX === false
+    status.webRTC = false
+    installClientObservers()
+    setPhase('idle')
     return client
   } catch (error) {
     loadError = new Error(`Hayase torrent-client bundle is missing or invalid: ${error.message}`)
+    status.lastError = loadError.message
+    setPhase('failed')
     throw loadError
   }
 }
@@ -133,20 +311,34 @@ async function handleRPC (payload) {
 
   if (payload.method === 'updateSettings') {
     settings = params.settings ?? {}
+    status.dht = settings?.torrentDHT === false
+    status.pex = settings?.torrentPeX === false
     if (client) client.updateSettings({ ...settings, path: downloadPath })
     return {}
   }
 
   const activeClient = await loadTorrentClient()
+  installClientObservers()
 
   switch (payload.method) {
     case 'playTorrent': {
       const torrentID = await resolveTorrentID(params.id)
-      return await withTimeout(
-        activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0),
-        METADATA_TIMEOUT_MS,
-        () => `Timed out while fetching torrent metadata (${currentTorrentStatus()})`
-      )
+      setPhase('adding-torrent')
+      try {
+        const files = await withTimeout(
+          activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0),
+          METADATA_TIMEOUT_MS,
+          () => `Timed out while fetching torrent metadata (${shortStatus()})`
+        )
+        setPhase('ready')
+        status.files = files.length
+        refreshTorrentStatus()
+        return files
+      } catch (error) {
+        status.lastError = error?.message ?? String(error)
+        setPhase('failed')
+        throw new Error(`${status.lastError} (${shortStatus()})`)
+      }
     }
     case 'library':
       return await activeClient.library()
@@ -171,14 +363,35 @@ async function handleRPC (payload) {
   }
 }
 
+process.on('unhandledRejection', error => {
+  record('error', error?.message ?? error)
+})
+
+process.on('uncaughtException', error => {
+  record('error', error?.message ?? error)
+})
+
 await mkdir(downloadPath || tempPath, { recursive: true })
 await mkdir(tempPath || downloadPath, { recursive: true })
+setPhase('listening')
 
 http.createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ ok: true }))
+      response.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, phase: status.phase }))
+      return
+    }
+
+    if (request.method === 'GET' && request.url === '/status') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: true, result: statusPayload() }))
+      return
+    }
+
+    if (request.method === 'GET' && request.url === '/logs') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: true, result: events }))
       return
     }
 

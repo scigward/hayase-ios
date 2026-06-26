@@ -10,6 +10,7 @@ import Foundation
 enum WebTorrentBridgeError: LocalizedError {
     case invalidURL
     case invalidResponse
+    case versionMismatch(expected: String, actual: String?)
     case server(String)
 
     var errorDescription: String? {
@@ -18,6 +19,8 @@ enum WebTorrentBridgeError: LocalizedError {
             return "Invalid WebTorrent bridge URL."
         case .invalidResponse:
             return "Invalid WebTorrent bridge response."
+        case .versionMismatch(let expected, let actual):
+            return "WebTorrent bridge version mismatch. Expected \(expected), got \(actual ?? "unknown"). Restart the app so the new bridge is used."
         case .server(let message):
             return message
         }
@@ -25,6 +28,8 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
+    static let expectedVersion = "hayase-webtorrent-bridge-v2"
+
     private struct BridgeErrorPayload: Decodable {
         let message: String
     }
@@ -33,6 +38,12 @@ final class WebTorrentBridgeClient {
         let ok: Bool
         let result: T?
         let error: BridgeErrorPayload?
+    }
+
+    private struct HealthPayload: Decodable {
+        let ok: Bool
+        let version: String?
+        let phase: String?
     }
 
     private struct EmptyResult: Decodable {}
@@ -45,13 +56,60 @@ final class WebTorrentBridgeClient {
         self.session = session
     }
 
-    func health(completion: @escaping (Bool) -> Void) {
+    func health(completion: @escaping (Result<Void, Error>) -> Void) {
         let url = baseURL.appendingPathComponent("health")
         var request = URLRequest(url: url)
         request.timeoutInterval = 1.0
-        session.dataTask(with: request) { _, response, _ in
-            let status = (response as? HTTPURLResponse)?.statusCode
-            completion(status == 200)
+        session.dataTask(with: request) { data, response, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let data else {
+                completion(.failure(WebTorrentBridgeError.invalidResponse))
+                return
+            }
+            do {
+                let health = try JSONDecoder().decode(HealthPayload.self, from: data)
+                guard health.ok else {
+                    completion(.failure(WebTorrentBridgeError.invalidResponse))
+                    return
+                }
+                guard health.version == Self.expectedVersion else {
+                    completion(.failure(WebTorrentBridgeError.versionMismatch(expected: Self.expectedVersion,
+                                                                              actual: health.version)))
+                    return
+                }
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
+
+    func status(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
+        let url = baseURL.appendingPathComponent("status")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2.0
+        session.dataTask(with: request) { data, _, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard let data else {
+                completion(.failure(WebTorrentBridgeError.invalidResponse))
+                return
+            }
+            do {
+                let response = try JSONDecoder().decode(BridgeResponse<WebTorrentBridgeStatus>.self, from: data)
+                if response.ok, let status = response.result {
+                    completion(.success(status))
+                } else {
+                    completion(.failure(WebTorrentBridgeError.server(response.error?.message ?? "WebTorrent status failed.")))
+                }
+            } catch {
+                completion(.failure(error))
+            }
         }.resume()
     }
 

@@ -161,6 +161,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var metadataObserver: NSObjectProtocol?
     private var metadataStatusTimer: Timer?
     private var isResolvingPendingMetadata = false
+    private var isPollingWebTorrentStatus = false
 
     // MARK: UI
     private var tableView: UITableView!
@@ -1084,6 +1085,12 @@ final class ExtensionSearchViewController: UIViewController {
         // Update the HUD with live torrent status while waiting.
         metadataStatusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self, let vs = self.pendingVideoService, let hud = self.pendingHud else { return }
+
+            if TorrentBackendManager.shared.currentKind == .webtorrent {
+                self.updateWebTorrentStatusHUD(hud)
+                return
+            }
+
             guard let handle = vs.torrentHandle,
                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                       activeHandle.snapshot
@@ -1106,6 +1113,25 @@ final class ExtensionSearchViewController: UIViewController {
 
         // Kick off the torrent add + metadata fetch.
         vs.UpdateLocalVideo()
+    }
+
+    private func updateWebTorrentStatusHUD(_ hud: UIAlertController) {
+        guard !isPollingWebTorrentStatus else { return }
+        isPollingWebTorrentStatus = true
+
+        TorrentBackendManager.shared.webTorrentStatus { [weak self, weak hud] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isPollingWebTorrentStatus = false
+
+                switch result {
+                case .success(let status):
+                    hud?.message = status.hudMessage
+                case .failure(let error):
+                    hud?.message = "Starting WebTorrent backend…\nStatus unavailable: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     /// Called when VideoService posts LocalVideosDidUpdateNotification.
@@ -1178,14 +1204,53 @@ final class ExtensionSearchViewController: UIViewController {
                 targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
             }
         } else if TorrentBackendManager.shared.currentKind == .webtorrent {
-            targetVideo = videos.first { video in
-                guard let name = video.videoName else { return false }
-                return TorrentBatchResolver.extractEpisodeNumber(from: name) == currentEpisode
-            }
+            targetVideo = resolveWebTorrentVideo(videos: videos)
             targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }
 
         presentPendingVideo(vs: vs, entity: entity, targetVideo: targetVideo, targetIndex: targetIndex, videos: videos)
+    }
+
+    private func resolveWebTorrentVideo(videos: [Videos]) -> Videos? {
+        let playable = videos.filter { video in
+            guard let name = video.videoName else { return false }
+            return TorrentBatchResolver.isVideoFile(name) && !TorrentBatchResolver.isExcludedType(name)
+        }
+
+        if playable.count == 1 { return playable[0] }
+
+        let parsed = playable.compactMap { video -> (video: Videos, episode: Int)? in
+            guard let name = video.videoName,
+                  let episode = TorrentBatchResolver.extractEpisodeNumber(from: name) else { return nil }
+            return (video, episode)
+        }
+
+        if let exact = parsed.first(where: { $0.episode == currentEpisode })?.video {
+            return exact
+        }
+
+        let sorted = parsed.sorted { $0.episode < $1.episode }
+        if let first = sorted.first, let last = sorted.last {
+            let batchSize = sorted.count
+            if currentEpisode >= 1 && currentEpisode <= batchSize && first.episode > batchSize {
+                return sorted[currentEpisode - 1].video
+            }
+
+            if currentEpisode >= first.episode && currentEpisode <= last.episode {
+                return sorted.min { lhs, rhs in
+                    abs(lhs.episode - currentEpisode) < abs(rhs.episode - currentEpisode)
+                }?.video
+            }
+        }
+
+        if parsed.isEmpty && currentEpisode >= 1 && currentEpisode <= playable.count {
+            let sortedByName = playable.sorted { lhs, rhs in
+                (lhs.videoName ?? "").localizedStandardCompare(rhs.videoName ?? "") == .orderedAscending
+            }
+            return sortedByName[currentEpisode - 1]
+        }
+
+        return nil
     }
 
     private func presentPendingVideo(vs: VideoService, entity: Torrents, targetVideo: Videos?, targetIndex: UInt, videos: [Videos]) {
@@ -1237,6 +1302,7 @@ final class ExtensionSearchViewController: UIViewController {
 
     private func cleanupPendingState() {
         isResolvingPendingMetadata = false
+        isPollingWebTorrentStatus = false
         if let observer = metadataObserver {
             NotificationCenter.default.removeObserver(observer)
             metadataObserver = nil

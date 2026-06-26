@@ -11,8 +11,10 @@ enum WebTorrentBackendError: LocalizedError {
     case missingBridgeScript
     case missingTorrentIdentifier
     case invalidTorrentURL(String)
+    case torrentURLFetchFailed(url: String, statusCode: Int?, reason: String)
     case emptyTorrentFile(String)
     case startupTimedOut
+    case nodeExited(Int32)
 
     var errorDescription: String? {
         switch self {
@@ -22,16 +24,29 @@ enum WebTorrentBackendError: LocalizedError {
             return "Torrent has no magnet link, download URL, or info hash."
         case .invalidTorrentURL(let value):
             return "Invalid torrent URL: \(value)"
+        case .torrentURLFetchFailed(let url, let statusCode, let reason):
+            if let statusCode {
+                return "Could not download .torrent file (HTTP \(statusCode)): \(url)"
+            }
+            return "Could not download .torrent file: \(reason) (\(url))"
         case .emptyTorrentFile(let url):
             return "Torrent file request returned an empty body: \(url)"
         case .startupTimedOut:
             return "WebTorrent bridge did not become ready in time."
+        case .nodeExited(let code):
+            return "NodeMobile exited unexpectedly with code \(code). Restart the app before trying the WebTorrent backend again."
         }
     }
 }
 
 final class WebTorrentBackend {
     static let shared = WebTorrentBackend()
+
+    private struct Source {
+        let payload: Any
+        let kind: String
+        let preview: String
+    }
 
     private enum StartState {
         case idle
@@ -55,6 +70,18 @@ final class WebTorrentBackend {
         }
     }
 
+    func status(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
+        ensureStarted { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.bridge.status(completion: completion)
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
     func playTorrent(torrentEntity: Torrents,
                      mediaID: Int,
                      episode: Int,
@@ -62,13 +89,14 @@ final class WebTorrentBackend {
         resolveTorrentSource(for: torrentEntity) { [weak self] sourceResult in
             guard let self else { return }
             switch sourceResult {
-            case .success(let torrentID):
+            case .success(let source):
+                print("WebTorrentBackend: source=\(source.kind) value=\(source.preview)")
                 self.ensureStarted { [weak self] startResult in
                     guard let self else { return }
                     switch startResult {
                     case .success:
                         self.bridge.updateSettings(TorrentBackendSettings()) { _ in
-                            self.bridge.playTorrent(id: torrentID,
+                            self.bridge.playTorrent(id: source.payload,
                                                     mediaID: mediaID,
                                                     episode: episode,
                                                     completion: completion)
@@ -84,6 +112,15 @@ final class WebTorrentBackend {
     }
 
     private func ensureStarted(completion: @escaping (Result<Void, Error>) -> Void) {
+        if case .exited(let code) = NodeMobileRuntime.shared.currentState {
+            let error = WebTorrentBackendError.nodeExited(code)
+            lock.lock()
+            startState = .failed(error)
+            lock.unlock()
+            completion(.failure(error))
+            return
+        }
+
         lock.lock()
         switch startState {
         case .ready:
@@ -126,27 +163,37 @@ final class WebTorrentBackend {
                 "--download-path", settings.path,
                 "--temp-path", tempPath,
             ])
-            waitForBridge(attempt: 0)
+            waitForBridge(attempt: 0, lastError: nil)
         } catch NodeMobileRuntimeError.alreadyStarted {
-            waitForBridge(attempt: 0)
+            waitForBridge(attempt: 0, lastError: nil)
         } catch {
             finishStart(.failure(error))
         }
     }
 
-    private func waitForBridge(attempt: Int) {
-        bridge.health { [weak self] ready in
+    private func waitForBridge(attempt: Int, lastError: Error?) {
+        bridge.health { [weak self] result in
             guard let self else { return }
-            if ready {
+            switch result {
+            case .success:
                 self.finishStart(.success(()))
-                return
-            }
-            guard attempt < 80 else {
-                self.finishStart(.failure(WebTorrentBackendError.startupTimedOut))
-                return
-            }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.25) {
-                self.waitForBridge(attempt: attempt + 1)
+            case .failure(let error):
+                if let bridgeError = error as? WebTorrentBridgeError,
+                   case .versionMismatch = bridgeError {
+                    self.finishStart(.failure(error))
+                    return
+                }
+                if case .exited(let code) = NodeMobileRuntime.shared.currentState {
+                    self.finishStart(.failure(WebTorrentBackendError.nodeExited(code)))
+                    return
+                }
+                guard attempt < 80 else {
+                    self.finishStart(.failure(lastError ?? error))
+                    return
+                }
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.25) {
+                    self.waitForBridge(attempt: attempt + 1, lastError: error)
+                }
             }
         }
     }
@@ -169,15 +216,14 @@ final class WebTorrentBackend {
     }
 
     private func resolveTorrentSource(for torrentEntity: Torrents,
-                                      completion: @escaping (Result<Any, Error>) -> Void) {
+                                      completion: @escaping (Result<Source, Error>) -> Void) {
         let link = Self.clean(torrentEntity.torrentDownloadURL)
         let hash = Self.clean(torrentEntity.torrentHashString)
 
-        // Some extensions put the playable magnet in `hash` and a web/download
-        // page in `link`. Prefer a real magnet from either field before trying
-        // any HTTP .torrent fetch path.
         if let magnet = Self.magnet(from: link) ?? Self.magnet(from: hash) {
-            completion(.success(magnet))
+            completion(.success(Source(payload: magnet,
+                                       kind: "magnet",
+                                       preview: Self.preview(magnet))))
             return
         }
 
@@ -186,24 +232,27 @@ final class WebTorrentBackend {
                 fetchTorrentFile(from: link) { result in
                     switch result {
                     case .success(let data):
-                        completion(.success([
+                        completion(.success(Source(payload: [
                             "kind": "torrentFileBase64",
                             "data": data.base64EncodedString(),
                             "source": link,
-                        ]))
+                        ], kind: "torrent-file", preview: Self.preview(link))))
                     case .failure(let error):
-                        print("WebTorrentBackend: Swift .torrent fetch failed, falling back to URL string: \(error.localizedDescription)")
-                        completion(.success(link))
+                        completion(.failure(error))
                     }
                 }
             } else {
-                completion(.success(link))
+                completion(.success(Source(payload: link,
+                                           kind: "torrent-id",
+                                           preview: Self.preview(link))))
             }
             return
         }
 
         if let fallback = Self.torrentIdentifier(fromHash: hash) {
-            completion(.success(fallback))
+            completion(.success(Source(payload: fallback,
+                                       kind: "info-hash",
+                                       preview: Self.preview(fallback))))
             return
         }
 
@@ -223,9 +272,18 @@ final class WebTorrentBackend {
             forHTTPHeaderField: "User-Agent")
         request.setValue("application/x-bittorrent,*/*;q=0.8", forHTTPHeaderField: "Accept")
 
-        URLSession.shared.dataTask(with: request) { data, _, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
-                completion(.failure(error))
+                completion(.failure(WebTorrentBackendError.torrentURLFetchFailed(url: urlString,
+                                                                                  statusCode: nil,
+                                                                                  reason: error.localizedDescription)))
+                return
+            }
+            if let statusCode = (response as? HTTPURLResponse)?.statusCode,
+               !(200...299).contains(statusCode) {
+                completion(.failure(WebTorrentBackendError.torrentURLFetchFailed(url: urlString,
+                                                                                  statusCode: statusCode,
+                                                                                  reason: HTTPURLResponse.localizedString(forStatusCode: statusCode))))
                 return
             }
             guard let data, !data.isEmpty else {
@@ -258,5 +316,11 @@ final class WebTorrentBackend {
             return value
         }
         return "magnet:?xt=urn:btih:\(value)"
+    }
+
+    private static func preview(_ value: String) -> String {
+        if value.count <= 180 { return value }
+        let end = value.index(value.startIndex, offsetBy: 177)
+        return String(value[..<end]) + "..."
     }
 }

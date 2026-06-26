@@ -47,4 +47,8 @@ final class TorrentBackendManager {
                                       episode: episode,
                                       completion: completion)
     }
+
+    func webTorrentStatus(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
+        webTorrentBackend.status(completion: completion)
+    }
 }

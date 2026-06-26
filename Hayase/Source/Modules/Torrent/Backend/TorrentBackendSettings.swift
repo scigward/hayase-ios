@@ -9,6 +9,8 @@ import Foundation
 
 struct TorrentBackendSettings: Encodable {
     let torrentPersist: Bool
+    // The upstream Hayase torrent-client schema names these as torrentDHT and
+    // torrentPeX, but the values are disable flags. false means enabled.
     let torrentDHT: Bool
     let torrentStreamedDownload: Bool
     let torrentSpeed: Int

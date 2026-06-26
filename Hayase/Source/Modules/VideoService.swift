@@ -376,11 +376,23 @@ public class VideoService: NSObject {
 
     private func InsertVideosFromWebTorrentFiles(_ files: [WebTorrentFile]) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let videoFiles = files.filter { TorrentBatchResolver.isVideoFile($0.name) }
+
         if let hash = files.first?.hash, !hash.isEmpty {
             torrentEntity.torrentHashString = hash
         }
 
-        for file in files {
+        guard !videoFiles.isEmpty else {
+            lastError = NSError(domain: "Hayase.WebTorrent",
+                                code: 1,
+                                userInfo: [NSLocalizedDescriptionKey: "WebTorrent metadata did not contain any playable video files."])
+            coreDataIsReady = true
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+            return
+        }
+
+        for file in videoFiles {
             guard let v = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as? Videos else { continue }
             v.videoName = file.name
             v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
@@ -392,11 +404,12 @@ public class VideoService: NSObject {
         do {
             try context.save()
             coreDataIsReady = true
-            print("VideoService: WebTorrent populated CoreData with \(files.count) videos")
+            print("VideoService: WebTorrent populated CoreData with \(videoFiles.count) playable videos")
             NotificationCenter.default.post(
                 name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
         } catch {
             print("VideoService: WebTorrent CoreData save error: \(error)")
+            lastError = error
             coreDataIsReady = true
             NotificationCenter.default.post(
                 name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
