@@ -12,6 +12,7 @@ BUILD_DIR="${PWD}/.build/webtorrent-backend"
 SOURCE_DIR="${BUILD_DIR}/torrent-client"
 RESOURCE_DIR="${PWD}/Hayase/Resources/WebTorrentBackend"
 OUTPUT_DIR="${RESOURCE_DIR}/torrent-client"
+STUB_DIR="${SOURCE_DIR}/.hayase-node-mobile-stubs"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -62,12 +63,21 @@ mkdir -p "${OUTPUT_DIR}"
     --config.node-linker=hoisted \
     --config.shamefully-hoist=true
 
+  mkdir -p "${STUB_DIR}"
+  cat > "${STUB_DIR}/nat-api.js" <<'EOF'
+export default class NatAPI {
+  async map() { return false }
+  async destroy() {}
+}
+EOF
+
   run_pnpm dlx "esbuild@${ESBUILD_VERSION}" index.ts \
     --bundle \
     --platform=node \
     --format=esm \
     --target=node24 \
     --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
+    --alias:@silentbot1/nat-api=./.hayase-node-mobile-stubs/nat-api.js \
     --outfile="${OUTPUT_DIR}/index.js"
 )
 
@@ -92,5 +102,10 @@ fi
 
 node --check "${RESOURCE_DIR}/webtorrent-bridge.js"
 node --check "${OUTPUT_DIR}/index.js"
+
+if grep -q "child_process" "${OUTPUT_DIR}/index.js"; then
+  echo "error: WebTorrent backend bundle still references child_process, which is unavailable in NodeMobile ESM bundles." >&2
+  exit 1
+fi
 
 echo "WebTorrent backend bundle generated at ${OUTPUT_DIR}."
