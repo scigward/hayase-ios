@@ -61,7 +61,7 @@ final class WebTorrentBridgeClient {
         }
     }
 
-    func playTorrent(id: String,
+    func playTorrent(id: Any,
                      mediaID: Int,
                      episode: Int,
                      completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) {

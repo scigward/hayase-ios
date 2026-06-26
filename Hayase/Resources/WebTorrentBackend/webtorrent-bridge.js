@@ -66,11 +66,23 @@ async function fetchTorrentFile (url) {
   }
 }
 
+function torrentFileFromBase64 (value) {
+  const buffer = Buffer.from(value, 'base64')
+  if (!buffer.byteLength) throw new Error('Torrent file payload is empty')
+  return new Uint8Array(buffer)
+}
+
 async function resolveTorrentID (id) {
-  // Prefer explicit .torrent bytes for http(s) links because it gives us
-  // headers, redirects, and a clear timeout. Some iOS/Node Mobile builds can
-  // still fail Node's fetch path for otherwise usable torrent URLs, so fall
-  // back to WebTorrent's native URL handling instead of failing immediately.
+  // Swift passes real .torrent bytes for HTTP(S) extension results when it can.
+  // That avoids relying on Node Mobile/undici for providers that are happier
+  // with URLSession. Keep the string path for magnets, info hashes, and URL
+  // fallback so extension output is preserved instead of forcing everything
+  // through an info-hash magnet.
+  if (id && typeof id === 'object') {
+    if (id.kind === 'torrentFileBase64') return torrentFileFromBase64(id.data ?? '')
+    throw new Error(`Unsupported torrent source: ${id.kind ?? 'unknown'}`)
+  }
+
   if (!isHTTPURL(id)) return id
 
   try {
