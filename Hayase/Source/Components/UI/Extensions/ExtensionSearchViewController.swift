@@ -1085,7 +1085,7 @@ final class ExtensionSearchViewController: UIViewController {
         metadataStatusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self, let vs = self.pendingVideoService, let hud = self.pendingHud else { return }
             guard let handle = vs.torrentHandle,
-                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                       activeHandle.snapshot
                   }) else {
                 hud.message = "Connecting to peers…"
@@ -1140,6 +1140,10 @@ final class ExtensionSearchViewController: UIViewController {
             return UInt(exactly: value)
         }
 
+        func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
+            fileIndex(from: Optional(value))
+        }
+
         // Auto-resolve the target file.
         var targetVideo: Videos?
         var targetIndex: UInt = 0
@@ -1148,7 +1152,7 @@ final class ExtensionSearchViewController: UIViewController {
             targetVideo = videos[0]
             targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         } else if let handle = vs.torrentHandle,
-                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                       activeHandle.snapshot
                   }) {
             let resolver = TorrentBatchResolver()

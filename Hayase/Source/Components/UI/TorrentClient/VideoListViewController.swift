@@ -294,7 +294,7 @@ class VideoListViewController: UIViewController {
             // While the spinner is animating (loading phase), show live torrent state.
             if self.loadingIndicator.isAnimating {
                 if let handle = self.videoService?.torrentHandle,
-                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                        activeHandle.snapshot
                    }) {
                     let peers = snap.numberOfPeers
@@ -342,7 +342,7 @@ class VideoListViewController: UIViewController {
         if !didAutoResolve, count > 1, let ep = targetEpisode {
             if let vs = videoService,
                let handle = vs.torrentHandle,
-               let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle -> TorrentHandle.Snapshot? in
+               let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                    activeHandle.snapshot
                }),
                snap.hasMetadata {

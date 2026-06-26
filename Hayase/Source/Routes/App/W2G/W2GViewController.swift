@@ -840,6 +840,10 @@ extension W2GViewController {
             guard let value else { return nil }
             return UInt(exactly: value)
         }
+
+        func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
+            fileIndex(from: Optional(value))
+        }
         guard var targetIndex = fileIndex(from: playableFiles.first?.index) else { return }
         if let match = resolver.resolve(files: files, targetEpisode: episode),
            let index = fileIndex(from: match.entry.index) {
