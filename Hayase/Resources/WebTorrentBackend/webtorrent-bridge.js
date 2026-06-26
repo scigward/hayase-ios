@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v4'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v5'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -53,6 +53,7 @@ const status = {
   ready: false,
   metadata: false,
   peers: 0,
+  discoveredPeers: 0,
   wires: 0,
   files: 0,
   downloaded: 0,
@@ -163,12 +164,72 @@ function getInnerClient () {
   return clientSymbol ? client[clientSymbol] : null
 }
 
-function torrentPeerCount (torrent) {
+function torrentWires (torrent) {
+  return Array.isArray(torrent?.wires) ? torrent.wires : []
+}
+
+function discoveredPeerCount (torrent) {
   if (!torrent) return 0
-  if (typeof torrent.numPeers === 'number') return torrent.numPeers
   if (typeof torrent._peersLength === 'number') return torrent._peersLength
   if (torrent._peers && typeof torrent._peers === 'object') return Object.keys(torrent._peers).length
+  if (typeof torrent.numPeers === 'number') return torrent.numPeers
   return 0
+}
+
+function numericValue (value) {
+  const resolved = typeof value === 'function' ? value() : value
+  const number = Number(resolved ?? 0)
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0
+}
+
+function torrentByHash (hash) {
+  const webtorrent = getInnerClient()
+  if (!webtorrent) return null
+  if (hash) {
+    const normalized = String(hash).toLowerCase()
+    const match = webtorrent.torrents?.find(torrent => String(torrent.infoHash ?? '').toLowerCase() === normalized)
+    if (match) return match
+  }
+  return activeTorrent ?? webtorrent.torrents?.[0] ?? null
+}
+
+function statsFromTorrent (torrent) {
+  if (!torrent) throw new Error('Torrent not found')
+
+  const wires = torrentWires(torrent)
+  const seeders = wires.filter(wire => Boolean(wire?.isSeeder)).length
+  const leechers = Math.max(0, wires.length - seeders)
+  const pieces = Array.isArray(torrent.pieces) ? torrent.pieces : []
+  const total = numericValue(torrent.length)
+  const downloaded = numericValue(torrent.downloaded)
+
+  return {
+    hash: String(torrent.infoHash ?? ''),
+    name: String(torrent.name ?? torrent.infoHash ?? 'WebTorrent'),
+    progress: total > 0 ? Math.max(0, Math.min(downloaded / total, 1)) : numericValue(torrent.progress),
+    speed: {
+      down: numericValue(torrent.downloadSpeed),
+      up: numericValue(torrent.uploadSpeed)
+    },
+    size: {
+      downloaded,
+      uploaded: numericValue(torrent.uploaded),
+      total
+    },
+    time: {
+      remaining: Number.isFinite(Number(torrent.timeRemaining)) ? Number(torrent.timeRemaining) : 0,
+      elapsed: 0
+    },
+    peers: {
+      seeders,
+      leechers,
+      wires: wires.length
+    },
+    pieces: {
+      total: pieces.length,
+      size: numericValue(torrent.pieceLength)
+    }
+  }
 }
 
 function refreshTorrentStatus () {
@@ -178,6 +239,7 @@ function refreshTorrentStatus () {
     status.ready = false
     status.metadata = false
     status.peers = 0
+    status.discoveredPeers = 0
     status.wires = 0
     status.files = 0
     status.downloaded = 0
@@ -194,15 +256,17 @@ function refreshTorrentStatus () {
   status.infoHash = torrent.infoHash ?? status.infoHash
   status.ready = Boolean(torrent.ready)
   status.metadata = Boolean(torrent.metadata || torrent.ready || torrent.files?.length)
-  status.peers = torrentPeerCount(torrent)
-  status.wires = torrent.wires?.length ?? 0
+  const stats = statsFromTorrent(torrent)
+  status.peers = stats.peers.wires
+  status.discoveredPeers = discoveredPeerCount(torrent)
+  status.wires = stats.peers.wires
   status.files = torrent.files?.length ?? 0
-  status.downloaded = Number(torrent.downloaded ?? 0)
-  status.uploaded = Number(torrent.uploaded ?? 0)
-  status.total = Number(torrent.length ?? 0)
-  status.downloadSpeed = Number(torrent.downloadSpeed ?? 0)
-  status.uploadSpeed = Number(torrent.uploadSpeed ?? 0)
-  status.progress = Number(torrent.progress ?? 0)
+  status.downloaded = stats.size.downloaded
+  status.uploaded = stats.size.uploaded
+  status.total = stats.size.total
+  status.downloadSpeed = stats.speed.down
+  status.uploadSpeed = stats.speed.up
+  status.progress = stats.progress
   status.updatedAt = Date.now()
   return status
 }
@@ -212,8 +276,8 @@ function shortStatus () {
   const parts = [status.phase]
   if (status.sourceKind) parts.push(`source=${status.sourceKind}`)
   if (status.infoHash) parts.push(`hash=${status.infoHash}`)
-  parts.push(`peers=${status.peers}`)
-  parts.push(`wires=${status.wires}`)
+  parts.push(`connected=${status.wires}`)
+  parts.push(`discovered=${status.discoveredPeers}`)
   if (status.lastWarning) parts.push(`lastWarning=${status.lastWarning}`)
   if (status.lastError) parts.push(`lastError=${status.lastError}`)
   return parts.join(', ')
@@ -427,8 +491,9 @@ async function handleRPC (payload) {
     }
     case 'library':
       return await activeClient.library()
-    case 'torrentInfo':
-      return await activeClient.torrentInfo(params.hash)
+    case 'torrentInfo': {
+      return statsFromTorrent(torrentByHash(params.hash))
+    }
     case 'peerInfo':
       return await activeClient.peerInfo(params.hash)
     case 'fileInfo':

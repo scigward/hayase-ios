@@ -23,6 +23,7 @@ struct WebTorrentBridgeStatus: Decodable {
     let ready: Bool
     let metadata: Bool
     let peers: Int
+    let discoveredPeers: Int?
     let wires: Int
     let files: Int
     let downloaded: UInt64?
@@ -65,8 +66,10 @@ struct WebTorrentBridgeStatus: Decodable {
         }
 
         if !ready && !metadata {
-            if peers > 0 || wires > 0 {
-                message += " (peers: \(peers), wires: \(wires))"
+            if wires > 0 {
+                message += " (connected: \(wires))"
+            } else if peers > 0 {
+                message += " (peers: \(peers))"
             } else if let sourceKind {
                 message += " (\(sourceKind))"
             }
@@ -88,6 +91,7 @@ struct WebTorrentBridgeStatus: Decodable {
                                ready: false,
                                metadata: false,
                                peers: 0,
+                               discoveredPeers: nil,
                                wires: 0,
                                files: 0,
                                downloaded: nil,

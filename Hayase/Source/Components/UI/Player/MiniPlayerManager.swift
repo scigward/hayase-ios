@@ -953,7 +953,7 @@ final class MiniPlayerManager {
         }
         try? context.save()
 
-        let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber)
+        let videoService = VideoService(torrentEntity: torrentEntity, episode: episodeNumber, backendKind: .webtorrent)
         var observer: NSObjectProtocol?
         observer = NotificationCenter.default.addObserver(
             forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),

@@ -13,6 +13,7 @@ public class VideoService: NSObject {
     let torrentEntity: Torrents
     var torrentHandle: TorrentHandle? = nil
     private let requestedEpisode: Int
+    private let forcedBackendKind: TorrentBackendKind?
     /// Forwarded to VideoListViewController so it can display an error alert.
     var lastError: Error? = nil
 
@@ -23,9 +24,10 @@ public class VideoService: NSObject {
     /// before any video rows exist — resulting in a blank table with no spinner.
     private var coreDataIsReady = false
 
-    init(torrentEntity: Torrents, episode: Int = 0) {
+    init(torrentEntity: Torrents, episode: Int = 0, backendKind: TorrentBackendKind? = nil) {
         self.torrentEntity = torrentEntity
         self.requestedEpisode = episode
+        self.forcedBackendKind = backendKind
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(HandleTorrentInControllerDidUpdate), name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(HandleTorrentInControllerUpdateFailed), name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification), object: nil)
@@ -41,7 +43,7 @@ public class VideoService: NSObject {
         coreDataIsReady = false
         lastError = nil
 
-        if TorrentBackendManager.shared.currentKind == .webtorrent {
+        if (forcedBackendKind ?? TorrentBackendManager.shared.currentKind) == .webtorrent {
             UpdateLocalVideoWithWebTorrent()
             return
         }

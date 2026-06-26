@@ -1455,34 +1455,16 @@ final class VideoPlayerViewController: UIViewController {
         guard isWebTorrentPlayback, !webStatsUpdateInFlight else { return }
         webStatsUpdateInFlight = true
 
-        let hash = videoEntity?.torrents?.torrentHashString ?? ""
-        if !hash.isEmpty {
-            TorrentBackendManager.shared.webTorrentInfo(hash: hash) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    if case .success(let info) = result {
-                        self.webStatsUpdateInFlight = false
-                        self.applyWebTorrentStats(peers: info.peers.wires,
-                                                   downloadSpeed: info.speed.down,
-                                                   uploadSpeed: info.speed.up)
-                    } else {
-                        self.updateWebTorrentStatsFromStatus()
-                    }
-                }
-            }
-            return
-        }
-
-        updateWebTorrentStatsFromStatus()
-    }
-
-    private func updateWebTorrentStatsFromStatus() {
+        // The bridge status endpoint is the reliable live source for player HUD
+        // counters. torrentInfo can legitimately lag while metadata is being
+        // refreshed, which used to leave webStatsUpdateInFlight stuck or show
+        // stale/zero values until a seek or pause kicked the player again.
         TorrentBackendManager.shared.webTorrentStatus { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.webStatsUpdateInFlight = false
                 guard case .success(let status) = result else { return }
-                self.applyWebTorrentStats(peers: status.peers > 0 ? status.peers : status.wires,
+                self.applyWebTorrentStats(peers: status.wires,
                                            downloadSpeed: status.downloadSpeed ?? 0,
                                            uploadSpeed: status.uploadSpeed ?? 0)
             }

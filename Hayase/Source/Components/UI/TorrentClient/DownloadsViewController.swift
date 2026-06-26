@@ -963,7 +963,7 @@ class DownloadsViewController: UIViewController {
 
         seedersValue.text = "\(resolvedInfo?.peers.seeders ?? 0)"
         leechersValue.text = "\(resolvedInfo?.peers.leechers ?? 0)"
-        wiresValue.text = "\(resolvedInfo?.peers.wires ?? resolvedStatus?.wires ?? resolvedStatus?.peers ?? 0)"
+        wiresValue.text = "\(resolvedInfo?.peers.wires ?? resolvedStatus?.wires ?? 0)"
 
         setDot(dhtDot, enabled: resolvedProtocol?.dht ?? resolvedStatus?.dht ?? false)
         setDot(lsdDot, enabled: resolvedProtocol?.lsd ?? false)
