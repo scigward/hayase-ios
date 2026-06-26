@@ -422,14 +422,14 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
                 self.pending[callId] = { cont.resume(with: $0) }
 
-                // 30s safety timeout — if postMessage is never delivered, unblock the caller.
+                // 20s safety timeout — matches Hayase interface raceWithHandler().
                 let timeoutWork = DispatchWorkItem { [weak self] in
                     guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
                     self.callTimeouts.removeValue(forKey: callId)
-                    handler(.failure(WorkerError.callFailed("Extension call timed out (30s)")))
+                    handler(.failure(WorkerError.callFailed("Timed out after 20 seconds.")))
                 }
                 self.callTimeouts[callId] = timeoutWork
-                DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeoutWork)
 
                 webView.evaluateJavaScript(js) { [weak self] _, err in
                     // Route errors through the pending handler so cont has a single owner.

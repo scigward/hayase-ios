@@ -485,6 +485,7 @@ final class VideoPlayerViewController: UIViewController {
     private var doubleTapRecognizer: UITapGestureRecognizer?
     private var longPressRecognizer: UILongPressGestureRecognizer?
     private var statsTimer: Timer?
+    private var webStatsUpdateInFlight = false
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
     /// Pending playback position (seconds) to restore once MPV reports a valid
@@ -1408,14 +1409,20 @@ final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Download stats
 
+    func resumeStatsUpdates() {
+        startStatsTimer()
+    }
+
     private func startStatsTimer() {
         statsTimer?.invalidate()
         guard torrentHandle != nil || isWebTorrentPlayback else { return }
         statsHUD.isHidden = false
         updateStats()
-        statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStats()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        statsTimer = timer
     }
 
     private var isWebTorrentPlayback: Bool {
@@ -1431,20 +1438,52 @@ final class VideoPlayerViewController: UIViewController {
             return
         }
 
-        guard isWebTorrentPlayback else { return }
+        updateWebTorrentStats()
+    }
+
+    private func updateWebTorrentStats() {
+        guard isWebTorrentPlayback, !webStatsUpdateInFlight else { return }
+        webStatsUpdateInFlight = true
+
+        let hash = videoEntity?.torrents?.torrentHashString ?? ""
+        if !hash.isEmpty {
+            TorrentBackendManager.shared.webTorrentInfo(hash: hash) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if case .success(let info) = result {
+                        self.webStatsUpdateInFlight = false
+                        self.applyWebTorrentStats(peers: info.peers.wires,
+                                                   downloadSpeed: info.speed.down,
+                                                   uploadSpeed: info.speed.up)
+                    } else {
+                        self.updateWebTorrentStatsFromStatus()
+                    }
+                }
+            }
+            return
+        }
+
+        updateWebTorrentStatsFromStatus()
+    }
+
+    private func updateWebTorrentStatsFromStatus() {
         TorrentBackendManager.shared.webTorrentStatus { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.webStatsUpdateInFlight = false
                 guard case .success(let status) = result else { return }
-                let peers = status.peers > 0 ? status.peers : status.wires
-                let downBits = self.fmtBits((status.downloadSpeed ?? 0) * 8)
-                let upBits = self.fmtBits((status.uploadSpeed ?? 0) * 8)
-                self.statsHUD.isHidden = false
-                self.statsPeersLabel.text = "\(peers)"
-                self.statsDownLabel.text = "\(downBits)/s"
-                self.statsUpLabel.text = "\(upBits)/s"
+                self.applyWebTorrentStats(peers: status.peers > 0 ? status.peers : status.wires,
+                                           downloadSpeed: status.downloadSpeed ?? 0,
+                                           uploadSpeed: status.uploadSpeed ?? 0)
             }
         }
+    }
+
+    private func applyWebTorrentStats(peers: Int, downloadSpeed: UInt64, uploadSpeed: UInt64) {
+        statsHUD.isHidden = false
+        statsPeersLabel.text = "\(peers)"
+        statsDownLabel.text = "\(fmtBits(downloadSpeed * 8))/s"
+        statsUpLabel.text = "\(fmtBits(uploadSpeed * 8))/s"
     }
 
     private func updateNativeTorrentStats(handle: TorrentHandle) {

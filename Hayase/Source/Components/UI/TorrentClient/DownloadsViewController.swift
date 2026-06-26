@@ -889,31 +889,36 @@ class DownloadsViewController: UIViewController {
                                       library: [WebTorrentLibraryEntry],
                                       protocolStatus: WebTorrentProtocolStatus?,
                                       error: Error?) {
-        webStatus = status
-        webInfo = info
-        webProtocol = protocolStatus
-        webPeerInfos = peers
-        webLibraryEntries = library
+        if let status { webStatus = status }
+        if let info { webInfo = info }
+        if let protocolStatus { webProtocol = protocolStatus }
+        if !peers.isEmpty { webPeerInfos = peers }
+        if !library.isEmpty { webLibraryEntries = library }
         webLastError = error
 
-        let knownHashes = Set(library.map { $0.hash } + [status?.infoHash, info?.hash].compactMap { $0 })
+        let resolvedStatus = status ?? webStatus
+        let resolvedInfo = info ?? webInfo
+        let resolvedProtocol = protocolStatus ?? webProtocol
+        let resolvedLibrary = library.isEmpty ? webLibraryEntries : library
+
+        let knownHashes = Set(resolvedLibrary.map { $0.hash } + [resolvedStatus?.infoHash, resolvedInfo?.hash].compactMap { $0 })
         if !selectedHex.isEmpty && !knownHashes.isEmpty && !knownHashes.contains(selectedHex) {
             selectedHex = ""
         }
         if selectedHex.isEmpty {
-            selectedHex = status?.infoHash ?? info?.hash ?? library.first?.hash ?? ""
+            selectedHex = resolvedStatus?.infoHash ?? resolvedInfo?.hash ?? resolvedLibrary.first?.hash ?? ""
         }
 
-        if webFileInfoHash != selectedHex {
+        if webFileInfoHash != selectedHex && !files.isEmpty {
             webFileInfos = []
             webFileInfoHash = selectedHex.isEmpty ? nil : selectedHex
         }
         if !files.isEmpty {
             webFileInfos = files
-            webFileInfoHash = selectedHex.isEmpty ? (info?.hash ?? status?.infoHash) : selectedHex
+            webFileInfoHash = selectedHex.isEmpty ? (resolvedInfo?.hash ?? resolvedStatus?.infoHash) : selectedHex
         }
 
-        let hasTorrent = !selectedHex.isEmpty || status?.infoHash != nil || info != nil || !library.isEmpty
+        let hasTorrent = !selectedHex.isEmpty || resolvedStatus?.infoHash != nil || resolvedInfo != nil || !resolvedLibrary.isEmpty
         emptyLabel.isHidden = hasTorrent
         if !hasTorrent {
             clearWebTorrentOverview(error: error)
@@ -923,50 +928,50 @@ class DownloadsViewController: UIViewController {
             return
         }
 
-        let currentLibraryEntry = library.first { $0.hash == selectedHex } ?? library.first
-        nameLabel.text = info?.name ?? currentLibraryEntry?.name ?? status?.source ?? "WebTorrent"
-        hashLabel.text = selectedHex.isEmpty ? (status?.infoHash ?? "—") : selectedHex
+        let currentLibraryEntry = resolvedLibrary.first { $0.hash == selectedHex } ?? resolvedLibrary.first
+        nameLabel.text = resolvedInfo?.name ?? currentLibraryEntry?.name ?? resolvedStatus?.source ?? "WebTorrent"
+        hashLabel.text = selectedHex.isEmpty ? (resolvedStatus?.infoHash ?? "—") : selectedHex
 
-        let progress = info?.progress ?? status?.progress ?? currentLibraryEntry?.progress ?? 0
+        let progress = resolvedInfo?.progress ?? resolvedStatus?.progress ?? currentLibraryEntry?.progress ?? 0
         let completed = progress >= 0.999
-        statusBadge.text = completed ? "Seeding" : status?.phase.replacingOccurrences(of: "-", with: " ").capitalized ?? "Downloading"
+        statusBadge.text = completed ? "Seeding" : resolvedStatus?.phase.replacingOccurrences(of: "-", with: " ").capitalized ?? "Downloading"
         statusBadge.backgroundColor = completed ? .systemBlue : .systemGreen
         bigPercentLabel.text = String(format: "%.1f%%", progress * 100)
         progressBar.progress = Float(max(0, min(progress, 1)))
 
-        let downloaded = info?.size.downloaded ?? status?.downloaded ?? 0
-        let uploaded = info?.size.uploaded ?? status?.uploaded ?? 0
-        let total = info?.size.total ?? status?.total ?? currentLibraryEntry?.size ?? 0
+        let downloaded = resolvedInfo?.size.downloaded ?? resolvedStatus?.downloaded ?? 0
+        let uploaded = resolvedInfo?.size.uploaded ?? resolvedStatus?.uploaded ?? 0
+        let total = resolvedInfo?.size.total ?? resolvedStatus?.total ?? currentLibraryEntry?.size ?? 0
         downloadedValue.text = TorrentDetailViewController.fastPrettyBytes(downloaded)
         uploadedValue.text = TorrentDetailViewController.fastPrettyBytes(uploaded)
         totalSizeValue.text = TorrentDetailViewController.fastPrettyBytes(total)
 
-        if let pieces = info?.pieces, pieces.total > 0 {
+        if let pieces = resolvedInfo?.pieces, pieces.total > 0 {
             piecesValue.text = "\(pieces.total) × \(TorrentDetailViewController.fastPrettyBytes(pieces.size))"
         } else {
             piecesValue.text = "—"
         }
 
-        let down = info?.speed.down ?? status?.downloadSpeed ?? 0
-        let up = info?.speed.up ?? status?.uploadSpeed ?? 0
+        let down = resolvedInfo?.speed.down ?? resolvedStatus?.downloadSpeed ?? 0
+        let up = resolvedInfo?.speed.up ?? resolvedStatus?.uploadSpeed ?? 0
         downSpeedValue.text = TorrentDetailViewController.fastPrettyBits(down * 8) + "/s"
         upSpeedValue.text = TorrentDetailViewController.fastPrettyBits(up * 8) + "/s"
-        etaValue.text = webTorrentETA(fromMilliseconds: info?.time.remaining)
+        etaValue.text = webTorrentETA(fromMilliseconds: resolvedInfo?.time.remaining)
             ?? TorrentDetailViewController.eta(remaining: total > downloaded ? total - downloaded : 0, rate: down)
-        elapsedValue.text = webTorrentETA(fromMilliseconds: info?.time.elapsed)
+        elapsedValue.text = webTorrentETA(fromMilliseconds: resolvedInfo?.time.elapsed)
             ?? TorrentDetailViewController.eta(seconds: Int(max(0, -startDate.timeIntervalSinceNow)))
 
-        seedersValue.text = "\(info?.peers.seeders ?? 0)"
-        leechersValue.text = "\(info?.peers.leechers ?? 0)"
-        wiresValue.text = "\(info?.peers.wires ?? status?.wires ?? status?.peers ?? 0)"
+        seedersValue.text = "\(resolvedInfo?.peers.seeders ?? 0)"
+        leechersValue.text = "\(resolvedInfo?.peers.leechers ?? 0)"
+        wiresValue.text = "\(resolvedInfo?.peers.wires ?? resolvedStatus?.wires ?? resolvedStatus?.peers ?? 0)"
 
-        setDot(dhtDot, enabled: protocolStatus?.dht ?? status?.dht ?? false)
-        setDot(lsdDot, enabled: protocolStatus?.lsd ?? false)
-        setDot(pexDot, enabled: protocolStatus?.pex ?? status?.pex ?? false)
-        setDot(natDot, enabled: protocolStatus?.nat ?? false)
-        setDot(forwardDot, enabled: protocolStatus?.forwarding ?? false)
-        setDot(persistDot, enabled: protocolStatus?.persisting ?? UserDefaults.standard.bool(forKey: "pref_persistFiles"))
-        setDot(streamingDot, enabled: protocolStatus?.streaming ?? false)
+        setDot(dhtDot, enabled: resolvedProtocol?.dht ?? resolvedStatus?.dht ?? false)
+        setDot(lsdDot, enabled: resolvedProtocol?.lsd ?? false)
+        setDot(pexDot, enabled: resolvedProtocol?.pex ?? resolvedStatus?.pex ?? false)
+        setDot(natDot, enabled: resolvedProtocol?.nat ?? false)
+        setDot(forwardDot, enabled: resolvedProtocol?.forwarding ?? false)
+        setDot(persistDot, enabled: resolvedProtocol?.persisting ?? UserDefaults.standard.bool(forKey: "pref_persistFiles"))
+        setDot(streamingDot, enabled: resolvedProtocol?.streaming ?? false)
 
         if selectedTabIndex == 1 { refreshFiles() }
         if selectedTabIndex == 2 { refreshPeers() }

@@ -777,22 +777,31 @@ final class ExtensionSearchViewController: UIViewController {
         let res = currentResolution
 
         searchTask = Task { @MainActor in
+            var hasStreamedResults = false
             do {
-                let found = try await ExtensionService.shared.search(for: item, episode: ep, resolution: res)
+                let found = try await ExtensionService.shared.search(for: item, episode: ep, resolution: res) { [weak self] partial in
+                    guard let self, !Task.isCancelled else { return }
+                    hasStreamedResults = true
+                    self.results = partial
+                    self.applyFilter()
+                    self.finishSearchLoading()
+                }
                 guard !Task.isCancelled else { return }
                 self.results = found
                 self.applyFilter()
                 self.emptyView.isHidden = !self.filteredResults.isEmpty
             } catch {
                 guard !Task.isCancelled else { return }
-                self.errorLabel.text = error.localizedDescription
-                self.errorView.isHidden  = false
-                self.emptyView.isHidden  = true
-                self.tableView.reloadData()
+                if hasStreamedResults, !self.results.isEmpty {
+                    print("ExtensionSearchViewController: partial search completed with error: \(error)")
+                } else {
+                    self.errorLabel.text = error.localizedDescription
+                    self.errorView.isHidden  = false
+                    self.emptyView.isHidden  = true
+                    self.tableView.reloadData()
+                }
             }
-            self.skeletonView.isHidden = true
-            self.skeletonView.superview?.isHidden = true
-            self.stopSkeletonPulse()
+            self.finishSearchLoading()
             // If auto-select was requested (episode change from player),
             // automatically pick the best result and start playback.
             if self.autoSelectAfterSearch {
@@ -817,6 +826,12 @@ final class ExtensionSearchViewController: UIViewController {
         filteredResults = filterAndSortResults(filtered)
         tableView.reloadData()
         emptyView.isHidden = !filteredResults.isEmpty || !skeletonView.isHidden
+    }
+
+    private func finishSearchLoading() {
+        skeletonView.isHidden = true
+        skeletonView.superview?.isHidden = true
+        stopSkeletonPulse()
     }
 
     /// Mirrors web filterAndSortResults() from SearchModal.svelte exactly.

@@ -212,7 +212,10 @@ final class ExtensionService {
     ///   const aniDBMeta = await this.ALToAniDB(media)
     ///   const { anidb_id: anidbAid, mal_id: malId, ... } = aniDBMeta?.mappings ?? {}
     ///   const { anidbEid, tvdbId: tvdbEId, absoluteEpisodeNumber } = await this.ALtoAniDBEpisode(...)
-    func search(for item: AnimeItem, episode: Int, resolution: String) async throws -> [TorrentResult] {
+    func search(for item: AnimeItem,
+                episode: Int,
+                resolution: String,
+                onUpdate: (([TorrentResult]) -> Void)? = nil) async throws -> [TorrentResult] {
         let ids = await fetchAniZipData(item: item, episode: episode)
 
         var query = TorrentQuery.make(from: item, episode: episode, resolution: resolution)
@@ -229,7 +232,7 @@ final class ExtensionService {
         // When unavailable, leave nil — do NOT fallback to eid (anidbEid is a different field).
         query.absoluteEpisodeNumber = ids.absoluteEpisodeNumber
 
-        return try await search(query: query)
+        return try await search(query: query, onUpdate: onUpdate)
     }
 
     /// Fetches ALL IDs from api.ani.zip in ONE request.
@@ -337,33 +340,28 @@ final class ExtensionService {
     }
 
     /// Search all enabled torrent extensions and deduplicate results.
-    /// Mirrors Extensions.getResultsFromExtensions in extensions.ts.
-    func search(query: TorrentQuery) async throws -> [TorrentResult] {
-        // Mirrors Hayase: `await storage.ready` before checking extensions.size
+    /// Mirrors Hayase interface's streamed search flow: every extension method is
+    /// started immediately and each completed chunk is surfaced without waiting for
+    /// slower extensions or tracker scraping.
+    func search(query: TorrentQuery, onUpdate: (([TorrentResult]) -> Void)? = nil) async throws -> [TorrentResult] {
         await readyTask?.value
 
-        // Lazy-load fallback: if workers is empty but enabled configs exist, the
-        // initial load() may have failed before the WKWebView was ready.
-        // Try loading now that the user is actively using the extension.
         if workers.isEmpty {
-            let enabledConfigs = configs.filter { id, c in
-                (options[id]?.enabled ?? false) && c.type == "torrent"
+            let enabledConfigs = configs.filter { id, config in
+                (options[id]?.enabled ?? false) && config.type == "torrent"
             }
-            if !enabledConfigs.isEmpty {
-                for (id, config) in enabledConfigs {
-                    guard workers[id] == nil, let url = jsurl(config.code) else { continue }
-                    await loadWorker(url: url, id: id)
-                }
+            for (id, config) in enabledConfigs {
+                guard workers[id] == nil, let url = jsurl(config.code) else { continue }
+                await loadWorker(url: url, id: id)
             }
         }
 
         let enabledWorkers = workers.filter { id, _ in
-            (options[id]?.enabled ?? false) && (configs[id]?.type == "torrent")
+            (options[id]?.enabled ?? false) && configs[id]?.type == "torrent"
         }
         guard !enabledWorkers.isEmpty else {
-            // Give a more helpful message if extensions are installed but failed to load
-            let hasInstalled = configs.values.contains { c in
-                (options[c.id]?.enabled ?? false) && c.type == "torrent"
+            let hasInstalled = configs.values.contains { config in
+                (options[config.id]?.enabled ?? false) && config.type == "torrent"
             }
             if hasInstalled {
                 throw ExtensionError.noExtensions("Extension failed to initialise. Try restarting the app.")
@@ -371,14 +369,6 @@ final class ExtensionService {
             throw ExtensionError.noExtensions("No torrent extensions configured. Add extensions in Settings → Extensions.")
         }
 
-        var all: [TorrentResult] = []
-        var errors: [(id: String, error: Error)] = []
-
-        // Mirrors Hayase util.ts isMovie(media) exactly:
-        //   if (media.format === 'MOVIE') return true
-        //   if ([...Object.values(media.title ?? {}), ...media.synonyms ?? []]
-        //       .some(title => title?.toLowerCase().includes('movie'))) return true
-        //   return (media.duration ?? 0) > 80 && media.episodes === 1
         let fmt = query.mediaJSON["format"] as? String
         let titleDict = query.mediaJSON["title"] as? [String: Any]
         let allNames: [String] = (
@@ -390,130 +380,117 @@ final class ExtensionService {
         let isMovie = fmt == "MOVIE"
             || allNames.contains { $0.lowercased().contains("movie") }
             || ((mediaDuration ?? 0) > 80 && mediaEpisodes == 1)
-
-        // Mirrors Hayase util.ts isSingleEpisode(media) exactly:
-        //   return media.episodes === 1 || (isMovie(media) && !media.episodes)
         let isSingleEp = mediaEpisodes == 1 || (isMovie && mediaEpisodes == nil)
-
         let checkMovie = !isSingleEp && isMovie
         let checkBatch = !isSingleEp && !isMovie
 
-        // Run all extension calls concurrently — mirrors Hayase's Promise.allSettled:
-        //   promises.push(worker.single(options, opts))
-        //   if (checkMovie) promises.push(worker.movie(options, opts))
-        //   if (checkBatch) promises.push(worker.batch(options, opts))
-        //   for (const result of await Promise.allSettled(promises)) { ... }
-        //
-        // Previously single/batch ran SEQUENTIALLY inside one task: if single() timed
-        // out (30s), batch() wouldn't run until 30s later. Now each method is its own
-        // concurrent task within an inner TaskGroup, so they all start at the same time.
-        await withTaskGroup(of: ([TorrentResult], [(String, Error)]).self) { group in
+        var all: [TorrentResult] = []
+        var errors: [(id: String, error: Error)] = []
+
+        await withTaskGroup(of: SearchChunk.self) { group in
             for (extId, worker) in enabledWorkers {
                 let opts = options[extId]?.options.mapValues(\.jsonCompatible) ?? [:]
-                group.addTask { @MainActor in
-                    // Inner TaskGroup: single / batch / movie run concurrently per extension
-                    await withTaskGroup(of: ([TorrentResult], Error?).self) { inner in
-                        // Always call single()
-                        inner.addTask { @MainActor in
-                            do {
-                                var r = try await worker.single(query: query, options: opts)
-                                for i in r.indices { r[i].extensionIds.insert(extId) }
-                                return (r, nil)
-                            } catch {
-                                print("ExtensionService: \(extId) single() failed: \(error)")
-                                return ([], error)
-                            }
-                        }
-                        // Call movie() for movie-format non-single-ep anime
-                        if checkMovie {
-                            inner.addTask { @MainActor in
-                                do {
-                                    var r = try await worker.movie(query: query, options: opts)
-                                    for i in r.indices { r[i].extensionIds.insert(extId) }
-                                    return (r, nil)
-                                } catch {
-                                    print("ExtensionService: \(extId) movie() failed: \(error)")
-                                    return ([], error)
-                                }
-                            }
-                        }
-                        // Call batch() for multi-episode non-movie anime
-                        if checkBatch {
-                            inner.addTask { @MainActor in
-                                do {
-                                    var r = try await worker.batch(query: query, options: opts)
-                                    for i in r.indices { r[i].extensionIds.insert(extId) }
-                                    return (r, nil)
-                                } catch {
-                                    print("ExtensionService: \(extId) batch() failed: \(error)")
-                                    return ([], error)
-                                }
-                            }
-                        }
-
-                        var results: [TorrentResult] = []
-                        var errs: [(String, Error)] = []
-                        for await (r, e) in inner {
-                            results.append(contentsOf: r)
-                            if let e { errs.append((extId, e)) }
-                        }
-                        return (results, errs)
+                addSearchTask(to: &group, extId: extId, method: "single") {
+                    try await worker.single(query: query, options: opts)
+                }
+                if checkMovie {
+                    addSearchTask(to: &group, extId: extId, method: "movie") {
+                        try await worker.movie(query: query, options: opts)
+                    }
+                }
+                if checkBatch {
+                    addSearchTask(to: &group, extId: extId, method: "batch") {
+                        try await worker.batch(query: query, options: opts)
                     }
                 }
             }
 
-            for await (results, errs) in group {
-                all.append(contentsOf: results)
-                errors.append(contentsOf: errs)
+            for await chunk in group {
+                if let error = chunk.error {
+                    errors.append((chunk.extensionId, error))
+                    print("ExtensionService: \(chunk.extensionId) \(chunk.method)() failed: \(error)")
+                }
+
+                if !chunk.results.isEmpty {
+                    all.append(contentsOf: chunk.results)
+                    let streamed = dedupe(all)
+                    onUpdate?(streamed)
+                }
             }
         }
 
-        // Surface extension errors in the UI when no results were found.
-        // If we got some results, log errors silently (partial success is still useful).
-        for (extId, err) in errors {
-            print("ExtensionService: extension \(extId) error: \(err)")
+        for (extId, error) in errors {
+            print("ExtensionService: extension \(extId) error: \(error)")
         }
 
         if all.isEmpty && !errors.isEmpty {
-            // All extensions returned errors — surface the first meaningful message so
-            // ExtensionSearchViewController can show it in the red errorLabel instead
-            // of the unhelpful "No results found".
-            let msgs = errors.prefix(3).map { "\($0.id): \($0.error.localizedDescription)" }
-                             .joined(separator: "\n")
-            throw ExtensionError.callFailed(msgs)
+            let messages = errors.prefix(3).map { "\($0.id): \($0.error.localizedDescription)" }
+                .joined(separator: "\n")
+            throw ExtensionError.callFailed(messages)
         }
 
-        let deduped = dedupe(all)
+        return dedupe(all)
+    }
 
-        // Mirrors web: `navigator.onLine ? await this.updatePeerCounts(deduped) : deduped`
-        // Scrape live tracker peer counts to get accurate seeders/leechers/downloads.
-        return await updatePeerCounts(deduped)
+    private struct SearchChunk {
+        let extensionId: String
+        let method: String
+        let results: [TorrentResult]
+        let error: Error?
+    }
+
+    private func addSearchTask(to group: inout TaskGroup<SearchChunk>,
+                               extId: String,
+                               method: String,
+                               operation: @escaping @MainActor () async throws -> [TorrentResult]) {
+        group.addTask { @MainActor in
+            do {
+                var results = try await operation()
+                for index in results.indices { results[index].extensionIds.insert(extId) }
+                let counted = await Self.updatePeerCountsWithTimeout(results)
+                return SearchChunk(extensionId: extId, method: method, results: counted, error: nil)
+            } catch {
+                return SearchChunk(extensionId: extId, method: method, results: [], error: error)
+            }
+        }
     }
 
     // MARK: - Update peer counts (mirrors web extensions.updatePeerCounts)
 
-    /// Scrape HTTP tracker for live peer counts and overwrite extension-reported values.
-    /// Mirrors web's `updatePeerCounts()` in extensions.ts:
-    ///   for (const { hash, complete, downloaded, incomplete } of updated) {
-    ///     found.downloads = Number(downloaded)
-    ///     found.leechers = Number(incomplete)
-    ///     found.seeders = Number(complete)
-    ///   }
-    private func updatePeerCounts(_ entries: [TorrentResult]) async -> [TorrentResult] {
+    /// Matches Hayase interface behavior: peer scraping improves a chunk when it
+    /// finishes quickly, but search results are never blocked for more than 3s by
+    /// tracker scrape latency.
+    private static func updatePeerCountsWithTimeout(_ entries: [TorrentResult]) async -> [TorrentResult] {
         guard !entries.isEmpty else { return entries }
+        return await withTaskGroup(of: [TorrentResult]?.self, returning: [TorrentResult].self) { group in
+            group.addTask {
+                await updatePeerCounts(entries)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                return nil
+            }
 
+            for await result in group {
+                group.cancelAll()
+                return result ?? entries
+            }
+            return entries
+        }
+    }
+
+    private static func updatePeerCounts(_ entries: [TorrentResult]) async -> [TorrentResult] {
+        guard !entries.isEmpty else { return entries }
         let hashes = entries.map(\.hash)
-
         let scraped = await TrackerScrapeService.scrape(hashes: hashes)
-
         guard !scraped.isEmpty else { return entries }
 
         var updated = entries
         for scrapeResult in scraped {
-            guard let idx = updated.firstIndex(where: { $0.hash == scrapeResult.hash }) else { continue }
-            updated[idx].seeders   = scrapeResult.complete
-            updated[idx].leechers  = scrapeResult.incomplete
-            updated[idx].downloads = scrapeResult.downloaded
+            guard let index = updated.firstIndex(where: { $0.hash == scrapeResult.hash }) else { continue }
+            updated[index].seeders = scrapeResult.complete
+            updated[index].leechers = scrapeResult.incomplete
+            updated[index].downloads = scrapeResult.downloaded
         }
         return updated
     }
