@@ -666,12 +666,21 @@ extension W2GViewController {
         // Check mini-player first, then any fullscreen player in the app.
         let player = MiniPlayerManager.shared.activePlayer ?? findPresentedPlayer()
         guard let player,
-              let hash = player.torrentHandle?.infoHashes.best.hex,
-              !hash.isEmpty,
+              let hash = w2gTorrentHash(from: player),
               player.anilistID > 0 else {
             return nil
         }
         return W2GMediaState(torrent: hash, mediaId: player.anilistID, episode: player.episodeNumber)
+    }
+
+    private func w2gTorrentHash(from player: VideoPlayerViewController) -> String? {
+        if let hash = player.torrentHandle?.infoHashes.best.hex.trimmingCharacters(in: .whitespacesAndNewlines),
+           !hash.isEmpty {
+            return hash
+        }
+
+        let hash = player.videoEntity?.torrents?.torrentHashString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return hash.isEmpty ? nil : hash
     }
 
     /// Walk the entire presented-VC chain from the root to find a VideoPlayerViewController.
@@ -721,38 +730,57 @@ extension W2GViewController {
     /// Second half of `playW2GMedia`: add the torrent by hash and present the player.
     /// Mirrors web's `server.play(torrent, media, episode)`.
     private func continueW2GPlay(hash: String, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
-        // Add the torrent by hash (magnet URI).
-        // Mirrors web: `native.playTorrent(torrent, media.id, episode)`.
-        guard let handle = TorrentService.sharedTorrentService.readdTorrent(hash: hash, magnetLink: nil) else {
-            hud.dismiss(animated: true) { [weak self] in
-                let alert = UIAlertController(title: "Error", message: "Could not add the host's torrent.", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-                self?.present(alert, animated: true)
-            }
-            return
+        let entity = findOrCreateW2GTorrent(hash: hash, anilistID: anilistID, animeItem: animeItem)
+
+        // Set initial AniList state (mirrors web: `client.setInitialState(media, episode)`).
+        AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
+
+        switch TorrentBackendManager.shared.currentKind {
+        case .webtorrent:
+            playW2GWebTorrent(entity: entity,
+                              anilistID: anilistID,
+                              episode: episode,
+                              animeItem: animeItem,
+                              hud: hud)
+        case .native:
+            playW2GNative(hash: hash,
+                          entity: entity,
+                          anilistID: anilistID,
+                          episode: episode,
+                          animeItem: animeItem,
+                          hud: hud)
+        }
+    }
+
+    private func findOrCreateW2GTorrent(hash: String, anilistID: Int, animeItem: AnimeItem?) -> Torrents {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let request = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
+        request.predicate = NSPredicate(format: "torrentHashString == %@", hash)
+        request.fetchLimit = 1
+
+        let entity: Torrents
+        if let existing = (try? context.fetch(request))?.first {
+            entity = existing
+        } else {
+            entity = Torrents(context: context)
+            entity.torrentHashString = hash
         }
 
-        // Find or create a Torrents CoreData entity for the hash.
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let entity: Torrents = {
-            let req = NSFetchRequest<Torrents>(entityName: Torrents.entityName)
-            req.predicate = NSPredicate(format: "torrentHashString == %@", hash)
-            req.fetchLimit = 1
-            if let existing = (try? context.fetch(req))?.first { return existing }
-            let t = Torrents(context: context)
-            t.torrentHashString = hash
-            return t
-        }()
+        if entity.torrentName?.isEmpty ?? true {
+            entity.torrentName = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? hash
+        }
 
-        // Link to AniList anime entity (create if needed from fetched item).
-        // Mirrors web: `server.play(torrent, media, episode)` where `media` is the AniList Media object.
+        // WebTorrent can rehydrate a W2G torrent from the info hash alone.
+        // Keep torrentHashString as the canonical W2G id and avoid inventing
+        // a download URL; WebTorrentBackend falls back to an info-hash magnet.
+        entity.torrentHashString = hash
+
         if anilistID > 0 {
-            let animeReq = Animes.fetchRequest()
-            animeReq.predicate = NSPredicate(format: "animeAnilistId == %d", anilistID)
-            if let existing = (try? context.fetch(animeReq))?.first as? Animes {
+            let animeRequest = Animes.fetchRequest()
+            animeRequest.predicate = NSPredicate(format: "animeAnilistId == %d", anilistID)
+            if let existing = (try? context.fetch(animeRequest))?.first as? Animes {
                 entity.animes = existing
             } else if let item = animeItem {
-                // Create Animes entity from AniList data (mirrors ExtensionSearchVC.startDownload).
                 let anime = Animes(context: context)
                 anime.animeAnilistId      = NSNumber(value: item.id)
                 anime.animeTitleEnglish   = item.titleEnglish
@@ -766,13 +794,144 @@ extension W2GViewController {
                 entity.animes = anime
             }
         }
+
         try? context.save()
+        return entity
+    }
 
-        // Set initial AniList state (mirrors web: `client.setInitialState(media, episode)`).
-        AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
+    private func playW2GNative(hash: String, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
+        // Add the torrent by hash (magnet URI).
+        // Mirrors web: `native.playTorrent(torrent, media.id, episode)`.
+        guard let handle = TorrentService.sharedTorrentService.readdTorrent(hash: hash, magnetLink: nil) else {
+            hud.dismiss(animated: true) { [weak self] in
+                self?.showW2GError("Could not add the host's torrent.")
+            }
+            return
+        }
 
-        // Wait for metadata then present the player.
-        w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, hud: hud)
+        w2gWaitForMetadataAndPlay(handle: handle,
+                                  entity: entity,
+                                  anilistID: anilistID,
+                                  episode: episode,
+                                  animeItem: animeItem,
+                                  hud: hud)
+    }
+
+    private func playW2GWebTorrent(entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
+        hud.message = "Fetching WebTorrent metadata…"
+
+        let videoService = VideoService(torrentEntity: entity, episode: episode)
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        var observer: NSObjectProtocol?
+        var didFinish = false
+
+        let finish: (Result<[Videos], Error>) -> Void = { [weak self, weak videoService] result in
+            guard let self else { return }
+            guard !didFinish else { return }
+            didFinish = true
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+
+            hud.dismiss(animated: true) { [weak self, weak videoService] in
+                guard let self, let videoService else { return }
+                switch result {
+                case .success(let videos):
+                    self.presentW2GWebTorrentPlayer(videoService: videoService,
+                                                    entity: entity,
+                                                    videos: videos,
+                                                    anilistID: anilistID,
+                                                    episode: episode,
+                                                    animeItem: animeItem)
+                case .failure(let error):
+                    self.showW2GError(error.localizedDescription)
+                }
+            }
+        }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
+            object: nil,
+            queue: .main
+        ) { [weak videoService] _ in
+            guard let videoService else { return }
+
+            let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
+            fetch.predicate = NSPredicate(format: "torrents == %@", entity)
+            fetch.sortDescriptors = [NSSortDescriptor(key: "videoIndex", ascending: true),
+                                     NSSortDescriptor(key: "videoName", ascending: true)]
+            let videos = (try? context.fetch(fetch)) ?? []
+
+            if let error = videoService.lastError {
+                finish(.failure(error))
+            } else if !videos.isEmpty {
+                finish(.success(videos))
+            }
+        }
+
+        videoService.UpdateLocalVideo()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak videoService] in
+            guard !didFinish else { return }
+            let error = videoService?.lastError ?? NSError(
+                domain: "Hayase.W2G.WebTorrent",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not fetch WebTorrent metadata from peers."])
+            finish(.failure(error))
+        }
+    }
+
+    private func presentW2GWebTorrentPlayer(videoService: VideoService,
+                                            entity: Torrents,
+                                            videos: [Videos],
+                                            anilistID: Int,
+                                            episode: Int,
+                                            animeItem: AnimeItem?) {
+        guard !videos.isEmpty else { return }
+        let sortedVideos = videos.sorted {
+            let left = $0.videoIndex?.intValue ?? Int.max
+            let right = $1.videoIndex?.intValue ?? Int.max
+            if left != right { return left < right }
+            return ($0.videoName ?? "") < ($1.videoName ?? "")
+        }
+
+        let selectedPosition: Int
+        if let clientIndex = W2GLobby.shared.client?.index,
+           clientIndex >= 0,
+           clientIndex < sortedVideos.count {
+            selectedPosition = clientIndex
+        } else if let match = sortedVideos.enumerated().first(where: { _, video in
+            TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "") == episode
+        }) {
+            selectedPosition = match.offset
+        } else if episode > 0, episode <= sortedVideos.count {
+            selectedPosition = episode - 1
+        } else {
+            selectedPosition = 0
+        }
+
+        let video = sortedVideos[selectedPosition]
+        let index = UInt(video.videoIndex?.intValue ?? selectedPosition)
+        _ = videoService.UpdateFilePathForFileIndex(index)
+
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        player.videoEntity       = video
+        player.torrentHandle     = nil
+        player.videoService      = videoService
+        player.fileIndex         = index
+        player.anilistID         = anilistID
+        player.episodeNumber     = episode
+        player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
+        player.allVideos         = sortedVideos
+        player.currentVideoIndex = selectedPosition
+        presentHayasePlayer(player)
+    }
+
+    private func showW2GError(_ message: String) {
+        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+        present(alert, animated: true)
     }
 
     /// Polls the torrent handle until metadata is available, then presents the player.

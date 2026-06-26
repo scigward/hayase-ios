@@ -531,11 +531,21 @@ final class VideoPlayerViewController: UIViewController {
         // calling w2globby.value?.mediaChange() — but since the lobby was
         // created after we started playing, that call was a no-op at the time.
         if client.media == nil,
-           let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+           let hash = currentW2GTorrentHash, anilistID > 0 {
             client.mediaChange(W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber))
             client.mediaIndexChanged(currentVideoIndex)
             client.playerStateChanged(W2GPlayerState(paused: isPaused, time: floor(currentTime)))
         }
+    }
+
+    private var currentW2GTorrentHash: String? {
+        if let hash = torrentHandle?.infoHashes.best.hex.trimmingCharacters(in: .whitespacesAndNewlines),
+           !hash.isEmpty {
+            return hash
+        }
+
+        let hash = videoEntity?.torrents?.torrentHashString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return hash.isEmpty ? nil : hash
     }
 
     /// Reference to the active W2G client for incoming player state.
@@ -1212,7 +1222,7 @@ final class VideoPlayerViewController: UIViewController {
 
         // W2G: notify peers about the media we're playing (mirrors web's
         // server.play() calling w2globby.value?.mediaChange({ torrent, mediaId, episode })).
-        if let hash = torrentHandle?.infoHashes.best.hex, !hash.isEmpty, anilistID > 0 {
+        if let hash = currentW2GTorrentHash, anilistID > 0 {
             W2GLobby.shared.client?.mediaChange(
                 W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
             )

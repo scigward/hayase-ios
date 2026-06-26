@@ -203,7 +203,7 @@ final class W2GClient {
     /// Called when the local user changes media (torrent).
     /// Mirrors web `mediaChange(media)`.
     func mediaChange(_ media: W2GMediaState) {
-        if self.media?.torrent != media.torrent {
+        if self.media != media {
             self.media = media
             self.isHost = true
             sendToPeers(W2GEvent.mediaEvent(media))
