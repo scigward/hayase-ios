@@ -68,7 +68,7 @@ async function handleRPC (payload) {
     case 'rescanTorrents':
       return await activeClient.rescanTorrents(params.hashes ?? [])
     case 'cachedTorrents':
-      return await activeClient.cachedTorrents()
+      return await activeClient.cached()
     default:
       throw new Error(`Unknown WebTorrent bridge method: ${payload.method}`)
   }

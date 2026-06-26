@@ -25,6 +25,10 @@ Packages/
 Package.resolved
 .swiftpm/
 
+# Generated WebTorrent backend resources
+Hayase/Resources/WebTorrentBackend/torrent-client/
+node_modules/
+
 # CocoaPods
 Pods/
 

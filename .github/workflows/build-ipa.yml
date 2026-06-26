@@ -35,7 +35,10 @@ jobs:
             spm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: brew install xcodegen boost openssl@3
+        run: brew install xcodegen boost openssl@3 node
+
+      - name: Build WebTorrent backend
+        run: bash ./scripts/build_webtorrent_backend.sh
 
       - name: Generate Xcode project
         run: ./scripts/generate_project.sh
