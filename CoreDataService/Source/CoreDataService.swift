@@ -42,21 +42,20 @@ guard let someManagedObjectModel = NSManagedObjectModel(contentsOf: modelURL) el
 fatalError("Could not load model at URL \(modelURL)")
 }
 
-guard let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-fatalError("Could not find documents directory")
-}
+let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+?? FileManager.default.temporaryDirectory
 
 managedObjectModel = someManagedObjectModel
 persistentStoreCoordinator = NSPersistentStoreCoordinator(managedObjectModel: managedObjectModel)
 
-let storeRootURL = documentsDirectoryURL.appendingPathComponent("DataStore")
-
-if !FileManager.default.fileExists(atPath: storeRootURL.path) {
-do {
-try FileManager.default.createDirectory(at: storeRootURL, withIntermediateDirectories: true, attributes: nil)
-} catch let error {
-fatalError("Error creating data store directory \(error as NSError)")
-}
+let preferredStoreRootURL = documentsDirectoryURL.appendingPathComponent("DataStore")
+let storeRootURL: URL
+if Self.createDirectoryIfNeeded(at: preferredStoreRootURL) {
+storeRootURL = preferredStoreRootURL
+} else {
+let fallbackRootURL = FileManager.default.temporaryDirectory.appendingPathComponent("HayaseDataStore")
+_ = Self.createDirectoryIfNeeded(at: fallbackRootURL)
+storeRootURL = fallbackRootURL
 }
 
 let persistentStoreURL = storeRootURL.appendingPathComponent("\(CoreDataService.storeName).sqlite")
@@ -73,7 +72,12 @@ Self.moveAsidePersistentStoreFiles(at: persistentStoreURL)
 do {
 try persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: persistentStoreURL, options: persistentStoreOptions)
 } catch let retryError {
-fatalError("Error creating persistent store after reset \(retryError as NSError)")
+print("CoreDataService: failed to recreate persistent store, using in-memory fallback: \(retryError as NSError)")
+do {
+try persistentStoreCoordinator.addPersistentStore(ofType: NSInMemoryStoreType, configurationName: nil, at: nil, options: nil)
+} catch let memoryError {
+fatalError("Error creating persistent store fallback \(memoryError as NSError)")
+}
 }
 }
 
@@ -84,6 +88,19 @@ rootContext.undoManager = nil
 mainQueueContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
 mainQueueContext.parent = rootContext
 mainQueueContext.undoManager = nil
+}
+
+
+private static func createDirectoryIfNeeded(at url: URL) -> Bool {
+let fileManager = FileManager.default
+if fileManager.fileExists(atPath: url.path) { return true }
+do {
+try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
+return true
+} catch {
+print("CoreDataService: failed to create data store directory at \(url.path): \(error as NSError)")
+return false
+}
 }
 
 private static func moveAsidePersistentStoreFiles(at storeURL: URL) {

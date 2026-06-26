@@ -414,23 +414,30 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         let js = "void window.__call('\(escapedId)', '\(method)', \(queryJSON), \(optionsJSON));"
 
         let raw: Any = try await withCheckedThrowingContinuation { cont in
-            pending[callId] = { cont.resume(with: $0) }
+            Task { @MainActor [weak self] in
+                guard let self, let webView = self.webView else {
+                    cont.resume(throwing: WorkerError.notLoaded)
+                    return
+                }
 
-            // 30s safety timeout — if postMessage is never delivered, unblock the caller.
-            let timeoutWork = DispatchWorkItem { [weak self] in
-                guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
-                self.callTimeouts.removeValue(forKey: callId)
-                handler(.failure(WorkerError.callFailed("Extension call timed out (30s)")))
-            }
-            callTimeouts[callId] = timeoutWork
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
+                self.pending[callId] = { cont.resume(with: $0) }
 
-            webView?.evaluateJavaScript(js) { [weak self] _, err in
-                // Route errors through the pending handler so cont has a single owner.
-                guard let self, let err else { return }
-                self.callTimeouts.removeValue(forKey: callId)?.cancel()
-                if let handler = self.pending.removeValue(forKey: callId) {
-                    handler(.failure(err))
+                // 30s safety timeout — if postMessage is never delivered, unblock the caller.
+                let timeoutWork = DispatchWorkItem { [weak self] in
+                    guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
+                    self.callTimeouts.removeValue(forKey: callId)
+                    handler(.failure(WorkerError.callFailed("Extension call timed out (30s)")))
+                }
+                self.callTimeouts[callId] = timeoutWork
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
+
+                webView.evaluateJavaScript(js) { [weak self] _, err in
+                    // Route errors through the pending handler so cont has a single owner.
+                    guard let self, let err else { return }
+                    self.callTimeouts.removeValue(forKey: callId)?.cancel()
+                    if let handler = self.pending.removeValue(forKey: callId) {
+                        handler(.failure(err))
+                    }
                 }
             }
         }

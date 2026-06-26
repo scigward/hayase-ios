@@ -770,8 +770,8 @@ extension AnimeDetailViewController {
             }
             let leftIdx = indexPath.row * 2
             let rightIdx = leftIdx + 1
-            let leftEp = paginatedEpisodes[leftIdx]
-            let rightEp = rightIdx < paginatedEpisodes.count ? paginatedEpisodes[rightIdx] : nil
+            guard let leftEp = paginatedEpisodes[safe: leftIdx] else { return cell }
+            let rightEp = paginatedEpisodes[safe: rightIdx]
             cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
                            anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
                            isListCompleted: isCompleted)

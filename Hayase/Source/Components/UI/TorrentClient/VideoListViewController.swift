@@ -501,7 +501,7 @@ extension VideoListViewController: UITableViewDelegate {
                 self?.tableView.reloadData()
             } else {
                 vs.SetDoNotDownloadForFileIndex(index, flag: true)
-                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+                self?.tableView.reloadData()
             }
             done(true)
         }

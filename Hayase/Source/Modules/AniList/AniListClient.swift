@@ -800,7 +800,11 @@ public final class AniListClient: NSObject {
     // MARK: - Per-media airing schedule
 
     func fetchMediaAiringSchedule(anilistID: Int, completion: @escaping (MediaScheduleResult?) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion(nil); return }
+        func finish(_ result: MediaScheduleResult?) {
+            DispatchQueue.main.async { completion(result) }
+        }
+
+        guard let url = URL(string: graphQLEndpoint) else { finish(nil); return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -812,7 +816,7 @@ public final class AniListClient: NSObject {
             guard let data = data,
                   let resp = try? JSONDecoder().decode(MediaScheduleResponse.self, from: data),
                   let media = resp.data?.Media else {
-                completion(nil)
+                finish(nil)
                 return
             }
 
@@ -826,7 +830,7 @@ public final class AniListClient: NSObject {
             }
 
             let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
-            completion(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
+            finish(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
         }.resume()
     }
 

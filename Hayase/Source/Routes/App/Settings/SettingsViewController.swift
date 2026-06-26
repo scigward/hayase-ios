@@ -604,7 +604,7 @@ class SettingsViewController: UIViewController {
         for option in options {
             let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
                 UserDefaults.standard.set(option.key, forKey: key)
-                self?.tableView.reloadRows(at: [indexPath], with: .none)
+                self?.tableView.reloadData()
             }
             if option.key == currentKey {
                 action.setValue(true, forKey: "checked")
@@ -653,7 +653,7 @@ class SettingsViewController: UIViewController {
             } else {
                 UserDefaults.standard.set(text, forKey: key)
             }
-            self?.tableView.reloadRows(at: [indexPath], with: .none)
+            self?.tableView.reloadData()
             self?.applyTorrentSettingsIfNeeded(forKey: key)
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))

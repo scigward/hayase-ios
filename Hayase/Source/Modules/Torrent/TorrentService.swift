@@ -30,8 +30,23 @@ public class TorrentService: NSObject, SessionDelegate {
     /// Hex-string keyed dict of active handles.
     /// Avoids TorrentHashes NSDictionary key-equality issues (TorrentHashes does not
     /// override isEqual:/hash, so NSDictionary lookups use pointer identity).
-    /// All reads/writes happen on the main thread.
-    private(set) var handles: [String: TorrentHandle] = [:]
+    /// Read-only snapshot of active handles.
+    /// Internally guarded because libtorrent callbacks and player teardown can
+    /// arrive from different queues.
+    private let handlesLock = NSRecursiveLock()
+    private var _handles: [String: TorrentHandle] = [:]
+    private(set) var handles: [String: TorrentHandle] {
+        get {
+            handlesLock.lock()
+            defer { handlesLock.unlock() }
+            return _handles
+        }
+        set {
+            handlesLock.lock()
+            _handles = newValue
+            handlesLock.unlock()
+        }
+    }
 
     var insertIndexForTempEntries = 0
 
@@ -107,7 +122,8 @@ public class TorrentService: NSObject, SessionDelegate {
 
         // Transfer speed limit (Mb/s → bytes/s).
         // Hayase default: 40 Mb/s.  0 = unlimited.
-        let speedMbps = Int(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
+        let parsedSpeedMbps = Int(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
+        let speedMbps = min(999, max(0, parsedSpeedMbps))
         let speedBytesPerSec = UInt(speedMbps) * 125_000   // Mb/s → bytes/s
         settings.maxDownloadSpeed = speedBytesPerSec
         settings.maxUploadSpeed   = speedBytesPerSec
@@ -145,10 +161,7 @@ public class TorrentService: NSObject, SessionDelegate {
     }
 
     func hasHandle(_ hash: String) -> Bool {
-        if Thread.isMainThread {
-            return handles[hash] != nil
-        }
-        return DispatchQueue.main.sync { handles[hash] != nil }
+        handles[hash] != nil
     }
 
     // MARK: - SessionDelegate
