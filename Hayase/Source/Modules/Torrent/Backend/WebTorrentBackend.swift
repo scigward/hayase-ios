@@ -131,6 +131,14 @@ final class WebTorrentBackend {
         }
     }
 
+    func rescanTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.rescanTorrents(hashes: hashes, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
     func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         withReadyBridge { bridge in
             bridge.deleteTorrents(hashes: hashes, completion: completion)

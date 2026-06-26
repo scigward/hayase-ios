@@ -155,6 +155,12 @@ final class WebTorrentBridgeClient {
         call(method: "trackers", params: ["hash": hash], completion: completion)
     }
 
+    func rescanTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
+        call(method: "rescanTorrents", params: ["hashes": hashes]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
+    }
+
     func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         call(method: "deleteTorrents", params: ["hashes": hashes]) { (result: Result<EmptyResult, Error>) in
             completion(result.map { _ in () })
