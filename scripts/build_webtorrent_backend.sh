@@ -36,7 +36,7 @@ require_command rsync
 rm -rf "${SOURCE_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-git init "${SOURCE_DIR}"
+git init --initial-branch=hayase-build "${SOURCE_DIR}"
 git -C "${SOURCE_DIR}" remote add origin "${TORRENT_CLIENT_REPO}"
 git -C "${SOURCE_DIR}" fetch --depth 1 origin "${TORRENT_CLIENT_COMMIT}"
 git -C "${SOURCE_DIR}" checkout --detach FETCH_HEAD
@@ -73,6 +73,7 @@ mkdir -p "${OUTPUT_DIR}"
 
 rsync -aL --delete \
   --exclude=".cache/" \
+  --exclude="*.node" \
   --exclude="*.tsbuildinfo" \
   "${SOURCE_DIR}/node_modules/" \
   "${OUTPUT_DIR}/node_modules/"
