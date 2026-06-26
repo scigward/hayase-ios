@@ -160,11 +160,23 @@ final class WebTorrentBackend {
     }
 
     private static func torrentIdentifier(for torrentEntity: Torrents) -> String? {
-        if let url = torrentEntity.torrentDownloadURL, !url.isEmpty {
-            return url
+        if let urlString = torrentEntity.torrentDownloadURL,
+           !urlString.isEmpty,
+           URL(string: urlString)?.scheme == "magnet" {
+            return urlString
         }
+
+        // Prefer the info-hash for WebTorrent playback when it is available.
+        // Search providers often return HTTP torrent download links that work
+        // in browsers but fail under Node Mobile's fetch/undici path. The
+        // torrent-client adds its own tracker list, so a hash magnet is enough
+        // and avoids a fragile pre-download step.
         if let hash = torrentEntity.torrentHashString, !hash.isEmpty {
             return "magnet:?xt=urn:btih:\(hash)"
+        }
+
+        if let url = torrentEntity.torrentDownloadURL, !url.isEmpty {
+            return url
         }
         return nil
     }

@@ -67,11 +67,18 @@ async function fetchTorrentFile (url) {
 }
 
 async function resolveTorrentID (id) {
-  // WebTorrent supports http(s) torrent URLs, but fetching them here gives us
-  // deterministic headers, redirects, timeout handling, and a real error if an
-  // extension accidentally returns an HTML/details page instead of a .torrent.
-  if (isHTTPURL(id)) return await fetchTorrentFile(id)
-  return id
+  // Prefer explicit .torrent bytes for http(s) links because it gives us
+  // headers, redirects, and a clear timeout. Some iOS/Node Mobile builds can
+  // still fail Node's fetch path for otherwise usable torrent URLs, so fall
+  // back to WebTorrent's native URL handling instead of failing immediately.
+  if (!isHTTPURL(id)) return id
+
+  try {
+    return await fetchTorrentFile(id)
+  } catch (error) {
+    console.error(`Torrent URL prefetch failed, falling back to WebTorrent URL handling: ${error?.message ?? error}`)
+    return id
+  }
 }
 
 function currentTorrentStatus () {
