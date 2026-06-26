@@ -1069,7 +1069,7 @@ final class ExtensionSearchViewController: UIViewController {
     /// Creates a VideoService, listens for metadata, and presents the player
     /// as soon as the target file is resolved — skipping VideoListViewController.
     private func waitForMetadataAndPlay(entity: Torrents, hud: UIAlertController) {
-        let vs = VideoService(torrentEntity: entity)
+        let vs = VideoService(torrentEntity: entity, episode: currentEpisode)
         pendingVideoService = vs
         pendingEntity = entity
         pendingHud = hud
@@ -1177,6 +1177,12 @@ final class ExtensionSearchViewController: UIViewController {
                 targetIndex = index
                 targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
             }
+        } else if TorrentBackendManager.shared.currentKind == .webtorrent {
+            targetVideo = videos.first { video in
+                guard let name = video.videoName else { return false }
+                return TorrentBatchResolver.extractEpisodeNumber(from: name) == currentEpisode
+            }
+            targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }
 
         presentPendingVideo(vs: vs, entity: entity, targetVideo: targetVideo, targetIndex: targetIndex, videos: videos)

@@ -164,6 +164,8 @@ class SettingsViewController: UIViewController {
         ("quality", "Quality"), ("size", "Size"), ("seeders", "Availability"),
     ]
 
+    private static let torrentBackends: [(key: String, label: String)] = TorrentBackendKind.settingsOptions
+
     // MARK: - All sections (full data, tagged by tab)
 
     private lazy var allSections: [Section] = [
@@ -239,6 +241,9 @@ class SettingsViewController: UIViewController {
             Row(title: "Torrent Download Location",
                 description: "Path to the folder used to store torrents. By default this is the app's cache folder, which might lose data when the OS tries to reclaim storage.",
                 kind: .value("Default")),
+            Row(title: "Torrent Backend",
+                description: "Switches between the native libtorrent backend and Hayase's WebTorrent backend.",
+                kind: .selectable(userDefaultsKey: TorrentBackendKind.userDefaultsKey, options: Self.torrentBackends, defaultKey: TorrentBackendKind.defaultKind.rawValue)),
             Row(title: "Persist Files",
                 description: "Keeps torrent files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
                 kind: .toggle(userDefaultsKey: "pref_persistFiles", defaultValue: false)),
@@ -578,9 +583,10 @@ class SettingsViewController: UIViewController {
         return "\(v) (\(b))"
     }
 
-    /// Keys whose changes must be forwarded to the LibTorrent session.
+    /// Keys whose changes must be forwarded to the active torrent backend.
     /// Mirrors Hayase's `torrentSettings` derived store that triggers `native.updateSettings`.
     private static let torrentSettingKeys: Set<String> = [
+        TorrentBackendKind.userDefaultsKey,
         "pref_disableDHT", "pref_disablePeX",
         "pref_torrentPort", "pref_dhtPort",
         "pref_torrentSpeed", "pref_maxConns",
@@ -590,7 +596,11 @@ class SettingsViewController: UIViewController {
     /// If `key` is a torrent-session setting, re-apply settings to the live session.
     private func applyTorrentSettingsIfNeeded(forKey key: String) {
         if Self.torrentSettingKeys.contains(key) {
-            TorrentService.sharedTorrentService.applyUserSettings()
+            if key == TorrentBackendKind.userDefaultsKey {
+                TorrentBackendManager.shared.backendSelectionDidChange()
+            } else {
+                TorrentBackendManager.shared.applyCurrentSettings()
+            }
         }
     }
 
@@ -605,6 +615,7 @@ class SettingsViewController: UIViewController {
             let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
                 UserDefaults.standard.set(option.key, forKey: key)
                 self?.tableView.reloadData()
+                self?.applyTorrentSettingsIfNeeded(forKey: key)
             }
             if option.key == currentKey {
                 action.setValue(true, forKey: "checked")

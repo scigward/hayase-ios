@@ -30,7 +30,7 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
             ~/.swiftpm/cache
-          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Vendor/WebRTC/Package.swift') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Vendor/WebRTC/Package.swift', 'Vendor/NodeMobile/Package.swift') }}
           restore-keys: |
             spm-${{ runner.os }}-
 

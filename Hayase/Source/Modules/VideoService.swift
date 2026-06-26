@@ -12,6 +12,7 @@ public class VideoService: NSObject {
 
     let torrentEntity: Torrents
     var torrentHandle: TorrentHandle? = nil
+    private let requestedEpisode: Int
     /// Forwarded to VideoListViewController so it can display an error alert.
     var lastError: Error? = nil
 
@@ -22,8 +23,9 @@ public class VideoService: NSObject {
     /// before any video rows exist — resulting in a blank table with no spinner.
     private var coreDataIsReady = false
 
-    init(torrentEntity: Torrents) {
+    init(torrentEntity: Torrents, episode: Int = 0) {
         self.torrentEntity = torrentEntity
+        self.requestedEpisode = episode
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(HandleTorrentInControllerDidUpdate), name: NSNotification.Name(TorrentService.TorrentInControllerDidUpdateNotification), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(HandleTorrentInControllerUpdateFailed), name: NSNotification.Name(TorrentService.TorrentInControllerUpdateFailedNotification), object: nil)
@@ -38,7 +40,13 @@ public class VideoService: NSObject {
         // stop the spinner before we have data to show.
         coreDataIsReady = false
         lastError = nil
-        TorrentService.sharedTorrentService.UpdateTorrentEntityInController(torrentEntity) { [weak self] result in
+
+        if TorrentBackendManager.shared.currentKind == .webtorrent {
+            UpdateLocalVideoWithWebTorrent()
+            return
+        }
+
+        TorrentBackendManager.shared.updateNativeTorrentEntityInController(torrentEntity) { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let handle):
@@ -50,6 +58,28 @@ public class VideoService: NSObject {
                 NotificationCenter.default.post(
                     name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
                     object: nil)
+            }
+        }
+    }
+
+    private func UpdateLocalVideoWithWebTorrent() {
+        let mediaID = torrentEntity.animes?.animeAnilistId?.intValue ?? 0
+        TorrentBackendManager.shared.playWebTorrent(torrentEntity: torrentEntity,
+                                                    mediaID: mediaID,
+                                                    episode: requestedEpisode) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let files):
+                    self.ClearCurrentTorrentEntityAndVideos()
+                    self.InsertVideosFromWebTorrentFiles(files)
+                case .failure(let error):
+                    print("VideoService: WebTorrent update failed: \(error.localizedDescription)")
+                    self.lastError = error
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
+                        object: nil)
+                }
             }
         }
     }
@@ -137,7 +167,9 @@ public class VideoService: NSObject {
 
     /// Returns the number of bytes already downloaded for this file index (live from snapshot).
     func downloadedBytesForFileIndex(_ index: UInt) -> UInt64 {
-        guard let handle = torrentHandle else { return 0 }
+        guard let handle = torrentHandle else {
+            return webTorrentVideoPath(forFileIndex: index) == nil ? 0 : totalBytesForFileIndex(index)
+        }
         return TorrentService.sharedTorrentService.withActiveHandle(handle, default: 0) { activeHandle in
             guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
             return entry.downloaded
@@ -146,7 +178,11 @@ public class VideoService: NSObject {
 
     /// Returns the total size in bytes for this file index (live from snapshot).
     func totalBytesForFileIndex(_ index: UInt) -> UInt64 {
-        guard let handle = torrentHandle else { return 0 }
+        guard let handle = torrentHandle else {
+            guard let video = videoForFileIndex(index),
+                  let sizeMB = video.videoSize?.doubleValue else { return 0 }
+            return UInt64(max(sizeMB, 0) * 1024.0 * 1024.0)
+        }
         return TorrentService.sharedTorrentService.withActiveHandle(handle, default: 0) { activeHandle in
             guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return 0 }
             return entry.size
@@ -154,6 +190,9 @@ public class VideoService: NSObject {
     }
 
     func UpdateFilePathForFileIndex(_ index: UInt) -> String {
+        if let webPath = webTorrentVideoPath(forFileIndex: index) {
+            return webPath
+        }
         guard let handle = torrentHandle else { return "" }
         let filePath = TorrentService.sharedTorrentService.withActiveHandle(handle, default: "") { activeHandle in
             let snap = activeHandle.snapshot
@@ -173,7 +212,9 @@ public class VideoService: NSObject {
     }
 
     func CheckIsDoNotDownloadForFileIndex(_ index: UInt) -> Bool? {
-        guard let handle = torrentHandle else { return nil }
+        guard let handle = torrentHandle else {
+            return webTorrentVideoPath(forFileIndex: index) == nil ? nil : false
+        }
         return TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle in
             guard let entry = activeHandle.snapshot.files.first(where: { $0.index == Int(index) }) else { return nil }
             return entry.priority == FileEntry.Priority.dontDownload
@@ -331,6 +372,50 @@ public class VideoService: NSObject {
 
     func UpdateTorrentFileInfos() {
         // No-op: snapshot is kept current by TorrentService's background-queue updateSnapshot()
+    }
+
+    private func InsertVideosFromWebTorrentFiles(_ files: [WebTorrentFile]) {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        if let hash = files.first?.hash, !hash.isEmpty {
+            torrentEntity.torrentHashString = hash
+        }
+
+        for file in files {
+            guard let v = NSEntityDescription.insertNewObject(forEntityName: Videos.entityName, into: context) as? Videos else { continue }
+            v.videoName = file.name
+            v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
+            v.videoIndex = NSNumber(value: file.id)
+            v.videoPath = file.url
+            v.torrents = torrentEntity
+        }
+
+        do {
+            try context.save()
+            coreDataIsReady = true
+            print("VideoService: WebTorrent populated CoreData with \(files.count) videos")
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        } catch {
+            print("VideoService: WebTorrent CoreData save error: \(error)")
+            coreDataIsReady = true
+            NotificationCenter.default.post(
+                name: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification), object: nil)
+        }
+    }
+
+    private func webTorrentVideoPath(forFileIndex index: UInt) -> String? {
+        guard let path = videoForFileIndex(index)?.videoPath else { return nil }
+        let lowercased = path.lowercased()
+        guard lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://") else { return nil }
+        return path
+    }
+
+    private func videoForFileIndex(_ index: UInt) -> Videos? {
+        let context = CoreDataService.sharedCoreDataService.mainQueueContext
+        let fetchRequest = NSFetchRequest<Videos>(entityName: Videos.entityName)
+        fetchRequest.fetchLimit = 1
+        fetchRequest.predicate = NSPredicate(format: "torrents == %@ AND videoIndex == %d", torrentEntity, Int(index))
+        return (try? context.fetch(fetchRequest))?.first
     }
 
     @objc private func HandleTorrentInControllerDidUpdate(_ notification: Notification) {
