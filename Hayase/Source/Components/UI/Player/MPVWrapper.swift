@@ -105,12 +105,16 @@ final class MPVWrapper {
         DispatchQueue.getSpecific(key: queueKey) != nil
     }
 
-    private func withHandle<T>(_ defaultValue: T, _ body: @escaping (OpaquePointer) -> T) -> T {
-        let work = { () -> T in
+    private func withHandle<T>(_ defaultValue: T, _ body: (OpaquePointer) -> T) -> T {
+        if isOnQueue {
+            guard let handle = mpv, !isStopping else { return defaultValue }
+            return body(handle)
+        }
+
+        return queue.sync {
             guard let handle = self.mpv, !self.isStopping else { return defaultValue }
             return body(handle)
         }
-        return isOnQueue ? work() : queue.sync(execute: work)
     }
 
     private func withHandleAsync(_ body: @escaping (OpaquePointer) -> Void) {
