@@ -72,6 +72,39 @@ export default class NatAPI {
 }
 EOF
 
+  cat > "${STUB_DIR}/node-datachannel.js" <<'EOF'
+const unavailable = () => {
+  throw new Error('WebRTC data channels are disabled in the Hayase iOS WebTorrent backend')
+}
+
+export class PeerConnection { constructor () { unavailable() } }
+export class DataChannel { constructor () { unavailable() } }
+export class RTCDataChannel { constructor () { unavailable() } }
+export class RTCDataChannelStream { constructor () { unavailable() } }
+export class RTCSessionDescription { constructor () { unavailable() } }
+export class RTCIceCandidate { constructor () { unavailable() } }
+
+export function initLogger () {}
+export function cleanup () {}
+export function setSctpSettings () {}
+export function setCertificatePath () {}
+export function preload () {}
+
+export default {
+  PeerConnection,
+  DataChannel,
+  RTCDataChannel,
+  RTCDataChannelStream,
+  RTCSessionDescription,
+  RTCIceCandidate,
+  initLogger,
+  cleanup,
+  setSctpSettings,
+  setCertificatePath,
+  preload
+}
+EOF
+
   run_pnpm dlx "esbuild@${ESBUILD_VERSION}" index.ts \
     --bundle \
     --platform=node \
@@ -80,6 +113,7 @@ EOF
     --banner:js="${REQUIRE_BANNER}" \
     --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
     --alias:@silentbot1/nat-api=./.hayase-node-mobile-stubs/nat-api.js \
+    --alias:node-datachannel=./.hayase-node-mobile-stubs/node-datachannel.js \
     --alias:debug=./node_modules/debug/src/browser.js \
     --outfile="${OUTPUT_DIR}/index.js"
 )
@@ -113,6 +147,11 @@ fi
 
 if grep -Eq "child_process" "${OUTPUT_DIR}/index.js"; then
   echo "error: WebTorrent backend bundle references child_process, which should not be used in the iOS app." >&2
+  exit 1
+fi
+
+if grep -Eq "node_datachannel\.node|node-datachannel" "${OUTPUT_DIR}/index.js"; then
+  echo "error: WebTorrent backend bundle still references the desktop node-datachannel addon." >&2
   exit 1
 fi
 
