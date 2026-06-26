@@ -238,6 +238,7 @@ class DownloadsViewController: UIViewController {
     private var pendingLibraryPlaybackService: VideoService?
     private var pendingLibraryPlaybackObserver: NSObjectProtocol?
     private var pendingLibraryPlaybackTimeout: DispatchWorkItem?
+    private var openingLibraryPlaybackHash: String?
     private static let libraryPlaybackTimeout: TimeInterval = 120
 
     private var isCompactLibraryLayout: Bool {
@@ -850,7 +851,8 @@ class DownloadsViewController: UIViewController {
         // Time
         let remaining = snap.total > snap.totalDone ? snap.total - snap.totalDone : 0
         let elapsed = Int(max(0, -startDate.timeIntervalSinceNow))
-        etaValue.text     = TorrentDetailViewController.eta(remaining: remaining, rate: snap.downloadRate)
+        let isStreaming = snap.state == .downloading && snap.isSequential
+        etaValue.text     = isStreaming ? "Streaming" : TorrentDetailViewController.eta(remaining: remaining, rate: snap.downloadRate)
         elapsedValue.text = TorrentDetailViewController.eta(seconds: elapsed)
 
         // Peers & Connections
@@ -866,7 +868,6 @@ class DownloadsViewController: UIViewController {
         setDot(forwardDot, enabled: snap.hasIncomingConnections)
         setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
 
-        let isStreaming = snap.state == .downloading && snap.isSequential
         setDot(streamingDot, enabled: isStreaming)
 
         // Update files tab if visible
@@ -1011,7 +1012,7 @@ class DownloadsViewController: UIViewController {
 
         let progress = resolvedInfo?.progress ?? resolvedStatus?.progress ?? currentLibraryEntry?.progress ?? 0
         let completed = progress >= 0.999
-        statusBadge.text = completed ? "Seeding" : resolvedStatus?.phase.replacingOccurrences(of: "-", with: " ").capitalized ?? "Downloading"
+        statusBadge.text = completed ? "Seeding" : "Downloading"
         statusBadge.backgroundColor = completed ? .systemBlue : .systemGreen
         bigPercentLabel.text = String(format: "%.1f%%", progress * 100)
         progressBar.progress = Float(max(0, min(progress, 1)))
@@ -1033,8 +1034,12 @@ class DownloadsViewController: UIViewController {
         let up = resolvedInfo?.speed.up ?? resolvedStatus?.uploadSpeed ?? 0
         downSpeedValue.text = TorrentDetailViewController.fastPrettyBits(down * 8) + "/s"
         upSpeedValue.text = TorrentDetailViewController.fastPrettyBits(up * 8) + "/s"
-        etaValue.text = webTorrentETA(fromMilliseconds: resolvedInfo?.time.remaining)
-            ?? TorrentDetailViewController.eta(remaining: total > downloaded ? total - downloaded : 0, rate: down)
+        if resolvedProtocol?.streaming == true {
+            etaValue.text = "Streaming"
+        } else {
+            etaValue.text = webTorrentETA(fromMilliseconds: resolvedInfo?.time.remaining)
+                ?? TorrentDetailViewController.eta(remaining: total > downloaded ? total - downloaded : 0, rate: down)
+        }
         elapsedValue.text = webTorrentETA(fromMilliseconds: resolvedInfo?.time.elapsed)
             ?? TorrentDetailViewController.eta(seconds: Int(max(0, -startDate.timeIntervalSinceNow)))
 
@@ -1560,6 +1565,8 @@ class DownloadsViewController: UIViewController {
     }
 
     private func openNativeLibraryEntry(_ entry: (hash: String, handle: TorrentHandle, entity: Torrents?)) {
+        if restoreMiniPlayerIfAlreadyPlaying(hash: entry.hash, episode: nil) { return }
+
         selectedHex = entry.hash
         selectedHandle = entry.handle
         selectedEntity = entry.entity
@@ -1615,7 +1622,12 @@ class DownloadsViewController: UIViewController {
     }
 
     private func openWebTorrentLibraryEntry(_ entry: WebTorrentLibraryEntry) {
+        if restoreMiniPlayerIfAlreadyPlaying(hash: entry.hash, episode: entry.episode) { return }
+        guard openingLibraryPlaybackHash != entry.hash else { return }
         guard let torrentEntity = torrentEntityForLibraryEntry(entry) else { return }
+
+        cancelPendingLibraryPlayback()
+        openingLibraryPlaybackHash = entry.hash
         selectedHex = entry.hash
 
         let episode = entry.episode ?? 0
@@ -1640,6 +1652,7 @@ class DownloadsViewController: UIViewController {
         let timeout = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.presentedViewController?.dismiss(animated: false)
+            self.openingLibraryPlaybackHash = nil
             self.cancelPendingLibraryPlayback()
             self.showLibraryPlaybackError("Timed out while preparing this torrent.")
         }
@@ -1709,6 +1722,7 @@ class DownloadsViewController: UIViewController {
 
         guard videoService.lastError == nil, !videos.isEmpty else {
             let message = videoService.lastError?.localizedDescription ?? "No playable video files were found."
+            openingLibraryPlaybackHash = nil
             pendingLibraryPlaybackService = nil
             showLibraryPlaybackError(message)
             return
@@ -1734,8 +1748,25 @@ class DownloadsViewController: UIViewController {
         player.totalEpisodes = torrentEntity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos = videos
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        openingLibraryPlaybackHash = nil
         pendingLibraryPlaybackService = nil
         presentHayasePlayer(player)
+    }
+
+    private func restoreMiniPlayerIfAlreadyPlaying(hash: String, episode: Int?) -> Bool {
+        guard MiniPlayerManager.shared.isActive,
+              let player = MiniPlayerManager.shared.activePlayer else { return false }
+
+        let activeHash = player.videoEntity?.torrents?.torrentHashString
+            ?? player.torrentHandle?.infoHashes.best.hex
+        guard activeHash == hash else { return false }
+
+        if let episode, episode > 0, player.episodeNumber > 0, player.episodeNumber != episode {
+            return false
+        }
+
+        MiniPlayerManager.shared.restore()
+        return true
     }
 
     private func bestVideoForLibraryPlayback(videos: [Videos], episode: Int) -> Videos {
@@ -1768,6 +1799,7 @@ class DownloadsViewController: UIViewController {
         }
         pendingLibraryPlaybackTimeout?.cancel()
         pendingLibraryPlaybackTimeout = nil
+        openingLibraryPlaybackHash = nil
         if clearService { pendingLibraryPlaybackService = nil }
     }
 
@@ -2036,6 +2068,9 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                                seriesTitle: librarySeriesTitle(for: entry),
                                isSelected: selectedLibraryHashes.contains(entry.hash),
                                compact: isCompactLibraryLayout)
+                cell.onOpen = { [weak self] in
+                    self?.openWebTorrentLibraryEntry(entry)
+                }
                 cell.onSelectionToggle = { [weak self, weak tableView] in
                     self?.toggleLibrarySelection(hash: entry.hash, tableView: tableView, indexPath: indexPath)
                 }
@@ -2053,6 +2088,9 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                            entity: entry.entity,
                            isSelected: selectedLibraryHashes.contains(entry.hash),
                            compact: isCompactLibraryLayout)
+            cell.onOpen = { [weak self] in
+                self?.openNativeLibraryEntry(entry)
+            }
             cell.onSelectionToggle = { [weak self, weak tableView] in
                 self?.toggleLibrarySelection(hash: entry.hash, tableView: tableView, indexPath: indexPath)
             }
@@ -2400,9 +2438,10 @@ final class FileEntryTableCell: UITableViewCell {
 /// Library cell matching Hayase's library/table.svelte data model.
 /// It keeps the same columns on wide screens, then hides the least important
 /// columns on compact screens so the row remains readable instead of clipping.
-final class LibraryColumnCell: UITableViewCell {
+final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
     static let reuseID = "LibraryColumnCell"
 
+    var onOpen: (() -> Void)?
     var onSelectionToggle: (() -> Void)?
 
     private let seriesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: .label, lines: 1)
@@ -2448,6 +2487,7 @@ final class LibraryColumnCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        onOpen = nil
         onSelectionToggle = nil
     }
 
@@ -2467,6 +2507,11 @@ final class LibraryColumnCell: UITableViewCell {
         backgroundColor = .clear
         selectedBackgroundView = UIView()
         selectedBackgroundView?.backgroundColor = .secondarySystemBackground
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(rowTapped))
+        tap.cancelsTouchesInView = true
+        tap.delegate = self
+        contentView.addGestureRecognizer(tap)
 
         selectButton.addTarget(self, action: #selector(selectionButtonTapped), for: .touchUpInside)
         selectButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -2508,8 +2553,21 @@ final class LibraryColumnCell: UITableViewCell {
         }
     }
 
+    @objc private func rowTapped() {
+        onOpen?()
+    }
+
     @objc private func selectionButtonTapped() {
         onSelectionToggle?()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current === selectButton { return false }
+            view = current.superview
+        }
+        return true
     }
 
     func configure(entry: WebTorrentLibraryEntry, seriesTitle: String, isSelected: Bool, compact: Bool) {

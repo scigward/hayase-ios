@@ -108,6 +108,7 @@ final class MiniPlayerManager {
 
     /// Whether the user is currently dragging the mini-player.
     private var isDragging = false
+    private var isRestoring = false
 
     // MARK: - Tuck/peek state (Hayase .paused / idle behavior)
 
@@ -235,7 +236,8 @@ final class MiniPlayerManager {
     /// Restores the fullscreen player from the mini-player.
     /// Equivalent to Hayase's `goto('/app/player/')` on mini-player click.
     func restore() {
-        guard let player = activePlayer,
+        guard !isRestoring,
+              let player = activePlayer,
               let container = containerView else { return }
 
         cancelAutoHideTimer()
@@ -243,6 +245,7 @@ final class MiniPlayerManager {
 
         // Find a presenting VC.
         guard let presenter = topViewController(), presenter !== player else { return }
+        isRestoring = true
 
         // Reparent the surface back into the player VC's view.
         let surface = player.surfaceView
@@ -265,8 +268,9 @@ final class MiniPlayerManager {
         // to the app shell route so the sidebar remains visible.
         publishPlayerSidebarBackdropClear()
         player.isMinimizing = true          // prevent tearDownPlayer on restore too
-        presenter.presentHayasePlayer(player) {
+        presenter.presentHayasePlayer(player) { [weak self] in
             player.isMinimizing = false
+            self?.isRestoring = false
         }
     }
 
@@ -277,6 +281,7 @@ final class MiniPlayerManager {
 
         cancelAutoHideTimer()
         cancelPendingWebTorrentRestore()
+        isRestoring = false
         isTucked = false
 
         // Clear persisted session so it won't auto-restore on next launch.
