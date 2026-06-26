@@ -78,6 +78,9 @@ const unavailable = () => {
 }
 
 export class PeerConnection { constructor () { unavailable() } }
+export class RtcpReceivingSession { constructor () { unavailable() } }
+export class Video { constructor () { unavailable() } }
+export class Audio { constructor () { unavailable() } }
 export class DataChannel { constructor () { unavailable() } }
 export class RTCDataChannel { constructor () { unavailable() } }
 export class RTCDataChannelStream { constructor () { unavailable() } }
@@ -92,6 +95,9 @@ export function preload () {}
 
 export default {
   PeerConnection,
+  RtcpReceivingSession,
+  Video,
+  Audio,
   DataChannel,
   RTCDataChannel,
   RTCDataChannelStream,
