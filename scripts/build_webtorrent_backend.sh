@@ -156,7 +156,7 @@ if grep -Eq "child_process" "${OUTPUT_DIR}/index.js"; then
   exit 1
 fi
 
-if grep -Eq "node_datachannel\.node|node-datachannel" "${OUTPUT_DIR}/index.js"; then
+if grep -Eq "node_datachannel\.node|build/Release/node_datachannel" "${OUTPUT_DIR}/index.js"; then
   echo "error: WebTorrent backend bundle still references the desktop node-datachannel addon." >&2
   exit 1
 fi
