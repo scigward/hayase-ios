@@ -7,6 +7,7 @@ TORRENT_CLIENT_REPO="https://github.com/hayase-app/torrent-client.git"
 TORRENT_CLIENT_COMMIT="f953c72d851073d00a1d4c665bad531ce6d7170e"
 PNPM_VERSION="10.28.0"
 ESBUILD_VERSION="0.25.12"
+REQUIRE_BANNER="import { createRequire as __hayaseCreateRequire } from 'node:module'; const require = __hayaseCreateRequire(import.meta.url);"
 
 BUILD_DIR="${PWD}/.build/webtorrent-backend"
 SOURCE_DIR="${BUILD_DIR}/torrent-client"
@@ -76,6 +77,7 @@ EOF
     --platform=node \
     --format=esm \
     --target=node24 \
+    --banner:js="${REQUIRE_BANNER}" \
     --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
     --alias:@silentbot1/nat-api=./.hayase-node-mobile-stubs/nat-api.js \
     --alias:debug=./node_modules/debug/src/browser.js \
@@ -104,8 +106,13 @@ fi
 node --check "${RESOURCE_DIR}/webtorrent-bridge.js"
 node --check "${OUTPUT_DIR}/index.js"
 
-if grep -Eq "child_process|__require\\(\"tty\"\\)|supports-color" "${OUTPUT_DIR}/index.js"; then
-  echo "error: WebTorrent backend bundle still references Node-only runtime modules unavailable in NodeMobile ESM bundles." >&2
+if ! grep -q "__hayaseCreateRequire" "${OUTPUT_DIR}/index.js"; then
+  echo "error: WebTorrent backend bundle was generated without the CommonJS require shim." >&2
+  exit 1
+fi
+
+if grep -Eq "child_process" "${OUTPUT_DIR}/index.js"; then
+  echo "error: WebTorrent backend bundle references child_process, which should not be used in the iOS app." >&2
   exit 1
 fi
 

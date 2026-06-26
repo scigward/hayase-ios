@@ -1,6 +1,7 @@
 import http from 'node:http'
 import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -15,6 +16,11 @@ const tempPath = arg('--temp-path', downloadPath)
 let settings = null
 let client = null
 let loadError = null
+
+// esbuild's ESM output still uses a CommonJS require helper for Node builtins
+// and some dependencies. NodeMobile runs this file as ESM, so provide a real
+// require rooted at the bundled torrent-client before importing the bundle.
+globalThis.require = createRequire(new URL('./torrent-client/index.js', import.meta.url))
 
 async function readBody (request) {
   const chunks = []
