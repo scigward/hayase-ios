@@ -55,20 +55,20 @@ mkdir -p "${OUTPUT_DIR}"
 (
   cd "${SOURCE_DIR}"
 
-  run_pnpm dlx "esbuild@${ESBUILD_VERSION}" index.ts \
-    --bundle \
-    --platform=node \
-    --format=esm \
-    --target=node24 \
-    --packages=external \
-    --outfile="${OUTPUT_DIR}/index.js"
-
   run_pnpm install \
     --prod \
     --no-frozen-lockfile \
     --ignore-scripts \
     --config.node-linker=hoisted \
     --config.shamefully-hoist=true
+
+  run_pnpm dlx "esbuild@${ESBUILD_VERSION}" index.ts \
+    --bundle \
+    --platform=node \
+    --format=esm \
+    --target=node24 \
+    --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
+    --outfile="${OUTPUT_DIR}/index.js"
 )
 
 rsync -aL --delete \
