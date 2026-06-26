@@ -1,6 +1,7 @@
 import http from 'node:http'
 import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
 const args = process.argv.slice(2)
@@ -21,6 +22,71 @@ let loadError = null
 // and some dependencies. NodeMobile runs this file as ESM, so provide a real
 // require rooted at the bundled torrent-client before importing the bundle.
 globalThis.require = createRequire(new URL('./torrent-client/index.js', import.meta.url))
+
+
+const TORRENT_FETCH_TIMEOUT_MS = 30_000
+const METADATA_TIMEOUT_MS = 90_000
+
+function isHTTPURL (value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value)
+}
+
+async function withTimeout (promise, timeoutMs, message) {
+  const controller = new AbortController()
+  const timeout = sleep(timeoutMs, undefined, { signal: controller.signal })
+    .then(() => { throw new Error(message()) })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    controller.abort()
+  }
+}
+
+async function fetchTorrentFile (url) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TORRENT_FETCH_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        // Some torrent indexes reject Node's default undici user agent.
+        'user-agent': 'curl/7.81.0',
+        'accept': 'application/x-bittorrent,*/*;q=0.8'
+      }
+    })
+    if (!response.ok) {
+      throw new Error(`Torrent file request failed with HTTP ${response.status}`)
+    }
+    const data = new Uint8Array(await response.arrayBuffer())
+    if (!data.byteLength) throw new Error('Torrent file request returned an empty body')
+    return data
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function resolveTorrentID (id) {
+  // WebTorrent supports http(s) torrent URLs, but fetching them here gives us
+  // deterministic headers, redirects, timeout handling, and a real error if an
+  // extension accidentally returns an HTML/details page instead of a .torrent.
+  if (isHTTPURL(id)) return await fetchTorrentFile(id)
+  return id
+}
+
+function currentTorrentStatus () {
+  if (!client) return 'client not initialized'
+  const clientSymbol = Object.getOwnPropertySymbols(client).find(symbol => symbol.description === 'client')
+  const webtorrent = clientSymbol ? client[clientSymbol] : null
+  const torrent = webtorrent?.torrents?.[0]
+  if (!torrent) return 'no active torrent'
+
+  const peers = torrent._peersLength ?? torrent.numPeers ?? 0
+  const wires = torrent.wires?.length ?? 0
+  const ready = torrent.ready ? 'ready' : 'metadata pending'
+  const hash = torrent.infoHash ? ` hash=${torrent.infoHash}` : ''
+  return `${ready}, peers=${peers}, wires=${wires}${hash}`
+}
 
 async function readBody (request) {
   const chunks = []
@@ -55,8 +121,14 @@ async function handleRPC (payload) {
   const activeClient = await loadTorrentClient()
 
   switch (payload.method) {
-    case 'playTorrent':
-      return await activeClient.playTorrent(params.id, params.mediaID ?? 0, params.episode ?? 0)
+    case 'playTorrent': {
+      const torrentID = await resolveTorrentID(params.id)
+      return await withTimeout(
+        activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0),
+        METADATA_TIMEOUT_MS,
+        () => `Timed out while fetching torrent metadata (${currentTorrentStatus()})`
+      )
+    }
     case 'library':
       return await activeClient.library()
     case 'torrentInfo':

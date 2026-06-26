@@ -27,7 +27,7 @@ struct TorrentBackendSettings: Encodable {
         torrentPersist = defaults.bool(forKey: "pref_persistFiles")
         torrentDHT = defaults.bool(forKey: "pref_disableDHT")
         torrentStreamedDownload = defaults.object(forKey: "pref_streamedDownload") as? Bool ?? true
-        torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 40, min: 0, max: 999)
+        torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 40, min: 1, max: 999)
         maxConns = Self.clampedInt(defaults.string(forKey: "pref_maxConns"), defaultValue: 55, min: 1, max: 512)
         torrentPort = Self.clampedInt(defaults.string(forKey: "pref_torrentPort"), defaultValue: 0, min: 0, max: 65535)
         dhtPort = Self.clampedInt(defaults.string(forKey: "pref_dhtPort"), defaultValue: 0, min: 0, max: 65535)
