@@ -14,6 +14,25 @@ import Foundation
 import Network
 import LibTorrent
 
+private final class StartCompletionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didFinish = false
+
+    func finish(_ result: Result<Void, Error>, completion: @escaping (Result<Void, Error>) -> Void) {
+        lock.lock()
+        guard !didFinish else {
+            lock.unlock()
+            return
+        }
+        didFinish = true
+        lock.unlock()
+
+        DispatchQueue.main.async {
+            completion(result)
+        }
+    }
+}
+
 final class LocalStreamServer {
 
     // MARK: - Properties
@@ -113,28 +132,45 @@ final class LocalStreamServer {
 
     // MARK: - Start / Stop
 
-    func start() throws {
+    func start(completion: @escaping (Result<Void, Error>) -> Void) {
+        isStopped = false
+        port = 0
+
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        // Use port 0 to let the system assign an available port
-        listener = try NWListener(using: params, on: .any)
 
-        let readySemaphore = DispatchSemaphore(value: 0)
-        var startError: Error?
+        do {
+            // Use port 0 to let the system assign an available port.
+            listener = try NWListener(using: params, on: .any)
+        } catch {
+            DispatchQueue.main.async {
+                completion(.failure(error))
+            }
+            return
+        }
+
+        let completionBox = StartCompletionBox()
+        let timeoutError = NSError(domain: "LocalStreamServer", code: 1,
+                                   userInfo: [NSLocalizedDescriptionKey: "Timed out while starting local stream server"])
+        let invalidPortError = NSError(domain: "LocalStreamServer", code: 2,
+                                       userInfo: [NSLocalizedDescriptionKey: "Local stream server did not receive a valid port"])
 
         listener?.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
-                if let port = self?.listener?.port?.rawValue {
-                    self?.port = port
-                    if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: listening on port \(port)") }
+                guard let port = self.listener?.port?.rawValue, port != 0 else {
+                    self.stop()
+                    completionBox.finish(.failure(invalidPortError), completion: completion)
+                    return
                 }
-                readySemaphore.signal()
+                self.port = port
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: listening on port \(port)") }
+                completionBox.finish(.success(()), completion: completion)
             case .failed(let error):
                 if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed — \(error)") }
-                startError = error
-                self?.stop()
-                readySemaphore.signal()
+                self.stop()
+                completionBox.finish(.failure(error), completion: completion)
             default:
                 break
             }
@@ -146,36 +182,10 @@ final class LocalStreamServer {
 
         listener?.start(queue: queue)
 
-        // Wait up to 2s for the listener to be ready and port to be assigned.
-        // If start() is called from UIKit, keep the main run loop pumping while
-        // the NWListener reports readiness instead of blocking UI input outright.
-        let waitResult: DispatchTimeoutResult
-        if Thread.isMainThread {
-            let deadline = Date().addingTimeInterval(2.0)
-            var didSignal = false
-            while Date() < deadline {
-                if readySemaphore.wait(timeout: .now()) == .success {
-                    didSignal = true
-                    break
-                }
-                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            }
-            waitResult = didSignal ? .success : .timedOut
-        } else {
-            waitResult = readySemaphore.wait(timeout: .now() + 2.0)
-        }
-        if waitResult == .timedOut {
-            stop()
-            throw NSError(domain: "LocalStreamServer", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Timed out while starting local stream server"])
-        }
-        if let startError {
-            throw startError
-        }
-        guard port != 0 else {
-            stop()
-            throw NSError(domain: "LocalStreamServer", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "Local stream server did not receive a valid port"])
+        queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self, self.port == 0 else { return }
+            self.stop()
+            completionBox.finish(.failure(timeoutError), completion: completion)
         }
     }
 
@@ -544,9 +554,8 @@ final class LocalStreamServer {
         return snapshotQueue.sync {
             torrentHandle.updateSnapshot()
             guard let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-                  let pieces = entry.pieces as? [NSNumber],
-                  localIndex >= 0, localIndex < pieces.count else { return false }
-            return pieces[localIndex].boolValue
+                  localIndex >= 0, localIndex < entry.pieces.count else { return false }
+            return entry.pieces[localIndex].boolValue
         }
     }
 
@@ -652,8 +661,8 @@ final class LocalStreamServer {
             snapshotQueue.sync {
                 guard !isStopped else { return }
                 torrentHandle.updateSnapshot()
-                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }),
-                   let pieces = entry.pieces as? [NSNumber] {
+                if let entry = torrentHandle.snapshot.files.first(where: { $0.index == fileIndex }) {
+                    let pieces = entry.pieces
 
                     for localIdx in safeFirst...safeLast {
                         if localIdx < pieces.count {
@@ -673,7 +682,7 @@ final class LocalStreamServer {
                             // Without this fallback, the server would block forever
                             // on the boundary piece (pieces[OOB] → allReady=false).
                             let globalIdx = beginPiece + localIdx
-                            if let globalPieces = torrentHandle.snapshot.pieces as? [NSNumber],
+                            if let globalPieces = torrentHandle.snapshot.pieces,
                                globalIdx >= 0, globalIdx < globalPieces.count {
                                 if !globalPieces[globalIdx].boolValue {
                                     allReady = false

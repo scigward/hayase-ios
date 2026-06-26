@@ -33,6 +33,7 @@ final class LocalTracking {
     static let didChange = Notification.Name("LocalTrackingDidChange")
 
     private let udKey = "hayase_localTracking"
+    private let entriesLock = NSLock()
     private init() {}
 
     func entry(mediaID: Int,
@@ -41,6 +42,8 @@ final class LocalTracking {
                score: Int? = nil,
                repeatCount: Int? = nil,
                lists: [String]? = nil) -> AnimeItem.MediaListEntry {
+        entriesLock.lock()
+
         var entries = allEntries()
         var entry = entries[mediaID] ?? LocalMediaTrackingEntry(
             mediaID: mediaID,
@@ -63,21 +66,28 @@ final class LocalTracking {
             old.score != entry.score ||
             old.repeatCount != entry.repeatCount ||
             old.customLists != entry.customLists
-        guard changed else { return entry.animeEntry }
-        entry.updatedAt = Date()
-        entries[mediaID] = entry
-        save(entries)
-        notify()
-        return entry.animeEntry
+        if changed {
+            entry.updatedAt = Date()
+            entries[mediaID] = entry
+            save(entries)
+        }
+        let result = entry.animeEntry
+        entriesLock.unlock()
+
+        if changed { notify() }
+        return result
     }
 
     func delete(mediaID: Int) -> Bool {
+        entriesLock.lock()
         var entries = allEntries()
         let removed = entries.removeValue(forKey: mediaID) != nil
         if removed {
             save(entries)
-            notify()
         }
+        entriesLock.unlock()
+
+        if removed { notify() }
         return removed
     }
 
@@ -97,7 +107,9 @@ final class LocalTracking {
     }
 
     func entry(for mediaID: Int) -> AnimeItem.MediaListEntry? {
-        allEntries()[mediaID]?.animeEntry
+        entriesLock.lock()
+        defer { entriesLock.unlock() }
+        return allEntries()[mediaID]?.animeEntry
     }
 
     func progress(for mediaID: Int) -> Int? {

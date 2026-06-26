@@ -208,7 +208,13 @@ final class MiniPlayerManager {
         if let nav = player.navigationController,
            nav.viewControllers.contains(player) {
             nav.popViewController(animated: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: finishMinimize)
+            if let coordinator = player.transitionCoordinator {
+                coordinator.animate(alongsideTransition: nil) { _ in
+                    finishMinimize()
+                }
+            } else {
+                finishMinimize()
+            }
         } else {
             player.dismiss(animated: true, completion: finishMinimize)
         }

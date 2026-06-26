@@ -1194,20 +1194,17 @@ final class VideoPlayerViewController: UIViewController {
         updateBuffering(true)
 
         // Set up torrent streaming if the file is still downloading.
-        setupStreamer()
+        setupStreamer { [weak self] in
+            guard let self else { return }
 
-        // Load MPV immediately — the LocalStreamServer blocks HTTP responses
-        // until the required pieces are downloaded, so MPV naturally waits for
-        // head data (MKV header) without needing a separate pre-wait. This
-        // removes the fixed 60 s metadata timeout: for low-seeder torrents the
-        // player simply stays in its buffering state while the streaming logger
-        // shows peer/seed counts, giving the user visibility into the
-        // connection status. MPV's network-timeout (600 s) is the effective
-        // upper bound.
-        if let s = streamer, s.isActive {
-            StreamingLogger.shared.info("Streaming — waiting for head pieces…")
+            // Load MPV after the local HTTP server is ready. The server blocks
+            // HTTP responses until required pieces are downloaded, so MPV
+            // naturally waits for head data without a separate pre-wait.
+            if let s = self.streamer, s.isActive {
+                StreamingLogger.shared.info("Streaming — waiting for head pieces…")
+            }
+            self.loadVideoURL()
         }
-        loadVideoURL()
 
         // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
@@ -1346,14 +1343,17 @@ final class VideoPlayerViewController: UIViewController {
     /// always started so MPV reads from a consistent HTTP URL regardless of
     /// download state — this avoids issues (e.g. next-episode navigation
     /// stalling) that arise from switching between HTTP and file:// URLs.
-    private func setupStreamer() {
+    private func setupStreamer(completion: @escaping () -> Void) {
         // Stop any previous streamer / server
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
         streamer = nil
 
-        guard let handle = torrentHandle else { return }
+        guard let handle = torrentHandle else {
+            completion()
+            return
+        }
 
         // Create a TorrentStreamer only when the file is not yet fully downloaded.
         // It manages piece deadlines for proactive prefetching; not needed once
@@ -1369,17 +1369,26 @@ final class VideoPlayerViewController: UIViewController {
         // download state. The server gates responses on piece availability while
         // downloading; for fully-downloaded files all pieces return immediately.
         let path = videoEntity?.videoPath ?? ""
-        guard !path.isEmpty else { return }
+        guard !path.isEmpty else {
+            completion()
+            return
+        }
 
         let server = LocalStreamServer(torrentHandle: handle, fileIndex: fileIndex, filePath: path)
-        do {
-            try server.start()
-            streamServer = server
-            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: started for file \(fileIndex) at \(server.url)") }
-        } catch {
-            StreamingLogger.shared.error("Stream server failed: \(error.localizedDescription)")
-            if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
-            // Fall back to direct file path (original behavior)
+        streamServer = server
+        server.start { [weak self] result in
+            guard let self, self.streamServer === server else { return }
+
+            switch result {
+            case .success:
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: started for file \(self.fileIndex) at \(server.url)") }
+            case .failure(let error):
+                self.streamServer = nil
+                StreamingLogger.shared.error("Stream server failed: \(error.localizedDescription)")
+                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("LocalStreamServer: failed to start — \(error)") }
+                // Fall back to direct file path (original behavior)
+            }
+            completion()
         }
     }
 
@@ -1795,7 +1804,7 @@ final class VideoPlayerViewController: UIViewController {
         if let idx = videoEntity?.videoIndex {
             fileIndex = UInt(idx.intValue)
             videoService?.selectFileForStreaming(fileIndex)
-            videoService?.UpdateFilePathForFileIndex(fileIndex)
+            _ = videoService?.UpdateFilePathForFileIndex(fileIndex)
         }
         duration = 0; currentTime = 0
         loadCurrentVideo()
@@ -2025,8 +2034,8 @@ final class VideoPlayerViewController: UIViewController {
         nav.popViewController(animated: false)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .crossDissolve
-        DispatchQueue.main.async { [weak self, weak nav] in
-            guard let self = self, let nav = nav else { return }
+        DispatchQueue.main.async { [weak nav] in
+            guard let nav else { return }
             nav.present(self, animated: true) { [weak self] in
                 self?.isMinimizing = false
             }
