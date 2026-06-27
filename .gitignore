@@ -27,6 +27,8 @@ Package.resolved
 
 # Generated WebTorrent backend resources
 Hayase/Resources/WebTorrentBackend/torrent-client/
+Hayase/Resources/TorrentClientGlobe/globe.js
+Hayase/Resources/TorrentClientGeoIP/
 node_modules/
 
 # CocoaPods

@@ -8,7 +8,12 @@
 import UIKit
 
 enum ColumnHeader {
-    static func make(columns: [(String, CGFloat?)]) -> UIView {
+    static func make(columns: [(String, CGFloat?)],
+                     sortableColumnIndices: Set<Int> = [],
+                     activeColumnIndex: Int? = nil,
+                     sortAscending: Bool = true,
+                     target: Any? = nil,
+                     action: Selector? = nil) -> UIView {
         let header = UIView()
         header.backgroundColor = TorrentClientStyle.background
 
@@ -25,20 +30,37 @@ enum ColumnHeader {
             stack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
 
-        for (title, fixedWidth) in columns {
-            let label = UILabel()
-            label.text = title
-            label.font = .nunito(ofSize: 12, weight: .medium)
-            label.textColor = TorrentClientStyle.mutedForeground
-            if let width = fixedWidth {
-                label.widthAnchor.constraint(equalToConstant: width).isActive = true
-                label.setContentHuggingPriority(.required, for: .horizontal)
-                label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        for (index, column) in columns.enumerated() {
+            let (title, fixedWidth) = column
+            let view: UIView
+            if sortableColumnIndices.contains(index), let target, let action {
+                let button = UIButton(type: .system)
+                button.setTitle(title, for: .normal)
+                button.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+                button.setTitleColor(activeColumnIndex == index ? TorrentClientStyle.foreground : TorrentClientStyle.mutedForeground, for: .normal)
+                button.contentHorizontalAlignment = .left
+                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+                button.tag = index
+                button.addTarget(target, action: action, for: .touchUpInside)
+                button.accessibilityValue = activeColumnIndex == index ? (sortAscending ? "Ascending" : "Descending") : "Unsorted"
+                view = button
             } else {
-                label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                let label = UILabel()
+                label.text = title
+                label.font = .nunito(ofSize: 14, weight: .medium)
+                label.textColor = TorrentClientStyle.mutedForeground
+                view = label
             }
-            stack.addArrangedSubview(label)
+
+            if let width = fixedWidth {
+                view.widthAnchor.constraint(equalToConstant: width).isActive = true
+                view.setContentHuggingPriority(.required, for: .horizontal)
+                view.setContentCompressionResistancePriority(.required, for: .horizontal)
+            } else {
+                view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            }
+            stack.addArrangedSubview(view)
         }
 
         let separator = UIView()
