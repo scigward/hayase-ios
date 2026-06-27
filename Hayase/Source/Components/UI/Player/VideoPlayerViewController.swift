@@ -498,7 +498,6 @@ final class VideoPlayerViewController: UIViewController {
     private var lastProgressSaveTime: Date = .distantPast
     private var fullscreenPortal: FullscreenPortalState?
     private var isFullscreenTransitioning = false
-    private let fullscreenTransitionDuration: TimeInterval = 0.24
 
     private struct SkippableChapter: Equatable {
         let title: String
@@ -680,7 +679,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     override var prefersStatusBarHidden: Bool              { true }
-    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .none }
     override var prefersHomeIndicatorAutoHidden: Bool      { !controlsVisible }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
     override var shouldAutorotate: Bool                    { true }
@@ -2106,7 +2105,6 @@ final class VideoPlayerViewController: UIViewController {
     private struct FullscreenPortalState {
         let overlay: UIView
         let placeholder: UIView
-        weak var window: UIWindow?
         weak var originalSuperview: UIView?
         let originalIndex: Int
         let originalFrame: CGRect
@@ -2118,9 +2116,6 @@ final class VideoPlayerViewController: UIViewController {
         guard fullscreenPortal == nil,
               let window = view.window,
               let originalSuperview = view.superview else { return }
-
-        let startFrame = fullscreenFrame(in: window)
-        guard !startFrame.isEmpty else { return }
 
         let originalIndex = originalSuperview.subviews.firstIndex(of: view) ?? originalSuperview.subviews.count
         let placeholder = UIView(frame: view.frame)
@@ -2135,7 +2130,6 @@ final class VideoPlayerViewController: UIViewController {
         let state = FullscreenPortalState(
             overlay: overlay,
             placeholder: placeholder,
-            window: window,
             originalSuperview: originalSuperview,
             originalIndex: originalIndex,
             originalFrame: view.frame,
@@ -2146,80 +2140,52 @@ final class VideoPlayerViewController: UIViewController {
         isFullscreenTransitioning = true
         fullscreenPortal = state
 
-        view.removeFromSuperview()
-        originalSuperview.insertSubview(placeholder, at: min(originalIndex, originalSuperview.subviews.count))
-        window.addSubview(overlay)
+        UIView.performWithoutAnimation {
+            view.removeFromSuperview()
+            originalSuperview.insertSubview(placeholder, at: min(originalIndex, originalSuperview.subviews.count))
+            window.addSubview(overlay)
 
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.frame = startFrame
-        overlay.addSubview(view)
-        overlay.setNeedsLayout()
-        overlay.layoutIfNeeded()
+            view.translatesAutoresizingMaskIntoConstraints = true
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view.frame = overlay.bounds
+            overlay.addSubview(view)
 
+            overlay.layoutIfNeeded()
+            view.layoutIfNeeded()
+        }
+
+        isFullscreenTransitioning = false
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
-        animateFullscreenView(to: overlay.bounds) { [weak self] in
-            self?.isFullscreenTransitioning = false
-        }
     }
 
     private func exitFullscreenPresentation() {
         guard let state = fullscreenPortal else { return }
-        guard let window = state.window,
-              let originalSuperview = state.originalSuperview else {
+        guard let originalSuperview = state.originalSuperview else {
             cleanupBrokenFullscreenPortal()
             return
         }
 
         isFullscreenTransitioning = true
-        let targetFrame = state.placeholder.convert(state.placeholder.bounds, to: window)
 
-        animateFullscreenView(to: targetFrame) { [weak self, weak originalSuperview] in
-            guard let self, let originalSuperview else { return }
-
-            self.view.removeFromSuperview()
+        UIView.performWithoutAnimation {
+            view.removeFromSuperview()
             state.placeholder.removeFromSuperview()
             state.overlay.removeFromSuperview()
 
-            self.view.translatesAutoresizingMaskIntoConstraints = state.originalTranslatesAutoresizingMaskIntoConstraints
-            self.view.autoresizingMask = state.originalAutoresizingMask
-            self.view.frame = state.originalFrame
-            originalSuperview.insertSubview(self.view, at: min(state.originalIndex, originalSuperview.subviews.count))
+            view.translatesAutoresizingMaskIntoConstraints = state.originalTranslatesAutoresizingMaskIntoConstraints
+            view.autoresizingMask = state.originalAutoresizingMask
+            view.frame = state.originalFrame
+            originalSuperview.insertSubview(view, at: min(state.originalIndex, originalSuperview.subviews.count))
 
-            self.fullscreenPortal = nil
-            self.isFullscreenTransitioning = false
-            self.view.setNeedsLayout()
-            self.view.layoutIfNeeded()
-            self.setNeedsStatusBarAppearanceUpdate()
-            self.setNeedsUpdateOfHomeIndicatorAutoHidden()
-        }
-    }
-
-    private func fullscreenFrame(in window: UIWindow) -> CGRect {
-        let frame = view.convert(view.bounds, to: window)
-        return frame.isNull || frame.isEmpty ? window.bounds : frame
-    }
-
-    private func animateFullscreenView(to frame: CGRect, completion: @escaping () -> Void) {
-        let animations = {
-            self.view.frame = frame
-            self.view.layoutIfNeeded()
+            originalSuperview.layoutIfNeeded()
+            view.layoutIfNeeded()
         }
 
-        guard !UIAccessibility.isReduceMotionEnabled else {
-            UIView.performWithoutAnimation(animations)
-            completion()
-            return
-        }
-
-        UIView.animate(
-            withDuration: fullscreenTransitionDuration,
-            delay: 0,
-            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
-            animations: animations,
-            completion: { _ in completion() }
-        )
+        fullscreenPortal = nil
+        isFullscreenTransitioning = false
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
     }
 
     private func cleanupBrokenFullscreenPortal() {
