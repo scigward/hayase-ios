@@ -17,6 +17,21 @@ private let hayaseHomeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseHomeBannerBackdropHeightKey = "height"
 private let hayaseHomeBannerBackdropRouteKey = "route"
 private let hayaseHomeBannerBackdropHomeRoute = "home"
+private let hayaseHomeContentBackgroundKind = "HayaseHomeContentBackground"
+
+private final class HomeContentBackgroundDecorationView: UICollectionReusableView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = hayasePageBackground
+        isOpaque = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        backgroundColor = hayasePageBackground
+        isOpaque = true
+    }
+}
 
 // MARK: - BannerGradientView
 
@@ -934,9 +949,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             hayaseHomeBannerBackdropHeightKey: currentBackdropHeight(),
             hayaseHomeBannerBackdropRouteKey: hayaseHomeBannerBackdropHomeRoute,
         ]
-        if let urlString { userInfo[hayaseHomeBannerBackdropURLKey] = urlString }
-        if let scrollOffset { userInfo[hayaseHomeBannerBackdropScrollOffsetKey] = scrollOffset }
-        if let alpha { userInfo[hayaseHomeBannerBackdropAlphaKey] = alpha }
+        if let urlString = urlString { userInfo[hayaseHomeBannerBackdropURLKey] = urlString }
+        if let scrollOffset = scrollOffset { userInfo[hayaseHomeBannerBackdropScrollOffsetKey] = scrollOffset }
+        if let alpha = alpha { userInfo[hayaseHomeBannerBackdropAlphaKey] = alpha }
         NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange, object: nil, userInfo: userInfo)
     }
 
@@ -952,7 +967,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // fall back to AniList banner. Single image load = no visible flicker/swap.
         AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
             let urlStr = fanartURL ?? bannerFallback
-            guard let urlStr, let url = URL(string: urlStr) else {
+            guard let resolvedURLString = urlStr, let url = URL(string: resolvedURLString) else {
                 DispatchQueue.main.async {
                     biv.image = nil
                     self?.onBackdropImageChanged?(nil, nil)
@@ -960,23 +975,23 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 return
             }
             DispatchQueue.main.async {
-                self?.currentSidebarBackdropURL = urlStr
-                self?.onBackdropImageChanged?(urlStr, nil)
-                self?.publishSidebarBackdrop(urlString: urlStr,
+                self?.currentSidebarBackdropURL = resolvedURLString
+                self?.onBackdropImageChanged?(resolvedURLString, nil)
+                self?.publishSidebarBackdrop(urlString: resolvedURLString,
                                              scrollOffset: CGFloat(0),
                                              alpha: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1))
             }
-            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+            if let cached = SharedImageCache.shared.object(forKey: resolvedURLString as NSString) {
                 DispatchQueue.main.async {
                     self?.applyContentMode(for: cached)
                     biv.image = cached
-                    self?.onBackdropImageChanged?(urlStr, cached)
+                    self?.onBackdropImageChanged?(resolvedURLString, cached)
                 }
                 return
             }
-            let captured = urlStr
+            let captured = resolvedURLString
             self?.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
+                guard let data = data, let image = UIImage(data: data) else { return }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
                     guard self?.currentSidebarBackdropURL == captured else { return }
@@ -1027,7 +1042,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             }
             let captured = urlStr
             self.clearlogoTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let image = UIImage(data: data) else {
+                guard let data = data, let image = UIImage(data: data) else {
                     // Download failed — show text title as fallback
                     DispatchQueue.main.async {
                         guard let self,
@@ -1414,13 +1429,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         bannerHidden = shouldHide
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
         publishSidebarBackdrop(urlString: currentSidebarBackdropURL, alpha: targetAlpha)
-        // Web applies opacity to the whole Banner component, including the radial
-        // gradient pseudo-element. Fade both layers so the hero does not leave a
-        // full-strength black veil over the first row after scrolling.
-        UIView.animate(withDuration: 0.5) {
-            self.backgroundImageView.alpha = targetAlpha
-            self.gradientView.alpha = targetAlpha
-        }
     }
 }
 
@@ -1939,7 +1947,7 @@ class BrowseAnimeViewController: UIViewController {
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let viewH = view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height
         let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular, viewHeight: viewH)
-        return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
+        let layout = UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in
             if sectionIndex == 0 {
                 // Featured hero banner — full-width, bannerHeight tall, no orthogonal scroll
                 let item = NSCollectionLayoutItem(
@@ -1984,8 +1992,15 @@ class BrowseAnimeViewController: UIViewController {
                 elementKind: UICollectionView.elementKindSectionHeader,
                 alignment: .top)
             section.boundarySupplementaryItems = [header]
+            let background = NSCollectionLayoutDecorationItem.background(
+                elementKind: hayaseHomeContentBackgroundKind)
+            background.zIndex = -1
+            section.decorationItems = [background]
             return section
         }
+        layout.register(HomeContentBackgroundDecorationView.self,
+                        forDecorationViewOfKind: hayaseHomeContentBackgroundKind)
+        return layout
     }
 
     private func makeSearchLayout() -> UICollectionViewLayout {

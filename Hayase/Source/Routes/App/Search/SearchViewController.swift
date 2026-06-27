@@ -15,114 +15,6 @@
 import UIKit
 import PhotosUI
 
-// MARK: - FilterOption
-
-private struct FilterOption {
-    let displayName: String
-    let apiValue: String
-}
-
-// MARK: - FilterType
-
-private enum FilterType: Int, CaseIterable {
-    case genre, year, season, format, status, sort
-    /// Synthetic type used only for the trace.moe "IDs" chip — not shown in filter panel.
-    case trace
-
-    var label: String {
-        switch self {
-        case .genre:  return "Genres"
-        case .year:   return "Year"
-        case .season: return "Season"
-        case .format: return "Formats"
-        case .status: return "Status"
-        case .sort:   return "Sort"
-        case .trace:  return "IDs"
-        }
-    }
-
-    /// Hayase: genres, formats and status ComboBoxes have multiple={true}
-    var isMultiSelect: Bool {
-        switch self {
-        case .genre, .format, .status: return true
-        default: return false
-        }
-    }
-
-    /// Options exactly from values.ts
-    var options: [FilterOption] {
-        switch self {
-        case .genre:
-            return [
-                .init(displayName: "Action",        apiValue: "Action"),
-                .init(displayName: "Adventure",     apiValue: "Adventure"),
-                .init(displayName: "Comedy",        apiValue: "Comedy"),
-                .init(displayName: "Drama",         apiValue: "Drama"),
-                .init(displayName: "Ecchi",         apiValue: "Ecchi"),
-                .init(displayName: "Fantasy",       apiValue: "Fantasy"),
-                .init(displayName: "Horror",        apiValue: "Horror"),
-                .init(displayName: "Mahou Shoujo",  apiValue: "Mahou Shoujo"),
-                .init(displayName: "Mecha",         apiValue: "Mecha"),
-                .init(displayName: "Music",         apiValue: "Music"),
-                .init(displayName: "Mystery",       apiValue: "Mystery"),
-                .init(displayName: "Psychological", apiValue: "Psychological"),
-                .init(displayName: "Romance",       apiValue: "Romance"),
-                .init(displayName: "Sci-Fi",        apiValue: "Sci-Fi"),
-                .init(displayName: "Slice of Life", apiValue: "Slice of Life"),
-                .init(displayName: "Sports",        apiValue: "Sports"),
-                .init(displayName: "Supernatural",  apiValue: "Supernatural"),
-                .init(displayName: "Thriller",      apiValue: "Thriller"),
-            ]
-        case .year:
-            let current = Calendar.current.component(.year, from: Date())
-            return (0...(current - 1940 + 1)).map { i in
-                let y = current + 2 - i
-                return FilterOption(displayName: "\(y)", apiValue: "\(y)")
-            }
-        case .season:
-            return [
-                .init(displayName: "Spring", apiValue: "SPRING"),
-                .init(displayName: "Summer", apiValue: "SUMMER"),
-                .init(displayName: "Fall",   apiValue: "FALL"),
-                .init(displayName: "Winter", apiValue: "WINTER"),
-            ]
-        case .format:
-            return [
-                .init(displayName: "TV Show",  apiValue: "TV"),
-                .init(displayName: "Movie",    apiValue: "MOVIE"),
-                .init(displayName: "TV Short", apiValue: "TV_SHORT"),
-                .init(displayName: "OVA",      apiValue: "OVA"),
-                .init(displayName: "ONA",      apiValue: "ONA"),
-            ]
-        case .status:
-            return [
-                .init(displayName: "Airing",        apiValue: "RELEASING"),
-                .init(displayName: "Finished",      apiValue: "FINISHED"),
-                .init(displayName: "Not Yet Aired", apiValue: "NOT_YET_RELEASED"),
-                .init(displayName: "Cancelled",     apiValue: "CANCELLED"),
-            ]
-        case .sort:
-            // Exact order from values.ts
-            return [
-                .init(displayName: "Name",             apiValue: "TITLE_ROMAJI_DESC"),
-                .init(displayName: "Release Date",     apiValue: "START_DATE_DESC"),
-                .init(displayName: "Score",            apiValue: "SCORE_DESC"),
-                .init(displayName: "Popularity",       apiValue: "POPULARITY_DESC"),
-                .init(displayName: "Trending",         apiValue: "TRENDING_DESC"),
-                .init(displayName: "Updated Date",     apiValue: "UPDATED_AT_DESC"),
-                .init(displayName: "Name Asc",         apiValue: "TITLE_ROMAJI"),
-                .init(displayName: "Release Date Asc", apiValue: "START_DATE"),
-                .init(displayName: "Score Asc",        apiValue: "SCORE"),
-                .init(displayName: "Popularity Asc",   apiValue: "POPULARITY"),
-                .init(displayName: "Trending Asc",     apiValue: "TRENDING"),
-                .init(displayName: "Updated Date Asc", apiValue: "UPDATED_AT"),
-            ]
-        case .trace:
-            return []
-        }
-    }
-}
-
 // MARK: - trace.moe response (private to this file)
 
 private struct TraceMoeResponse: Decodable {
@@ -148,16 +40,18 @@ class SearchViewController: UIViewController {
     private static let chipFg       = UIColor(red: 24.0/255.0, green: 24.0/255.0, blue: 27.0/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
 
     // MARK: - Filter state
-    // Hayase: genres / formats / status multi-select; year / season / sort single-select
+    // Hayase: genres/tags, formats and status multi-select; year/season/sort/onList single-select.
     private var selectedGenres:   [String] = []
+    private var selectedTags:     [String] = []
     private var selectedYear:     String?  = nil
     private var selectedSeason:   String?  = nil
     private var selectedFormats:  [String] = []
     private var selectedStatuses: [String] = []
     private var selectedSort:     String?  = "TRENDING_DESC"
+    private var selectedOnList:   Bool?    = nil
 
-    // Active chip entries (sort is never shown as a chip)
-    private var activeChipEntries: [(label: String, type: FilterType, apiValue: String)] = []
+    // Active chip entries mirror interface list(search), including sort and trace IDs.
+    private var activeChipEntries: [(label: String, type: SearchFilterType, apiValue: String)] = []
 
     // MARK: - Results state
     private var animeResults: [AnimeItem] = []
@@ -189,23 +83,22 @@ class SearchViewController: UIViewController {
     private var cameraButton:  UIButton!
     private var boltButton:    UIButton!
 
-    // Filter row (horizontal scroll, hidden by default)
+    // Filter row: compact = horizontal/toggled; regular = wrapped/always visible.
     private var filterRowVisible = false
-    private var filterRow:   UIScrollView!
-    private var filterStack: UIStackView!
+    private var filterCollectionView: UICollectionView!
     private var filterRowHeightConstraint: NSLayoutConstraint!
-    private var filterPickerButtons: [UIButton] = []
 
     // Active chips (wrapping frame layout, min-h-9)
     private var chipsContainer:     UIView!
     private var chipsHeightConstraint: NSLayoutConstraint!
+    private var lastChipLayoutWidth: CGFloat = 0
 
     private var collectionView:    UICollectionView!
     private var loadingIndicator:  UIActivityIndicatorView!
     private var emptyLabel:        UILabel!
 
     // min-w-44 = 176pt; panel height = label(20)+gap(4)+picker(36)+padding(24) = 84pt
-    private static let filterItemWidth:   CGFloat = 176
+    private static let filterItemMinWidth: CGFloat = 176
     private static let filterPanelHeight: CGFloat = 84
 
     // Pending prefill from Home page
@@ -230,6 +123,10 @@ class SearchViewController: UIViewController {
         setupHeaderView()
         setupCollectionView()
         setupOverlays()
+        rebuildActiveChipEntries()
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
         // Hayase: goto('/app/search', { state: { search: variables } }) creates a fresh page with the
         // state pre-applied. Mirror this: if a prefill is pending (View More tapped before this tab was
         // ever opened), skip the default fetch here — viewWillAppear will call applyPrefill which runs
@@ -264,12 +161,23 @@ class SearchViewController: UIViewController {
         Hover.shared.unhoverLastElement()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateResponsiveHeaderLayout(animated: false)
+        let chipWidth = chipsContainer?.bounds.width ?? 0
+        if abs(chipWidth - lastChipLayoutWidth) > 1 {
+            lastChipLayoutWidth = chipWidth
+            rebuildActiveChips()
+        }
+    }
+
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         guard isViewLoaded else { return }
         coordinator.animate(alongsideTransition: { [weak self] _ in
-            guard let self else { return }
+            guard let self = self else { return }
             self.collectionView.setCollectionViewLayout(self.makeLayout(), animated: false)
+            self.updateResponsiveHeaderLayout(animated: false, targetWidth: size.width)
         })
     }
 
@@ -312,37 +220,40 @@ class SearchViewController: UIViewController {
                                       season: String? = nil,
                                       seasonYear: Int? = nil,
                                       sort: String? = nil) {
-        selectedGenres = []; selectedYear = nil; selectedSeason = nil
-        selectedFormats = []; selectedStatuses = []
-        selectedSort = "TRENDING_DESC"; activeChipEntries = []
+        selectedGenres = []
+        selectedTags = []
+        selectedYear = nil
+        selectedSeason = nil
+        selectedFormats = []
+        selectedStatuses = []
+        selectedSort = "TRENDING_DESC"
+        selectedOnList = nil
+        traceIds = nil
         if let genre = genre {
-            selectedGenres = [genre]
-            let name = FilterType.genre.options.first { $0.apiValue == genre }?.displayName ?? genre
-            activeChipEntries.append((label: name, type: .genre, apiValue: genre))
+            if SearchValues.genreSet.contains(genre) {
+                selectedGenres = [genre]
+            } else {
+                selectedTags = [genre]
+            }
         }
         if let format = format {
             selectedFormats = [format]
-            let name = FilterType.format.options.first { $0.apiValue == format }?.displayName ?? format
-            activeChipEntries.append((label: name, type: .format, apiValue: format))
         }
         if let status = status {
             selectedStatuses = [status]
-            let name = FilterType.status.options.first { $0.apiValue == status }?.displayName ?? status
-            activeChipEntries.append((label: name, type: .status, apiValue: status))
         }
         if let season = season {
             selectedSeason = season
-            let name = FilterType.season.options.first { $0.apiValue == season }?.displayName ?? season.capitalized
-            activeChipEntries.append((label: name, type: .season, apiValue: season))
         }
         if let seasonYear = seasonYear {
             let yearStr = String(seasonYear)
             selectedYear = yearStr
-            let name = FilterType.year.options.first { $0.apiValue == yearStr }?.displayName ?? yearStr
-            activeChipEntries.append((label: name, type: .year, apiValue: yearStr))
         }
-        if let sort = sort, sort != "TRENDING_DESC" { selectedSort = sort }
-        refreshFilterPickers(); rebuildActiveChips(); updateBoltTint()
+        if let sort = sort { selectedSort = sort }
+        rebuildActiveChipEntries()
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
         fetchResults(reset: true)
     }
 
@@ -477,83 +388,31 @@ class SearchViewController: UIViewController {
     // Hayase: flex overflow-y-auto w-full (horizontal scroll on mobile), use:dragScroll
     // Each item: min-w-44 flex-1 p-2 with text-xl font-bold label + combobox picker
     private func setupFilterRow() {
-        filterRow = UIScrollView()
-        filterRow.translatesAutoresizingMaskIntoConstraints = false
-        filterRow.showsHorizontalScrollIndicator = false
-        // Prevent vertical wiggle/bounce while scrolling horizontally
-        filterRow.showsVerticalScrollIndicator = false
-        filterRow.isDirectionalLockEnabled = true   // locks to one axis once scrolling starts
-        filterRow.alwaysBounceVertical = false
-        filterRow.contentInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-        headerView.addSubview(filterRow)
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 0
+        layout.sectionInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
 
-        filterStack = UIStackView()
-        filterStack.translatesAutoresizingMaskIntoConstraints = false
-        filterStack.axis = .horizontal; filterStack.spacing = 0; filterStack.alignment = .top
-        filterRow.addSubview(filterStack)
-        NSLayoutConstraint.activate([
-            filterStack.topAnchor.constraint(equalTo: filterRow.topAnchor),
-            filterStack.bottomAnchor.constraint(equalTo: filterRow.bottomAnchor),
-            filterStack.leadingAnchor.constraint(equalTo: filterRow.leadingAnchor),
-            filterStack.trailingAnchor.constraint(equalTo: filterRow.trailingAnchor),
-        ])
+        filterCollectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        filterCollectionView.translatesAutoresizingMaskIntoConstraints = false
+        filterCollectionView.backgroundColor = .clear
+        filterCollectionView.showsHorizontalScrollIndicator = false
+        filterCollectionView.showsVerticalScrollIndicator = false
+        filterCollectionView.alwaysBounceVertical = false
+        filterCollectionView.dataSource = self
+        filterCollectionView.delegate = self
+        filterCollectionView.register(SearchFilterItemCell.self,
+                                      forCellWithReuseIdentifier: SearchFilterItemCell.reuseID)
+        headerView.addSubview(filterCollectionView)
 
-        filterRowHeightConstraint = filterRow.heightAnchor.constraint(equalToConstant: 0)
+        filterRowHeightConstraint = filterCollectionView.heightAnchor.constraint(equalToConstant: 0)
         filterRowHeightConstraint.isActive = true
         NSLayoutConstraint.activate([
-            filterRow.topAnchor.constraint(equalTo: titleRowStack.bottomAnchor),
-            filterRow.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
-            filterRow.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            filterCollectionView.topAnchor.constraint(equalTo: titleRowStack.bottomAnchor),
+            filterCollectionView.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            filterCollectionView.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
         ])
-
-        filterPickerButtons = []
-        for type in FilterType.allCases where type != .trace {
-            let (item, picker) = makeFilterItem(for: type)
-            filterStack.addArrangedSubview(item)
-            filterPickerButtons.append(picker)
-        }
-    }
-
-    /// One filter item: bold label (text-xl) + combobox-style picker button, min-w-44
-    private func makeFilterItem(for type: FilterType) -> (UIView, UIButton) {
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.widthAnchor.constraint(equalToConstant: Self.filterItemWidth).isActive = true
-
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = type.label
-        label.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold mb-1 ml-1
-        label.textColor = .white
-        container.addSubview(label)
-
-        let picker = UIButton(type: .system)
-        picker.translatesAutoresizingMaskIntoConstraints = false
-        picker.backgroundColor = Self.bgBackground
-        picker.layer.cornerRadius = 8; picker.layer.masksToBounds = true
-        picker.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
-        let isPlaceholder = pickerTitle(for: type) == "Any" || pickerTitle(for: type) == "Accuracy"
-        picker.setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
-        picker.titleLabel?.font = .nunito(ofSize: 14)
-        picker.titleLabel?.lineBreakMode = .byTruncatingTail
-        picker.contentHorizontalAlignment = .left
-        picker.setTitle(pickerTitle(for: type), for: .normal)
-        picker.tag = type.rawValue
-        picker.addTarget(self, action: #selector(filterPickerTapped(_:)), for: .touchUpInside)
-        container.addSubview(picker)
-
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
-            picker.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 4),
-            picker.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
-            picker.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
-            picker.heightAnchor.constraint(equalToConstant: 36),
-            picker.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-        ])
-        return (container, picker)
     }
 
     // MARK: - Chips Row
@@ -565,7 +424,7 @@ class SearchViewController: UIViewController {
         chipsHeightConstraint = chipsContainer.heightAnchor.constraint(equalToConstant: 36)
         chipsHeightConstraint.isActive = true
         NSLayoutConstraint.activate([
-            chipsContainer.topAnchor.constraint(equalTo: filterRow.bottomAnchor, constant: 8),
+            chipsContainer.topAnchor.constraint(equalTo: filterCollectionView.bottomAnchor, constant: 8),
             chipsContainer.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 4),
             chipsContainer.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -4),
             chipsContainer.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -4),
@@ -589,11 +448,8 @@ class SearchViewController: UIViewController {
 
     @objc private func boltTapped() {
         filterRowVisible.toggle()
-        UIView.animate(withDuration: 0.25) {
-            self.filterRowHeightConstraint.constant = self.filterRowVisible ? Self.filterPanelHeight : 0
-            self.boltButton.tintColor = self.filterRowVisible ? Self.activeBlue : Self.mutedFg
-            self.headerView.layoutIfNeeded(); self.view.layoutIfNeeded()
-        }
+        updateResponsiveHeaderLayout(animated: true)
+        updateBoltTint()
     }
 
     @objc private func searchFieldChanged(_ field: UITextField) {
@@ -605,147 +461,203 @@ class SearchViewController: UIViewController {
         }
     }
 
-    @objc private func filterPickerTapped(_ sender: UIButton) {
-        guard let type = FilterType(rawValue: sender.tag) else { return }
-        showFilterPicker(for: type, sourceButton: sender)
+    // MARK: - Responsive Filters
+
+    private var visibleFilterTypes: [SearchFilterType] {
+        var types: [SearchFilterType] = [.genres, .year, .season, .format, .status, .sort]
+        if TrackerAccountManager.shared.isLoggedIn(.anilist) {
+            types.append(.onList)
+        }
+        return types
     }
 
-    // MARK: - Filter picker (action sheet)
-
-    private func showFilterPicker(for type: FilterType, sourceButton: UIButton) {
-        let alert = UIAlertController(title: type.label, message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "Any", style: .default) { [weak self] _ in
-            self?.clearFilter(type: type); self?.fetchResults(reset: true)
-        })
-        for option in type.options {
-            let selected = isOptionSelected(option: option, for: type)
-            let title = selected ? "✓ \(option.displayName)" : option.displayName
-            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
-                guard let self = self else { return }
-                self.toggleOption(option: option, for: type)
-                self.updateBoltTint(); self.fetchResults(reset: true)
-            })
-        }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        if let pop = alert.popoverPresentationController {
-            pop.sourceView = sourceButton; pop.sourceRect = sourceButton.bounds
-        }
-        present(alert, animated: true)
+    private func isRegularSearchLayout(width: CGFloat? = nil) -> Bool {
+        let value = width ?? view.bounds.width
+        return value >= 768 || traitCollection.horizontalSizeClass == .regular
     }
 
-    private func isOptionSelected(option: FilterOption, for type: FilterType) -> Bool {
+    private func updateResponsiveHeaderLayout(animated: Bool, targetWidth: CGFloat? = nil) {
+        guard isViewLoaded, filterCollectionView != nil else { return }
+        let width = max(targetWidth ?? view.bounds.width, 320)
+        let regular = isRegularSearchLayout(width: width)
+        let visible = regular || filterRowVisible
+
+        if let layout = filterCollectionView.collectionViewLayout as? UICollectionViewFlowLayout {
+            layout.scrollDirection = regular ? .vertical : .horizontal
+            layout.minimumInteritemSpacing = 0
+            layout.minimumLineSpacing = 0
+            layout.sectionInset = UIEdgeInsets(top: 0,
+                                               left: regular ? 40 : 8,
+                                               bottom: 0,
+                                               right: regular ? 40 : 8)
+            layout.invalidateLayout()
+        }
+
+        let rows: CGFloat
+        if !visible {
+            rows = 0
+        } else if regular {
+            let usableWidth = max(width - 80, Self.filterItemMinWidth)
+            let columns = max(1, floor(usableWidth / Self.filterItemMinWidth))
+            rows = ceil(CGFloat(visibleFilterTypes.count) / columns)
+        } else {
+            rows = 1
+        }
+        filterCollectionView.isScrollEnabled = !regular
+        filterRowHeightConstraint.constant = rows * Self.filterPanelHeight
+        boltButton.isHidden = regular
+        filterCollectionView.reloadData()
+
+        let updates = {
+            self.headerView.layoutIfNeeded()
+            self.view.layoutIfNeeded()
+        }
+        if animated {
+            UIView.animate(withDuration: 0.25, animations: updates)
+        } else {
+            updates()
+        }
+    }
+
+    private func filterItemWidth(for collectionView: UICollectionView) -> CGFloat {
+        guard isRegularSearchLayout() else { return Self.filterItemMinWidth }
+        let width = max(collectionView.bounds.width - 80, Self.filterItemMinWidth)
+        let columns = max(1, floor(width / Self.filterItemMinWidth))
+        return floor(width / columns)
+    }
+
+    private func showFilterPicker(for type: SearchFilterType, sourceView: UIView?) {
+        let picker = SearchComboBoxViewController(filterType: type,
+                                                  options: SearchValues.options(for: type),
+                                                  selectedValues: selectedValues(for: type),
+                                                  sourceView: sourceView)
+        picker.onSelectionChanged = { [weak self] values in
+            self?.applySelection(values, for: type)
+        }
+        present(picker, animated: true)
+    }
+
+    private func selectedValues(for type: SearchFilterType) -> Set<String> {
         switch type {
-        case .genre:  return selectedGenres.contains(option.apiValue)
-        case .year:   return selectedYear == option.apiValue
-        case .season: return selectedSeason == option.apiValue
-        case .format: return selectedFormats.contains(option.apiValue)
-        case .status: return selectedStatuses.contains(option.apiValue)
-        case .sort:   return selectedSort == option.apiValue
-        case .trace:  return false
-        }
-    }
-
-    private func toggleOption(option: FilterOption, for type: FilterType) {
-        switch type {
-        case .genre:
-            if selectedGenres.contains(option.apiValue) {
-                selectedGenres.removeAll { $0 == option.apiValue }
-                activeChipEntries.removeAll { $0.type == .genre && $0.apiValue == option.apiValue }
-            } else {
-                selectedGenres.append(option.apiValue)
-                activeChipEntries.append((label: option.displayName, type: .genre, apiValue: option.apiValue))
-            }
+        case .genres: return Set(selectedGenres + selectedTags)
         case .year:
-            let same = selectedYear == option.apiValue
-            activeChipEntries.removeAll { $0.type == .year }
-            selectedYear = same ? nil : option.apiValue
-            if !same { activeChipEntries.append((label: option.displayName, type: .year, apiValue: option.apiValue)) }
+            guard let selectedYear else { return [] }
+            return [selectedYear]
         case .season:
-            let same = selectedSeason == option.apiValue
-            activeChipEntries.removeAll { $0.type == .season }
-            selectedSeason = same ? nil : option.apiValue
-            if !same { activeChipEntries.append((label: option.displayName, type: .season, apiValue: option.apiValue)) }
-        case .format:
-            if selectedFormats.contains(option.apiValue) {
-                selectedFormats.removeAll { $0 == option.apiValue }
-                activeChipEntries.removeAll { $0.type == .format && $0.apiValue == option.apiValue }
-            } else {
-                selectedFormats.append(option.apiValue)
-                activeChipEntries.append((label: option.displayName, type: .format, apiValue: option.apiValue))
-            }
-        case .status:
-            if selectedStatuses.contains(option.apiValue) {
-                selectedStatuses.removeAll { $0 == option.apiValue }
-                activeChipEntries.removeAll { $0.type == .status && $0.apiValue == option.apiValue }
-            } else {
-                selectedStatuses.append(option.apiValue)
-                activeChipEntries.append((label: option.displayName, type: .status, apiValue: option.apiValue))
-            }
+            guard let selectedSeason else { return [] }
+            return [selectedSeason]
+        case .format: return Set(selectedFormats)
+        case .status: return Set(selectedStatuses)
         case .sort:
-            selectedSort = (selectedSort == option.apiValue) ? "TRENDING_DESC" : option.apiValue
-        case .trace:
-            break  // trace chips are not shown in the filter panel picker
+            guard let selectedSort else { return [] }
+            return [selectedSort]
+        case .onList:
+            guard let selectedOnList else { return [] }
+            return [selectedOnList ? "true" : "false"]
+        case .trace: return traceIds == nil ? [] : ["trace"]
         }
-        refreshFilterPickers(); rebuildActiveChips()
     }
 
-    private func clearFilter(type: FilterType) {
+    private func applySelection(_ values: Set<String>, for type: SearchFilterType) {
+        let ordered = orderedValues(Array(values), for: type)
         switch type {
-        case .genre:   selectedGenres = [];   activeChipEntries.removeAll { $0.type == .genre }
-        case .year:    selectedYear = nil;    activeChipEntries.removeAll { $0.type == .year }
-        case .season:  selectedSeason = nil;  activeChipEntries.removeAll { $0.type == .season }
-        case .format:  selectedFormats = [];  activeChipEntries.removeAll { $0.type == .format }
-        case .status:  selectedStatuses = []; activeChipEntries.removeAll { $0.type == .status }
-        case .sort:    selectedSort = "TRENDING_DESC"
-        case .trace:   clearTrace(); return   // clearTrace() handles its own fetch
+        case .genres:
+            selectedGenres = ordered.filter { SearchValues.genreSet.contains($0) }
+            selectedTags = ordered.filter { !SearchValues.genreSet.contains($0) }
+        case .year:
+            selectedYear = ordered.first
+        case .season:
+            selectedSeason = ordered.first
+        case .format:
+            selectedFormats = ordered
+        case .status:
+            selectedStatuses = ordered
+        case .sort:
+            selectedSort = ordered.first
+        case .onList:
+            selectedOnList = ordered.first.map { $0 == "true" }
+        case .trace:
+            if ordered.isEmpty { clearTrace(); return }
         }
-        refreshFilterPickers(); rebuildActiveChips(); updateBoltTint()
+        rebuildActiveChipEntries()
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResults(reset: true)
+    }
+
+    private func orderedValues(_ values: [String], for type: SearchFilterType) -> [String] {
+        let selected = Set(values)
+        let ordered = SearchValues.options(for: type)
+            .map(\.value)
+            .filter { selected.contains($0) }
+        let extras = values.filter { !ordered.contains($0) }
+        return ordered + extras
+    }
+
+    private func clearFilter(type: SearchFilterType) {
+        if type == .trace {
+            clearTrace()
+            return
+        }
+        applySelection([], for: type)
     }
 
     private func updateBoltTint() {
-        let hasFilter = !selectedGenres.isEmpty || selectedYear != nil || selectedSeason != nil
+        let hasFilter = !selectedGenres.isEmpty || !selectedTags.isEmpty
+            || selectedYear != nil || selectedSeason != nil
             || !selectedFormats.isEmpty || !selectedStatuses.isEmpty
-            || (selectedSort != "TRENDING_DESC" && selectedSort != nil)
+            || selectedSort != nil || selectedOnList != nil || traceIds != nil
         boltButton.tintColor = (filterRowVisible || hasFilter) ? Self.activeBlue : Self.mutedFg
     }
 
-    // MARK: - Filter picker titles
-
-    private func pickerTitle(for type: FilterType) -> String {
-        switch type {
-        case .genre:
-            return selectedGenres.isEmpty ? "Any" : selectedGenres.map { displayLabel($0, in: .genre) }.joined(separator: ", ")
-        case .year:
-            return selectedYear ?? "Any"
-        case .season:
-            return selectedSeason.map { displayLabel($0, in: .season) } ?? "Any"
-        case .format:
-            return selectedFormats.isEmpty ? "Any" : selectedFormats.map { displayLabel($0, in: .format) }.joined(separator: ", ")
-        case .status:
-            return selectedStatuses.isEmpty ? "Any" : selectedStatuses.map { displayLabel($0, in: .status) }.joined(separator: ", ")
-        case .sort:
-            // "Accuracy" matches Hayase's placeholder='Accuracy' on the Sort ComboBox
-            return selectedSort.map { displayLabel($0, in: .sort) } ?? "Accuracy"
-        case .trace:
-            return "IDs"
-        }
+    private func selectedTitle(for type: SearchFilterType) -> String {
+        let values = orderedValues(Array(selectedValues(for: type)), for: type)
+        guard !values.isEmpty else { return type.placeholder }
+        if type == .trace { return "IDs" }
+        return values.map { SearchValues.label(for: $0, in: type) }.joined(separator: ", ")
     }
 
-    private func displayLabel(_ api: String, in type: FilterType) -> String {
-        type.options.first { $0.apiValue == api }?.displayName ?? api
+    private func isPlaceholderTitle(_ title: String, for type: SearchFilterType) -> Bool {
+        title == type.placeholder
     }
 
     private func refreshFilterPickers() {
-        // filterPickerButtons maps to FilterType.allCases excluding .trace
-        let panelTypes = FilterType.allCases.filter { $0 != .trace }
-        for (i, type) in panelTypes.enumerated() {
-            guard i < filterPickerButtons.count else { continue }
-            let title = pickerTitle(for: type)
-            filterPickerButtons[i].setTitle(title, for: .normal)
-            // Web: text-muted-foreground opacity-50 when placeholder, white when value selected
-            let isPlaceholder = title == "Any" || title == "Accuracy"
-            filterPickerButtons[i].setTitleColor(isPlaceholder ? Self.mutedFg.withAlphaComponent(0.5) : .white, for: .normal)
+        filterCollectionView?.reloadData()
+        updateResponsiveHeaderLayout(animated: false)
+    }
+
+    private func rebuildActiveChipEntries() {
+        var entries: [(label: String, type: SearchFilterType, apiValue: String)] = []
+        for value in selectedGenres {
+            entries.append((SearchValues.label(for: value, in: .genres), .genres, value))
         }
+        for value in selectedTags {
+            entries.append((SearchValues.label(for: value, in: .genres), .genres, value))
+        }
+        if let selectedYear = selectedYear {
+            entries.append((selectedYear, .year, selectedYear))
+        }
+        if let selectedSeason = selectedSeason {
+            entries.append((SearchValues.label(for: selectedSeason, in: .season), .season, selectedSeason))
+        }
+        for value in selectedFormats {
+            entries.append((SearchValues.label(for: value, in: .format), .format, value))
+        }
+        for value in selectedStatuses {
+            entries.append((SearchValues.label(for: value, in: .status), .status, value))
+        }
+        if let selectedSort = selectedSort {
+            entries.append((SearchValues.label(for: selectedSort, in: .sort), .sort, selectedSort))
+        }
+        if let selectedOnList = selectedOnList {
+            let value = selectedOnList ? "true" : "false"
+            entries.append((SearchValues.label(for: value, in: .onList), .onList, value))
+        }
+        if traceIds != nil {
+            entries.append(("IDs", .trace, "trace"))
+        }
+        activeChipEntries = entries
     }
 
     // MARK: - Active chips (wrapping frame layout)
@@ -762,7 +674,8 @@ class SearchViewController: UIViewController {
         }
 
         let chips = activeChipEntries.map { makeActiveChip(label: $0.label, type: $0.type, apiValue: $0.apiValue) }
-        let availableW = max(UIScreen.main.bounds.width - 8, 100)
+        let measuredWidth = chipsContainer.bounds.width > 0 ? chipsContainer.bounds.width : UIScreen.main.bounds.width - 8
+        let availableW = max(measuredWidth, 100)
         let hSpacing: CGFloat = 12; let vSpacing: CGFloat = 8
         var x: CGFloat = 0; var y: CGFloat = 4; var rowH: CGFloat = 0
 
@@ -784,7 +697,7 @@ class SearchViewController: UIViewController {
         }
     }
 
-    private func makeActiveChip(label: String, type: FilterType, apiValue: String) -> UIView {
+    private func makeActiveChip(label: String, type: SearchFilterType, apiValue: String) -> UIView {
         let container = UIView()
         container.backgroundColor = Self.chipBg
         container.layer.cornerRadius = 6; container.layer.masksToBounds = true  // rounded-md = 0.375rem ≈ 6pt
@@ -820,14 +733,18 @@ class SearchViewController: UIViewController {
         guard let id = sender.accessibilityIdentifier, let colon = id.range(of: ":") else { return }
         let typeRaw  = Int(id[id.startIndex..<colon.lowerBound]) ?? -1
         let apiValue = String(id[colon.upperBound...])
-        guard let type = FilterType(rawValue: typeRaw) else { return }
+        guard let type = SearchFilterType(rawValue: typeRaw) else { return }
         switch type {
-        case .genre:   selectedGenres.removeAll { $0 == apiValue };   activeChipEntries.removeAll { $0.type == .genre  && $0.apiValue == apiValue }
+        case .genres:
+            selectedGenres.removeAll { $0 == apiValue }
+            selectedTags.removeAll { $0 == apiValue }
+            activeChipEntries.removeAll { $0.type == .genres && $0.apiValue == apiValue }
         case .year:    selectedYear = nil;   activeChipEntries.removeAll { $0.type == .year }
         case .season:  selectedSeason = nil; activeChipEntries.removeAll { $0.type == .season }
         case .format:  selectedFormats.removeAll { $0 == apiValue };  activeChipEntries.removeAll { $0.type == .format && $0.apiValue == apiValue }
         case .status:  selectedStatuses.removeAll { $0 == apiValue }; activeChipEntries.removeAll { $0.type == .status && $0.apiValue == apiValue }
-        case .sort:    selectedSort = "TRENDING_DESC"
+        case .sort:    selectedSort = nil; activeChipEntries.removeAll { $0.type == .sort }
+        case .onList:  selectedOnList = nil; activeChipEntries.removeAll { $0.type == .onList }
         case .trace:   clearTrace(); return  // clearTrace() handles its own fetch
         }
         refreshFilterPickers(); rebuildActiveChips(); updateBoltTint(); fetchResults(reset: true)
@@ -901,11 +818,6 @@ class SearchViewController: UIViewController {
     // MARK: - Fetch
 
     private func fetchResults(reset: Bool) {
-        // When trace.moe results are active, always re-fetch by IDs instead of normal search
-        if let ids = traceIds {
-            fetchResultsByIds(ids)
-            return
-        }
         if reset {
             currentPage = 1; hasNextPage = true
             // Force-cancel any in-flight fetch by bumping the request ID. The old callback will
@@ -927,12 +839,15 @@ class SearchViewController: UIViewController {
         AniListClient.shared.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
             genres: selectedGenres,
+            tags: selectedTags,
             formats: selectedFormats,
             statuses: selectedStatuses,
             // Hayase: filter.sort?.[0]?.value ?? 'SEARCH_MATCH' — SEARCH_MATCH = search relevance
             sort: selectedSort ?? "SEARCH_MATCH",
             seasonYear: selectedYear.flatMap { Int($0) },
             season: selectedSeason,
+            onList: selectedOnList,
+            ids: traceIds,
             page: currentPage
         ) { [weak self] items, hasNext in
             guard let self = self, self.fetchRequestID == myRequestID else { return }
@@ -1008,24 +923,22 @@ class SearchViewController: UIViewController {
     /// Mirrors Hayase's clear() + search.ids = [...] sequence.
     private func applyTraceResults(ids: [Int]) {
         // Clear all regular filters (mirrors Hayase's clear())
-        selectedGenres = []; selectedYear = nil; selectedSeason = nil
-        selectedFormats = []; selectedStatuses = []; selectedSort = "TRENDING_DESC"
+        selectedGenres = []; selectedTags = []; selectedYear = nil; selectedSeason = nil
+        selectedFormats = []; selectedStatuses = []; selectedSort = nil; selectedOnList = nil
         currentTitle = ""; searchField.text = ""
-        activeChipEntries = []
-        // Set trace state and add "IDs" chip (matches Hayase list() returning "IDs")
         traceIds = ids
-        activeChipEntries.append((label: "IDs", type: .trace, apiValue: "trace"))
+        rebuildActiveChipEntries()
         refreshFilterPickers()
         rebuildActiveChips()
         updateBoltTint()
-        fetchResultsByIds(ids)
+        fetchResults(reset: true)
     }
 
     /// Clears trace state and returns to a normal search.
     /// Mirrors removing the "IDs" chip in Hayase (remove("IDs") → search.ids = undefined).
     private func clearTrace() {
         traceIds = nil
-        activeChipEntries.removeAll { $0.type == .trace }
+        rebuildActiveChipEntries()
         rebuildActiveChips()
         updateBoltTint()
         fetchResults(reset: true)
@@ -1077,6 +990,9 @@ class SearchViewController: UIViewController {
 extension SearchViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         numberOfItemsInSection section: Int) -> Int {
+        if collectionView === filterCollectionView {
+            return visibleFilterTypes.count
+        }
         // Web: shows 50 SkeletonCard while fetching; we show enough to fill the visible area
         if isShowingSkeleton { return 50 }
         return animeResults.count
@@ -1084,6 +1000,19 @@ extension SearchViewController: UICollectionViewDataSource {
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        if collectionView === filterCollectionView {
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: SearchFilterItemCell.reuseID,
+                for: indexPath) as? SearchFilterItemCell,
+                  let type = visibleFilterTypes[safe: indexPath.item] else {
+                return UICollectionViewCell()
+            }
+            let title = selectedTitle(for: type)
+            cell.configure(type: type,
+                           title: title,
+                           placeholder: isPlaceholderTitle(title, for: type))
+            return cell
+        }
         if isShowingSkeleton {
             return collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonSearchCell.reuseID, for: indexPath)
@@ -1103,9 +1032,14 @@ extension SearchViewController: UICollectionViewDataSource {
 
 // MARK: - UICollectionViewDelegate
 
-extension SearchViewController: UICollectionViewDelegate {
+extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
+        if collectionView === filterCollectionView {
+            guard let type = visibleFilterTypes[safe: indexPath.item] else { return }
+            showFilterPicker(for: type, sourceView: collectionView.cellForItem(at: indexPath))
+            return
+        }
         guard !isShowingSkeleton,
               let item = animeResults[safe: indexPath.item] else { return }
         if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
@@ -1123,11 +1057,19 @@ extension SearchViewController: UICollectionViewDelegate {
 
     // Infinite scroll — matches use:infiniteScroll in Hayase
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView else { return }
         Hover.shared.scrollDidOccur()
         let offsetY = scrollView.contentOffset.y
         let total = scrollView.contentSize.height; let frame = scrollView.frame.height
         guard total > frame, offsetY > total - frame - 400 else { return }
         fetchResults(reset: false)
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        layout collectionViewLayout: UICollectionViewLayout,
+                        sizeForItemAt indexPath: IndexPath) -> CGSize {
+        guard collectionView === filterCollectionView else { return .zero }
+        return CGSize(width: filterItemWidth(for: collectionView), height: Self.filterPanelHeight)
     }
 }
 
@@ -1161,6 +1103,87 @@ extension SearchViewController: UIImagePickerControllerDelegate, UINavigationCon
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
+    }
+}
+
+// MARK: - SearchFilterItemCell
+
+private final class SearchFilterItemCell: UICollectionViewCell {
+    static let reuseID = "SearchFilterItemCell"
+
+    private let titleLabel = UILabel()
+    private let buttonShell = UIView()
+    private let valueLabel = UILabel()
+    private let chevronView = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        titleLabel.font = .nunito(ofSize: 20, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        buttonShell.backgroundColor = UIColor.HayaseTheme.background
+        buttonShell.layer.cornerRadius = 8
+        buttonShell.layer.borderWidth = 1
+        buttonShell.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        buttonShell.isUserInteractionEnabled = false
+        buttonShell.translatesAutoresizingMaskIntoConstraints = false
+
+        valueLabel.font = .nunito(ofSize: 15, weight: .regular)
+        valueLabel.numberOfLines = 1
+        valueLabel.lineBreakMode = .byTruncatingTail
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        chevronView.image = UIImage.hayaseIcon("chevrons-up-down")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular))
+        chevronView.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.65)
+        chevronView.contentMode = .scaleAspectFit
+        chevronView.translatesAutoresizingMaskIntoConstraints = false
+
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(buttonShell)
+        buttonShell.addSubview(valueLabel)
+        buttonShell.addSubview(chevronView)
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
+
+            buttonShell.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            buttonShell.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            buttonShell.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            buttonShell.heightAnchor.constraint(equalToConstant: 36),
+
+            valueLabel.leadingAnchor.constraint(equalTo: buttonShell.leadingAnchor, constant: 12),
+            valueLabel.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -8),
+            valueLabel.centerYAnchor.constraint(equalTo: buttonShell.centerYAnchor),
+
+            chevronView.trailingAnchor.constraint(equalTo: buttonShell.trailingAnchor, constant: -10),
+            chevronView.centerYAnchor.constraint(equalTo: buttonShell.centerYAnchor),
+            chevronView.widthAnchor.constraint(equalToConstant: 16),
+            chevronView.heightAnchor.constraint(equalToConstant: 16),
+        ])
+    }
+
+    func configure(type: SearchFilterType, title: String, placeholder: Bool) {
+        titleLabel.text = type.label
+        valueLabel.text = title
+        valueLabel.textColor = placeholder
+            ? UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
+            : UIColor.HayaseTheme.foreground
     }
 }
 

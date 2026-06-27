@@ -388,22 +388,33 @@ public final class AniListClient: NSObject {
 
     func searchAnimeItems(title: String?,
                           genres: [String],
+                          tags: [String] = [],
                           formats: [String],
                           statuses: [String],
+                          statusNot: [String] = [],
                           sort: String,
                           seasonYear: Int? = nil,
                           season: String? = nil,
+                          isAdult: Bool? = nil,
+                          onList: Bool? = nil,
+                          ids: [Int]? = nil,
+                          perPage: Int = 20,
                           page: Int,
                           completion: @escaping ([AnimeItem], Bool) -> Void) {
         guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
         var request = authorizedRequest(url: url)
-        var variables: [String: Any] = ["sort": [sort], "page": page]
+        var variables: [String: Any] = ["sort": [sort], "page": page, "perPage": perPage]
         if let t = title, !t.isEmpty { variables["search"] = t }
-        if !genres.isEmpty   { variables["genre_in"] = genres }
-        if !formats.isEmpty  { variables["format_in"] = formats }
-        if !statuses.isEmpty { variables["status_in"] = statuses }
+        if !genres.isEmpty   { variables["genre"] = genres }
+        if !tags.isEmpty     { variables["tag"] = tags }
+        if !formats.isEmpty  { variables["format"] = formats }
+        if !statuses.isEmpty { variables["status"] = statuses }
+        if !statusNot.isEmpty { variables["statusNot"] = statusNot }
         if let y = seasonYear { variables["seasonYear"] = y }
         if let s = season { variables["season"] = s }
+        if let isAdult = isAdult { variables["isAdult"] = isAdult }
+        if let onList = onList { variables["onList"] = onList }
+        if let ids = ids, !ids.isEmpty { variables["ids"] = ids }
         if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
         let body: [String: Any] = ["query": AniListQueries.search, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
