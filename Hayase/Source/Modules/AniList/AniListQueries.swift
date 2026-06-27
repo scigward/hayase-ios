@@ -287,7 +287,7 @@ enum AniListQueries {
         id
         idMal
         title { english romaji native userPreferred }
-        coverImage { large medium color }
+        coverImage { extraLarge large medium color }
         bannerImage
         averageScore
         genres
@@ -304,13 +304,15 @@ enum AniListQueries {
         synonyms
         tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
         isAdult
+        mediaListEntry { id status progress repeat score(format: POINT_10) }
         relations {
           edges {
-            relationType
+            relationType(version: 2)
             node {
               id
               title { english romaji native userPreferred }
-              coverImage { large medium color }
+              coverImage { extraLarge large medium color }
+              type
               averageScore
               episodes
               status

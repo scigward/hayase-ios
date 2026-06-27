@@ -384,28 +384,34 @@ extension AnimeDetailViewController {
     func fetchRelationsAndCharacters() {
         guard let anilistId = routeAnimeID else { return }
 
-        AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
-            guard let self = self, !rels.isEmpty else { return }
-            self.relations = rels
-            self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+        if relations.isEmpty && animeItem?.relations.isEmpty != false {
+            AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
+                guard let self, self.routeAnimeID == anilistId, !rels.isEmpty else { return }
+                self.relations = rels
+                self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            }
         }
 
-        if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {
-            AniListClient.shared.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
-                guard let self else { return }
-                let needsGenres = self.animeItem == nil || self.animeItem?.genres.isEmpty == true
-                if needsGenres {
-                    self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
-                } else if let trailerID {
-                    self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
-                }
-                self.animeItem?.trailerYouTubeID = trailerID
+        let needsTrailer = animeItem == nil || animeItem?.trailerYouTubeID == nil
+        let needsMAL = animeItem == nil || animeItem?.malId == nil
+        let needsGenres = animeItem == nil || animeItem?.genres.isEmpty == true
+        guard needsTrailer || needsMAL || needsGenres else { return }
 
-                if let malId, self.headerView?.malId == nil {
-                    self.headerView?.malId = malId
-                    self.animeItem?.malId = malId
-                    self.headerView?.updateMALButtonVisibility()
-                }
+        AniListClient.shared.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
+            guard let self, self.routeAnimeID == anilistId else { return }
+            if needsGenres {
+                self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
+            } else if let trailerID {
+                self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
+            }
+            if self.animeItem?.trailerYouTubeID == nil {
+                self.animeItem?.trailerYouTubeID = trailerID
+            }
+
+            if let malId, self.headerView?.malId == nil {
+                self.headerView?.malId = malId
+                self.animeItem?.malId = malId
+                self.headerView?.updateMALButtonVisibility()
             }
         }
     }

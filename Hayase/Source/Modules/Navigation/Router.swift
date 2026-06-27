@@ -26,6 +26,7 @@ final class Router {
     private let history: History
     private var observers: [UUID: Observer] = [:]
     private var animePayloads: [Int: AnimeItem] = [:]
+    private var fullAnimePayloadIDs: Set<Int> = []
     private var threadTitles: [Int: String] = [:]
     private var playerPayload: VideoPlayerViewController?
 
@@ -89,11 +90,32 @@ final class Router {
     }
 
     func cacheAnimeItem(_ item: AnimeItem) {
+        let isFullPayload = Self.isFullAnimePayload(item)
+        if let existing = animePayloads[item.id], Self.isFullAnimePayload(existing), !isFullPayload {
+            return
+        }
         animePayloads[item.id] = item
+        if isFullPayload {
+            fullAnimePayloadIDs.insert(item.id)
+        }
     }
 
     func cachedAnimeItem(for id: Int) -> AnimeItem? {
         animePayloads[id]
+    }
+
+    func cachedFullAnimeItem(for id: Int) -> AnimeItem? {
+        guard let item = animePayloads[id] else { return nil }
+        if fullAnimePayloadIDs.contains(id) || Self.isFullAnimePayload(item) {
+            return item
+        }
+        return nil
+    }
+
+    private static func isFullAnimePayload(_ item: AnimeItem) -> Bool {
+        item.isAdult != nil
+            || !item.tags.isEmpty
+            || !item.relations.isEmpty
     }
 
     func navigateToAnime(_ item: AnimeItem, hostTabIndex: Int? = nil) {

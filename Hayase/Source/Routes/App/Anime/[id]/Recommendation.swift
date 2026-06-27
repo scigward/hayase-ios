@@ -95,7 +95,7 @@ extension AnimeDetailViewController {
     func fetchAnimePageData() {
         guard let id = routeAnimeID, id > 0 else { return }
         AniListClient.shared.fetchAnimePage(id: id) { [weak self] payload in
-            guard let self else { return }
+            guard let self, self.routeAnimeID == id else { return }
 
             if let media = payload.media {
                 self.animeItem = media

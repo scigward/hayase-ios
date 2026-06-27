@@ -578,14 +578,15 @@ final class HayaseSidebarController: UIViewController {
             return
         }
 
-        if let item = router.cachedAnimeItem(for: id) {
+        if let item = router.cachedFullAnimeItem(for: id) {
             pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
             return
         }
 
+        let fallbackItem = router.cachedAnimeItem(for: id)
         AniListClient.shared.fetchResolverMediaById(id) { [weak self, weak nav] item in
             guard let self, let nav, self.isCurrentAnimeRoute(id) else { return }
-            guard let item else { return }
+            guard let item = item ?? fallbackItem else { return }
             self.router.cacheAnimeItem(item)
             self.pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
         }

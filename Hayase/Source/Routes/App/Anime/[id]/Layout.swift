@@ -1491,6 +1491,7 @@ class AnimeDetailViewController: UIViewController {
     func setupHeaderView() {
         headerView = AnimeInfoHeaderView()
         if let item = animeItem {
+            relations = item.relations
             headerView.configure(with: item)
             if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
                 tabBar.accentColor = accent

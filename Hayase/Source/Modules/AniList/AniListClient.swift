@@ -20,6 +20,14 @@ public final class AniListClient: NSObject {
     private var followingManyCache: [String: (viewerID: Int, usersByMediaID: [Int: [AniListUserSummary]])] = [:]
     private var followingManyCompletions: [String: [([Int: [AniListUserSummary]]) -> Void]] = [:]
 
+    private let fullMediaQueue = DispatchQueue(label: "com.hayase.anilist.fullMedia")
+    private var fullMediaCache: [Int: AnimeItem] = [:]
+    private var fullMediaCompletions: [Int: [(AnimeItem?) -> Void]] = [:]
+
+    private let animePageQueue = DispatchQueue(label: "com.hayase.anilist.animePage")
+    private var animePageCache: [Int: AnimePagePayload] = [:]
+    private var animePageCompletions: [Int: [(AnimePagePayload) -> Void]] = [:]
+
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
     static let LocalAnimeWillUpdateNotification = "LocalAnimeWillUpdateNotification"
@@ -532,21 +540,75 @@ public final class AniListClient: NSObject {
     }
 
     func fetchResolverMediaById(_ id: Int, completion: @escaping (AnimeItem?) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion(nil); return }
-        var request = authorizedRequest(url: url)
-        let body: [String: Any] = ["query": AniListQueries.resolverMediaById, "variables": ["id": id]]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        var cached: AnimeItem?
+        var shouldStartRequest = false
+        fullMediaQueue.sync {
+            cached = fullMediaCache[id]
+            if cached == nil {
+                if fullMediaCompletions[id] != nil {
+                    fullMediaCompletions[id]?.append(completion)
+                } else {
+                    fullMediaCompletions[id] = [completion]
+                    shouldStartRequest = true
+                }
+            }
+        }
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data,
-                  let response = try? JSONDecoder().decode(AniListResolverMediaResponse.self, from: data),
-                  let media = response.data?.Media,
-                  let item = AniListUtil.animeItem(from: media) else {
-                DispatchQueue.main.async { completion(nil) }
+        if let cached {
+            DispatchQueue.main.async { completion(cached) }
+            return
+        }
+        if shouldStartRequest {
+            fetchResolverMediaByIdFromNetwork(id)
+        }
+    }
+
+    private func fetchResolverMediaByIdFromNetwork(_ id: Int) {
+        guard let url = URL(string: graphQLEndpoint) else {
+            finishFullMediaFetch(id: id, item: nil)
+            return
+        }
+
+        var request = authorizedRequest(url: url)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "query": AniListQueries.resolverMediaById,
+            "variables": ["id": id]
+        ])
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            guard let self else { return }
+            if let error {
+                NSLog("[AniListClient] ResolverMedia network error: %@", error.localizedDescription)
+            }
+
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let media = (json["data"] as? [String: Any])?["Media"] as? [String: Any] else {
+                self.finishFullMediaFetch(id: id, item: nil)
                 return
             }
-            DispatchQueue.main.async { completion(item) }
+
+            self.logGraphQLErrors(json["errors"], context: "ResolverMedia")
+            guard var item = self.parseAnimeItem(from: media) else {
+                self.finishFullMediaFetch(id: id, item: nil)
+                return
+            }
+            item.relations = self.parseRelations(from: media)
+            self.finishFullMediaFetch(id: id, item: item)
         }.resume()
+    }
+
+    private func finishFullMediaFetch(id: Int, item: AnimeItem?) {
+        fullMediaQueue.async { [weak self] in
+            guard let self else { return }
+            if let item {
+                self.fullMediaCache[id] = item
+            }
+            let callbacks = self.fullMediaCompletions.removeValue(forKey: id) ?? []
+            DispatchQueue.main.async {
+                callbacks.forEach { $0(item) }
+            }
+        }
     }
 
     private func bestResolverSearchMedia(in mediaList: [[String: Any]], title: String) -> [String: Any]? {
@@ -692,8 +754,33 @@ public final class AniListClient: NSObject {
     // MARK: - Anime page (anime/[id])
 
     func fetchAnimePage(id: Int, completion: @escaping (AnimePagePayload) -> Void) {
+        var cached: AnimePagePayload?
+        var shouldStartRequest = false
+
+        animePageQueue.sync {
+            cached = animePageCache[id]
+            if cached == nil {
+                if animePageCompletions[id] != nil {
+                    animePageCompletions[id]?.append(completion)
+                } else {
+                    animePageCompletions[id] = [completion]
+                    shouldStartRequest = true
+                }
+            }
+        }
+
+        if let cached {
+            deliverAnimePagePayload(cached, id: id, completion: completion)
+            return
+        }
+        if shouldStartRequest {
+            fetchAnimePageFromNetwork(id)
+        }
+    }
+
+    private func fetchAnimePageFromNetwork(_ id: Int) {
         guard let url = URL(string: graphQLEndpoint) else {
-            completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
+            finishAnimePageFetch(id: id, payload: emptyAnimePagePayload())
             return
         }
 
@@ -710,39 +797,52 @@ public final class AniListClient: NSObject {
             }
 
             guard let data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                DispatchQueue.main.async {
-                    completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
-                }
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObject = json["data"] as? [String: Any] else {
+                self.finishAnimePageFetch(id: id, payload: self.emptyAnimePagePayload())
                 return
             }
 
             self.logGraphQLErrors(json["errors"], context: "AnimePage")
-
-            guard let dataObject = json["data"] as? [String: Any] else {
-                DispatchQueue.main.async {
-                    completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
-                }
-                return
-            }
-
             let publicPayload = self.parseAnimePagePayload(from: dataObject, followingEntries: [])
-            guard self.canFetchFollowingList else {
-                DispatchQueue.main.async { completion(publicPayload) }
-                return
-            }
-
-            self.fetchAnimePageFollowing(id: id) { entries in
-                DispatchQueue.main.async {
-                    completion(AnimePagePayload(
-                        media: publicPayload.media,
-                        recommendations: publicPayload.recommendations,
-                        threads: publicPayload.threads,
-                        threadTotal: publicPayload.threadTotal,
-                        followingEntries: entries))
-                }
-            }
+            self.finishAnimePageFetch(id: id, payload: publicPayload)
         }.resume()
+    }
+
+    private func finishAnimePageFetch(id: Int, payload: AnimePagePayload) {
+        animePageQueue.async { [weak self] in
+            guard let self else { return }
+            if payload.media != nil {
+                self.animePageCache[id] = payload
+            }
+            let callbacks = self.animePageCompletions.removeValue(forKey: id) ?? []
+            callbacks.forEach { callback in
+                self.deliverAnimePagePayload(payload, id: id, completion: callback)
+            }
+        }
+    }
+
+    private func deliverAnimePagePayload(_ publicPayload: AnimePagePayload,
+                                         id: Int,
+                                         completion: @escaping (AnimePagePayload) -> Void) {
+        guard canFetchFollowingList else {
+            DispatchQueue.main.async { completion(publicPayload) }
+            return
+        }
+
+        fetchAnimePageFollowing(id: id) { entries in
+            let payload = AnimePagePayload(
+                media: publicPayload.media,
+                recommendations: publicPayload.recommendations,
+                threads: publicPayload.threads,
+                threadTotal: publicPayload.threadTotal,
+                followingEntries: entries)
+            DispatchQueue.main.async { completion(payload) }
+        }
+    }
+
+    private func emptyAnimePagePayload() -> AnimePagePayload {
+        AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: [])
     }
 
     private var canFetchFollowingList: Bool {
@@ -791,7 +891,7 @@ public final class AniListClient: NSObject {
 
         let threadPage = dataObject["threads"] as? [String: Any]
         let threads = (threadPage?["threads"] as? [[String: Any]] ?? []).compactMap { AniListThread(dict: $0) }
-        let total = ((threadPage?["pageInfo"] as? [String: Any])?["total"] as? Int) ?? threads.count
+        let total = intValue((threadPage?["pageInfo"] as? [String: Any])?["total"]) ?? threads.count
 
         return AnimePagePayload(
             media: mediaItem,
