@@ -64,7 +64,9 @@ enum AniListUtil {
         let alternate = normalizedRomaji == normalizedPrimary
             ? (item.titleNative ?? item.titleRomaji)
             : (item.titleRomaji ?? item.titleNative)
-        guard let alternate, !alternate.isEmpty, alternate != primary else { return nil }
+        guard let alternate = alternate?.trimmingCharacters(in: .whitespacesAndNewlines), !alternate.isEmpty else {
+            return nil
+        }
         return alternate
     }
 
@@ -156,7 +158,9 @@ enum AniListUtil {
             trailerYouTubeID: trailerID,
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
-            malId: media.idMal)
+            malId: media.idMal,
+            tags: tags(from: media.tags),
+            isAdult: media.isAdult)
 
         item.relations = (media.relations?.edges ?? []).compactMap { edge in
             guard let type = edge.relationType,
@@ -166,7 +170,9 @@ enum AniListUtil {
                 id: nodeID,
                 titleEnglish: node.title?.english,
                 titleRomaji: node.title?.romaji,
-                coverURL: node.coverImage?.large ?? node.coverImage?.medium,
+                titleNative: node.title?.native,
+                titleUserPreferred: node.title?.userPreferred,
+                coverURL: node.coverImage?.extraLarge ?? node.coverImage?.large ?? node.coverImage?.medium,
                 score: node.averageScore,
                 status: node.status,
                 episodes: node.episodes,

@@ -73,6 +73,7 @@ class SearchViewController: UIViewController {
     private var traceIds: [Int]?
     /// True while the trace.moe network request is in-flight.
     private var isTracing = false
+    private var lastFilterLayoutSignature = ""
 
     // MARK: - Views
     private var headerView: UIView!
@@ -564,17 +565,7 @@ class SearchViewController: UIViewController {
             layout.invalidateLayout()
         }
 
-        let signature = [
-            regular ? "regular" : "compact",
-            visible ? "visible" : "hidden",
-            visibleHeaderItems.map { item in
-                switch item {
-                case .title: return "title"
-                case .actions: return "actions"
-                case .filter(let type): return "filter:\(type.rawValue)"
-                }
-            }.joined(separator: ",")
-        ].joined(separator: "|")
+        let signature = filterLayoutSignature(isRegular: regular, isVisible: visible)
         let shouldReloadFilters = signature != lastFilterLayoutSignature
         lastFilterLayoutSignature = signature
 
@@ -602,6 +593,17 @@ class SearchViewController: UIViewController {
         } else {
             updates()
         }
+    }
+
+    private func filterLayoutSignature(isRegular: Bool, isVisible: Bool) -> String {
+        let itemSignature = visibleHeaderItems.map { item -> String in
+            switch item {
+            case .title: return "title"
+            case .actions: return "actions"
+            case .filter(let type): return "filter-\(type.rawValue)"
+            }
+        }.joined(separator: ",")
+        return "regular=\(isRegular);visible=\(isVisible);items=\(itemSignature)"
     }
 
     private func filterItemSize(for indexPath: IndexPath, in collectionView: UICollectionView) -> CGSize {
@@ -730,6 +732,7 @@ class SearchViewController: UIViewController {
     }
 
     private func refreshFilterPickers() {
+        lastFilterLayoutSignature = ""
         filterCollectionView?.reloadData()
         updateResponsiveHeaderLayout(animated: false)
     }

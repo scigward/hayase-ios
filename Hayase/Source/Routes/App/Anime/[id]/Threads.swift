@@ -347,7 +347,7 @@ final class ThreadPairCell: UITableViewCell {
 extension AnimeDetailViewController {
 
     func fetchThreads() {
-        guard let id = animeItem?.id else { return }
+        guard let id = routeAnimeID else { return }
         threadsLoading = true
         tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
 

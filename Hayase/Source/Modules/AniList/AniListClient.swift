@@ -629,12 +629,14 @@ public final class AniListClient: NSObject {
             let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge -> AnimeRelation? in
                 guard let type = edge.relationType, let node = edge.node, let nid = node.id else { return nil }
                 let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
-                if skip.contains(type) { return nil }
+                if skip.contains(type) || (node.type ?? "ANIME") != "ANIME" { return nil }
                 let relItem = AnimeItem(
                     id: nid,
                     titleEnglish: node.title?.english,
                     titleRomaji: node.title?.romaji,
-                    coverURL: node.coverImage?.large,
+                    titleNative: node.title?.native,
+                    titleUserPreferred: node.title?.userPreferred,
+                    coverURL: node.coverImage?.extraLarge ?? node.coverImage?.large ?? node.coverImage?.medium,
                     score: node.averageScore,
                     status: node.status,
                     episodes: node.episodes,
@@ -695,11 +697,9 @@ public final class AniListClient: NSObject {
             return
         }
 
-        let canFetchFollowing = TrackerAccountManager.shared.isLoggedIn(.anilist)
-            && TrackerAccountManager.shared.token(for: .anilist) != nil
         var request = authorizedRequest(url: url)
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": canFetchFollowing ? AniListQueries.animePageWithFollowing : AniListQueries.animePage,
+            "query": AniListQueries.animePage,
             "variables": ["id": id]
         ])
 
@@ -708,46 +708,104 @@ public final class AniListClient: NSObject {
             if let error {
                 NSLog("[AniListClient] AnimePage network error: %@", error.localizedDescription)
             }
+
             guard let data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObject = json["data"] as? [String: Any] else {
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async {
                     completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
                 }
                 return
             }
-            if let errors = json["errors"] as? [[String: Any]] {
-                let messages = errors.compactMap { $0["message"] as? String }
-                if !messages.isEmpty {
-                    NSLog("[AniListClient] AnimePage GraphQL errors: %@", messages.joined(separator: ", "))
+
+            self.logGraphQLErrors(json["errors"], context: "AnimePage")
+
+            guard let dataObject = json["data"] as? [String: Any] else {
+                DispatchQueue.main.async {
+                    completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
+                }
+                return
+            }
+
+            let publicPayload = self.parseAnimePagePayload(from: dataObject, followingEntries: [])
+            guard self.canFetchFollowingList else {
+                DispatchQueue.main.async { completion(publicPayload) }
+                return
+            }
+
+            self.fetchAnimePageFollowing(id: id) { entries in
+                DispatchQueue.main.async {
+                    completion(AnimePagePayload(
+                        media: publicPayload.media,
+                        recommendations: publicPayload.recommendations,
+                        threads: publicPayload.threads,
+                        threadTotal: publicPayload.threadTotal,
+                        followingEntries: entries))
                 }
             }
-
-            let mediaObject = dataObject["Media"] as? [String: Any]
-            var mediaItem = mediaObject
-                .flatMap { self.decodeAniListMedia(from: $0) }
-                .flatMap { AniListUtil.animeItem(from: $0) }
-
-            let recommendations = self.parseRecommendations(from: mediaObject)
-            let followingEntries = self.parseFollowingEntries(from: dataObject["following"] as? [String: Any])
-            let threadPage = dataObject["threads"] as? [String: Any]
-            let threads = (threadPage?["threads"] as? [[String: Any]] ?? []).compactMap { AniListThread(dict: $0) }
-            let total = ((threadPage?["pageInfo"] as? [String: Any])?["total"] as? Int) ?? threads.count
-
-            if var item = mediaItem {
-                item.relations = self.parseRelations(from: mediaObject)
-                mediaItem = item
-            }
-
-            DispatchQueue.main.async {
-                completion(AnimePagePayload(
-                    media: mediaItem,
-                    recommendations: recommendations,
-                    threads: threads,
-                    threadTotal: total,
-                    followingEntries: followingEntries))
-            }
         }.resume()
+    }
+
+    private var canFetchFollowingList: Bool {
+        TrackerAccountManager.shared.isLoggedIn(.anilist)
+            && TrackerAccountManager.shared.token(for: .anilist) != nil
+            && TrackerAccountManager.shared.viewer(for: .anilist)?.id != nil
+    }
+
+    private func fetchAnimePageFollowing(id: Int, completion: @escaping ([AniListFollowingEntry]) -> Void) {
+        guard let url = URL(string: graphQLEndpoint), canFetchFollowingList else {
+            completion([])
+            return
+        }
+
+        var request = authorizedRequest(url: url)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "query": AniListQueries.animePageFollowing,
+            "variables": ["id": id]
+        ])
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            guard let self else { return }
+            if let error {
+                NSLog("[AniListClient] AnimePageFollowing network error: %@", error.localizedDescription)
+            }
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                completion([])
+                return
+            }
+
+            self.logGraphQLErrors(json["errors"], context: "AnimePageFollowing")
+            let page = (json["data"] as? [String: Any])?["following"] as? [String: Any]
+            completion(self.parseFollowingEntries(from: page))
+        }.resume()
+    }
+
+    private func parseAnimePagePayload(from dataObject: [String: Any], followingEntries: [AniListFollowingEntry]) -> AnimePagePayload {
+        let mediaObject = dataObject["Media"] as? [String: Any]
+        var mediaItem = mediaObject.flatMap { parseAnimeItem(from: $0) }
+
+        if var item = mediaItem {
+            item.relations = parseRelations(from: mediaObject)
+            mediaItem = item
+        }
+
+        let threadPage = dataObject["threads"] as? [String: Any]
+        let threads = (threadPage?["threads"] as? [[String: Any]] ?? []).compactMap { AniListThread(dict: $0) }
+        let total = ((threadPage?["pageInfo"] as? [String: Any])?["total"] as? Int) ?? threads.count
+
+        return AnimePagePayload(
+            media: mediaItem,
+            recommendations: parseRecommendations(from: mediaObject),
+            threads: threads,
+            threadTotal: total,
+            followingEntries: followingEntries)
+    }
+
+    private func logGraphQLErrors(_ rawErrors: Any?, context: String) {
+        guard let errors = rawErrors as? [[String: Any]] else { return }
+        let messages = errors.compactMap { $0["message"] as? String }
+        guard !messages.isEmpty else { return }
+        NSLog("[AniListClient] %@ GraphQL errors: %@", context, messages.joined(separator: ", "))
     }
 
     private func decodeAniListMedia(from object: [String: Any]) -> AniListMedia? {
@@ -756,14 +814,94 @@ public final class AniListClient: NSObject {
         return try? JSONDecoder().decode(AniListMedia.self, from: data)
     }
 
+    private func parseAnimeItem(from object: [String: Any]) -> AnimeItem? {
+        guard let id = intValue(object["id"]) else { return nil }
+
+        let title = object["title"] as? [String: Any]
+        let cover = object["coverImage"] as? [String: Any]
+        let startDate = object["startDate"] as? [String: Any]
+        let trailer = object["trailer"] as? [String: Any]
+        let trailerID = (trailer?["site"] as? String)?.lowercased() == "youtube"
+            ? trailer?["id"] as? String
+            : nil
+
+        var item = AnimeItem(
+            id: id,
+            titleEnglish: title?["english"] as? String,
+            titleRomaji: title?["romaji"] as? String,
+            titleNative: title?["native"] as? String,
+            titleUserPreferred: title?["userPreferred"] as? String,
+            coverURL: cover?["extraLarge"] as? String ?? cover?["large"] as? String ?? cover?["medium"] as? String,
+            score: floatValue(object["averageScore"]),
+            status: object["status"] as? String,
+            episodes: intValue(object["episodes"]),
+            bannerURL: object["bannerImage"] as? String,
+            genres: object["genres"] as? [String] ?? [],
+            description: (object["description"] as? String).map { AniListUtil.stripHTML($0) },
+            synonyms: object["synonyms"] as? [String] ?? [],
+            year: intValue(object["seasonYear"]),
+            startYear: intValue(startDate?["year"]),
+            season: object["season"] as? String,
+            format: object["format"] as? String,
+            duration: intValue(object["duration"]),
+            trailerYouTubeID: trailerID,
+            favourites: intValue(object["favourites"]),
+            coverColor: cover?["color"] as? String,
+            malId: intValue(object["idMal"]),
+            tags: parseTags(from: object["tags"] as? [[String: Any]]),
+            isAdult: object["isAdult"] as? Bool)
+
+        if let entry = object["mediaListEntry"] as? [String: Any],
+           let status = entry["status"] as? String {
+            item.mediaListEntry = AnimeItem.MediaListEntry(
+                listID: intValue(entry["id"]) ?? 0,
+                status: status,
+                progress: intValue(entry["progress"]) ?? 0,
+                score: intValue(entry["score"]) ?? 0,
+                repeatCount: intValue(entry["repeat"]) ?? 0,
+                customLists: [])
+        }
+
+        return item
+    }
+
+    private func parseTags(from rawTags: [[String: Any]]?) -> [AnimeTag] {
+        (rawTags ?? []).compactMap { tag in
+            guard let id = intValue(tag["id"]),
+                  let name = tag["name"] as? String,
+                  !name.isEmpty else { return nil }
+            return AnimeTag(
+                id: id,
+                name: name,
+                isMediaSpoiler: tag["isMediaSpoiler"] as? Bool ?? false,
+                isGeneralSpoiler: tag["isGeneralSpoiler"] as? Bool ?? false,
+                rank: intValue(tag["rank"]) ?? 0,
+                isAdult: tag["isAdult"] as? Bool ?? false)
+        }
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private func floatValue(_ value: Any?) -> Float? {
+        if let value = value as? Float { return value }
+        if let value = value as? Double { return Float(value) }
+        if let value = value as? NSNumber { return value.floatValue }
+        if let value = value as? String { return Float(value) }
+        return nil
+    }
+
     private func parseRecommendations(from mediaObject: [String: Any]?) -> [AnimeItem] {
         guard let nodes = (mediaObject?["recommendations"] as? [String: Any])?["nodes"] as? [[String: Any]] else {
             return []
         }
         return nodes.compactMap { node in
-            guard let media = node["mediaRecommendation"] as? [String: Any],
-                  let decoded = decodeAniListMedia(from: media) else { return nil }
-            return AniListUtil.animeItem(from: decoded)
+            guard let media = node["mediaRecommendation"] as? [String: Any] else { return nil }
+            return parseAnimeItem(from: media)
         }
     }
 
@@ -789,8 +927,8 @@ public final class AniListClient: NSObject {
         return edges.compactMap { edge in
             guard let type = edge["relationType"] as? String,
                   let node = edge["node"] as? [String: Any],
-                  let decoded = decodeAniListMedia(from: node),
-                  let item = AniListUtil.animeItem(from: decoded) else { return nil }
+                  (node["type"] as? String ?? "ANIME") == "ANIME",
+                  let item = parseAnimeItem(from: node) else { return nil }
             let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
             guard !skip.contains(type) else { return nil }
             return AnimeRelation(relationType: type, media: item)

@@ -144,7 +144,9 @@ struct AniListThread {
         self.replyCount = dict["replyCount"] as? Int ?? 0
         self.likeCount = dict["likeCount"] as? Int ?? 0
         self.isLocked = dict["isLocked"] as? Bool ?? false
-        self.createdAt = dict["createdAt"] as? TimeInterval ?? 0
+        let repliedAt = (dict["repliedAt"] as? NSNumber)?.doubleValue ?? dict["repliedAt"] as? TimeInterval
+        let createdAt = (dict["createdAt"] as? NSNumber)?.doubleValue ?? dict["createdAt"] as? TimeInterval
+        self.createdAt = repliedAt ?? createdAt ?? 0
         let user = dict["user"] as? [String: Any]
         self.userName = user?["name"] as? String
         let avatar = user?["avatar"] as? [String: Any]
@@ -264,14 +266,15 @@ struct AniListDetailResponse: Codable {
         let id: Int?
         let title: RelTitle?
         let coverImage: RelCover?
+        let type: String?
         let averageScore: Float?
         let episodes: Int?
         let status: String?
         let seasonYear: Int?
         let season: String?
         let format: String?
-        struct RelTitle: Codable { let english: String?; let romaji: String? }
-        struct RelCover: Codable { let large: String?; let color: String? }
+        struct RelTitle: Codable { let userPreferred: String?; let romaji: String?; let english: String?; let native: String? }
+        struct RelCover: Codable { let extraLarge: String?; let large: String?; let medium: String?; let color: String? }
     }
 }
 
@@ -297,6 +300,8 @@ struct AniListResolverMediaResponse: Codable {
         let format: String?
         let synonyms: [String]?
         let startDate: AniListMedia.StartDate?
+        let tags: [AniListMedia.MediaTag]?
+        let isAdult: Bool?
         let relations: ResolverRelationConnection?
     }
     struct ResolverRelationConnection: Codable { let edges: [ResolverRelationEdge]? }

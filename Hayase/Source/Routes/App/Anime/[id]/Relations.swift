@@ -382,10 +382,7 @@ extension AnimeDetailViewController {
     }
 
     func fetchRelationsAndCharacters() {
-        let id: Int?
-        if let entity = animeEntity { id = entity.animeAnilistId?.intValue }
-        else { id = animeItem?.id }
-        guard let anilistId = id else { return }
+        guard let anilistId = routeAnimeID else { return }
 
         AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
             guard let self = self, !rels.isEmpty else { return }

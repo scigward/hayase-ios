@@ -262,11 +262,12 @@ enum AniListQueries {
       Media(id: $id, type: ANIME) {
         relations {
           edges {
-            relationType
+            relationType(version: 2)
             node {
               id
-              title { english romaji }
-              coverImage { large color }
+              title { userPreferred romaji english native }
+              coverImage { extraLarge large medium color }
+              type
               averageScore
               episodes
               status
@@ -302,6 +303,7 @@ enum AniListQueries {
         description(asHtml: false)
         synonyms
         tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
+        isAdult
         relations {
           edges {
             relationType
@@ -443,85 +445,8 @@ enum AniListQueries {
     }
     """
 
-    static let animePageWithFollowing = """
-    query AnimePage($id: Int!) {
-      Media(id: $id, type: ANIME) {
-        id
-        idMal
-        title { romaji english native userPreferred }
-        description(asHtml: false)
-        season
-        seasonYear
-        format
-        status
-        episodes
-        duration
-        averageScore
-        genres
-        isFavourite
-        coverImage { extraLarge medium color }
-        source
-        countryOfOrigin
-        isAdult
-        bannerImage
-        synonyms
-        nextAiringEpisode { id timeUntilAiring episode }
-        startDate { year month day }
-        trailer { id site }
-        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-        mediaListEntry { id status progress repeat score(format: POINT_10) }
-        relations {
-          edges {
-            relationType(version: 2)
-            node {
-              id
-              title { userPreferred romaji english native }
-              coverImage { extraLarge medium color }
-              type
-              status
-              format
-              episodes
-              synonyms
-              season
-              seasonYear
-              startDate { year month day }
-              relations {
-                edges {
-                  relationType(version: 2)
-                  node {
-                    id
-                    title { userPreferred }
-                    type
-                    status
-                    format
-                    episodes
-                  }
-                }
-              }
-            }
-          }
-        }
-        recommendations(sort: [RATING_DESC, ID], perPage: 24) {
-          nodes {
-            id
-            rating
-            mediaRecommendation {
-              id
-              title { userPreferred romaji english native }
-              coverImage { extraLarge medium color }
-              type
-              status
-              format
-              episodes
-              synonyms
-              season
-              seasonYear
-              startDate { year month day }
-              mediaListEntry { id status progress repeat score(format: POINT_10) }
-            }
-          }
-        }
-      }
+    static let animePageFollowing = """
+    query AnimePageFollowing($id: Int!) {
       following: Page {
         mediaList(mediaId: $id, isFollowing: true, sort: UPDATED_TIME_DESC) {
           id
@@ -529,21 +454,6 @@ enum AniListQueries {
           score
           progress
           user { id name avatar { large } }
-        }
-      }
-      threads: Page(perPage: 16) {
-        pageInfo { hasNextPage total }
-        threads(mediaCategoryId: $id, sort: ID_DESC) {
-          id
-          title
-          viewCount
-          replyCount
-          likeCount
-          isLocked
-          repliedAt
-          createdAt
-          user { id name avatar { large } }
-          categories { id name }
         }
       }
     }
@@ -558,7 +468,7 @@ enum AniListQueries {
     // MARK: - Forum threads
 
     static let threads = """
-    query($id:Int){Page(perPage:16){threads(mediaCategoryId:$id,sort:ID_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
+    query($id:Int){Page(perPage:16){pageInfo{hasNextPage total} threads(mediaCategoryId:$id,sort:ID_DESC){id title viewCount replyCount likeCount isLocked repliedAt createdAt user{id name avatar{large}} categories{id name}}}}
     """
 
     // MARK: - Airing schedule
