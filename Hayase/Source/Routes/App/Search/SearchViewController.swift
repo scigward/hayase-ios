@@ -42,8 +42,6 @@ class SearchViewController: UIViewController {
     private static let bgBackground = UIColor.HayaseTheme.background
     private static let mutedFg      = UIColor.HayaseTheme.mutedForeground
     private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
-    private static let chipBg       = UIColor(red: 0.98,  green: 0.98,  blue: 0.98,  alpha: 1)
-    private static let chipFg       = UIColor(red: 24.0/255.0, green: 24.0/255.0, blue: 27.0/255.0, alpha: 1)  // primary-foreground: hsl(240 5.9% 10%) = #18181b
 
     // MARK: - Filter state
     // Hayase: genres/tags, formats and status multi-select; year/season/sort/onList single-select.
@@ -87,7 +85,7 @@ class SearchViewController: UIViewController {
     private var searchField:   Input!
     private var rightButtons:  UIStackView!  // horizontal: camera + bolt
     private var cameraButton:  UIButton!
-    private var boltButton:    UIButton!
+    private var boltButton:    Toggle!
 
     // Filter row: compact = horizontal/toggled; regular = wrapped/always visible.
     private var filterRowVisible = false
@@ -98,6 +96,8 @@ class SearchViewController: UIViewController {
     // Active chips (wrapping frame layout, min-h-9)
     private var chipsContainer:     UIView!
     private var chipsHeightConstraint: NSLayoutConstraint!
+    private var chipsLeadingConstraint: NSLayoutConstraint!
+    private var chipsTrailingConstraint: NSLayoutConstraint!
     private var lastChipLayoutWidth: CGFloat = 0
 
     private var collectionView:    UICollectionView!
@@ -330,8 +330,7 @@ class SearchViewController: UIViewController {
         cameraButton.addTarget(self, action: #selector(cameraTapped), for: .touchUpInside)
 
         // Bolt toggle — md:hidden in interface (only on compact screens).
-        boltButton = Button(iconName: "bolt", pointSize: 18)
-        boltButton.tintColor = Self.mutedFg
+        boltButton = Toggle(iconName: "bolt", pointSize: 18)
         boltButton.addTarget(self, action: #selector(boltTapped), for: .touchUpInside)
 
         // Right buttons: gap-4, items-end
@@ -400,10 +399,12 @@ class SearchViewController: UIViewController {
         headerView.addSubview(chipsContainer)
         chipsHeightConstraint = chipsContainer.heightAnchor.constraint(equalToConstant: 36)
         chipsHeightConstraint.isActive = true
+        chipsLeadingConstraint = chipsContainer.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12)
+        chipsTrailingConstraint = chipsContainer.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12)
         NSLayoutConstraint.activate([
             chipsContainer.topAnchor.constraint(equalTo: filterCollectionView.bottomAnchor, constant: 8),
-            chipsContainer.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 4),
-            chipsContainer.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -4),
+            chipsLeadingConstraint,
+            chipsTrailingConstraint,
             chipsContainer.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -4),
         ])
     }
@@ -444,6 +445,8 @@ class SearchViewController: UIViewController {
         debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in
             guard let self = self, query != self.currentTitle else { return }
             self.currentTitle = query
+            self.rebuildActiveChipEntries()
+            self.rebuildActiveChips()
             self.fetchResults(reset: true)
         }
     }
@@ -511,6 +514,9 @@ class SearchViewController: UIViewController {
         titleRowStack.layoutMargins = regular
             ? UIEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)
             : UIEdgeInsets(top: 20, left: 8, bottom: 8, right: 8)
+        let chipInset = (regular ? Self.regularHorizontalInset : 8) + 4
+        chipsLeadingConstraint.constant = chipInset
+        chipsTrailingConstraint.constant = -chipInset
 
         if let layout = filterCollectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             layout.scrollDirection = regular ? .vertical : .horizontal
@@ -605,6 +611,7 @@ class SearchViewController: UIViewController {
             guard let selectedOnList else { return [] }
             return [selectedOnList ? "true" : "false"]
         case .trace: return traceIds == nil ? [] : ["trace"]
+        case .title: return currentTitle.isEmpty ? [] : [currentTitle]
         }
     }
 
@@ -628,6 +635,9 @@ class SearchViewController: UIViewController {
             selectedOnList = ordered.first.map { $0 == "true" }
         case .trace:
             if ordered.isEmpty { clearTrace(); return }
+        case .title:
+            currentTitle = ordered.first ?? ""
+            searchField.text = currentTitle
         }
         rebuildActiveChipEntries()
         refreshFilterPickers()
@@ -654,11 +664,7 @@ class SearchViewController: UIViewController {
     }
 
     private func updateBoltTint() {
-        let hasFilter = !selectedGenres.isEmpty || !selectedTags.isEmpty
-            || selectedYear != nil || selectedSeason != nil
-            || !selectedFormats.isEmpty || !selectedStatuses.isEmpty
-            || selectedSort != nil || selectedOnList != nil || traceIds != nil
-        boltButton.tintColor = (filterRowVisible || hasFilter) ? Self.activeBlue : Self.mutedFg
+        boltButton.pressed = filterRowVisible
     }
 
     private func selectedTitle(for type: SearchFilterType) -> String {
@@ -679,6 +685,9 @@ class SearchViewController: UIViewController {
 
     private func rebuildActiveChipEntries() {
         var entries: [(label: String, type: SearchFilterType, apiValue: String)] = []
+        if !currentTitle.isEmpty {
+            entries.append((currentTitle, .title, currentTitle))
+        }
         for value in selectedGenres {
             entries.append((SearchValues.label(for: value, in: .genres), .genres, value))
         }
@@ -724,16 +733,20 @@ class SearchViewController: UIViewController {
         }
 
         let chips = activeChipEntries.map { makeActiveChip(label: $0.label, type: $0.type, apiValue: $0.apiValue) }
-        let measuredWidth = chipsContainer.bounds.width > 0 ? chipsContainer.bounds.width : UIScreen.main.bounds.width - 8
-        let availableW = max(measuredWidth, 100)
-        let hSpacing: CGFloat = 12; let vSpacing: CGFloat = 8
-        var x: CGFloat = 0; var y: CGFloat = 4; var rowH: CGFloat = 0
+        let measuredWidth = chipsContainer.bounds.width > 0 ? chipsContainer.bounds.width : UIScreen.main.bounds.width - 24
+        let availableW = max(measuredWidth - 6, 100)
+        let hSpacing: CGFloat = 12
+        let vSpacing: CGFloat = 8
+        let rowStartX: CGFloat = 6
+        var x = rowStartX
+        var y: CGFloat = 4
+        var rowH: CGFloat = 0
 
         for chip in chips {
             chip.setNeedsLayout(); chip.layoutIfNeeded()
             let sz = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
             let cw = ceil(sz.width); let ch = ceil(sz.height)
-            if x + cw > availableW && x > 0 { y += rowH + vSpacing; x = 0; rowH = 0 }
+            if x + cw > availableW && x > rowStartX { y += rowH + vSpacing; x = rowStartX; rowH = 0 }
             chip.frame = CGRect(x: x, y: y, width: cw, height: ch)
             chip.translatesAutoresizingMaskIntoConstraints = true
             chipsContainer.addSubview(chip)
@@ -748,43 +761,25 @@ class SearchViewController: UIViewController {
     }
 
     private func makeActiveChip(label: String, type: SearchFilterType, apiValue: String) -> UIView {
-        let container = UIView()
-        container.backgroundColor = Self.chipBg
-        container.layer.cornerRadius = 6; container.layer.masksToBounds = true  // rounded-md = 0.375rem ≈ 6pt
-
-        let titleLabel = UILabel()
-        titleLabel.text = label
-        titleLabel.font = .nunito(ofSize: 12, weight: .semibold)  // text-xs font-semibold
-        titleLabel.textColor = Self.chipFg
-
-        let xButton = UIButton(type: .system)
-        xButton.setImage(
-            UIImage.hayaseIcon("x")?
-                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)),
-            for: .normal)
-        xButton.tintColor = Self.chipFg.withAlphaComponent(0.7)
-        xButton.accessibilityIdentifier = "\(type.rawValue):\(apiValue)"
-        xButton.addTarget(self, action: #selector(removeChipTapped(_:)), for: .touchUpInside)
-
-        let stack = UIStackView(arrangedSubviews: [titleLabel, xButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .horizontal; stack.spacing = 4; stack.alignment = .center
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
-        ])
-        return container
+        let chip = Badge()
+        chip.text = label
+        chip.accessibilityLabel = label
+        chip.accessibilityIdentifier = "\(type.rawValue):\(apiValue)"
+        chip.addTarget(self, action: #selector(removeChipTapped(_:)), for: .touchUpInside)
+        return chip
     }
 
-    @objc private func removeChipTapped(_ sender: UIButton) {
+    @objc private func removeChipTapped(_ sender: UIControl) {
         guard let id = sender.accessibilityIdentifier, let colon = id.range(of: ":") else { return }
         let typeRaw  = Int(id[id.startIndex..<colon.lowerBound]) ?? -1
         let apiValue = String(id[colon.upperBound...])
         guard let type = SearchFilterType(rawValue: typeRaw) else { return }
         switch type {
+        case .title:
+            currentTitle = ""
+            searchField.text = ""
+            debounceTimer?.invalidate()
+            filterCollectionView?.reloadData()
         case .genres:
             selectedGenres.removeAll { $0 == apiValue }
             selectedTags.removeAll { $0 == apiValue }
@@ -1130,7 +1125,7 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
         Hover.shared.scrollDidOccur()
         let offsetY = scrollView.contentOffset.y
         let total = scrollView.contentSize.height; let frame = scrollView.frame.height
-        guard total > frame, offsetY > total - frame - 400 else { return }
+        guard total > frame, offsetY > total - frame - 800 else { return }
         fetchResults(reset: false)
     }
 

@@ -178,7 +178,14 @@ class CommandPopoverViewController: UIViewController {
     }
 
     @objc private func dismissSelf() {
-        dismiss(animated: true)
+        closeAndRestoreFocus()
+    }
+
+    private func closeAndRestoreFocus() {
+        let sourceView = sourceView
+        dismiss(animated: true) {
+            sourceView?.becomeFirstResponder()
+        }
     }
 }
 
@@ -244,7 +251,7 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
         } else {
             selectedValues = selectedValues.contains(option.value) ? [] : [option.value]
             onSelectionChanged?(selectedValues)
-            dismiss(animated: true)
+            closeAndRestoreFocus()
         }
     }
 }

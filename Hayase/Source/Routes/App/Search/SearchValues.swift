@@ -34,6 +34,7 @@ enum SearchFilterType: Int, CaseIterable {
     case sort
     case onList
     case trace
+    case title
 
     var label: String {
         switch self {
@@ -45,6 +46,7 @@ enum SearchFilterType: Int, CaseIterable {
         case .sort: return "Sort"
         case .onList: return "My List"
         case .trace: return "IDs"
+        case .title: return "Title"
         }
     }
 
@@ -135,6 +137,7 @@ enum SearchValues {
         case .sort: return sorts
         case .onList: return onList
         case .trace: return []
+        case .title: return []
         }
     }
 
@@ -291,6 +294,7 @@ Gangs
 Gender Bending
 Ghost
 Go
+Goblin
 Gods
 Golf
 Gore
