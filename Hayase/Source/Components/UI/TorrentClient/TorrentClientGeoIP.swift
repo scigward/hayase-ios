@@ -188,7 +188,7 @@ final class TorrentClientGeoIP {
     }
 
     private func ipStr2Num(_ stringifiedIP: String) -> UInt32? {
-        let parts = stringifiedIP.split(separator: ".")
+        let parts = normalizedIPv4(stringifiedIP).split(separator: ".")
         guard parts.count == 4 else { return nil }
         var result: UInt32 = 0
         for (index, part) in parts.enumerated() {
@@ -196,5 +196,19 @@ final class TorrentClientGeoIP {
             result += value << UInt32((3 - index) * 8)
         }
         return result
+    }
+
+    private func normalizedIPv4(_ stringifiedIP: String) -> String {
+        var value = stringifiedIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("::ffff:") {
+            value.removeFirst("::ffff:".count)
+        }
+        if let colonIndex = value.lastIndex(of: ":") {
+            let host = String(value[..<colonIndex])
+            if host.contains(".") {
+                value = host
+            }
+        }
+        return value
     }
 }

@@ -7,6 +7,46 @@
 
 import UIKit
 
+enum PeerTableLayout {
+    static let contentPadding: CGFloat = 48
+    static let columnSpacing: CGFloat = 8
+    static let ipWidth: CGFloat = 190
+    static let clientWidth: CGFloat = 160
+    static let progressWidth: CGFloat = 100
+    static let downloadWidth: CGFloat = 110
+    static let uploadWidth: CGFloat = 100
+    static let downloadedWidth: CGFloat = 96
+    static let uploadedWidth: CGFloat = 96
+    static let countryWidth: CGFloat = 86
+    static let flagsWidth: CGFloat = 112
+
+    static let columns: [(String, CGFloat?)] = [
+        ("IP Address", ipWidth),
+        ("Client", clientWidth),
+        ("Progress", nil),
+        ("Download", downloadWidth),
+        ("Upload", uploadWidth),
+        ("Downloaded", downloadedWidth),
+        ("Uploaded", uploadedWidth),
+        ("Country", countryWidth),
+        ("Flags", flagsWidth),
+    ]
+
+    static var minimumContentWidth: CGFloat {
+        contentPadding
+            + ipWidth
+            + clientWidth
+            + progressWidth
+            + downloadWidth
+            + uploadWidth
+            + downloadedWidth
+            + uploadedWidth
+            + countryWidth
+            + flagsWidth
+            + columnSpacing * CGFloat(columns.count - 1)
+    }
+}
+
 final class PeerInfoCell: UITableViewCell {
     static let reuseID = "PeerInfoCell"
 
@@ -72,15 +112,15 @@ final class PeerInfoCell: UITableViewCell {
             stack.topAnchor.constraint(equalTo: contentView.topAnchor),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            ipView.widthAnchor.constraint(equalToConstant: 170),
-            clientLabel.widthAnchor.constraint(equalToConstant: 92),
-            progressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 90),
-            downloadSpeedView.widthAnchor.constraint(equalToConstant: 102),
-            uploadSpeedView.widthAnchor.constraint(equalToConstant: 92),
-            downloadedLabel.widthAnchor.constraint(equalToConstant: 78),
-            uploadedLabel.widthAnchor.constraint(equalToConstant: 78),
-            countryView.widthAnchor.constraint(equalToConstant: 86),
-            flagsView.widthAnchor.constraint(equalToConstant: 112),
+            ipView.widthAnchor.constraint(equalToConstant: PeerTableLayout.ipWidth),
+            clientLabel.widthAnchor.constraint(equalToConstant: PeerTableLayout.clientWidth),
+            progressView.widthAnchor.constraint(greaterThanOrEqualToConstant: PeerTableLayout.progressWidth),
+            downloadSpeedView.widthAnchor.constraint(equalToConstant: PeerTableLayout.downloadWidth),
+            uploadSpeedView.widthAnchor.constraint(equalToConstant: PeerTableLayout.uploadWidth),
+            downloadedLabel.widthAnchor.constraint(equalToConstant: PeerTableLayout.downloadedWidth),
+            uploadedLabel.widthAnchor.constraint(equalToConstant: PeerTableLayout.uploadedWidth),
+            countryView.widthAnchor.constraint(equalToConstant: PeerTableLayout.countryWidth),
+            flagsView.widthAnchor.constraint(equalToConstant: PeerTableLayout.flagsWidth),
         ])
 
         for view in [ipView, clientLabel, downloadSpeedView, uploadSpeedView,

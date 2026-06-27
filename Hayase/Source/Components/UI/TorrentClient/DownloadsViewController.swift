@@ -189,6 +189,7 @@ class DownloadsViewController: UIViewController {
     // MARK: - Peers tab
 
     private let peersView = UIView()
+    private var peersHorizontalScrollView: UIScrollView!
     private var peersTableView: UITableView!
     private enum PeerSortColumn: Int {
         case ip = 0
@@ -226,7 +227,6 @@ class DownloadsViewController: UIViewController {
     private var webFilteredFileInfos: [WebTorrentFileInfo] = []
     private var webFileInfoHash: String?
     private var webPeerInfos: [WebTorrentPeerInfo] = []
-    private var webPeerInfoHash: String?
     private var webLibraryEntries: [WebTorrentLibraryEntry] = []
     private var webFilteredLibraryEntries: [WebTorrentLibraryEntry] = []
     private var webUpdateInFlight = false
@@ -988,72 +988,62 @@ class DownloadsViewController: UIViewController {
             guard let self else { return }
 
             let status = try? statusResult.get()
-            let statusError: Error?
+            let requestedHash = status?.infoHash ?? self.selectedHex
+
+            let group = DispatchGroup()
+            var nextInfo: WebTorrentTorrentInfo?
+            var nextFiles: [WebTorrentFileInfo] = []
+            var nextPeers: [WebTorrentPeerInfo] = []
+            var nextLibrary: [WebTorrentLibraryEntry] = []
+            var nextProtocol: WebTorrentProtocolStatus?
+            var nextError: Error?
 
             if case .failure(let error) = statusResult {
-                statusError = error
-            } else {
-                statusError = nil
+                nextError = error
             }
 
+            group.enter()
             manager.webTorrentLibrary { result in
-                var nextError = statusError
-                var nextInfo: WebTorrentTorrentInfo?
-                var nextFiles: [WebTorrentFileInfo] = []
-                var nextPeers: [WebTorrentPeerInfo] = []
-                var nextLibrary: [WebTorrentLibraryEntry] = []
-                var nextProtocol: WebTorrentProtocolStatus?
+                if case .success(let entries) = result { nextLibrary = entries }
+                group.leave()
+            }
 
-                if case .success(let entries) = result {
-                    nextLibrary = entries
-                } else if case .failure(let error) = result, nextError == nil {
-                    nextError = error
+            if !requestedHash.isEmpty {
+                group.enter()
+                manager.webTorrentInfo(hash: requestedHash) { result in
+                    if case .success(let info) = result { nextInfo = info }
+                    group.leave()
                 }
 
-                let requestedHash = status?.infoHash
-                    ?? (self.selectedHex.isEmpty ? nil : self.selectedHex)
-                    ?? nextLibrary.first?.hash
-                    ?? ""
-                let group = DispatchGroup()
-
-                if !requestedHash.isEmpty {
-                    group.enter()
-                    manager.webTorrentInfo(hash: requestedHash) { result in
-                        if case .success(let info) = result { nextInfo = info }
-                        group.leave()
-                    }
-
-                    group.enter()
-                    manager.webTorrentFileInfo(hash: requestedHash) { result in
-                        if case .success(let files) = result { nextFiles = files }
-                        group.leave()
-                    }
-
-                    group.enter()
-                    manager.webTorrentPeerInfo(hash: requestedHash) { result in
-                        if case .success(let peers) = result { nextPeers = peers }
-                        group.leave()
-                    }
-
-                    group.enter()
-                    manager.webTorrentProtocolStatus(hash: requestedHash) { result in
-                        if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
-                        group.leave()
-                    }
+                group.enter()
+                manager.webTorrentFileInfo(hash: requestedHash) { result in
+                    if case .success(let files) = result { nextFiles = files }
+                    group.leave()
                 }
 
-                group.notify(queue: .main) { [weak self] in
-                    guard let self else { return }
-                    self.webUpdateInFlight = false
-                    self.applyWebTorrentState(status: status,
-                                               info: nextInfo,
-                                               files: nextFiles,
-                                               peers: nextPeers,
-                                               peerInfoHash: requestedHash,
-                                               library: nextLibrary,
-                                               protocolStatus: nextProtocol,
-                                               error: nextError)
+                group.enter()
+                manager.webTorrentPeerInfo(hash: requestedHash) { result in
+                    if case .success(let peers) = result { nextPeers = peers }
+                    group.leave()
                 }
+
+                group.enter()
+                manager.webTorrentProtocolStatus(hash: requestedHash) { result in
+                    if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) { [weak self] in
+                guard let self else { return }
+                self.webUpdateInFlight = false
+                self.applyWebTorrentState(status: status,
+                                           info: nextInfo,
+                                           files: nextFiles,
+                                           peers: nextPeers,
+                                           library: nextLibrary,
+                                           protocolStatus: nextProtocol,
+                                           error: nextError)
             }
         }
     }
@@ -1062,17 +1052,13 @@ class DownloadsViewController: UIViewController {
                                       info: WebTorrentTorrentInfo?,
                                       files: [WebTorrentFileInfo],
                                       peers: [WebTorrentPeerInfo],
-                                      peerInfoHash: String,
                                       library: [WebTorrentLibraryEntry],
                                       protocolStatus: WebTorrentProtocolStatus?,
                                       error: Error?) {
         if let status { webStatus = status }
         if let info { webInfo = info }
         if let protocolStatus { webProtocol = protocolStatus }
-        if !peers.isEmpty || webPeerInfoHash != peerInfoHash {
-            webPeerInfos = peers
-            webPeerInfoHash = peerInfoHash.isEmpty ? nil : peerInfoHash
-        }
+        webPeerInfos = peers
         if !library.isEmpty { webLibraryEntries = library }
         webLastError = error
         globeView.setPeers(currentPeerRows())
@@ -1411,6 +1397,15 @@ class DownloadsViewController: UIViewController {
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         peersView.addSubview(borderContainer)
 
+        peersHorizontalScrollView = UIScrollView()
+        peersHorizontalScrollView.translatesAutoresizingMaskIntoConstraints = false
+        peersHorizontalScrollView.showsHorizontalScrollIndicator = true
+        peersHorizontalScrollView.showsVerticalScrollIndicator = false
+        peersHorizontalScrollView.alwaysBounceHorizontal = false
+        peersHorizontalScrollView.alwaysBounceVertical = false
+        peersHorizontalScrollView.backgroundColor = .clear
+        borderContainer.addSubview(peersHorizontalScrollView)
+
         peersTableView = UITableView(frame: .zero, style: .plain)
         peersTableView.translatesAutoresizingMaskIntoConstraints = false
         peersTableView.delegate = self
@@ -1420,7 +1415,7 @@ class DownloadsViewController: UIViewController {
         peersTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(peersTableView)
         peersTableView.allowsSelection = false
-        borderContainer.addSubview(peersTableView)
+        peersHorizontalScrollView.addSubview(peersTableView)
 
         NSLayoutConstraint.activate([
             borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor),
@@ -1428,10 +1423,18 @@ class DownloadsViewController: UIViewController {
             borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor),
             borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor),
 
-            peersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
-            peersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
-            peersTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
-            peersTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+            peersHorizontalScrollView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            peersHorizontalScrollView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            peersHorizontalScrollView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            peersHorizontalScrollView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+
+            peersTableView.topAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.topAnchor),
+            peersTableView.leadingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.leadingAnchor),
+            peersTableView.trailingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.trailingAnchor),
+            peersTableView.bottomAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.bottomAnchor),
+            peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
+            peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
+            peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant: PeerTableLayout.minimumContentWidth),
         ])
     }
 
@@ -2205,22 +2208,12 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return makeFileColumnHeader()
         } else if tableView === peersTableView {
-            return makeColumnHeader(columns: [
-                ("IP Address", 170),
-                ("Client", 92),
-                ("Progress", nil),
-                ("Download", 102),
-                ("Upload", 92),
-                ("Downloaded", 78),
-                ("Uploaded", 78),
-                ("Country", 86),
-                ("Flags", 112),
-            ],
-            sortableColumnIndices: Set(0...7),
-            activeColumnIndex: peersSortColumn?.rawValue,
-            sortAscending: peersSortAscending,
-            target: self,
-            action: #selector(handlePeerHeaderTap(_:)))
+            return makeColumnHeader(columns: PeerTableLayout.columns,
+                                    sortableColumnIndices: Set(0...7),
+                                    activeColumnIndex: peersSortColumn?.rawValue,
+                                    sortAscending: peersSortAscending,
+                                    target: self,
+                                    action: #selector(handlePeerHeaderTap(_:)))
         } else if tableView === trackersTableView {
             return makeColumnHeader(columns: [
                 ("Tracker", nil),
