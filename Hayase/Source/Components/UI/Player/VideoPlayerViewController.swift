@@ -496,7 +496,8 @@ final class VideoPlayerViewController: UIViewController {
     /// Throttle watch-progress saves to avoid writing UserDefaults on every
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
-    private weak var shellNavigationControllerBeforeFullscreen: UINavigationController?
+    private var fullscreenPortal: FullscreenPortalState?
+    private var isFullscreenTransitioning = false
     private let fullscreenTransitionDuration: TimeInterval = 0.24
 
     private struct SkippableChapter: Equatable {
@@ -2089,10 +2090,12 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private var isFullscreenPresentation: Bool {
-        presentingViewController != nil && navigationController == nil
+        fullscreenPortal != nil
     }
 
     private func toggleFullscreenPresentation() {
+        guard !isFullscreenTransitioning else { return }
+
         if isFullscreenPresentation {
             exitFullscreenPresentation()
         } else if hayaseShouldEmbedPlayerInShell {
@@ -2100,108 +2103,130 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
+    private struct FullscreenPortalState {
+        let overlay: UIView
+        let placeholder: UIView
+        weak var window: UIWindow?
+        weak var originalSuperview: UIView?
+        let originalIndex: Int
+        let originalFrame: CGRect
+        let originalAutoresizingMask: UIView.AutoresizingMask
+        let originalTranslatesAutoresizingMaskIntoConstraints: Bool
+    }
+
     private func enterFullscreenPresentation() {
-        guard let nav = navigationController else { return }
+        guard fullscreenPortal == nil,
+              let window = view.window,
+              let originalSuperview = view.superview else { return }
 
-        shellNavigationControllerBeforeFullscreen = nav
-        isMinimizing = true
+        let startFrame = fullscreenFrame(in: window)
+        guard !startFrame.isEmpty else { return }
 
-        let transition = makeFullscreenTransitionOverlay(expands: true)
+        let originalIndex = originalSuperview.subviews.firstIndex(of: view) ?? originalSuperview.subviews.count
+        let placeholder = UIView(frame: view.frame)
+        placeholder.backgroundColor = view.backgroundColor ?? .black
+        placeholder.autoresizingMask = view.autoresizingMask
+        placeholder.isUserInteractionEnabled = false
 
-        nav.popViewController(animated: false)
-        modalPresentationStyle = .fullScreen
-        modalTransitionStyle = .crossDissolve
+        let overlay = UIView(frame: window.bounds)
+        overlay.backgroundColor = .black
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
-        DispatchQueue.main.async { [weak self, weak nav] in
-            guard let self, let nav else { return }
-            nav.present(self, animated: false) { [weak self] in
-                guard let self else { return }
-                self.view.layoutIfNeeded()
-                self.finishFullscreenTransition(transition, targetFrame: transition?.window?.bounds)
-                self.isMinimizing = false
-            }
+        let state = FullscreenPortalState(
+            overlay: overlay,
+            placeholder: placeholder,
+            window: window,
+            originalSuperview: originalSuperview,
+            originalIndex: originalIndex,
+            originalFrame: view.frame,
+            originalAutoresizingMask: view.autoresizingMask,
+            originalTranslatesAutoresizingMaskIntoConstraints: view.translatesAutoresizingMaskIntoConstraints
+        )
+
+        isFullscreenTransitioning = true
+        fullscreenPortal = state
+
+        view.removeFromSuperview()
+        originalSuperview.insertSubview(placeholder, at: min(originalIndex, originalSuperview.subviews.count))
+        window.addSubview(overlay)
+
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.frame = startFrame
+        overlay.addSubview(view)
+        overlay.setNeedsLayout()
+        overlay.layoutIfNeeded()
+
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+        animateFullscreenView(to: overlay.bounds) { [weak self] in
+            self?.isFullscreenTransitioning = false
         }
     }
 
     private func exitFullscreenPresentation() {
-        let nav = shellNavigationControllerBeforeFullscreen ?? presentingViewController?.hayaseShellNavigationController()
-        guard let nav = nav else {
-            isMinimizing = false
-            dismiss(animated: true)
+        guard let state = fullscreenPortal else { return }
+        guard let window = state.window,
+              let originalSuperview = state.originalSuperview else {
+            cleanupBrokenFullscreenPortal()
             return
         }
 
-        isMinimizing = true
-        let transition = makeFullscreenTransitionOverlay(expands: false)
+        isFullscreenTransitioning = true
+        let targetFrame = state.placeholder.convert(state.placeholder.bounds, to: window)
 
-        dismiss(animated: false) { [weak self, weak nav] in
-            guard let self, let nav else { return }
-            nav.setNavigationBarHidden(true, animated: false)
-            nav.navigationBar.isHidden = true
-            nav.pushViewController(self, animated: false)
-            nav.view.layoutIfNeeded()
+        animateFullscreenView(to: targetFrame) { [weak self, weak originalSuperview] in
+            guard let self, let originalSuperview else { return }
 
-            let targetFrame = self.fullscreenTransitionFrame(in: transition?.window)
-            self.finishFullscreenTransition(transition, targetFrame: targetFrame)
-            self.shellNavigationControllerBeforeFullscreen = nil
-            self.isMinimizing = false
+            self.view.removeFromSuperview()
+            state.placeholder.removeFromSuperview()
+            state.overlay.removeFromSuperview()
+
+            self.view.translatesAutoresizingMaskIntoConstraints = state.originalTranslatesAutoresizingMaskIntoConstraints
+            self.view.autoresizingMask = state.originalAutoresizingMask
+            self.view.frame = state.originalFrame
+            originalSuperview.insertSubview(self.view, at: min(state.originalIndex, originalSuperview.subviews.count))
+
+            self.fullscreenPortal = nil
+            self.isFullscreenTransitioning = false
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            self.setNeedsStatusBarAppearanceUpdate()
+            self.setNeedsUpdateOfHomeIndicatorAutoHidden()
         }
     }
 
-    private struct FullscreenTransitionOverlay {
-        let container: UIView
-        let snapshot: UIView
-        weak var window: UIWindow?
-    }
-
-    private func makeFullscreenTransitionOverlay(expands: Bool) -> FullscreenTransitionOverlay? {
-        guard !UIAccessibility.isReduceMotionEnabled,
-              let window = view.window,
-              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return nil }
-
-        let container = UIView(frame: window.bounds)
-        container.backgroundColor = .black
-        container.isUserInteractionEnabled = false
-
-        snapshot.frame = expands ? fullscreenTransitionFrame(in: window) : window.bounds
-        snapshot.autoresizingMask = []
-        container.addSubview(snapshot)
-        window.addSubview(container)
-
-        return FullscreenTransitionOverlay(container: container, snapshot: snapshot, window: window)
-    }
-
-    private func fullscreenTransitionFrame(in window: UIWindow?) -> CGRect {
-        guard let window else { return view.bounds }
+    private func fullscreenFrame(in window: UIWindow) -> CGRect {
         let frame = view.convert(view.bounds, to: window)
         return frame.isNull || frame.isEmpty ? window.bounds : frame
     }
 
-    private func finishFullscreenTransition(_ transition: FullscreenTransitionOverlay?,
-                                            targetFrame: CGRect?) {
-        guard let transition else { return }
+    private func animateFullscreenView(to frame: CGRect, completion: @escaping () -> Void) {
+        let animations = {
+            self.view.frame = frame
+            self.view.layoutIfNeeded()
+        }
 
-        transition.window?.bringSubviewToFront(transition.container)
-        let target = targetFrame ?? transition.window?.bounds ?? transition.container.bounds
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            UIView.performWithoutAnimation(animations)
+            completion()
+            return
+        }
+
         UIView.animate(
             withDuration: fullscreenTransitionDuration,
             delay: 0,
             options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
-            animations: {
-                transition.snapshot.frame = target
-            },
-            completion: { _ in
-                UIView.animate(
-                    withDuration: 0.08,
-                    delay: 0,
-                    options: [.curveEaseOut, .beginFromCurrentState],
-                    animations: {
-                        transition.container.alpha = 0
-                    },
-                    completion: { _ in
-                        transition.container.removeFromSuperview()
-                    })
-            })
+            animations: animations,
+            completion: { _ in completion() }
+        )
+    }
+
+    private func cleanupBrokenFullscreenPortal() {
+        fullscreenPortal?.overlay.removeFromSuperview()
+        fullscreenPortal?.placeholder.removeFromSuperview()
+        fullscreenPortal = nil
+        isFullscreenTransitioning = false
     }
 
     // Auto-plays next episode (Hayase web: next() called at EOF)
