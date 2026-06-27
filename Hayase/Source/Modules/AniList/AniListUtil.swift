@@ -124,7 +124,7 @@ enum AniListUtil {
                 status: s,
                 progress: mle.progress ?? 0,
                 score: Int(mle.score ?? 0),
-                repeatCount: mle.repeat ?? 0,
+                repeatCount: mle.repeatCount ?? 0,
                 customLists: [])
         }
         return item

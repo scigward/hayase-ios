@@ -229,8 +229,16 @@ struct AniListMedia: Codable {
         let id: Int?
         let status: String?
         let progress: Int?
-        let repeat: Int?
+        let repeatCount: Int?
         let score: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case status
+            case progress
+            case repeatCount = "repeat"
+            case score
+        }
     }
     let mediaListEntry: MediaListEntry?
     struct MediaTag: Codable {
