@@ -507,8 +507,34 @@ class SettingsViewController: UIViewController {
     }
 
     func openAccountsTab() {
+        applyRoute(.accounts)
+    }
+
+    func applyRoute(_ route: Route.SettingsRoute) {
         loadViewIfNeeded()
-        setSelectedTab(.accounts)
+        setSelectedTab(settingsTab(for: route))
+    }
+
+    private func settingsRoute(for tab: SettingsTab) -> Route.SettingsRoute {
+        switch tab {
+        case .player: return .player
+        case .client: return .client
+        case .interface_: return .interface
+        case .extensions: return .extensions
+        case .accounts: return .accounts
+        case .app: return .app
+        }
+    }
+
+    private func settingsTab(for route: Route.SettingsRoute) -> SettingsTab {
+        switch route {
+        case .player: return .player
+        case .client: return .client
+        case .interface: return .interface_
+        case .extensions: return .extensions
+        case .accounts: return .accounts
+        case .app, .changelog: return .app
+        }
     }
 
     /// Updates a tab button's appearance to match Hayase's active/inactive states.
@@ -524,7 +550,7 @@ class SettingsViewController: UIViewController {
 
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
-        setSelectedTab(tab)
+        Router.shared.navigate(.settings(settingsRoute(for: tab)), hostTabIndex: tabBarController?.selectedIndex)
     }
 
     private func setSelectedTab(_ tab: SettingsTab) {

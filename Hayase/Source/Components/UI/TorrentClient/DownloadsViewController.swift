@@ -661,15 +661,41 @@ class DownloadsViewController: UIViewController {
         }
     }
 
+    func applyRoute(_ route: Route.ClientRoute) {
+        loadViewIfNeeded()
+        guard let index = tabIndex(for: route), index != selectedTabIndex else { return }
+        selectedTabIndex = index
+        updateTabButtonAppearances()
+        showTab(index)
+    }
+
+    private func clientRoute(for tabIndex: Int) -> Route.ClientRoute? {
+        switch tabIndex {
+        case 0: return .overview
+        case 1: return .files
+        case 2: return .peers
+        case 3: return .trackers
+        case 4: return .library
+        default: return nil
+        }
+    }
+
+    private func tabIndex(for route: Route.ClientRoute) -> Int? {
+        switch route {
+        case .overview: return 0
+        case .files: return 1
+        case .peers: return 2
+        case .trackers: return 3
+        case .library: return 4
+        }
+    }
+
     @objc private func tabButtonTapped(_ sender: UIButton) {
         let index = sender.tag
         if index == Self.settingsTabIndex {
-            let settingsVC = SettingsViewController()
-            navigationController?.pushViewController(settingsVC, animated: true)
-        } else {
-            selectedTabIndex = index
-            updateTabButtonAppearances()
-            showTab(index)
+            Router.shared.navigate(.settings(.client), hostTabIndex: tabBarController?.selectedIndex)
+        } else if let route = clientRoute(for: index) {
+            Router.shared.navigate(.client(route), hostTabIndex: tabBarController?.selectedIndex)
         }
     }
 

@@ -194,14 +194,7 @@ extension UIViewController {
 
     private func openHayasePreviewAnime(_ media: AnimeItem) {
         Hover.shared.unhoverLastElement()
-        guard let storyboard,
-              let detail = storyboard.instantiateViewController(withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
-        detail.animeItem = media
-        if let navigationController {
-            navigationController.pushViewController(detail, animated: true)
-        } else {
-            present(detail, animated: true)
-        }
+        Router.shared.navigateToAnime(media, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     private func presentHayasePreviewExtensionSearch(media: AnimeItem, episode: Int) {

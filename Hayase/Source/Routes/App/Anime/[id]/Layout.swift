@@ -1189,6 +1189,7 @@ class AnimeDetailViewController: UIViewController {
 
     var animeEntity: Animes?
     var animeItem: AnimeItem?
+    var routeAnimeID: Int? { animeItem?.id ?? animeEntity?.animeAnilistId?.intValue }
 
     var tableView: UITableView!
     var headerView: AnimeInfoHeaderView!
@@ -1316,51 +1317,34 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Search navigation helpers
 
     func navigateToSearchTab(genre: String) {
-        let tbc = tabBarController
-        guard let tbc,
-              let controllers = tbc.viewControllers,
-              controllers.count > 1,
-              let navController = controllers[1] as? UINavigationController,
-              let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tbc?.selectedIndex = 1
-            return
-        }
-        let nav = navigationController
-        searchVC.prefillSearchExtended(genre: genre)
-        nav?.popToRootViewController(animated: false)
-        tbc.selectedIndex = 1
+        let state = Route.SearchState(
+            genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
+            tags: SearchValues.genreSet.contains(genre) ? [] : [genre],
+            sort: "TRENDING_DESC")
+        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 
     func navigateToSearchTab(filterType: String, value: String) {
-        let tbc = tabBarController
-        guard let tbc,
-              let controllers = tbc.viewControllers,
-              controllers.count > 1,
-              let navController = controllers[1] as? UINavigationController,
-              let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tbc?.selectedIndex = 1
-            return
-        }
-        let nav = navigationController
+        var state = Route.SearchState(sort: "TRENDING_DESC")
         switch filterType {
         case "format":
-            searchVC.prefillSearchExtended(format: value)
+            state.formats = [value]
         case "status":
-            searchVC.prefillSearchExtended(status: value)
+            state.statuses = [value]
         case "season":
             let parts = value.components(separatedBy: " ")
             if parts.count == 2, let year = Int(parts[1]) {
-                searchVC.prefillSearchExtended(season: parts[0].uppercased(), seasonYear: year)
+                state.season = parts[0].uppercased()
+                state.year = String(year)
             } else {
-                searchVC.prefillSearchExtended(season: value.uppercased())
+                state.season = value.uppercased()
             }
         case "score":
-            searchVC.prefillSearchExtended(sort: value)
+            state.sort = value
         default:
             break
         }
-        nav?.popToRootViewController(animated: false)
-        tbc.selectedIndex = 1
+        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 
     // MARK: - Lifecycle

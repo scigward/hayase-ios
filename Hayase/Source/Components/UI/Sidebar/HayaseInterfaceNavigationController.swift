@@ -125,6 +125,7 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
         let translation = gesture.translation(in: view)
         let velocity = gesture.velocity(in: view)
         guard translation.x > 60 || velocity.x > 400 else { return }
+        if isCurrentStackRouteOwned, Router.shared.back() { return }
         _ = popViewController(animated: true)
     }
 
@@ -133,6 +134,7 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
         let translation = gesture.translation(in: view)
         let velocity = gesture.velocity(in: view)
         guard translation.x < -60 || velocity.x < -400 else { return }
+        if isCurrentStackRouteOwned, Router.shared.forward() { return }
         guard let viewController = forwardViewControllers.popLast() else { return }
         isRestoringForwardController = true
         pushViewController(viewController, animated: true)
@@ -142,12 +144,21 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let edgeGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else { return true }
         if edgeGesture.edges == .left {
-            return viewControllers.count > 1
+            return isCurrentStackRouteOwned ? Router.shared.canGoBack : viewControllers.count > 1
         }
         if edgeGesture.edges == .right {
-            return !forwardViewControllers.isEmpty
+            return isCurrentStackRouteOwned ? Router.shared.canGoForward : !forwardViewControllers.isEmpty
         }
         return true
+    }
+
+    private var isCurrentStackRouteOwned: Bool {
+        switch Router.shared.currentRoute {
+        case .anime, .animeThread:
+            return true
+        default:
+            return false
+        }
     }
 
     private func applyInterfaceNavigationChrome() {

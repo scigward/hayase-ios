@@ -11,6 +11,7 @@ final class ThreadDetailViewController: UIViewController {
     // MARK: - Init
     private let threadID: Int
     private let threadTitle: String
+    var routeThreadID: Int { threadID }
 
     init(threadID: Int, title: String) {
         self.threadID = threadID

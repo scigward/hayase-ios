@@ -161,7 +161,7 @@ final class HayaseChatViewController: UIViewController {
     }
 
     @objc private func nopeTapped() {
-        tabBarController?.selectedIndex = HayaseSidebarRoute.home.tabIndex ?? 0
+        Router.shared.navigate(.home, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     @objc private func continueTapped() {

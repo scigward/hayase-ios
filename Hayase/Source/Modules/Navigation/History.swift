@@ -11,9 +11,11 @@ import Foundation
 
 struct HistoryEntry: Hashable {
     var route: Route
+    var hostTabIndex: Int?
 
-    init(route: Route) {
+    init(route: Route, hostTabIndex: Int? = nil) {
         self.route = route
+        self.hostTabIndex = hostTabIndex
     }
 }
 
@@ -24,7 +26,7 @@ final class History {
     private(set) var currentIndex: Int
 
     init(initialRoute: Route) {
-        entries = [HistoryEntry(route: initialRoute)]
+        entries = [HistoryEntry(route: initialRoute, hostTabIndex: initialRoute.tabIndex)]
         currentIndex = 0
     }
 
@@ -40,22 +42,22 @@ final class History {
         currentIndex < entries.count - 1
     }
 
-    func reset(to route: Route) {
-        entries = [HistoryEntry(route: route)]
+    func reset(to route: Route, hostTabIndex: Int? = nil) {
+        entries = [HistoryEntry(route: route, hostTabIndex: hostTabIndex ?? route.tabIndex)]
         currentIndex = 0
     }
 
-    func push(_ route: Route) {
+    func push(_ route: Route, hostTabIndex: Int? = nil) {
         if current.route == route { return }
         if canGoForward {
             entries.removeSubrange((currentIndex + 1)..<entries.count)
         }
-        entries.append(HistoryEntry(route: route))
+        entries.append(HistoryEntry(route: route, hostTabIndex: hostTabIndex))
         currentIndex = entries.count - 1
     }
 
-    func replace(_ route: Route) {
-        entries[currentIndex] = HistoryEntry(route: route)
+    func replace(_ route: Route, hostTabIndex: Int? = nil) {
+        entries[currentIndex] = HistoryEntry(route: route, hostTabIndex: hostTabIndex)
     }
 
     func back() -> HistoryEntry? {

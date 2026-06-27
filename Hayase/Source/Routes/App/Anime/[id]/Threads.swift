@@ -320,8 +320,13 @@ extension AnimeDetailViewController {
             cell.onTapThread = { [weak self] threadID in
                 guard let self = self else { return }
                 guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
-                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
-                self.navigationController?.pushViewController(threadVC, animated: true)
+                if let animeID = self.routeAnimeID {
+                    Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
+                                                       hostTabIndex: self.tabBarController?.selectedIndex)
+                } else {
+                    let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                    self.navigationController?.pushViewController(threadVC, animated: true)
+                }
             }
             return cell
         }

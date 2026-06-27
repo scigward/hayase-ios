@@ -59,7 +59,7 @@ final class HayaseSidebarController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
         installInterfaceRoutes()
-        router.reset(to: Route(tabIndex: tabBarControllerHost.selectedIndex) ?? .home)
+        router.reset(to: Route(tabIndex: tabBarControllerHost.selectedIndex) ?? .home, hostTabIndex: tabBarControllerHost.selectedIndex)
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
@@ -425,7 +425,7 @@ final class HayaseSidebarController: UIViewController {
                 guard let self, !self.isApplyingRoute,
                       self.router.currentRoute.tabIndex != tab.selectedIndex,
                       let route = Route(tabIndex: tab.selectedIndex) else { return }
-                self.router.sync(route)
+                self.router.sync(route, hostTabIndex: tab.selectedIndex)
             }
         }
     }
@@ -448,29 +448,36 @@ final class HayaseSidebarController: UIViewController {
         }
 
         guard let appRoute = route.appRoute else { return }
-        router.navigate(appRoute)
+        router.navigate(appRoute, hostTabIndex: tabBarControllerHost.selectedIndex)
     }
 
     private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
         closeMobileMenu(animated: animated)
         updateSelection(for: route, animated: animated)
 
-        guard let index = route.tabIndex else {
-            updateSidebarBackground()
-            return
+        let targetIndex = route.tabIndex ?? router.currentHostTabIndex
+        if let targetIndex {
+            minimizeVisiblePlayerIfNeeded()
+            isApplyingRoute = true
+            if tabBarControllerHost.selectedIndex != targetIndex {
+                tabBarControllerHost.selectedIndex = targetIndex
+            }
+            isApplyingRoute = false
         }
 
-        minimizeVisiblePlayerIfNeeded()
-        isApplyingRoute = true
-        if tabBarControllerHost.selectedIndex != index {
-            tabBarControllerHost.selectedIndex = index
-        }
-        isApplyingRoute = false
-
-        if route.resetsTabStack,
-           let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
-            nav.popToRootViewController(animated: false)
-            applyRouteState(route, to: nav)
+        switch route {
+        case .anime(let id):
+            showAnimeRoute(id: id, threadID: nil, kind: kind, animated: animated)
+        case .animeThread(let animeID, let threadID):
+            showAnimeRoute(id: animeID, threadID: threadID, kind: kind, animated: animated)
+        case .player:
+            MiniPlayerManager.shared.restore()
+        default:
+            if route.resetsTabStack,
+               let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
+                nav.popToRootViewController(animated: false)
+                applyRouteState(route, to: nav)
+            }
         }
 
         hideHostedNavigationBars()
@@ -479,11 +486,80 @@ final class HayaseSidebarController: UIViewController {
 
     private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
         switch route {
+        case .search(let state):
+            (navigationController.viewControllers.first as? SearchViewController)?.applyRouteState(state)
+        case .client(let clientRoute):
+            (navigationController.viewControllers.first as? DownloadsViewController)?.applyRoute(clientRoute)
+        case .settings(let settingsRoute):
+            (navigationController.viewControllers.first as? SettingsViewController)?.applyRoute(settingsRoute)
         case .profile:
             (navigationController.viewControllers.first as? SettingsViewController)?.openAccountsTab()
         default:
             break
         }
+    }
+
+    private func showAnimeRoute(id: Int,
+                                threadID: Int?,
+                                kind: Router.NavigationKind,
+                                animated: Bool) {
+        guard let nav = tabBarControllerHost.selectedViewController as? UINavigationController else { return }
+
+        if let detail = nav.topViewController as? AnimeDetailViewController,
+           detail.routeAnimeID == id {
+            showThreadRoute(threadID: threadID, title: nil, in: nav, animated: animated)
+            return
+        }
+
+        if let detail = nav.viewControllers.compactMap({ $0 as? AnimeDetailViewController }).last,
+           detail.routeAnimeID == id {
+            nav.popToViewController(detail, animated: false)
+            showThreadRoute(threadID: threadID, title: nil, in: nav, animated: animated)
+            return
+        }
+
+        if let item = router.cachedAnimeItem(for: id) {
+            pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
+            return
+        }
+
+        AniListClient.shared.fetchResolverMediaById(id) { [weak self, weak nav] item in
+            guard let self, let nav, self.isCurrentAnimeRoute(id) else { return }
+            guard let item else { return }
+            self.router.cacheAnimeItem(item)
+            self.pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
+        }
+    }
+
+    private func isCurrentAnimeRoute(_ id: Int) -> Bool {
+        switch router.currentRoute {
+        case .anime(let currentID), .animeThread(let currentID, _):
+            return currentID == id
+        default:
+            return false
+        }
+    }
+
+    private func pushAnimeDetail(item: AnimeItem,
+                                 threadID: Int?,
+                                 in navigationController: UINavigationController,
+                                 animated: Bool) {
+        let storyboard = UIStoryboard(name: "Main", bundle: nil)
+        guard let detail = storyboard.instantiateViewController(withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
+        detail.animeItem = item
+        navigationController.pushViewController(detail, animated: animated)
+        showThreadRoute(threadID: threadID, title: nil, in: navigationController, animated: animated)
+    }
+
+    private func showThreadRoute(threadID: Int?,
+                                 title: String?,
+                                 in navigationController: UINavigationController,
+                                 animated: Bool) {
+        guard let threadID else { return }
+        if let thread = navigationController.topViewController as? ThreadDetailViewController,
+           thread.routeThreadID == threadID { return }
+        let thread = ThreadDetailViewController(threadID: threadID, title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread")
+        navigationController.pushViewController(thread, animated: animated)
     }
 
     private func minimizeVisiblePlayerIfNeeded() {
@@ -662,15 +738,6 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let edgeGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else { return true }
-
-        // During phase 1 the router owns top-level page history, while pushed
-        // detail screens can still be managed by their local navigation stack.
-        // Once internal links move to Router.navigate(_:) this guard naturally
-        // becomes less important.
-        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController,
-           nav.viewControllers.count > 1 {
-            return false
-        }
 
         if edgeGesture.edges == .left {
             return router.canGoBack

@@ -110,7 +110,10 @@ class SearchViewController: UIViewController {
     private static let regularHorizontalInset: CGFloat = 40
     private static let regularActionWidth: CGFloat = 104
 
-    // Pending prefill from Home page
+    // Pending route state from Router.navigate(.search(...)) before the view is loaded.
+    private var pendingRouteState: Route.SearchState?
+
+    // Pending prefill from older call sites. Kept as a compatibility shim.
     private var pendingPrefill: (genre: String?, sort: String?)?
 
     // MARK: - Init
@@ -140,7 +143,7 @@ class SearchViewController: UIViewController {
         // state pre-applied. Mirror this: if a prefill is pending (View More tapped before this tab was
         // ever opened), skip the default fetch here — viewWillAppear will call applyPrefill which runs
         // the correct fetch with the prefilled filters.
-        if pendingPrefill == nil {
+        if pendingPrefill == nil && pendingRouteState == nil {
             fetchResults(reset: true)
         }
     }
@@ -152,7 +155,10 @@ class SearchViewController: UIViewController {
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
-        if let pending = pendingPrefill {
+        if let state = pendingRouteState {
+            pendingRouteState = nil
+            applySearchRouteState(state)
+        } else if let pending = pendingPrefill {
             pendingPrefill = nil
             let ext = pendingExtended
             pendingExtended = nil
@@ -191,6 +197,34 @@ class SearchViewController: UIViewController {
     }
 
     // MARK: - Prefill from Home
+
+    func applyRouteState(_ state: Route.SearchState?) {
+        guard let state else { return }
+        if isViewLoaded {
+            applySearchRouteState(state)
+        } else {
+            pendingRouteState = state
+        }
+    }
+
+    private func applySearchRouteState(_ state: Route.SearchState) {
+        currentTitle = state.title ?? ""
+        searchField?.text = currentTitle
+        selectedGenres = state.genres
+        selectedTags = state.tags
+        selectedYear = state.year
+        selectedSeason = state.season
+        selectedFormats = state.formats
+        selectedStatuses = state.statuses
+        selectedSort = state.sort
+        selectedOnList = state.onList
+        traceIds = nil
+        rebuildActiveChipEntries()
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResults(reset: true)
+    }
 
     func prefillSearch(genre: String?, sort: String?) {
         if isViewLoaded { applyPrefill(genre: genre, sort: sort) }
@@ -1113,10 +1147,7 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
                                              actions: hayasePreviewCardActions()) {
             return
         }
-        guard let vc = storyboard?.instantiateViewController(withIdentifier: "AnimeDetailVC")
-                as? AnimeDetailViewController else { return }
-        vc.animeItem = item
-        navigationController?.pushViewController(vc, animated: true)
+        Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     // Infinite scroll — matches use:infiniteScroll in Hayase

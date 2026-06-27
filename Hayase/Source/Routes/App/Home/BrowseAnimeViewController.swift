@@ -2365,8 +2365,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             // Wire play button → navigate to anime detail
             cell.onPlayTapped = { [weak self] item in
                 guard let self else { return }
-                self.pendingAnimeItem = item
-                self.performSegue(withIdentifier: "showAnimeDetail", sender: nil)
+                Router.shared.navigateToAnime(item, hostTabIndex: self.tabBarController?.selectedIndex)
             }
             // Wire favorite/bookmark buttons to AniList tracking
             cell.onFavorite = { item in
@@ -2432,15 +2431,11 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             // and pre-apply this section's genre + sort filter to SearchViewController
             header.onViewMore = { [weak self] in
                 guard let self = self else { return }
-                guard let controllers = self.tabBarController?.viewControllers,
-                      controllers.count > 1,
-                      let navController = controllers[1] as? UINavigationController,
-                      let searchVC = navController.viewControllers.first as? SearchViewController else {
-                    self.tabBarController?.selectedIndex = 1
-                    return
-                }
-                searchVC.prefillSearch(genre: section.filterGenre, sort: section.filterSort)
-                self.tabBarController?.selectedIndex = 1
+                let state = Route.SearchState(
+                    genres: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [$0] : [] } ?? [],
+                    tags: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [] : [$0] } ?? [],
+                    sort: section.filterSort ?? "TRENDING_DESC")
+                Router.shared.navigate(.search(state), hostTabIndex: self.tabBarController?.selectedIndex)
             }
         }
         return header
@@ -2463,8 +2458,10 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
                     return
                 }
             }
-            pendingAnimeItem = nil
-            performSegue(withIdentifier: "showAnimeDetail", sender: indexPath)
+            if let anime = anime(at: indexPath) {
+                Router.shared.navigateToAnime(AnimeCollectionViewCell.animeItem(from: anime),
+                                             hostTabIndex: tabBarController?.selectedIndex)
+            }
             return
         }
         // Ignore taps on skeleton placeholder cells
@@ -2473,8 +2470,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         if indexPath.section == 0 {
             guard let cell = collectionView.cellForItem(at: indexPath) as? FeaturedBannerCell,
                   let item = cell.currentItem else { return }
-            pendingAnimeItem = item
-            performSegue(withIdentifier: "showAnimeDetail", sender: nil)
+            Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
             return
         }
         // Tap on poster row
@@ -2489,8 +2485,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
                                              actions: hayasePreviewCardActions()) {
             return
         }
-        pendingAnimeItem = item
-        performSegue(withIdentifier: "showAnimeDetail", sender: nil)
+        Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     // MARK: - UIScrollViewDelegate (scroll-driven banner effects)
@@ -2534,40 +2529,30 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     /// Navigate to Search tab with a genre filter. Matches web: goto('/app/search', { state: { search: { genre: [genre] } } })
     private func navigateToSearch(genre: String) {
-        guard let controllers = tabBarController?.viewControllers,
-              controllers.count > 1,
-              let navController = controllers[1] as? UINavigationController,
-              let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tabBarController?.selectedIndex = 1
-            return
-        }
-        searchVC.prefillSearchExtended(genre: genre)
-        tabBarController?.selectedIndex = 1
+        let state = Route.SearchState(
+            genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
+            tags: SearchValues.genreSet.contains(genre) ? [] : [genre],
+            sort: "TRENDING_DESC")
+        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 
-    /// Navigate to Search tab with a badge filter. filterType: "format", "status", "season", "score"
+    /// Navigate to Search with a badge filter. filterType: "format", "status", "season", "score"
     private func navigateToSearch(filterType: String, value: String, value2: String?) {
-        guard let controllers = tabBarController?.viewControllers,
-              controllers.count > 1,
-              let navController = controllers[1] as? UINavigationController,
-              let searchVC = navController.viewControllers.first as? SearchViewController else {
-            tabBarController?.selectedIndex = 1
-            return
-        }
+        var state = Route.SearchState(sort: "TRENDING_DESC")
         switch filterType {
         case "format":
-            searchVC.prefillSearchExtended(format: value)
+            state.formats = [value]
         case "status":
-            searchVC.prefillSearchExtended(status: value)
+            state.statuses = [value]
         case "season":
-            let year = value2.flatMap { Int($0) }
-            searchVC.prefillSearchExtended(season: value, seasonYear: year)
+            state.season = value
+            state.year = value2
         case "score":
-            searchVC.prefillSearchExtended(sort: value)
+            state.sort = value
         default:
             break
         }
-        tabBarController?.selectedIndex = 1
+        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 }
 

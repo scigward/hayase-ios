@@ -293,8 +293,13 @@ extension AnimeDetailViewController: UITableViewDelegate {
             if threadColumnCount >= 2 { break }
             guard !threadsLoading, !threads.isEmpty else { return }
             guard let thread = threads[safe: indexPath.row] else { return }
-            let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
-            navigationController?.pushViewController(threadVC, animated: true)
+            if let animeID = routeAnimeID {
+                Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
+                                                   hostTabIndex: tabBarController?.selectedIndex)
+            } else {
+                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                navigationController?.pushViewController(threadVC, animated: true)
+            }
         case .themes:
             break
         default: break
@@ -342,10 +347,7 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard collectionView.tag == 100 else { return }
         guard let relation = relations[safe: indexPath.item] else { return }
-        guard let detailVC = storyboard?.instantiateViewController(
-            withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
-        detailVC.animeItem = relation.media
-        navigationController?.pushViewController(detailVC, animated: true)
+        Router.shared.navigateToAnime(relation.media, hostTabIndex: tabBarController?.selectedIndex)
     }
 }
 
