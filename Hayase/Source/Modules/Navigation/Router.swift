@@ -150,7 +150,9 @@ final class Router {
     }
 
     private func resolvedHostTabIndex(for route: Route, explicit: Int?) -> Int? {
-        explicit ?? route.tabIndex ?? currentHostTabIndex ?? currentRoute.tabIndex
+        // Real app routes own their tab. Tabless detail routes, like anime
+        // pages and the player, inherit the current host tab instead.
+        route.tabIndex ?? explicit ?? currentHostTabIndex ?? currentRoute.tabIndex
     }
 
     private func notify(_ route: Route, kind: NavigationKind) {

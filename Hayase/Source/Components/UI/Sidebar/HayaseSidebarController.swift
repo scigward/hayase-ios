@@ -474,7 +474,7 @@ final class HayaseSidebarController: UIViewController {
         }
 
         guard let appRoute = route.appRoute else { return }
-        router.navigate(appRoute, hostTabIndex: tabBarControllerHost.selectedIndex)
+        router.navigate(appRoute)
     }
 
     private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
