@@ -51,6 +51,8 @@ final class HayaseSidebarController: UIViewController {
     private var routeObservationID: UUID?
     private var isApplyingRoute = false
     private var activeHistorySwipeDirection: HistorySwipeDirection?
+    private var lastAppliedRoute: Route?
+    private var routeScrollPositions: [Route: CGPoint] = [:]
 
     init(tabBarController: UITabBarController) {
         self.tabBarControllerHost = tabBarController
@@ -79,6 +81,23 @@ final class HayaseSidebarController: UIViewController {
 
     override var prefersStatusBarHidden: Bool { true }
     override var childForStatusBarHidden: UIViewController? { nil }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            UIKeyCommand(input: "[", modifierFlags: .command, action: #selector(routeBackCommand)),
+            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: .alternate, action: #selector(routeBackCommand)),
+            UIKeyCommand(input: "]", modifierFlags: .command, action: #selector(routeForwardCommand)),
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: .alternate, action: #selector(routeForwardCommand)),
+        ]
+    }
+
+    @objc private func routeBackCommand() {
+        router.back()
+    }
+
+    @objc private func routeForwardCommand() {
+        router.forward()
+    }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -459,36 +478,70 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
+        saveScrollPositionBeforeRouteChange(to: route)
         closeMobileMenu(animated: animated)
         updateSelection(for: route, animated: animated)
 
-        let targetIndex = route.tabIndex ?? router.currentHostTabIndex
-        if let targetIndex {
-            minimizeVisiblePlayerIfNeeded()
-            isApplyingRoute = true
-            if tabBarControllerHost.selectedIndex != targetIndex {
-                tabBarControllerHost.selectedIndex = targetIndex
+        let performRouteChange = {
+            let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
+            if let targetIndex {
+                self.minimizeVisiblePlayerIfNeeded()
+                self.isApplyingRoute = true
+                if self.tabBarControllerHost.selectedIndex != targetIndex {
+                    self.tabBarControllerHost.selectedIndex = targetIndex
+                }
+                self.isApplyingRoute = false
             }
-            isApplyingRoute = false
+
+            switch route {
+            case .anime(let id):
+                self.showAnimeRoute(id: id, threadID: nil, kind: kind, animated: animated)
+            case .animeThread(let animeID, let threadID):
+                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, animated: animated)
+            case .player:
+                self.showPlayerRoute(animated: animated)
+            default:
+                if route.resetsTabStack,
+                   let nav = self.tabBarControllerHost.selectedViewController as? UINavigationController {
+                    nav.popToRootViewController(animated: false)
+                    self.applyRouteState(route, to: nav)
+                }
+            }
+
+            self.hideHostedNavigationBars()
+            self.updateSidebarBackground()
+            self.lastAppliedRoute = route
+            self.restoreScrollPositionIfNeeded(for: route)
         }
 
-        switch route {
-        case .anime(let id):
-            showAnimeRoute(id: id, threadID: nil, kind: kind, animated: animated)
-        case .animeThread(let animeID, let threadID):
-            showAnimeRoute(id: animeID, threadID: threadID, kind: kind, animated: animated)
-        case .player:
-            showPlayerRoute(animated: animated)
-        default:
-            if route.resetsTabStack,
-               let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
-                nav.popToRootViewController(animated: false)
-                applyRouteState(route, to: nav)
-            }
+        if shouldCrossfadeRoute(kind: kind, animated: animated) {
+            UIView.transition(with: contentContainer,
+                              duration: 0.16,
+                              options: [.transitionCrossDissolve, .allowAnimatedContent],
+                              animations: performRouteChange)
+        } else {
+            performRouteChange()
         }
+    }
 
-        hideHostedNavigationBars()
-        updateSidebarBackground()
+    private func shouldCrossfadeRoute(kind: Router.NavigationKind, animated: Bool) -> Bool {
+        guard animated else { return false }
+        switch kind {
+        case .push, .back, .forward:
+            return true
+        case .replace, .sync:
+            return false
+        }
+    }
+
+    private func saveScrollPositionBeforeRouteChange(to route: Route) {
+        guard let previousRoute = lastAppliedRoute, previousRoute != route,
+              let offset = RouteScrollRestoration.capture(from: topVisibleHostedController()) else { return }
+        routeScrollPositions[previousRoute] = offset
+    }
+
+    private func restoreScrollPositionIfNeeded(for route: Route) {
+        RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
     }
 
     private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
@@ -556,6 +609,7 @@ final class HayaseSidebarController: UIViewController {
         detail.animeItem = item
         navigationController.pushViewController(detail, animated: animated)
         showThreadRoute(threadID: threadID, title: nil, in: navigationController, animated: animated)
+        restoreScrollPositionIfNeeded(for: router.currentRoute)
     }
 
     private func showThreadRoute(threadID: Int?,
@@ -567,6 +621,7 @@ final class HayaseSidebarController: UIViewController {
            thread.routeThreadID == threadID { return }
         let thread = ThreadDetailViewController(threadID: threadID, title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread")
         navigationController.pushViewController(thread, animated: animated)
+        restoreScrollPositionIfNeeded(for: router.currentRoute)
     }
 
     private func showPlayerRoute(animated: Bool) {
@@ -576,6 +631,11 @@ final class HayaseSidebarController: UIViewController {
         }
 
         if topVisibleHostedController() === player { return }
+
+        if MiniPlayerManager.shared.isActive, MiniPlayerManager.shared.activePlayer === player {
+            MiniPlayerManager.shared.restore()
+            return
+        }
 
         if let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
             if nav.topViewController === player { return }
@@ -769,9 +829,11 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
 
         let start = panGesture.location(in: view)
         let velocity = panGesture.velocity(in: view)
-        let edgeWidth: CGFloat = 28
-        let isHorizontal = abs(velocity.x) > abs(velocity.y) * 1.4
-        guard isHorizontal else { return false }
+        let edgeWidth: CGFloat = 32
+        let isNearBackEdge = start.x <= edgeWidth
+        let isNearForwardEdge = start.x >= view.bounds.width - edgeWidth
+        guard isNearBackEdge || isNearForwardEdge else { return false }
+        if abs(velocity.y) > abs(velocity.x) * 1.6 { return false }
 
         // Native pushed tool screens keep their local stack gesture. Main app
         // route history is only handled here when the visible stack is route-owned.
@@ -781,11 +843,11 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
             return false
         }
 
-        if start.x <= edgeWidth, velocity.x > 0, router.canGoBack {
+        if isNearBackEdge, router.canGoBack {
             activeHistorySwipeDirection = .back
             return true
         }
-        if start.x >= view.bounds.width - edgeWidth, velocity.x < 0, router.canGoForward {
+        if isNearForwardEdge, router.canGoForward {
             activeHistorySwipeDirection = .forward
             return true
         }

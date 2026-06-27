@@ -68,6 +68,20 @@ final class Router {
         notify(route, kind: .replace)
     }
 
+    @discardableResult
+    func navigate(path: String, hostTabIndex: Int? = nil) -> Bool {
+        guard let route = Route(path: path) else { return false }
+        navigate(route, hostTabIndex: hostTabIndex)
+        return true
+    }
+
+    @discardableResult
+    func replace(path: String, hostTabIndex: Int? = nil) -> Bool {
+        guard let route = Route(path: path) else { return false }
+        replace(route, hostTabIndex: hostTabIndex)
+        return true
+    }
+
     func sync(_ route: Route, hostTabIndex: Int? = nil) {
         guard route != currentRoute else { return }
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))

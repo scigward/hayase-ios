@@ -155,15 +155,17 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
 
         let start = panGesture.location(in: view)
         let velocity = panGesture.velocity(in: view)
-        let edgeWidth: CGFloat = 28
-        let isHorizontal = abs(velocity.x) > abs(velocity.y) * 1.4
-        guard isHorizontal else { return false }
+        let edgeWidth: CGFloat = 32
+        let isNearBackEdge = start.x <= edgeWidth
+        let isNearForwardEdge = start.x >= view.bounds.width - edgeWidth
+        guard isNearBackEdge || isNearForwardEdge else { return false }
+        if abs(velocity.y) > abs(velocity.x) * 1.6 { return false }
 
-        if start.x <= edgeWidth, velocity.x > 0, viewControllers.count > 1 {
+        if isNearBackEdge, viewControllers.count > 1 {
             activeHistorySwipeDirection = .back
             return true
         }
-        if start.x >= view.bounds.width - edgeWidth, velocity.x < 0, !forwardViewControllers.isEmpty {
+        if isNearForwardEdge, !forwardViewControllers.isEmpty {
             activeHistorySwipeDirection = .forward
             return true
         }
