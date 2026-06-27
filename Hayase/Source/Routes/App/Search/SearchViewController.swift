@@ -84,7 +84,7 @@ class SearchViewController: UIViewController {
     private var leftStack:     UIStackView!  // vertical: title label + search input
     private var titleLabel:    UILabel!
     private var searchInputRow: UIView!
-    private var searchField:   UITextField!
+    private var searchField:   HayaseTextInput!
     private var rightButtons:  UIStackView!  // horizontal: camera + bolt
     private var cameraButton:  UIButton!
     private var boltButton:    UIButton!
@@ -106,7 +106,7 @@ class SearchViewController: UIViewController {
 
     // min-w-44 = 176pt; panel height = label(20)+gap(4)+picker(36)+padding(24) = 84pt
     private static let filterItemMinWidth: CGFloat = 176
-    private static let filterPanelHeight: CGFloat = 84
+    private static let filterPanelHeight: CGFloat = 80
     private static let regularHorizontalInset: CGFloat = 40
     private static let regularActionWidth: CGFloat = 104
 
@@ -309,31 +309,8 @@ class SearchViewController: UIViewController {
         searchInputRow = UIView()
         searchInputRow.translatesAutoresizingMaskIntoConstraints = false
 
-        searchField = UITextField()
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.backgroundColor = Self.bgBackground
-        searchField.layer.cornerRadius = 8
-        searchField.layer.masksToBounds = true
-        searchField.borderStyle = .none
-        searchField.attributedPlaceholder = NSAttributedString(
-            string: "Any",
-            attributes: [.foregroundColor: Self.mutedFg.withAlphaComponent(0.5)])
-        searchField.textColor = .white
-        searchField.font = .nunito(ofSize: 15)
-        let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
-        let iconImageView = UIImageView(
-            image: UIImage.hayaseIcon("search")?
-                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)))
-        iconImageView.tintColor = Self.mutedFg.withAlphaComponent(0.5)
-        iconImageView.contentMode = .center
-        iconImageView.frame = iconContainer.bounds
-        iconContainer.addSubview(iconImageView)
-        searchField.leftView = iconContainer
-        searchField.leftViewMode = .always
+        searchField = HayaseTextInput(placeholder: "Any", iconName: "search")
         searchField.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
-        searchField.returnKeyType = .search
-        searchField.autocorrectionType = .no
-        searchField.autocapitalizationType = .none
         searchInputRow.addSubview(searchField)
         NSLayoutConstraint.activate([
             searchField.topAnchor.constraint(equalTo: searchInputRow.topAnchor),
@@ -348,28 +325,13 @@ class SearchViewController: UIViewController {
         leftStack.translatesAutoresizingMaskIntoConstraints = false
         leftStack.axis = .vertical; leftStack.spacing = 4; leftStack.alignment = .fill
 
-        // Camera button (FileImage) — border-0 outline icon button
-        cameraButton = UIButton(type: .system)
-        cameraButton.setImage(
-            UIImage.hayaseIcon("image")?
-                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
-            for: .normal)
-        cameraButton.tintColor = Self.mutedFg
-        cameraButton.translatesAutoresizingMaskIntoConstraints = false
-        cameraButton.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        cameraButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        // Camera button (FileImage) — interface Button variant=outline size=icon border-0.
+        cameraButton = HayaseIconButton(iconName: "file-image", pointSize: 16)
         cameraButton.addTarget(self, action: #selector(cameraTapped), for: .touchUpInside)
 
-        // Bolt toggle — md:hidden in Hayase (only on mobile)
-        boltButton = UIButton(type: .system)
-        boltButton.setImage(
-            UIImage.hayaseIcon("sliders-horizontal")?
-                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
-            for: .normal)
+        // Bolt toggle — md:hidden in interface (only on compact screens).
+        boltButton = HayaseIconButton(iconName: "bolt", pointSize: 18)
         boltButton.tintColor = Self.mutedFg
-        boltButton.translatesAutoresizingMaskIntoConstraints = false
-        boltButton.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        boltButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
         boltButton.addTarget(self, action: #selector(boltTapped), for: .touchUpInside)
 
         // Right buttons: gap-4, items-end
@@ -601,7 +563,15 @@ class SearchViewController: UIViewController {
         if indexPath.item < 4 {
             width = floor(usableWidth / 4)
         } else {
-            width = floor((usableWidth - Self.regularActionWidth) / 4)
+            let secondRowFilterCount = visibleHeaderItems
+                .dropFirst(4)
+                .filter {
+                    if case .actions = $0 { return false }
+                    return true
+                }
+                .count
+            let divisor = CGFloat(max(1, secondRowFilterCount))
+            width = floor((usableWidth - Self.regularActionWidth) / divisor)
         }
         return CGSize(width: max(Self.filterItemMinWidth, width), height: Self.filterPanelHeight)
     }
@@ -1225,7 +1195,7 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
     var onTextChanged: ((String) -> Void)?
 
     private let titleLabel = UILabel()
-    private let searchField = UITextField()
+    private let searchField = HayaseTextInput(placeholder: "Any", iconName: "search")
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1246,31 +1216,8 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
         titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.backgroundColor = UIColor.HayaseTheme.muted
-        searchField.layer.cornerRadius = 6
-        searchField.layer.masksToBounds = true
-        searchField.borderStyle = .none
-        searchField.textColor = UIColor.HayaseTheme.foreground
-        searchField.font = .nunito(ofSize: 14, weight: .regular)
-        searchField.returnKeyType = .search
-        searchField.autocorrectionType = .no
-        searchField.autocapitalizationType = .none
-        searchField.attributedPlaceholder = NSAttributedString(
-            string: "Any",
-            attributes: [.foregroundColor: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)])
         searchField.delegate = self
         searchField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
-
-        let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
-        let iconView = UIImageView(image: UIImage.hayaseIcon("search")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)))
-        iconView.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
-        iconView.contentMode = .center
-        iconView.frame = iconContainer.bounds
-        iconContainer.addSubview(iconView)
-        searchField.leftView = iconContainer
-        searchField.leftViewMode = .always
 
         contentView.addSubview(titleLabel)
         contentView.addSubview(searchField)
@@ -1309,8 +1256,8 @@ private final class SearchActionItemCell: UICollectionViewCell {
     var onImageTapped: (() -> Void)?
     var onClearTapped: (() -> Void)?
 
-    private let imageButton = UIButton(type: .system)
-    private let clearButton = UIButton(type: .system)
+    private let imageButton = HayaseIconButton(iconName: "file-image", pointSize: 16)
+    private let clearButton = HayaseIconButton(iconName: "trash", pointSize: 16)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1327,23 +1274,8 @@ private final class SearchActionItemCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
 
         [imageButton, clearButton].forEach { button in
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.backgroundColor = UIColor.HayaseTheme.muted
-            button.layer.cornerRadius = 6
-            button.tintColor = UIColor.HayaseTheme.foreground
             contentView.addSubview(button)
-            NSLayoutConstraint.activate([
-                button.widthAnchor.constraint(equalToConstant: 36),
-                button.heightAnchor.constraint(equalToConstant: 36),
-            ])
         }
-
-        imageButton.setImage(UIImage.hayaseIcon("file-image")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
-            for: .normal)
-        clearButton.setImage(UIImage.hayaseIcon("trash")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
-            for: .normal)
 
         imageButton.addTarget(self, action: #selector(imageTapped), for: .touchUpInside)
         clearButton.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
@@ -1378,9 +1310,7 @@ private final class SearchFilterItemCell: UICollectionViewCell {
     static let reuseID = "SearchFilterItemCell"
 
     private let titleLabel = UILabel()
-    private let buttonShell = UIView()
-    private let valueLabel = UILabel()
-    private let chevronView = UIImageView()
+    private let comboBox = HayaseComboBoxControl()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1400,56 +1330,25 @@ private final class SearchFilterItemCell: UICollectionViewCell {
         titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        buttonShell.backgroundColor = UIColor.HayaseTheme.muted
-        buttonShell.layer.cornerRadius = 6
-        buttonShell.layer.borderWidth = 0
-        buttonShell.layer.borderColor = UIColor.clear.cgColor
-        buttonShell.isUserInteractionEnabled = false
-        buttonShell.translatesAutoresizingMaskIntoConstraints = false
-
-        valueLabel.font = .nunito(ofSize: 14, weight: .regular)
-        valueLabel.numberOfLines = 1
-        valueLabel.lineBreakMode = .byTruncatingTail
-        valueLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        chevronView.image = UIImage.hayaseIcon("chevrons-up-down")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular))
-        chevronView.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.65)
-        chevronView.contentMode = .scaleAspectFit
-        chevronView.translatesAutoresizingMaskIntoConstraints = false
+        comboBox.isUserInteractionEnabled = false
 
         contentView.addSubview(titleLabel)
-        contentView.addSubview(buttonShell)
-        buttonShell.addSubview(valueLabel)
-        buttonShell.addSubview(chevronView)
+        contentView.addSubview(comboBox)
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
             titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
 
-            buttonShell.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-            buttonShell.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            buttonShell.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-            buttonShell.heightAnchor.constraint(equalToConstant: 36),
-
-            valueLabel.leadingAnchor.constraint(equalTo: buttonShell.leadingAnchor, constant: 12),
-            valueLabel.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -8),
-            valueLabel.centerYAnchor.constraint(equalTo: buttonShell.centerYAnchor),
-
-            chevronView.trailingAnchor.constraint(equalTo: buttonShell.trailingAnchor, constant: -10),
-            chevronView.centerYAnchor.constraint(equalTo: buttonShell.centerYAnchor),
-            chevronView.widthAnchor.constraint(equalToConstant: 16),
-            chevronView.heightAnchor.constraint(equalToConstant: 16),
+            comboBox.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            comboBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            comboBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
         ])
     }
 
     func configure(type: SearchFilterType, title: String, placeholder: Bool) {
         titleLabel.text = type.label
-        valueLabel.text = title
-        valueLabel.textColor = placeholder
-            ? UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
-            : UIColor.HayaseTheme.foreground
+        comboBox.configure(text: title, placeholder: placeholder)
     }
 }
 
