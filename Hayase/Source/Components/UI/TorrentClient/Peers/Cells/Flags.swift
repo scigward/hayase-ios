@@ -82,10 +82,10 @@ final class PeerFlagsCellContent: UIView {
 
     private static func tint(for flag: TorrentClientPeerRow.Flag) -> UIColor {
         switch flag {
-        case .incoming: return .systemGreen
-        case .outgoing: return .systemBlue
-        case .utp: return .systemPurple
-        case .encrypted: return .systemYellow
+        case .incoming: return TorrentClientStyle.green500
+        case .outgoing: return TorrentClientStyle.blue500
+        case .utp: return TorrentClientStyle.purple500
+        case .encrypted: return TorrentClientStyle.yellow500
         }
     }
 

@@ -6,7 +6,6 @@
 //
 
 import UIKit
-import LibTorrent
 
 final class PeerInfoCell: UITableViewCell {
     static let reuseID = "PeerInfoCell"
@@ -103,10 +102,6 @@ final class PeerInfoCell: UITableViewCell {
         uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(row.uploaded)
         countryView.configure(ip: row.ip)
         flagsView.configure(flags: row.flags)
-    }
-
-    func configure(peer: PeerInfo) {
-        configure(row: TorrentClientPeerRow(peer: peer))
     }
 
     func configure(peer: WebTorrentPeerInfo) {

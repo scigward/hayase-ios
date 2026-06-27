@@ -27,9 +27,17 @@ enum TorrentClientStyle {
     static var accent: UIColor { UIColor.HayaseTheme.accent }
     static var primary: UIColor { UIColor.HayaseTheme.primary }
     static var primaryForeground: UIColor { UIColor.HayaseTheme.primaryForeground }
+    static let green500 = rgb(34, 197, 94)
+    static let blue500 = rgb(59, 130, 246)
+    static let purple500 = rgb(168, 85, 247)
+    static let yellow500 = rgb(234, 179, 8)
 
     static func isWideClientLayout(width: CGFloat) -> Bool {
         width >= 1024
+    }
+
+    private static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> UIColor {
+        UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
     }
 
     static func configureRootView(_ view: UIView) {

@@ -190,7 +190,6 @@ class DownloadsViewController: UIViewController {
 
     private let peersView = UIView()
     private var peersTableView: UITableView!
-    private var peerInfos: [PeerInfo] = []
     private enum PeerSortColumn: Int {
         case ip = 0
         case client = 1
@@ -834,25 +833,12 @@ class DownloadsViewController: UIViewController {
     }
 
     private func refreshPeers() {
-        if isWebTorrentMode {
-            globeView.setPeers(currentPeerRows())
-            peersTableView?.reloadData()
-            return
-        }
-
-        if let selectedHandle {
-            peerInfos = TorrentService.sharedTorrentService.withActiveHandle(selectedHandle, default: []) { $0.peerInfo() }
-        } else {
-            peerInfos = []
-        }
         globeView.setPeers(currentPeerRows())
         peersTableView?.reloadData()
     }
 
     private func currentPeerRows() -> [TorrentClientPeerRow] {
-        var rows = isWebTorrentMode
-            ? webPeerInfos.map(TorrentClientPeerRow.init(peer:))
-            : peerInfos.map(TorrentClientPeerRow.init(peer:))
+        var rows = isWebTorrentMode ? webPeerInfos.map(TorrentClientPeerRow.init(peer:)) : []
 
         guard let sortColumn = peersSortColumn else { return rows }
         let ascending = peersSortAscending
@@ -961,11 +947,6 @@ class DownloadsViewController: UIViewController {
         seedersValue.text  = "\(snap.numberOfSeeds)"
         leechersValue.text = "\(snap.numberOfLeechers)"
         wiresValue.text    = "\(snap.numberOfPeers)"
-        if let selectedHandle {
-            peerInfos = TorrentService.sharedTorrentService.withActiveHandle(selectedHandle, default: []) { $0.peerInfo() }
-        } else {
-            peerInfos = []
-        }
         globeView.setPeers(currentPeerRows())
 
         // Protocol status dots
@@ -2137,7 +2118,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             return cell
         } else if tableView === trackersTableView {
             if webTrackerRows.isEmpty {
-                return emptyTableCell(text: isWebTorrentMode ? "Loading..." : "Trackers are only available for WebTorrent." )
+                return emptyTableCell(text: "Loading...")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: TrackerStatusCell.reuseID, for: indexPath) as? TrackerStatusCell else { return UITableViewCell() }

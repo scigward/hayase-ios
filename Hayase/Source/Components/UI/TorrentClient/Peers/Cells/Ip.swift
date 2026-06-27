@@ -52,6 +52,6 @@ final class PeerIpCellContent: UIView {
 
     func configure(ip: String, isSeeder: Bool) {
         label.text = ip
-        dotView.backgroundColor = isSeeder ? .systemGreen : .systemBlue
+        dotView.backgroundColor = isSeeder ? TorrentClientStyle.green500 : TorrentClientStyle.blue500
     }
 }

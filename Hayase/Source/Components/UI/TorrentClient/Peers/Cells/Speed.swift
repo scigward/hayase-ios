@@ -21,8 +21,8 @@ final class PeerSpeedCellContent: UIView {
 
         var tint: UIColor {
             switch self {
-            case .download: return .systemGreen
-            case .upload: return .systemBlue
+            case .download: return TorrentClientStyle.green500
+            case .upload: return TorrentClientStyle.blue500
             }
         }
     }

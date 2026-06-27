@@ -21,11 +21,7 @@ require_command() {
 }
 
 run_pnpm() {
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm "$@"
-  else
-    corepack pnpm "$@"
-  fi
+  COREPACK_ENABLE_PROJECT_SPEC=0 corepack "pnpm@${PNPM_VERSION}" "$@"
 }
 
 require_command node
@@ -106,7 +102,7 @@ window.HayaseGlobe = {
 start()
 EOF
 
-corepack prepare "pnpm@${PNPM_VERSION}" --activate
+export COREPACK_ENABLE_PROJECT_SPEC=0
 
 (
   cd "${BUILD_DIR}"
