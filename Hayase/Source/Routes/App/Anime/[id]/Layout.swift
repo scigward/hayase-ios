@@ -928,6 +928,7 @@ final class AnimeInfoHeaderView: UIView {
                       format:   item.format,
                       season:   seasonStr,
                       duration: item.duration,
+                      progress: item.mediaListEntry?.progress,
                       accent:   accent,
                       contrastColor: contrast)
 
@@ -980,14 +981,18 @@ final class AnimeInfoHeaderView: UIView {
 
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
                                 nextEp: Int?, format: String?, season: String?,
-                                duration: Int? = nil,
+                                duration: Int? = nil, progress: Int? = nil,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let badge1Text: String
         if let eps = episodes, eps > 1 {
-            badge1Text = "\(eps) Episodes"
+            if let progress, progress > 0, progress != eps {
+                badge1Text = "\(progress) / \(eps) Episodes"
+            } else {
+                badge1Text = "\(eps) Episodes"
+            }
         } else if let dur = duration, dur > 0 {
             badge1Text = "\(dur) Minute\(dur > 1 ? "s" : "")"
         } else {
@@ -1611,14 +1616,38 @@ class AnimeDetailViewController: UIViewController {
 
     // MARK: - AniList progress & button state
 
+    private func updateAnimeItemListEntry(_ entry: AnimeItem.MediaListEntry?, fallbackProgress: Int? = nil) {
+        guard var item = animeItem else { return }
+        if let entry {
+            item.mediaListEntry = entry
+            anilistProgress = entry.progress
+        } else if let fallbackProgress {
+            let existing = item.mediaListEntry
+            item.mediaListEntry = AnimeItem.MediaListEntry(
+                listID: existing?.listID ?? 0,
+                status: existing?.status,
+                progress: fallbackProgress,
+                score: existing?.score ?? 0,
+                repeatCount: existing?.repeatCount ?? 0,
+                customLists: existing?.customLists ?? [])
+            anilistProgress = fallbackProgress
+        } else {
+            item.mediaListEntry = nil
+            anilistProgress = 0
+        }
+        animeItem = item
+        headerView?.updateAnimePageDetails(with: item)
+    }
+
     func fetchAniListProgress() {
         guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
         AniListTracking.shared.fetchProgress(anilistID: id) { [weak self] progress in
             guard let self = self else { return }
             let newProgress = progress ?? 0
             DispatchQueue.main.async {
-                guard self.anilistProgress != newProgress else { return }
-                self.anilistProgress = newProgress
+                if self.anilistProgress != newProgress {
+                    self.updateAnimeItemListEntry(nil, fallbackProgress: newProgress)
+                }
                 if newProgress > 0 {
                     let desiredPage = newProgress / self.episodesPerPage + 1
                     self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
@@ -1641,6 +1670,7 @@ class AnimeDetailViewController: UIViewController {
             DispatchQueue.main.async {
                 self?.isOnList = entry != nil
                 self?.currentListStatus = entry?.status
+                self?.updateAnimeItemListEntry(entry)
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
                 self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
