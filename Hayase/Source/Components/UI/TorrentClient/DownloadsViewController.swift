@@ -480,6 +480,7 @@ class DownloadsViewController: UIViewController {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         TorrentClientStyle.configurePlainContentView(tabBarContainer)
         TorrentClientStyle.configurePlainContentView(containerView)
+        [tabBarContainer, containerView, bodyStackView].forEach { $0.isOpaque = false }
         bodyStackView.addArrangedSubview(tabBarContainer)
         bodyStackView.addArrangedSubview(containerView)
         view.addSubview(bodyStackView)
@@ -522,6 +523,7 @@ class DownloadsViewController: UIViewController {
     private func installTabPages() {
         for tabView in tabContentViews {
             guard tabView.superview == nil else { continue }
+            tabView.isOpaque = false
             tabView.translatesAutoresizingMaskIntoConstraints = false
             tabView.isHidden = true
             containerView.addSubview(tabView)
@@ -1208,6 +1210,7 @@ class DownloadsViewController: UIViewController {
 
     private func buildOverviewUI() {
         overviewScrollView.backgroundColor = .clear
+        overviewScrollView.isOpaque = false
         overviewScrollView.translatesAutoresizingMaskIntoConstraints = false
         [downloadedValue, uploadedValue, totalSizeValue, piecesValue,
          downSpeedValue, upSpeedValue, etaValue, elapsedValue,

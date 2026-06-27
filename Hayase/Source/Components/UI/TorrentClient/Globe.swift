@@ -12,6 +12,7 @@ final class Globe: UIView {
     private let webView: WKWebView
     private let markerQueue = DispatchQueue(label: "app.hayase.torrentclient.globe.markers", qos: .utility)
     private var isLoaded = false
+    private var hasStartedLoading = false
     private var pendingMarkersJSON: String?
     private var pendingSize: CGFloat = 400
     private var markerGeneration = 0
@@ -56,7 +57,17 @@ final class Globe: UIView {
             webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        loadRenderer()
+        startLoadingIfNeeded()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        startLoadingIfNeeded()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        startLoadingIfNeeded()
     }
 
     func setViewportWidth(_ width: CGFloat) {
@@ -117,15 +128,26 @@ final class Globe: UIView {
         return (value - min) / denominator
     }
 
+    private func startLoadingIfNeeded() {
+        guard !hasStartedLoading, window != nil, bounds.width > 1, bounds.height > 1 else { return }
+        hasStartedLoading = true
+        loadRenderer()
+    }
+
     private func loadRenderer() {
         guard let htmlURL = Bundle.main.url(forResource: "globe",
                                             withExtension: "html",
-                                            subdirectory: "TorrentClientGlobe")
-            ?? Bundle.main.url(forResource: "globe", withExtension: "html") else {
+                                            subdirectory: "TorrentClientGlobe") else {
             isHidden = true
             return
         }
         webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+    }
+
+    private func reloadRenderer() {
+        isLoaded = false
+        hasStartedLoading = false
+        startLoadingIfNeeded()
     }
 
     private func evaluate(_ script: String) {
@@ -145,5 +167,19 @@ extension Globe: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoaded = true
         flushPendingState()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        isLoaded = false
+        isHidden = true
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        isLoaded = false
+        isHidden = true
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        reloadRenderer()
     }
 }
