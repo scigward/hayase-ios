@@ -388,11 +388,9 @@ extension AnimeDetailViewController {
         guard let anilistId = id else { return }
 
         AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
-            guard let self = self else { return }
+            guard let self = self, !rels.isEmpty else { return }
             self.relations = rels
-            if !rels.isEmpty {
-                self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
-            }
+            self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
         }
 
         if animeItem == nil || animeItem?.trailerYouTubeID == nil || animeItem?.malId == nil {

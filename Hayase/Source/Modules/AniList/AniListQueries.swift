@@ -285,7 +285,7 @@ enum AniListQueries {
       Media(id: $id, type: ANIME) {
         id
         idMal
-        title { english romaji }
+        title { english romaji native userPreferred }
         coverImage { large medium color }
         bannerImage
         averageScore
@@ -301,12 +301,13 @@ enum AniListQueries {
         trailer { id site }
         description(asHtml: false)
         synonyms
+        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
         relations {
           edges {
             relationType
             node {
               id
-              title { english romaji }
+              title { english romaji native userPreferred }
               coverImage { large medium color }
               averageScore
               episodes
@@ -361,14 +362,14 @@ enum AniListQueries {
         averageScore
         genres
         isFavourite
-        coverImage { extraLarge large medium color }
+        coverImage { extraLarge medium color }
         source
         countryOfOrigin
         isAdult
         bannerImage
         synonyms
         nextAiringEpisode { id timeUntilAiring episode }
-        startDate { year }
+        startDate { year month day }
         trailer { id site }
         tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
         mediaListEntry { id status progress repeat score(format: POINT_10) }
@@ -378,14 +379,28 @@ enum AniListQueries {
             node {
               id
               title { userPreferred romaji english native }
-              coverImage { extraLarge large medium color }
+              coverImage { extraLarge medium color }
               type
               status
               format
               episodes
+              synonyms
               season
               seasonYear
-              startDate { year }
+              startDate { year month day }
+              relations {
+                edges {
+                  relationType(version: 2)
+                  node {
+                    id
+                    title { userPreferred }
+                    type
+                    status
+                    format
+                    episodes
+                  }
+                }
+              }
             }
           }
         }
@@ -396,14 +411,112 @@ enum AniListQueries {
             mediaRecommendation {
               id
               title { userPreferred romaji english native }
-              coverImage { extraLarge large medium color }
+              coverImage { extraLarge medium color }
               type
               status
               format
               episodes
+              synonyms
               season
               seasonYear
-              startDate { year }
+              startDate { year month day }
+              mediaListEntry { id status progress repeat score(format: POINT_10) }
+            }
+          }
+        }
+      }
+      threads: Page(perPage: 16) {
+        pageInfo { hasNextPage total }
+        threads(mediaCategoryId: $id, sort: ID_DESC) {
+          id
+          title
+          viewCount
+          replyCount
+          likeCount
+          isLocked
+          repliedAt
+          createdAt
+          user { id name avatar { large } }
+          categories { id name }
+        }
+      }
+    }
+    """
+
+    static let animePageWithFollowing = """
+    query AnimePage($id: Int!) {
+      Media(id: $id, type: ANIME) {
+        id
+        idMal
+        title { romaji english native userPreferred }
+        description(asHtml: false)
+        season
+        seasonYear
+        format
+        status
+        episodes
+        duration
+        averageScore
+        genres
+        isFavourite
+        coverImage { extraLarge medium color }
+        source
+        countryOfOrigin
+        isAdult
+        bannerImage
+        synonyms
+        nextAiringEpisode { id timeUntilAiring episode }
+        startDate { year month day }
+        trailer { id site }
+        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
+        mediaListEntry { id status progress repeat score(format: POINT_10) }
+        relations {
+          edges {
+            relationType(version: 2)
+            node {
+              id
+              title { userPreferred romaji english native }
+              coverImage { extraLarge medium color }
+              type
+              status
+              format
+              episodes
+              synonyms
+              season
+              seasonYear
+              startDate { year month day }
+              relations {
+                edges {
+                  relationType(version: 2)
+                  node {
+                    id
+                    title { userPreferred }
+                    type
+                    status
+                    format
+                    episodes
+                  }
+                }
+              }
+            }
+          }
+        }
+        recommendations(sort: [RATING_DESC, ID], perPage: 24) {
+          nodes {
+            id
+            rating
+            mediaRecommendation {
+              id
+              title { userPreferred romaji english native }
+              coverImage { extraLarge medium color }
+              type
+              status
+              format
+              episodes
+              synonyms
+              season
+              seasonYear
+              startDate { year month day }
               mediaListEntry { id status progress repeat score(format: POINT_10) }
             }
           }
@@ -427,8 +540,9 @@ enum AniListQueries {
           replyCount
           likeCount
           isLocked
+          repliedAt
           createdAt
-          user { name avatar { large } }
+          user { id name avatar { large } }
           categories { id name }
         }
       }

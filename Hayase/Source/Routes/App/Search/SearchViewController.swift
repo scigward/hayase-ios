@@ -99,6 +99,7 @@ class SearchViewController: UIViewController {
     private var chipsLeadingConstraint: NSLayoutConstraint!
     private var chipsTrailingConstraint: NSLayoutConstraint!
     private var lastChipLayoutWidth: CGFloat = 0
+    private var lastFilterLayoutSignature: String?
 
     private var collectionView:    UICollectionView!
     private var loadingIndicator:  UIActivityIndicatorView!
@@ -563,6 +564,20 @@ class SearchViewController: UIViewController {
             layout.invalidateLayout()
         }
 
+        let signature = [
+            regular ? "regular" : "compact",
+            visible ? "visible" : "hidden",
+            visibleHeaderItems.map { item in
+                switch item {
+                case .title: return "title"
+                case .actions: return "actions"
+                case .filter(let type): return "filter:\(type.rawValue)"
+                }
+            }.joined(separator: ",")
+        ].joined(separator: "|")
+        let shouldReloadFilters = signature != lastFilterLayoutSignature
+        lastFilterLayoutSignature = signature
+
         let rows: CGFloat
         if !visible {
             rows = 0
@@ -574,7 +589,9 @@ class SearchViewController: UIViewController {
         filterCollectionView.isScrollEnabled = !regular
         filterRowHeightConstraint.constant = rows * Self.filterPanelHeight
         boltButton.isHidden = regular
-        filterCollectionView.reloadData()
+        if shouldReloadFilters {
+            filterCollectionView.reloadData()
+        }
 
         let updates = {
             self.headerView.layoutIfNeeded()

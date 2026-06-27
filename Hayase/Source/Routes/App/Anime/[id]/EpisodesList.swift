@@ -95,7 +95,7 @@ final class FollowerAvatarStackView: UIStackView {
 
 // MARK: - EpisodeCardView
 
-final class EpisodeCardView: UIView {
+final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     var onTap: ((Int) -> Void)?
     private var episodeNumber: Int = 0
@@ -321,15 +321,23 @@ final class EpisodeCardView: UIView {
         ])
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
         addGestureRecognizer(tap)
         let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
         press.minimumPressDuration = 0
         press.cancelsTouchesInView = false
+        press.delegate = self
         addGestureRecognizer(press)
     }
 
     @objc private func cardTapped() {
         onTap?(episodeNumber)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
     }
 
     @objc private func pressChanged(_ recognizer: UILongPressGestureRecognizer) {
@@ -580,6 +588,10 @@ final class EpisodePairCell: UITableViewCell {
     private let stack = UIStackView()
     private let leftContainer = UIView()
     private let rightContainer = UIView()
+    private var leftCardLeadingConstraint: NSLayoutConstraint?
+    private var leftCardTrailingConstraint: NSLayoutConstraint?
+    private var rightCardLeadingConstraint: NSLayoutConstraint?
+    private var rightCardTrailingConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -613,6 +625,11 @@ final class EpisodePairCell: UITableViewCell {
         stack.addArrangedSubview(rightContainer)
         contentView.addSubview(stack)
 
+        leftCardLeadingConstraint = leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12)
+        leftCardTrailingConstraint = leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12)
+        rightCardLeadingConstraint = rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12)
+        rightCardTrailingConstraint = rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12)
+
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
@@ -620,12 +637,12 @@ final class EpisodePairCell: UITableViewCell {
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
             leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
             leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
-            leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12),
-            leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12),
+            leftCardLeadingConstraint!,
+            leftCardTrailingConstraint!,
             rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
             rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
-            rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12),
-            rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12),
+            rightCardLeadingConstraint!,
+            rightCardTrailingConstraint!,
         ])
     }
 
@@ -635,17 +652,31 @@ final class EpisodePairCell: UITableViewCell {
         leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            followers: followersByEpisode[left.number] ?? [])
+        applyTargetPadding(toLeftCard: true, isTarget: !isListCompleted && left.number == anilistProgress + 1)
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
         if let right = right {
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
                                 accentColor: accentColor, isListCompleted: isListCompleted,
                                 followers: followersByEpisode[right.number] ?? [])
+            applyTargetPadding(toLeftCard: false, isTarget: !isListCompleted && right.number == anilistProgress + 1)
             rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
             rightContainer.isHidden = false
         } else {
             rightCard.reset()
+            applyTargetPadding(toLeftCard: false, isTarget: false)
             rightContainer.isHidden = true
+        }
+    }
+
+    private func applyTargetPadding(toLeftCard: Bool, isTarget: Bool) {
+        let inset: CGFloat = isTarget ? 0 : 12
+        if toLeftCard {
+            leftCardLeadingConstraint?.constant = inset
+            leftCardTrailingConstraint?.constant = -inset
+        } else {
+            rightCardLeadingConstraint?.constant = inset
+            rightCardTrailingConstraint?.constant = -inset
         }
     }
 
@@ -654,6 +685,8 @@ final class EpisodePairCell: UITableViewCell {
         leftCard.reset()
         rightCard.reset()
         rightContainer.isHidden = false
+        applyTargetPadding(toLeftCard: true, isTarget: false)
+        applyTargetPadding(toLeftCard: false, isTarget: false)
         onTapEpisode = nil
     }
 }

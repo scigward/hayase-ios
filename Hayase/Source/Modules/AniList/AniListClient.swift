@@ -695,9 +695,11 @@ public final class AniListClient: NSObject {
             return
         }
 
+        let canFetchFollowing = TrackerAccountManager.shared.isLoggedIn(.anilist)
+            && TrackerAccountManager.shared.token(for: .anilist) != nil
         var request = authorizedRequest(url: url)
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": AniListQueries.animePage,
+            "query": canFetchFollowing ? AniListQueries.animePageWithFollowing : AniListQueries.animePage,
             "variables": ["id": id]
         ])
 
@@ -713,6 +715,12 @@ public final class AniListClient: NSObject {
                     completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
                 }
                 return
+            }
+            if let errors = json["errors"] as? [[String: Any]] {
+                let messages = errors.compactMap { $0["message"] as? String }
+                if !messages.isEmpty {
+                    NSLog("[AniListClient] AnimePage GraphQL errors: %@", messages.joined(separator: ", "))
+                }
             }
 
             let mediaObject = dataObject["Media"] as? [String: Any]
@@ -760,11 +768,10 @@ public final class AniListClient: NSObject {
     }
 
     private func parseFollowingEntries(from page: [String: Any]?) -> [AniListFollowingEntry] {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              let rawID = TrackerAccountManager.shared.viewer(for: .anilist)?.id,
+              let viewerID = Int(rawID) else { return [] }
         let entries = page?["mediaList"] as? [[String: Any]] ?? []
-        let viewerID: Int? = {
-            guard let rawID = TrackerAccountManager.shared.viewer(for: .anilist)?.id else { return nil }
-            return Int(rawID)
-        }()
         return entries.compactMap { entry in
             guard let progress = entry["progress"] as? Int,
                   let user = entry["user"] as? [String: Any],
