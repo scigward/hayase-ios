@@ -27,6 +27,12 @@ private struct TraceMoeHit: Decodable {
     let anilist: Int
 }
 
+private enum SearchHeaderItem {
+    case title
+    case filter(SearchFilterType)
+    case actions
+}
+
 // MARK: - SearchViewController
 
 class SearchViewController: UIViewController {
@@ -87,6 +93,7 @@ class SearchViewController: UIViewController {
     private var filterRowVisible = false
     private var filterCollectionView: UICollectionView!
     private var filterRowHeightConstraint: NSLayoutConstraint!
+    private var titleRowSpacerHeightConstraint: NSLayoutConstraint!
 
     // Active chips (wrapping frame layout, min-h-9)
     private var chipsContainer:     UIView!
@@ -100,6 +107,8 @@ class SearchViewController: UIViewController {
     // min-w-44 = 176pt; panel height = label(20)+gap(4)+picker(36)+padding(24) = 84pt
     private static let filterItemMinWidth: CGFloat = 176
     private static let filterPanelHeight: CGFloat = 84
+    private static let regularHorizontalInset: CGFloat = 40
+    private static let regularActionWidth: CGFloat = 104
 
     // Pending prefill from Home page
     private var pendingPrefill: (genre: String?, sort: String?)?
@@ -382,6 +391,8 @@ class SearchViewController: UIViewController {
             titleRowStack.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
             titleRowStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
         ])
+        titleRowSpacerHeightConstraint = titleRowStack.heightAnchor.constraint(equalToConstant: 20)
+        titleRowSpacerHeightConstraint.isActive = false
     }
 
     // MARK: - Filter Row
@@ -404,6 +415,10 @@ class SearchViewController: UIViewController {
         filterCollectionView.delegate = self
         filterCollectionView.register(SearchFilterItemCell.self,
                                       forCellWithReuseIdentifier: SearchFilterItemCell.reuseID)
+        filterCollectionView.register(SearchTitleItemCell.self,
+                                      forCellWithReuseIdentifier: SearchTitleItemCell.reuseID)
+        filterCollectionView.register(SearchActionItemCell.self,
+                                      forCellWithReuseIdentifier: SearchActionItemCell.reuseID)
         headerView.addSubview(filterCollectionView)
 
         filterRowHeightConstraint = filterCollectionView.heightAnchor.constraint(equalToConstant: 0)
@@ -453,22 +468,68 @@ class SearchViewController: UIViewController {
     }
 
     @objc private func searchFieldChanged(_ field: UITextField) {
-        let query = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        handleSearchTextChanged(field.text ?? "")
+    }
+
+    @objc private func clearTapped() {
+        clearSearchState()
+    }
+
+    private func handleSearchTextChanged(_ text: String) {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if searchField.text != text { searchField.text = text }
         debounceTimer?.invalidate()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in
             guard let self = self, query != self.currentTitle else { return }
-            self.currentTitle = query; self.fetchResults(reset: true)
+            self.currentTitle = query
+            self.fetchResults(reset: true)
         }
+    }
+
+    private func clearSearchState() {
+        selectedGenres = []
+        selectedTags = []
+        selectedYear = nil
+        selectedSeason = nil
+        selectedFormats = []
+        selectedStatuses = []
+        selectedSort = nil
+        selectedOnList = nil
+        traceIds = nil
+        currentTitle = ""
+        searchField.text = ""
+        debounceTimer?.invalidate()
+        rebuildActiveChipEntries()
+        refreshFilterPickers()
+        rebuildActiveChips()
+        updateBoltTint()
+        fetchResults(reset: true)
+    }
+
+    private var hasAnySearchState: Bool {
+        !currentTitle.isEmpty || !selectedGenres.isEmpty || !selectedTags.isEmpty
+            || selectedYear != nil || selectedSeason != nil
+            || !selectedFormats.isEmpty || !selectedStatuses.isEmpty
+            || selectedSort != nil || selectedOnList != nil || traceIds != nil
     }
 
     // MARK: - Responsive Filters
 
+    private var shouldShowOnListFilter: Bool {
+        TrackerAccountManager.shared.isLoggedIn(.anilist)
+            || TrackerAccountManager.shared.token(for: .anilist) != nil
+    }
+
     private var visibleFilterTypes: [SearchFilterType] {
         var types: [SearchFilterType] = [.genres, .year, .season, .format, .status, .sort]
-        if TrackerAccountManager.shared.isLoggedIn(.anilist) {
-            types.append(.onList)
-        }
+        if shouldShowOnListFilter { types.append(.onList) }
         return types
+    }
+
+    private var visibleHeaderItems: [SearchHeaderItem] {
+        let filters = visibleFilterTypes.map(SearchHeaderItem.filter)
+        guard isRegularSearchLayout() else { return filters }
+        return [.title] + filters + [.actions]
     }
 
     private func isRegularSearchLayout(width: CGFloat? = nil) -> Bool {
@@ -482,14 +543,21 @@ class SearchViewController: UIViewController {
         let regular = isRegularSearchLayout(width: width)
         let visible = regular || filterRowVisible
 
+        leftStack.isHidden = regular
+        rightButtons.isHidden = regular
+        titleRowSpacerHeightConstraint.isActive = regular
+        titleRowStack.layoutMargins = regular
+            ? UIEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)
+            : UIEdgeInsets(top: 20, left: 8, bottom: 8, right: 8)
+
         if let layout = filterCollectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             layout.scrollDirection = regular ? .vertical : .horizontal
             layout.minimumInteritemSpacing = 0
             layout.minimumLineSpacing = 0
             layout.sectionInset = UIEdgeInsets(top: 0,
-                                               left: regular ? 40 : 8,
+                                               left: regular ? Self.regularHorizontalInset : 8,
                                                bottom: 0,
-                                               right: regular ? 40 : 8)
+                                               right: regular ? Self.regularHorizontalInset : 8)
             layout.invalidateLayout()
         }
 
@@ -497,9 +565,7 @@ class SearchViewController: UIViewController {
         if !visible {
             rows = 0
         } else if regular {
-            let usableWidth = max(width - 80, Self.filterItemMinWidth)
-            let columns = max(1, floor(usableWidth / Self.filterItemMinWidth))
-            rows = ceil(CGFloat(visibleFilterTypes.count) / columns)
+            rows = visibleHeaderItems.count > 4 ? 2 : 1
         } else {
             rows = 1
         }
@@ -519,11 +585,25 @@ class SearchViewController: UIViewController {
         }
     }
 
-    private func filterItemWidth(for collectionView: UICollectionView) -> CGFloat {
-        guard isRegularSearchLayout() else { return Self.filterItemMinWidth }
-        let width = max(collectionView.bounds.width - 80, Self.filterItemMinWidth)
-        let columns = max(1, floor(width / Self.filterItemMinWidth))
-        return floor(width / columns)
+    private func filterItemSize(for indexPath: IndexPath, in collectionView: UICollectionView) -> CGSize {
+        guard isRegularSearchLayout() else {
+            return CGSize(width: Self.filterItemMinWidth, height: Self.filterPanelHeight)
+        }
+
+        let usableWidth = max(collectionView.bounds.width - Self.regularHorizontalInset * 2,
+                              Self.filterItemMinWidth * 2)
+        let item = visibleHeaderItems[safe: indexPath.item]
+        if case .actions? = item {
+            return CGSize(width: Self.regularActionWidth, height: Self.filterPanelHeight)
+        }
+
+        let width: CGFloat
+        if indexPath.item < 4 {
+            width = floor(usableWidth / 4)
+        } else {
+            width = floor((usableWidth - Self.regularActionWidth) / 4)
+        }
+        return CGSize(width: max(Self.filterItemMinWidth, width), height: Self.filterPanelHeight)
     }
 
     private func showFilterPicker(for type: SearchFilterType, sourceView: UIView?) {
@@ -772,24 +852,23 @@ class SearchViewController: UIViewController {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-        let cols: CGFloat = isIPad ? 4 : 2
-        let hPad: CGFloat = 16; let gap: CGFloat = 16
-        // Use view bounds if already laid out, else fall back to screen width.
-        // viewWillTransition recreates the layout after each rotation so this stays accurate.
-        let containerW = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
-        let itemWidth  = floor((containerW - hPad * 2 - gap * (cols - 1)) / cols)
-        let itemHeight = floor(itemWidth * 290.0 / 152.0)
-        let item = NSCollectionLayoutItem(
-            layoutSize: .init(widthDimension: .absolute(itemWidth), heightDimension: .absolute(itemHeight)))
-        let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(itemHeight + 8)),
-            subitems: Array(repeating: item, count: Int(cols)))
-        group.interItemSpacing = .fixed(gap)
-        let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = .init(top: 12, leading: hPad, bottom: 16, trailing: hPad)
-        section.interGroupSpacing = 0
-        return UICollectionViewCompositionalLayout(section: section)
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .vertical
+        layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 0
+        layout.itemSize = CGSize(width: AnimeCollectionViewCell.outerWidth,
+                                 height: AnimeCollectionViewCell.outerHeight)
+        return layout
+    }
+
+    private func resultSectionInsets(for width: CGFloat) -> UIEdgeInsets {
+        let horizontalPadding: CGFloat = isRegularSearchLayout(width: width) ? 28 : 0
+        let available = max(width - horizontalPadding * 2, AnimeCollectionViewCell.outerWidth)
+        let columns = max(1, floor(available / AnimeCollectionViewCell.outerWidth))
+        let used = columns * AnimeCollectionViewCell.outerWidth
+        let centeredInset = floor((width - used) / 2)
+        let inset = max(horizontalPadding, centeredInset)
+        return UIEdgeInsets(top: 12, left: inset, bottom: 16, right: inset)
     }
 
     // MARK: - Overlays
@@ -991,7 +1070,7 @@ extension SearchViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         numberOfItemsInSection section: Int) -> Int {
         if collectionView === filterCollectionView {
-            return visibleFilterTypes.count
+            return visibleHeaderItems.count
         }
         // Web: shows 50 SkeletonCard while fetching; we show enough to fill the visible area
         if isShowingSkeleton { return 50 }
@@ -1001,17 +1080,37 @@ extension SearchViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if collectionView === filterCollectionView {
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: SearchFilterItemCell.reuseID,
-                for: indexPath) as? SearchFilterItemCell,
-                  let type = visibleFilterTypes[safe: indexPath.item] else {
+            guard let item = visibleHeaderItems[safe: indexPath.item] else {
                 return UICollectionViewCell()
             }
-            let title = selectedTitle(for: type)
-            cell.configure(type: type,
-                           title: title,
-                           placeholder: isPlaceholderTitle(title, for: type))
-            return cell
+            switch item {
+            case .title:
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SearchTitleItemCell.reuseID,
+                    for: indexPath) as? SearchTitleItemCell else { return UICollectionViewCell() }
+                cell.configure(text: currentTitle)
+                cell.onTextChanged = { [weak self] text in
+                    self?.handleSearchTextChanged(text)
+                }
+                return cell
+            case .filter(let type):
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SearchFilterItemCell.reuseID,
+                    for: indexPath) as? SearchFilterItemCell else { return UICollectionViewCell() }
+                let title = selectedTitle(for: type)
+                cell.configure(type: type,
+                               title: title,
+                               placeholder: isPlaceholderTitle(title, for: type))
+                return cell
+            case .actions:
+                guard let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SearchActionItemCell.reuseID,
+                    for: indexPath) as? SearchActionItemCell else { return UICollectionViewCell() }
+                cell.configure(clearEnabled: hasAnySearchState)
+                cell.onImageTapped = { [weak self] in self?.cameraTapped() }
+                cell.onClearTapped = { [weak self] in self?.clearSearchState() }
+                return cell
+            }
         }
         if isShowingSkeleton {
             return collectionView.dequeueReusableCell(
@@ -1036,7 +1135,7 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
         if collectionView === filterCollectionView {
-            guard let type = visibleFilterTypes[safe: indexPath.item] else { return }
+            guard case .filter(let type)? = visibleHeaderItems[safe: indexPath.item] else { return }
             showFilterPicker(for: type, sourceView: collectionView.cellForItem(at: indexPath))
             return
         }
@@ -1068,8 +1167,20 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
     func collectionView(_ collectionView: UICollectionView,
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        guard collectionView === filterCollectionView else { return .zero }
-        return CGSize(width: filterItemWidth(for: collectionView), height: Self.filterPanelHeight)
+        if collectionView === filterCollectionView {
+            return filterItemSize(for: indexPath, in: collectionView)
+        }
+        return CGSize(width: AnimeCollectionViewCell.outerWidth,
+                      height: AnimeCollectionViewCell.outerHeight)
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        layout collectionViewLayout: UICollectionViewLayout,
+                        insetForSectionAt section: Int) -> UIEdgeInsets {
+        guard collectionView !== filterCollectionView else {
+            return (collectionView.collectionViewLayout as? UICollectionViewFlowLayout)?.sectionInset ?? .zero
+        }
+        return resultSectionInsets(for: collectionView.bounds.width)
     }
 }
 
@@ -1106,6 +1217,161 @@ extension SearchViewController: UIImagePickerControllerDelegate, UINavigationCon
     }
 }
 
+// MARK: - SearchTitleItemCell
+
+private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelegate {
+    static let reuseID = "SearchTitleItemCell"
+
+    var onTextChanged: ((String) -> Void)?
+
+    private let titleLabel = UILabel()
+    private let searchField = UITextField()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        titleLabel.text = "Title"
+        titleLabel.font = .nunito(ofSize: 20, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.backgroundColor = UIColor.HayaseTheme.muted
+        searchField.layer.cornerRadius = 6
+        searchField.layer.masksToBounds = true
+        searchField.borderStyle = .none
+        searchField.textColor = UIColor.HayaseTheme.foreground
+        searchField.font = .nunito(ofSize: 14, weight: .regular)
+        searchField.returnKeyType = .search
+        searchField.autocorrectionType = .no
+        searchField.autocapitalizationType = .none
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: "Any",
+            attributes: [.foregroundColor: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)])
+        searchField.delegate = self
+        searchField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
+
+        let iconContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
+        let iconView = UIImageView(image: UIImage.hayaseIcon("search")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)))
+        iconView.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
+        iconView.contentMode = .center
+        iconView.frame = iconContainer.bounds
+        iconContainer.addSubview(iconView)
+        searchField.leftView = iconContainer
+        searchField.leftViewMode = .always
+
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(searchField)
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
+
+            searchField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            searchField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            searchField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            searchField.heightAnchor.constraint(equalToConstant: 36),
+        ])
+    }
+
+    func configure(text: String) {
+        if searchField.text != text { searchField.text = text }
+    }
+
+    @objc private func textDidChange() {
+        onTextChanged?(searchField.text ?? "")
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        onTextChanged?(textField.text ?? "")
+        return true
+    }
+}
+
+// MARK: - SearchActionItemCell
+
+private final class SearchActionItemCell: UICollectionViewCell {
+    static let reuseID = "SearchActionItemCell"
+
+    var onImageTapped: (() -> Void)?
+    var onClearTapped: (() -> Void)?
+
+    private let imageButton = UIButton(type: .system)
+    private let clearButton = UIButton(type: .system)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        [imageButton, clearButton].forEach { button in
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.backgroundColor = UIColor.HayaseTheme.muted
+            button.layer.cornerRadius = 6
+            button.tintColor = UIColor.HayaseTheme.foreground
+            contentView.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 36),
+                button.heightAnchor.constraint(equalToConstant: 36),
+            ])
+        }
+
+        imageButton.setImage(UIImage.hayaseIcon("file-image")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            for: .normal)
+        clearButton.setImage(UIImage.hayaseIcon("trash")?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            for: .normal)
+
+        imageButton.addTarget(self, action: #selector(imageTapped), for: .touchUpInside)
+        clearButton.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
+
+        NSLayoutConstraint.activate([
+            imageButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            clearButton.leadingAnchor.constraint(equalTo: imageButton.trailingAnchor, constant: 16),
+            clearButton.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
+            imageButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            clearButton.bottomAnchor.constraint(equalTo: imageButton.bottomAnchor),
+        ])
+    }
+
+    func configure(clearEnabled: Bool) {
+        clearButton.tintColor = clearEnabled
+            ? UIColor(red: 0.376, green: 0.647, blue: 0.980, alpha: 1)
+            : UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
+    }
+
+    @objc private func imageTapped() {
+        onImageTapped?()
+    }
+
+    @objc private func clearTapped() {
+        onClearTapped?()
+    }
+}
+
 // MARK: - SearchFilterItemCell
 
 private final class SearchFilterItemCell: UICollectionViewCell {
@@ -1134,14 +1400,14 @@ private final class SearchFilterItemCell: UICollectionViewCell {
         titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        buttonShell.backgroundColor = UIColor.HayaseTheme.background
-        buttonShell.layer.cornerRadius = 8
-        buttonShell.layer.borderWidth = 1
-        buttonShell.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        buttonShell.backgroundColor = UIColor.HayaseTheme.muted
+        buttonShell.layer.cornerRadius = 6
+        buttonShell.layer.borderWidth = 0
+        buttonShell.layer.borderColor = UIColor.clear.cgColor
         buttonShell.isUserInteractionEnabled = false
         buttonShell.translatesAutoresizingMaskIntoConstraints = false
 
-        valueLabel.font = .nunito(ofSize: 15, weight: .regular)
+        valueLabel.font = .nunito(ofSize: 14, weight: .regular)
         valueLabel.numberOfLines = 1
         valueLabel.lineBreakMode = .byTruncatingTail
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1159,7 +1425,7 @@ private final class SearchFilterItemCell: UICollectionViewCell {
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
 
             buttonShell.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
@@ -1188,8 +1454,8 @@ private final class SearchFilterItemCell: UICollectionViewCell {
 }
 
 // MARK: - SkeletonSearchCell
-// Matches web skeleton.svelte: same structure as homepage SkeletonPosterCell
-// but used in the search grid layout (2-col iPhone / 4-col iPad).
+// Matches web skeleton.svelte: same fixed 184pt outer slot as SmallCard,
+// with a 152×216pt skeleton cover inside 16pt padding.
 // • w-[9.5rem] item, aspect-ratio 152/290
 // • h-[13.5rem] cover: bg-black rounded + bg-primary/5 animate-pulse
 // • h-2 w-28 title bar: bg-black rounded + bg-primary/5 animate-pulse
@@ -1277,11 +1543,12 @@ private final class SkeletonSearchCell: UICollectionViewCell {
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
 
-            coverPlaceholder.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
+            coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+            coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
 
             titleBar.heightAnchor.constraint(equalToConstant: 8),
             titleBar.widthAnchor.constraint(equalToConstant: 112),
