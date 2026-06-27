@@ -80,6 +80,7 @@ class DownloadsViewController: UIViewController {
     private var tabStackHeightConstraint: NSLayoutConstraint?
     private var tabScrollBottomToContainerConstraint: NSLayoutConstraint?
     private var tabScrollBottomToFooterConstraint: NSLayoutConstraint?
+    private var globeWidthConstraint: NSLayoutConstraint?
     private var bodyTopConstraint: NSLayoutConstraint?
     private var bodyLeadingConstraint: NSLayoutConstraint?
     private var bodyTrailingConstraint: NSLayoutConstraint?
@@ -188,8 +189,20 @@ class DownloadsViewController: UIViewController {
     // MARK: - Peers tab
 
     private let peersView = UIView()
+    private var peersHorizontalScrollView: UIScrollView!
     private var peersTableView: UITableView!
-    private var peerInfos: [PeerInfo] = []
+    private enum PeerSortColumn: Int {
+        case ip = 0
+        case client = 1
+        case progress = 2
+        case download = 3
+        case upload = 4
+        case downloaded = 5
+        case uploaded = 6
+        case country = 7
+    }
+    private var peersSortColumn: PeerSortColumn?
+    private var peersSortAscending = true
 
     // MARK: - Trackers tab
 
@@ -477,6 +490,7 @@ class DownloadsViewController: UIViewController {
         tabBarWidthConstraint = tabBarContainer.widthAnchor.constraint(equalToConstant: TorrentClientStyle.sidebarWidth)
         tabBarHeightConstraint = tabBarContainer.heightAnchor.constraint(equalToConstant: 44)
         tabBarHeightConstraint?.isActive = true
+        globeWidthConstraint = globeView.widthAnchor.constraint(equalToConstant: 400)
         bodyTopConstraint = bodyStackView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
         bodyLeadingConstraint = bodyStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
         bodyTrailingConstraint = bodyStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
@@ -489,7 +503,7 @@ class DownloadsViewController: UIViewController {
             bodyStackView.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.contentMaxWidth),
             containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
             containerView.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.clientContentMaxWidth),
-            globeView.widthAnchor.constraint(equalToConstant: 400),
+            globeWidthConstraint!,
             globeView.heightAnchor.constraint(equalTo: globeView.widthAnchor),
             globeView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             globeView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
@@ -604,8 +618,12 @@ class DownloadsViewController: UIViewController {
         tabScrollBottomToContainerConstraint?.isActive = !wide
         tabScrollBottomToFooterConstraint?.isActive = wide
         webTorrentVersionLabel.isHidden = !wide
-        globeView.isHidden = !wide
-        globeView.transform = wide ? CGAffineTransform(scaleX: 1.5, y: 1.5) : .identity
+        globeView.isHidden = false
+        globeView.transform = .identity
+        let viewportWidth = view.window?.bounds.width ?? view.bounds.width
+        let globeSize: CGFloat = viewportWidth >= 1920 ? 600 : 400
+        globeWidthConstraint?.constant = globeSize
+        globeView.setViewportWidth(viewportWidth)
 
         let padding = wide ? TorrentClientStyle.regularPadding : TorrentClientStyle.compactPadding
         let separatorSpacing = wide ? TorrentClientStyle.regularSeparatorSpacing : TorrentClientStyle.compactSeparatorSpacing
@@ -816,15 +834,54 @@ class DownloadsViewController: UIViewController {
     }
 
     private func refreshPeers() {
-        if isWebTorrentMode {
-            peersTableView?.reloadData()
-            return
-        }
+        globeView.setPeers(currentPeerRows())
+        peersTableView?.reloadData()
+    }
 
-        if let selectedHandle {
-            peerInfos = TorrentService.sharedTorrentService.withActiveHandle(selectedHandle, default: []) { $0.peerInfo() }
+    private func currentPeerRows() -> [TorrentClientPeerRow] {
+        var rows = isWebTorrentMode ? webPeerInfos.map(TorrentClientPeerRow.init(peer:)) : []
+
+        guard let sortColumn = peersSortColumn else { return rows }
+        let ascending = peersSortAscending
+        rows.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortColumn {
+            case .ip:
+                result = lhs.ip.localizedStandardCompare(rhs.ip)
+            case .client:
+                result = lhs.client.localizedCaseInsensitiveCompare(rhs.client)
+            case .progress:
+                result = lhs.progress == rhs.progress ? .orderedSame : (lhs.progress < rhs.progress ? .orderedAscending : .orderedDescending)
+            case .download:
+                result = lhs.downloadSpeed == rhs.downloadSpeed ? .orderedSame : (lhs.downloadSpeed < rhs.downloadSpeed ? .orderedAscending : .orderedDescending)
+            case .upload:
+                result = lhs.uploadSpeed == rhs.uploadSpeed ? .orderedSame : (lhs.uploadSpeed < rhs.uploadSpeed ? .orderedAscending : .orderedDescending)
+            case .downloaded:
+                result = lhs.downloaded == rhs.downloaded ? .orderedSame : (lhs.downloaded < rhs.downloaded ? .orderedAscending : .orderedDescending)
+            case .uploaded:
+                result = lhs.uploaded == rhs.uploaded ? .orderedSame : (lhs.uploaded < rhs.uploaded ? .orderedAscending : .orderedDescending)
+            case .country:
+                let lhsCountry = TorrentClientGeoIP.shared.lookup(lhs.ip)?.country ?? ""
+                let rhsCountry = TorrentClientGeoIP.shared.lookup(rhs.ip)?.country ?? ""
+                result = lhsCountry.localizedCaseInsensitiveCompare(rhsCountry)
+            }
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        return rows
+    }
+
+    @objc private func handlePeerHeaderTap(_ sender: UIButton) {
+        guard let column = PeerSortColumn(rawValue: sender.tag) else { return }
+        if peersSortColumn == column {
+            if peersSortAscending {
+                peersSortAscending = false
+            } else {
+                peersSortColumn = nil
+                peersSortAscending = true
+            }
         } else {
-            peerInfos = []
+            peersSortColumn = column
+            peersSortAscending = true
         }
         peersTableView?.reloadData()
     }
@@ -891,6 +948,7 @@ class DownloadsViewController: UIViewController {
         seedersValue.text  = "\(snap.numberOfSeeds)"
         leechersValue.text = "\(snap.numberOfLeechers)"
         wiresValue.text    = "\(snap.numberOfPeers)"
+        globeView.setPeers(currentPeerRows())
 
         // Protocol status dots
         setDot(dhtDot, enabled: snap.isDhtRunning)
@@ -1000,9 +1058,10 @@ class DownloadsViewController: UIViewController {
         if let status { webStatus = status }
         if let info { webInfo = info }
         if let protocolStatus { webProtocol = protocolStatus }
-        if !peers.isEmpty { webPeerInfos = peers }
+        webPeerInfos = peers
         if !library.isEmpty { webLibraryEntries = library }
         webLastError = error
+        globeView.setPeers(currentPeerRows())
 
         let resolvedStatus = status ?? webStatus
         let resolvedInfo = info ?? webInfo
@@ -1338,16 +1397,25 @@ class DownloadsViewController: UIViewController {
         borderContainer.translatesAutoresizingMaskIntoConstraints = false
         peersView.addSubview(borderContainer)
 
+        peersHorizontalScrollView = UIScrollView()
+        peersHorizontalScrollView.translatesAutoresizingMaskIntoConstraints = false
+        peersHorizontalScrollView.showsHorizontalScrollIndicator = true
+        peersHorizontalScrollView.showsVerticalScrollIndicator = false
+        peersHorizontalScrollView.alwaysBounceHorizontal = false
+        peersHorizontalScrollView.alwaysBounceVertical = false
+        peersHorizontalScrollView.backgroundColor = .clear
+        borderContainer.addSubview(peersHorizontalScrollView)
+
         peersTableView = UITableView(frame: .zero, style: .plain)
         peersTableView.translatesAutoresizingMaskIntoConstraints = false
         peersTableView.delegate = self
         peersTableView.dataSource = self
         peersTableView.register(PeerInfoCell.self, forCellReuseIdentifier: PeerInfoCell.reuseID)
-        peersTableView.rowHeight = 48
-        peersTableView.estimatedRowHeight = 48
+        peersTableView.rowHeight = 56
+        peersTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(peersTableView)
         peersTableView.allowsSelection = false
-        borderContainer.addSubview(peersTableView)
+        peersHorizontalScrollView.addSubview(peersTableView)
 
         NSLayoutConstraint.activate([
             borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor),
@@ -1355,10 +1423,18 @@ class DownloadsViewController: UIViewController {
             borderContainer.trailingAnchor.constraint(equalTo: peersView.trailingAnchor),
             borderContainer.bottomAnchor.constraint(equalTo: peersView.bottomAnchor),
 
-            peersTableView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
-            peersTableView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
-            peersTableView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
-            peersTableView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+            peersHorizontalScrollView.topAnchor.constraint(equalTo: borderContainer.topAnchor),
+            peersHorizontalScrollView.leadingAnchor.constraint(equalTo: borderContainer.leadingAnchor),
+            peersHorizontalScrollView.trailingAnchor.constraint(equalTo: borderContainer.trailingAnchor),
+            peersHorizontalScrollView.bottomAnchor.constraint(equalTo: borderContainer.bottomAnchor),
+
+            peersTableView.topAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.topAnchor),
+            peersTableView.leadingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.leadingAnchor),
+            peersTableView.trailingAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.trailingAnchor),
+            peersTableView.bottomAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.bottomAnchor),
+            peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
+            peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
+            peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant: PeerTableLayout.minimumContentWidth),
         ])
     }
 
@@ -1377,8 +1453,8 @@ class DownloadsViewController: UIViewController {
         trackersTableView.delegate = self
         trackersTableView.dataSource = self
         trackersTableView.register(TrackerStatusCell.self, forCellReuseIdentifier: TrackerStatusCell.reuseID)
-        trackersTableView.rowHeight = 52
-        trackersTableView.estimatedRowHeight = 52
+        trackersTableView.rowHeight = 56
+        trackersTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(trackersTableView)
         trackersTableView.allowsSelection = false
         borderContainer.addSubview(trackersTableView)
@@ -2015,7 +2091,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return max(isWebTorrentMode ? webFilteredFileInfos.count : filteredFileEntries.count, 1)
         } else if tableView === peersTableView {
-            return max(isWebTorrentMode ? webPeerInfos.count : peerInfos.count, 1)
+            return max(currentPeerRows().count, 1)
         } else if tableView === trackersTableView {
             return max(webTrackerRows.count, 1)
         } else if tableView === libraryTableView {
@@ -2049,28 +2125,18 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             cell.configure(entry: entry, streamCount: isStreaming ? 1 : 0)
             return cell
         } else if tableView === peersTableView {
-            if isWebTorrentMode {
-                if webPeerInfos.isEmpty {
-                    return emptyTableCell(text: "No peers connected yet.")
-                }
-                guard let cell = tableView.dequeueReusableCell(
-                    withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
-                guard indexPath.row < webPeerInfos.count else { return cell }
-                cell.configure(peer: webPeerInfos[indexPath.row])
-                return cell
-            }
-
-            if peerInfos.isEmpty {
+            let rows = currentPeerRows()
+            if rows.isEmpty {
                 return emptyTableCell(text: "No peers connected yet.")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
-            guard indexPath.row < peerInfos.count else { return cell }
-            cell.configure(peer: peerInfos[indexPath.row])
+            guard indexPath.row < rows.count else { return cell }
+            cell.configure(row: rows[indexPath.row])
             return cell
         } else if tableView === trackersTableView {
             if webTrackerRows.isEmpty {
-                return emptyTableCell(text: isWebTorrentMode ? "Loading..." : "Trackers are only available for WebTorrent." )
+                return emptyTableCell(text: "Loading...")
             }
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: TrackerStatusCell.reuseID, for: indexPath) as? TrackerStatusCell else { return UITableViewCell() }
@@ -2142,24 +2208,19 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return makeFileColumnHeader()
         } else if tableView === peersTableView {
-            return makeColumnHeader(columns: [
-                ("IP Address", nil),
-                ("Client", 80),
-                ("Progress", 70),
-                ("Download", 60),
-                ("Upload", 60),
-                ("Downloaded", 70),
-                ("Uploaded", 70),
-                ("Country", 56),
-                ("Flags", 48),
-            ])
+            return makeColumnHeader(columns: PeerTableLayout.columns,
+                                    sortableColumnIndices: Set(0...7),
+                                    activeColumnIndex: peersSortColumn?.rawValue,
+                                    sortAscending: peersSortAscending,
+                                    target: self,
+                                    action: #selector(handlePeerHeaderTap(_:)))
         } else if tableView === trackersTableView {
             return makeColumnHeader(columns: [
                 ("Tracker", nil),
-                ("Status", 70),
-                ("Downloaded", 80),
-                ("Seeders", 60),
-                ("Leechers", 65),
+                ("Status", 86),
+                ("Downloaded", 96),
+                ("Seeders", 76),
+                ("Leechers", 86),
             ])
         } else if tableView === libraryTableView {
             guard !isCompactLibraryLayout else { return nil }
@@ -2191,9 +2252,9 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return (isWebTorrentMode ? webFilteredFileInfos.isEmpty : filteredFileEntries.isEmpty) ? 160 : Self.filesRowHeight
         } else if tableView === peersTableView {
-            return (isWebTorrentMode ? webPeerInfos.isEmpty : peerInfos.isEmpty) ? 160 : 48
+            return currentPeerRows().isEmpty ? 160 : 56
         } else if tableView === trackersTableView {
-            return webTrackerRows.isEmpty ? 160 : 52
+            return webTrackerRows.isEmpty ? 160 : 56
         } else if tableView === libraryTableView {
             let isEmpty = isWebTorrentMode ? webFilteredLibraryEntries.isEmpty : filteredLibraryEntries.isEmpty
             if isEmpty { return 160 }
@@ -2202,8 +2263,18 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         return UITableView.automaticDimension
     }
 
-    private func makeColumnHeader(columns: [(String, CGFloat?)]) -> UIView {
-        ColumnHeader.make(columns: columns)
+    private func makeColumnHeader(columns: [(String, CGFloat?)],
+                                  sortableColumnIndices: Set<Int> = [],
+                                  activeColumnIndex: Int? = nil,
+                                  sortAscending: Bool = true,
+                                  target: Any? = nil,
+                                  action: Selector? = nil) -> UIView {
+        ColumnHeader.make(columns: columns,
+                          sortableColumnIndices: sortableColumnIndices,
+                          activeColumnIndex: activeColumnIndex,
+                          sortAscending: sortAscending,
+                          target: target,
+                          action: action)
     }
 
     /// Builds a sortable column header for the Files tab.
@@ -2420,7 +2491,7 @@ final class FileEntryTableCell: UITableViewCell {
 /// Library cell matching Hayase's library/table.svelte data model.
 /// It keeps the same columns on wide screens, then hides the least important
 /// columns on compact screens so the row remains readable instead of clipping.
-final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
+final class LibraryColumnCell: UITableViewCell {
     static let reuseID = "LibraryColumnCell"
 
     var onOpen: (() -> Void)?
@@ -2543,7 +2614,7 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
         onSelectionToggle?()
     }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var view = touch.view
         while let current = view {
             if current === selectButton { return false }
@@ -2619,273 +2690,5 @@ final class LibraryColumnCell: UITableViewCell, UIGestureRecognizerDelegate {
         formatter.dateStyle = .short
         formatter.timeStyle = .none
         return formatter.string(from: date)
-    }
-}
-
-
-// MARK: - TrackerStatusCell
-
-final class TrackerStatusCell: UITableViewCell {
-    static let reuseID = "TrackerStatusCell"
-
-    private let announceLabel: UILabel = {
-        let l = UILabel()
-        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = TorrentClientStyle.foreground
-        l.numberOfLines = 2
-        l.lineBreakMode = .byTruncatingMiddle
-        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return l
-    }()
-
-    private let statusLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12, weight: .medium)
-        l.textAlignment = .center
-        l.layer.cornerRadius = 4
-        l.clipsToBounds = true
-        return l
-    }()
-
-    private let downloadedLabel = TrackerStatusCell.makeNumberLabel()
-    private let seedersLabel = TrackerStatusCell.makeNumberLabel()
-    private let leechersLabel = TrackerStatusCell.makeNumberLabel()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupCellUI()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupCellUI()
-    }
-
-    private static func makeNumberLabel() -> UILabel {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }
-
-    private func setupCellUI() {
-        selectionStyle = .none
-        TorrentClientStyle.configureTableCell(self)
-
-        let stack = UIStackView(arrangedSubviews: [announceLabel, statusLabel, downloadedLabel, seedersLabel, leechersLabel])
-        stack.axis = .horizontal
-        stack.spacing = 8
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            statusLabel.widthAnchor.constraint(equalToConstant: 70),
-            downloadedLabel.widthAnchor.constraint(equalToConstant: 80),
-            seedersLabel.widthAnchor.constraint(equalToConstant: 60),
-            leechersLabel.widthAnchor.constraint(equalToConstant: 65),
-        ])
-
-        for label in [statusLabel, downloadedLabel, seedersLabel, leechersLabel] {
-            label.setContentHuggingPriority(.required, for: .horizontal)
-            label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        }
-    }
-
-    func configure(announce: String, info: WebTorrentTrackerInfo) {
-        announceLabel.text = announce
-        statusLabel.text = info.failed ? "Failed" : "Working"
-        statusLabel.textColor = info.failed ? .systemRed : .systemGreen
-        downloadedLabel.text = "\(info.downloaded)"
-        seedersLabel.text = "\(info.complete)"
-        leechersLabel.text = "\(info.incomplete)"
-    }
-}
-
-// MARK: - PeerInfoCell
-
-/// Peer info cell matching Hayase peers table.
-/// Columns: IP Address | Client | Progress | Download | Upload | Downloaded | Uploaded | Country | Flags
-final class PeerInfoCell: UITableViewCell {
-    static let reuseID = "PeerInfoCell"
-
-    private let peerDot: UIView = {
-        let view = UIView()
-        view.layer.cornerRadius = 4
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private let ipLabel: UILabel = {
-        let l = UILabel()
-        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = TorrentClientStyle.foreground
-        l.lineBreakMode = .byTruncatingTail
-        l.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return l
-    }()
-
-    private let clientLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 11)
-        l.textColor = TorrentClientStyle.foreground
-        l.lineBreakMode = .byTruncatingTail
-        return l
-    }()
-
-    private let progressLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 11)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        return l
-    }()
-
-    private let dlSpeedLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }()
-
-    private let ulSpeedLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }()
-
-    private let downloadedLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }()
-
-    private let uploadedLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10)
-        l.textColor = TorrentClientStyle.foreground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }()
-
-    private let countryLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 10)
-        l.textColor = TorrentClientStyle.mutedForeground
-        l.textAlignment = .left
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
-        return l
-    }()
-
-    private let flagsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
-        l.textColor = TorrentClientStyle.mutedForeground
-        l.textAlignment = .left
-        l.lineBreakMode = .byTruncatingTail
-        return l
-    }()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupCellUI()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupCellUI()
-    }
-
-    private func setupCellUI() {
-        selectionStyle = .none
-        TorrentClientStyle.configureTableCell(self)
-
-        let ipStack = UIStackView(arrangedSubviews: [peerDot, ipLabel])
-        ipStack.axis = .horizontal
-        ipStack.spacing = 8
-        ipStack.alignment = .center
-
-        let stack = UIStackView(arrangedSubviews: [
-            ipStack, clientLabel, progressLabel,
-            dlSpeedLabel, ulSpeedLabel,
-            downloadedLabel, uploadedLabel, countryLabel, flagsLabel
-        ])
-        stack.axis = .horizontal
-        stack.spacing = 8
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-            // Match column header widths
-            peerDot.widthAnchor.constraint(equalToConstant: 8),
-            peerDot.heightAnchor.constraint(equalToConstant: 8),
-            clientLabel.widthAnchor.constraint(equalToConstant: 80),
-            progressLabel.widthAnchor.constraint(equalToConstant: 70),
-            dlSpeedLabel.widthAnchor.constraint(equalToConstant: 60),
-            ulSpeedLabel.widthAnchor.constraint(equalToConstant: 60),
-            downloadedLabel.widthAnchor.constraint(equalToConstant: 70),
-            uploadedLabel.widthAnchor.constraint(equalToConstant: 70),
-            countryLabel.widthAnchor.constraint(equalToConstant: 56),
-            flagsLabel.widthAnchor.constraint(equalToConstant: 48),
-        ])
-
-        for label in [clientLabel, progressLabel, dlSpeedLabel, ulSpeedLabel,
-                      downloadedLabel, uploadedLabel, countryLabel, flagsLabel] {
-            label.setContentHuggingPriority(.required, for: .horizontal)
-            label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        }
-    }
-
-    func configure(peer: PeerInfo) {
-        ipLabel.text = peer.ip
-        peerDot.backgroundColor = peer.progress >= 0.999 ? .systemGreen : .systemBlue
-        clientLabel.text = String(peer.client.prefix(21))
-        progressLabel.text = String(format: "%.1f%%", peer.progress * 100)
-        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.downloadSpeed)) * 8) + "/s"
-        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(UInt64(max(0, peer.uploadSpeed)) * 8) + "/s"
-        downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalDownload)))
-        uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(UInt64(max(0, peer.totalUpload)))
-        countryLabel.text = "?"
-        flagsLabel.text = peer.connectionFlags.joined(separator: " ")
-    }
-
-    func configure(peer: WebTorrentPeerInfo) {
-        ipLabel.text = peer.ip
-        peerDot.backgroundColor = peer.seeder ? .systemGreen : .systemBlue
-        clientLabel.text = String(peer.client.prefix(21))
-        progressLabel.text = String(format: "%.1f%%", max(0, min(peer.progress, 1)) * 100)
-        dlSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.down * 8) + "/s"
-        ulSpeedLabel.text = TorrentDetailViewController.fastPrettyBits(peer.speed.up * 8) + "/s"
-        downloadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.downloaded)
-        uploadedLabel.text = TorrentDetailViewController.fastPrettyBytes(peer.size.uploaded)
-        countryLabel.text = "?"
-        flagsLabel.text = peer.flags.joined(separator: " ")
     }
 }

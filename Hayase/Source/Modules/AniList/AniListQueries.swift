@@ -38,10 +38,10 @@ enum AniListQueries {
     // MARK: - Search
 
     static let search = """
-    query ($search: String, $genre_in: [String], $format_in: [MediaFormat], $status_in: [MediaStatus], $sort: [MediaSort], $page: Int, $seasonYear: Int, $season: MediaSeason, $nsfw: [String]) {
-      Page(page: $page, perPage: 20) {
+    query ($ids: [Int], $search: String, $genre: [String], $tag: [String], $format: [MediaFormat], $status: [MediaStatus], $statusNot: [MediaStatus], $season: MediaSeason, $seasonYear: Int, $isAdult: Boolean, $sort: [MediaSort], $onList: Boolean, $page: Int, $perPage: Int, $nsfw: [String]) {
+      Page(page: $page, perPage: $perPage) {
         pageInfo { hasNextPage }
-        media(type: ANIME, search: $search, genre_in: $genre_in, format_in: $format_in, status_in: $status_in, sort: $sort, seasonYear: $seasonYear, season: $season, genre_not_in: $nsfw) {
+        media(type: ANIME, format_not: MUSIC, id_in: $ids, search: $search, genre_in: $genre, tag_in: $tag, format_in: $format, status_in: $status, status_not_in: $statusNot, season: $season, seasonYear: $seasonYear, isAdult: $isAdult, sort: $sort, onList: $onList, genre_not_in: $nsfw) {
           id
           idMal
           title { english romaji }

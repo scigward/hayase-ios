@@ -23,11 +23,7 @@ require_command() {
 }
 
 run_pnpm() {
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm "$@"
-  else
-    corepack pnpm "$@"
-  fi
+  COREPACK_ENABLE_PROJECT_SPEC=0 corepack "pnpm@${PNPM_VERSION}" "$@"
 }
 
 require_command git
@@ -49,7 +45,7 @@ if [ "${ACTUAL_COMMIT}" != "${TORRENT_CLIENT_COMMIT}" ]; then
   exit 1
 fi
 
-corepack prepare "pnpm@${PNPM_VERSION}" --activate
+export COREPACK_ENABLE_PROJECT_SPEC=0
 
 rm -rf "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR}"

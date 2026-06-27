@@ -35,6 +35,13 @@ workflows:
           chmod +x ./scripts/build_webtorrent_backend.sh
           ./scripts/build_webtorrent_backend.sh
 
+      - name: Build torrent client globe
+        script: |
+          set -euo pipefail
+
+          chmod +x ./scripts/build_torrent_client_globe.sh
+          ./scripts/build_torrent_client_globe.sh
+
       - name: Generate Xcode project
         script: |
           set -euo pipefail
