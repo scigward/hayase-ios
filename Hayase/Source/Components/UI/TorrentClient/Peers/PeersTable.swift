@@ -1,5 +1,5 @@
 //
-//  Table.swift
+//  PeersTable.swift
 //  Hayase
 //
 //  Created by scigward.

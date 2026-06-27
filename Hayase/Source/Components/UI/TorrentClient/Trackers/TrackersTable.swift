@@ -1,5 +1,5 @@
 //
-//  Table.swift
+//  TrackersTable.swift
 //  Hayase
 //
 //  Created by scigward.
