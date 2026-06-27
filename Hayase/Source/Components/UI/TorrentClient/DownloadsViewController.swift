@@ -226,6 +226,7 @@ class DownloadsViewController: UIViewController {
     private var webFilteredFileInfos: [WebTorrentFileInfo] = []
     private var webFileInfoHash: String?
     private var webPeerInfos: [WebTorrentPeerInfo] = []
+    private var webPeerInfoHash: String?
     private var webLibraryEntries: [WebTorrentLibraryEntry] = []
     private var webFilteredLibraryEntries: [WebTorrentLibraryEntry] = []
     private var webUpdateInFlight = false
@@ -987,62 +988,72 @@ class DownloadsViewController: UIViewController {
             guard let self else { return }
 
             let status = try? statusResult.get()
-            let requestedHash = status?.infoHash ?? self.selectedHex
-
-            let group = DispatchGroup()
-            var nextInfo: WebTorrentTorrentInfo?
-            var nextFiles: [WebTorrentFileInfo] = []
-            var nextPeers: [WebTorrentPeerInfo] = []
-            var nextLibrary: [WebTorrentLibraryEntry] = []
-            var nextProtocol: WebTorrentProtocolStatus?
-            var nextError: Error?
+            let statusError: Error?
 
             if case .failure(let error) = statusResult {
-                nextError = error
+                statusError = error
+            } else {
+                statusError = nil
             }
 
-            group.enter()
             manager.webTorrentLibrary { result in
-                if case .success(let entries) = result { nextLibrary = entries }
-                group.leave()
-            }
+                var nextError = statusError
+                var nextInfo: WebTorrentTorrentInfo?
+                var nextFiles: [WebTorrentFileInfo] = []
+                var nextPeers: [WebTorrentPeerInfo] = []
+                var nextLibrary: [WebTorrentLibraryEntry] = []
+                var nextProtocol: WebTorrentProtocolStatus?
 
-            if !requestedHash.isEmpty {
-                group.enter()
-                manager.webTorrentInfo(hash: requestedHash) { result in
-                    if case .success(let info) = result { nextInfo = info }
-                    group.leave()
+                if case .success(let entries) = result {
+                    nextLibrary = entries
+                } else if case .failure(let error) = result, nextError == nil {
+                    nextError = error
                 }
 
-                group.enter()
-                manager.webTorrentFileInfo(hash: requestedHash) { result in
-                    if case .success(let files) = result { nextFiles = files }
-                    group.leave()
+                let requestedHash = status?.infoHash
+                    ?? (self.selectedHex.isEmpty ? nil : self.selectedHex)
+                    ?? nextLibrary.first?.hash
+                    ?? ""
+                let group = DispatchGroup()
+
+                if !requestedHash.isEmpty {
+                    group.enter()
+                    manager.webTorrentInfo(hash: requestedHash) { result in
+                        if case .success(let info) = result { nextInfo = info }
+                        group.leave()
+                    }
+
+                    group.enter()
+                    manager.webTorrentFileInfo(hash: requestedHash) { result in
+                        if case .success(let files) = result { nextFiles = files }
+                        group.leave()
+                    }
+
+                    group.enter()
+                    manager.webTorrentPeerInfo(hash: requestedHash) { result in
+                        if case .success(let peers) = result { nextPeers = peers }
+                        group.leave()
+                    }
+
+                    group.enter()
+                    manager.webTorrentProtocolStatus(hash: requestedHash) { result in
+                        if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
+                        group.leave()
+                    }
                 }
 
-                group.enter()
-                manager.webTorrentPeerInfo(hash: requestedHash) { result in
-                    if case .success(let peers) = result { nextPeers = peers }
-                    group.leave()
+                group.notify(queue: .main) { [weak self] in
+                    guard let self else { return }
+                    self.webUpdateInFlight = false
+                    self.applyWebTorrentState(status: status,
+                                               info: nextInfo,
+                                               files: nextFiles,
+                                               peers: nextPeers,
+                                               peerInfoHash: requestedHash,
+                                               library: nextLibrary,
+                                               protocolStatus: nextProtocol,
+                                               error: nextError)
                 }
-
-                group.enter()
-                manager.webTorrentProtocolStatus(hash: requestedHash) { result in
-                    if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
-                    group.leave()
-                }
-            }
-
-            group.notify(queue: .main) { [weak self] in
-                guard let self else { return }
-                self.webUpdateInFlight = false
-                self.applyWebTorrentState(status: status,
-                                           info: nextInfo,
-                                           files: nextFiles,
-                                           peers: nextPeers,
-                                           library: nextLibrary,
-                                           protocolStatus: nextProtocol,
-                                           error: nextError)
             }
         }
     }
@@ -1051,13 +1062,17 @@ class DownloadsViewController: UIViewController {
                                       info: WebTorrentTorrentInfo?,
                                       files: [WebTorrentFileInfo],
                                       peers: [WebTorrentPeerInfo],
+                                      peerInfoHash: String,
                                       library: [WebTorrentLibraryEntry],
                                       protocolStatus: WebTorrentProtocolStatus?,
                                       error: Error?) {
         if let status { webStatus = status }
         if let info { webInfo = info }
         if let protocolStatus { webProtocol = protocolStatus }
-        webPeerInfos = peers
+        if !peers.isEmpty || webPeerInfoHash != peerInfoHash {
+            webPeerInfos = peers
+            webPeerInfoHash = peerInfoHash.isEmpty ? nil : peerInfoHash
+        }
         if !library.isEmpty { webLibraryEntries = library }
         webLastError = error
         globeView.setPeers(currentPeerRows())

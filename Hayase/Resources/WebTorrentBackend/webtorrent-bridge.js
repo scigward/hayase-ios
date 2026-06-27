@@ -182,6 +182,46 @@ function numericValue (value) {
   return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0
 }
 
+function wirePeerInfo (wire, torrent) {
+  const ip = String(wire?.remoteAddress ?? wire?.remoteAddressIPv4 ?? wire?.peerId ?? 'unknown')
+  const pieceCount = numericValue(torrent?.pieces?.length)
+  const isSeeder = Boolean(wire?.isSeeder) || (pieceCount > 0 && numericValue(wire?.peerPieces?.length) >= pieceCount)
+  const total = numericValue(torrent?.length)
+  const downloaded = numericValue(wire?.downloaded)
+  const uploaded = numericValue(wire?.uploaded)
+  const progress = total > 0 ? Math.max(0, Math.min(downloaded / total, 1)) : (isSeeder ? 1 : 0)
+  const flags = []
+
+  if (wire?.type === 'tcpIncoming' || wire?.incoming) flags.push('incoming')
+  if (wire?.type === 'tcpOutgoing' || wire?.outgoing) flags.push('outgoing')
+  if (wire?.type === 'utpIncoming' || wire?.type === 'utpOutgoing') flags.push('utp')
+  if (wire?.encrypted) flags.push('encrypted')
+
+  return {
+    ip,
+    seeder: isSeeder,
+    client: String(wire?.extendedHandshake?.m ?? wire?.peerId ?? 'WebTorrent'),
+    progress,
+    size: {
+      downloaded,
+      uploaded
+    },
+    speed: {
+      down: numericValue(wire?.downloadSpeed),
+      up: numericValue(wire?.uploadSpeed)
+    },
+    flags,
+    time: 0
+  }
+}
+
+function peerInfoFromTorrent (hash) {
+  const torrent = torrentByHash(hash)
+  return torrentWires(torrent)
+    .filter(wire => wire)
+    .map(wire => wirePeerInfo(wire, torrent))
+}
+
 function torrentByHash (hash) {
   const webtorrent = getInnerClient()
   if (!webtorrent) return null
@@ -494,8 +534,15 @@ async function handleRPC (payload) {
     case 'torrentInfo': {
       return statsFromTorrent(torrentByHash(params.hash))
     }
-    case 'peerInfo':
-      return await activeClient.peerInfo(params.hash)
+    case 'peerInfo': {
+      let peers = []
+      try {
+        peers = await activeClient.peerInfo(params.hash)
+      } catch (error) {
+        record('warning', `Falling back to live WebTorrent wire peers: ${error?.message ?? String(error)}`)
+      }
+      return Array.isArray(peers) && peers.length ? peers : peerInfoFromTorrent(params.hash)
+    }
     case 'fileInfo':
       return await activeClient.fileInfo(params.hash)
     case 'trackers':

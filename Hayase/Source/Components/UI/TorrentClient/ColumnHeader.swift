@@ -37,6 +37,9 @@ enum ColumnHeader {
                 let button = UIButton(type: .system)
                 button.setTitle(title, for: .normal)
                 button.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
+                button.titleLabel?.lineBreakMode = .byClipping
+                button.titleLabel?.adjustsFontSizeToFitWidth = true
+                button.titleLabel?.minimumScaleFactor = 0.8
                 button.setTitleColor(activeColumnIndex == index ? TorrentClientStyle.foreground : TorrentClientStyle.mutedForeground, for: .normal)
                 button.contentHorizontalAlignment = .left
                 button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
@@ -49,6 +52,9 @@ enum ColumnHeader {
                 label.text = title
                 label.font = .nunito(ofSize: 14, weight: .medium)
                 label.textColor = TorrentClientStyle.mutedForeground
+                label.lineBreakMode = .byClipping
+                label.adjustsFontSizeToFitWidth = true
+                label.minimumScaleFactor = 0.8
                 view = label
             }
 
