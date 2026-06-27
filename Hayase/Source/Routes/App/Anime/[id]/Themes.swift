@@ -8,56 +8,53 @@ import WebKit
 
 var themeURLKey = "themeURL"
 
-// MARK: - ThemePlayerViewController
+// MARK: - ThemeInlineVideoView
 
-final class ThemePlayerViewController: UIViewController {
+final class ThemeInlineVideoView: UIView {
 
-    private let videoURL: URL
-    private var webView: WKWebView!
+    private let webView: WKWebView
+    private var currentURL: URL?
 
-    init(videoURL: URL) {
-        self.videoURL = videoURL
-        super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .fullScreen
-        modalTransitionStyle = .crossDissolve
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-
-        let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage.hayaseIcon("x"), for: .normal)
-        closeBtn.tintColor = .white
-        closeBtn.contentVerticalAlignment = .fill
-        closeBtn.contentHorizontalAlignment = .fill
-        closeBtn.translatesAutoresizingMaskIntoConstraints = false
-        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        view.addSubview(closeBtn)
-        NSLayoutConstraint.activate([
-            closeBtn.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            closeBtn.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            closeBtn.widthAnchor.constraint(equalToConstant: 32),
-            closeBtn.heightAnchor.constraint(equalToConstant: 32),
-        ])
-
+    override init(frame: CGRect) {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         webView = WKWebView(frame: .zero, configuration: config)
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        webView = WKWebView(frame: .zero, configuration: config)
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .black
+        layer.cornerRadius = 6
+        clipsToBounds = true
+
         webView.backgroundColor = .black
         webView.isOpaque = false
         webView.scrollView.isScrollEnabled = false
         webView.translatesAutoresizingMaskIntoConstraints = false
-        view.insertSubview(webView, belowSubview: closeBtn)
+        addSubview(webView)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 52),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 256),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    func configure(videoURL: URL) {
+        guard currentURL != videoURL else { return }
+        currentURL = videoURL
 
         let escapedURL = videoURL.absoluteString
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -77,18 +74,18 @@ final class ThemePlayerViewController: UIViewController {
         </style>
         </head>
         <body>
-        <video controls autoplay playsinline
+        <video id="theme-video" controls autoplay playsinline
                src="\(escapedURL)">
           Your browser does not support this video format.
         </video>
+        <script>
+          const video = document.getElementById('theme-video');
+          video.volume = 0.2;
+        </script>
         </body>
         </html>
         """
         webView.loadHTMLString(html, baseURL: URL(string: "https://animethemes.moe"))
-    }
-
-    @objc private func closeTapped() {
-        dismiss(animated: true)
     }
 }
 
@@ -210,6 +207,7 @@ extension AnimeDetailViewController {
             if let urlStr = videoLink {
                 playBtn.addTarget(self, action: #selector(themePlayTapped(_:)), for: .touchUpInside)
                 objc_setAssociatedObject(playBtn, &themeURLKey, urlStr, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                playBtn.alpha = activeThemeVideoURL == urlStr ? 0.85 : 1.0
             } else {
                 playBtn.isHidden = true
             }
@@ -228,6 +226,15 @@ extension AnimeDetailViewController {
                 playBtn.heightAnchor.constraint(equalToConstant: 26),
             ])
             stack.addArrangedSubview(row)
+
+            if let urlStr = videoLink,
+               activeThemeVideoURL == urlStr,
+               let url = URL(string: urlStr) {
+                let inlineVideo = ThemeInlineVideoView()
+                inlineVideo.translatesAutoresizingMaskIntoConstraints = false
+                inlineVideo.configure(videoURL: url)
+                stack.addArrangedSubview(inlineVideo)
+            }
         }
 
         let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
@@ -246,9 +253,8 @@ extension AnimeDetailViewController {
     }
 
     @objc private func themePlayTapped(_ sender: UIButton) {
-        guard let urlStr = objc_getAssociatedObject(sender, &themeURLKey) as? String,
-              let url = URL(string: urlStr) else { return }
-        let player = ThemePlayerViewController(videoURL: url)
-        present(player, animated: true)
+        guard let urlStr = objc_getAssociatedObject(sender, &themeURLKey) as? String else { return }
+        activeThemeVideoURL = activeThemeVideoURL == urlStr ? nil : urlStr
+        tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .automatic)
     }
 }

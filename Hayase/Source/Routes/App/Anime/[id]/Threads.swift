@@ -122,12 +122,27 @@ final class ThreadCardView: UIView {
         return l
     }()
 
+    private let avatarImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.layer.cornerRadius = 10
+        iv.isHidden = true
+        return iv
+    }()
+
     private let badgeStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
         sv.spacing = 8
         return sv
     }()
+
+    private var avatarTask: URLSessionDataTask?
+    private var currentAvatarURL: String?
+    private var footerLeadingToAvatar: NSLayoutConstraint?
+    private var footerLeadingToCard: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -144,10 +159,14 @@ final class ThreadCardView: UIView {
         layer.cornerRadius = 6
         clipsToBounds = true
 
-        [titleLabel, statsView, footerLabel, badgeStack].forEach {
+        [titleLabel, statsView, avatarImageView, footerLabel, badgeStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
+
+        footerLeadingToAvatar = footerLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 6)
+        footerLeadingToCard = footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        footerLeadingToCard?.isActive = true
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(lessThanOrEqualToConstant: 112),
@@ -159,9 +178,14 @@ final class ThreadCardView: UIView {
             statsView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             statsView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
 
+            avatarImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            avatarImageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 20),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 20),
+
             footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
-            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            footerLabel.trailingAnchor.constraint(lessThanOrEqualTo: badgeStack.leadingAnchor, constant: -8),
 
             badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
             badgeStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
@@ -183,6 +207,7 @@ final class ThreadCardView: UIView {
         var footerParts = [thread.sinceString]
         if let name = thread.userName { footerParts.append("by \(name)") }
         footerLabel.text = footerParts.joined(separator: " · ")
+        configureAvatar(urlString: thread.avatarURL)
 
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let contrastColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
@@ -201,12 +226,45 @@ final class ThreadCardView: UIView {
     }
 
     func reset() {
+        avatarTask?.cancel()
+        avatarTask = nil
+        currentAvatarURL = nil
+        avatarImageView.image = nil
+        avatarImageView.isHidden = true
+        footerLeadingToAvatar?.isActive = false
+        footerLeadingToCard?.isActive = true
         titleLabel.text = nil
         statsView.configure(likes: 0, views: 0, replies: 0, locked: false)
         footerLabel.text = nil
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         threadID = 0
         onTap = nil
+    }
+
+    private func configureAvatar(urlString: String?) {
+        avatarTask?.cancel()
+        avatarTask = nil
+        currentAvatarURL = urlString
+        avatarImageView.image = nil
+        guard let urlString, let url = URL(string: urlString) else {
+            avatarImageView.isHidden = true
+            footerLeadingToAvatar?.isActive = false
+            footerLeadingToCard?.isActive = true
+            return
+        }
+        avatarImageView.isHidden = false
+        footerLeadingToCard?.isActive = false
+        footerLeadingToAvatar?.isActive = true
+
+        let captured = urlString
+        avatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                guard self?.currentAvatarURL == captured else { return }
+                self?.avatarImageView.image = image
+            }
+        }
+        avatarTask?.resume()
     }
 }
 
@@ -333,63 +391,31 @@ extension AnimeDetailViewController {
 
         if threadsLoading || threads.isEmpty {
             return makeEmptyStateCell(
-                text: "No threads found.",
+                text: "Ooops! Looks like there's nothing here yet!",
                 loading: threadsLoading)
         }
         guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
-        cell.selectionStyle = .default
+        cell.selectionStyle = .none
 
-        let card = UIView()
-        card.backgroundColor = hayaseCardBackground
-        card.layer.cornerRadius = 6
-        card.clipsToBounds = true
-        card.translatesAutoresizingMaskIntoConstraints = false
-        cell.contentView.addSubview(card)
-
-        let titleLabel = UILabel()
-        titleLabel.text = thread.title
-        titleLabel.font = .nunito(ofSize: 12.8, weight: .bold)
-        titleLabel.textColor = .white
-        titleLabel.numberOfLines = 1
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let statsView = ThreadStatsView()
-        statsView.configure(likes: thread.likeCount, views: thread.viewCount, replies: thread.replyCount, locked: thread.isLocked)
-        statsView.translatesAutoresizingMaskIntoConstraints = false
-
-        let footerLabel = UILabel()
-        var footerParts = [thread.sinceString]
-        if let name = thread.userName { footerParts.append("by \(name)") }
-        footerLabel.text = footerParts.joined(separator: " · ")
-        footerLabel.font = .nunito(ofSize: 9.6)
-        footerLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        footerLabel.translatesAutoresizingMaskIntoConstraints = false
-
+        let card = ThreadCardView()
         let accentColor = animeItem.flatMap { item in
             ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
-        let badgeStack = UIStackView()
-        badgeStack.axis = .horizontal
-        badgeStack.spacing = 8
-        badgeStack.translatesAutoresizingMaskIntoConstraints = false
-        for cat in thread.categories.prefix(3) {
-            let badge = ThreadBadgeLabel()
-            badge.text = cat
-            badge.font = .nunito(ofSize: 9.6, weight: .bold)
-            badge.textColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
-            badge.backgroundColor = accentColor
-            badge.layer.cornerRadius = 4
-            badge.clipsToBounds = true
-            badge.textAlignment = .center
-            badge.translatesAutoresizingMaskIntoConstraints = false
-            badgeStack.addArrangedSubview(badge)
+        card.configure(with: thread, accentColor: accentColor)
+        card.onTap = { [weak self] threadID in
+            guard let self = self else { return }
+            guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
+            if let animeID = self.routeAnimeID {
+                Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
+                                                   hostTabIndex: self.tabBarController?.selectedIndex)
+            } else {
+                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                self.navigationController?.pushViewController(threadVC, animated: true)
+            }
         }
-
-        card.addSubview(titleLabel)
-        card.addSubview(statsView)
-        card.addSubview(footerLabel)
-        card.addSubview(badgeStack)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(card)
 
         let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
 
@@ -399,20 +425,6 @@ extension AnimeDetailViewController {
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
             card.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
-
-            titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: statsView.leadingAnchor, constant: -8),
-
-            statsView.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            statsView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-
-            footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
-            footerLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            footerLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
-
-            badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
-            badgeStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
         ])
         return cell
     }

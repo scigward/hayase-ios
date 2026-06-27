@@ -119,6 +119,41 @@ final class ChipWrapView: UIView {
     }
 }
 
+// MARK: - AnimeTagChipButton
+
+final class AnimeTagChipButton: UIButton {
+    var dashedBorder = false {
+        didSet { setNeedsLayout() }
+    }
+    private let dashLayer = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(dashLayer)
+        dashLayer.fillColor = UIColor.clear.cgColor
+        dashLayer.lineDashPattern = [6, 4]
+        dashLayer.isHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        layer.addSublayer(dashLayer)
+        dashLayer.fillColor = UIColor.clear.cgColor
+        dashLayer.lineDashPattern = [6, 4]
+        dashLayer.isHidden = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        dashLayer.isHidden = !dashedBorder
+        guard dashedBorder else { return }
+        dashLayer.frame = bounds
+        dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: layer.cornerRadius).cgPath
+        dashLayer.strokeColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1).cgColor
+        dashLayer.lineWidth = 2
+    }
+}
+
 // MARK: - AnimeInfoHeaderView
 
 final class AnimeInfoHeaderView: UIView {
@@ -270,7 +305,7 @@ final class AnimeInfoHeaderView: UIView {
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage.hayaseIcon("pen-line")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("pencil-line")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1)
         b.layer.cornerRadius = 6
@@ -547,10 +582,10 @@ final class AnimeInfoHeaderView: UIView {
 
         contentTopConstraint?.constant = isRegular ? -260 : -200
 
-        genresScrollView.isHidden = isRegular
-        chipWrapView.isHidden = !isRegular
-        genresContainerHeightConstraint?.isActive = !isRegular
-        chipWrapBottomConstraint?.isActive = isRegular
+        genresScrollView.isHidden = false
+        chipWrapView.isHidden = true
+        genresContainerHeightConstraint?.isActive = true
+        chipWrapBottomConstraint?.isActive = false
 
         if isRegular {
             coverAndTextColumn.axis = .horizontal
@@ -857,10 +892,8 @@ final class AnimeInfoHeaderView: UIView {
         anilistId = item.id
         malId = item.malId
 
-        let english = item.titleEnglish
-        let romaji  = item.titleRomaji
-        titleLabel.text  = english ?? romaji ?? "Unknown"
-        romajiLabel.text = (english != nil && romaji != nil && english != romaji) ? romaji : nil
+        titleLabel.text = AniListUtil.title(for: item)
+        romajiLabel.text = AniListUtil.alternateTitle(for: item)
         romajiLabel.isHidden = romajiLabel.text == nil
 
         let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
@@ -899,7 +932,7 @@ final class AnimeInfoHeaderView: UIView {
                       accent:   accent,
                       contrastColor: contrast)
 
-        setGenres(item.genres.prefix(8).map { String($0) })
+        setGenres(item.genres.map { String($0) }, tags: item.tags)
 
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
@@ -1095,31 +1128,45 @@ final class AnimeInfoHeaderView: UIView {
 
     // MARK: - Genres
 
-    private func setGenres(_ genres: [String]) {
+    private func setGenres(_ genres: [String], tags: [AnimeTag] = []) {
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let wrapChips: [UIView] = genres.map { genre in
-            let btn = UIButton(type: .custom)
-            btn.setTitle(genre, for: .normal)
-            btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
-            btn.setTitleColor(.white, for: .normal)
-            btn.setTitleColor(storedAccentColor, for: .highlighted)
-            btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
-            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-            btn.layer.cornerRadius = 6
-            btn.layer.masksToBounds = true
-            btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
-            return btn
-        }
-        for genre in genres {
-            genresStack.addArrangedSubview(makeGenreChip(text: genre))
-        }
-        chipWrapView.setChips(wrapChips)
-        genresContainer.isHidden = genres.isEmpty
+        let showHentai = UserDefaults.standard.object(forKey: "pref_showHentai") as? Bool ?? false
+        let sortedTags = tags
+            .filter { !$0.isAdult || showHentai }
+            .sorted {
+                if $0.rank != $1.rank { return $0.rank > $1.rank }
+                return $0.id < $1.id
+            }
+        let chips = genres.map { makeGenreChip(text: $0, isTag: false, isSpoiler: false) }
+            + sortedTags.map { makeGenreChip(text: $0.name, isTag: true, isSpoiler: $0.isMediaSpoiler || $0.isGeneralSpoiler) }
+        chips.forEach { genresStack.addArrangedSubview($0) }
+        chipWrapView.setChips(chips.map { chip in
+            if let button = chip as? UIButton {
+                let copy = makeGenreChip(text: button.title(for: .normal) ?? "", isTag: (button as? AnimeTagChipButton)?.dashedBorder == true, isSpoiler: false)
+                return copy
+            }
+            return chip
+        })
+        genresContainer.isHidden = chips.isEmpty
     }
 
-    func updateGenresAndTrailer(genres: [String], trailerYouTubeID: String?) {
-        setGenres(genres)
+    func updateGenresAndTrailer(genres: [String], tags: [AnimeTag] = [], trailerYouTubeID: String?) {
+        setGenres(genres, tags: tags)
         trailerButton.isHidden = trailerYouTubeID == nil
+    }
+
+    func updateAnimePageDetails(with item: AnimeItem) {
+        anilistId = item.id
+        malId = item.malId
+        titleLabel.text = AniListUtil.title(for: item)
+        romajiLabel.text = AniListUtil.alternateTitle(for: item)
+        romajiLabel.isHidden = romajiLabel.text == nil
+        descriptionLabel.text = (item.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            ? "No description available."
+            : item.description
+        setGenres(item.genres, tags: item.tags)
+        updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
+        updateMALButtonVisibility()
     }
 
     func updateTrailerButton(trailerYouTubeID: String?) {
@@ -1134,16 +1181,18 @@ final class AnimeInfoHeaderView: UIView {
         }
     }
 
-    private func makeGenreChip(text: String) -> UIView {
-        let btn = UIButton(type: .custom)
+    private func makeGenreChip(text: String, isTag: Bool, isSpoiler: Bool) -> AnimeTagChipButton {
+        let btn = AnimeTagChipButton(frame: .zero)
         btn.setTitle(text, for: .normal)
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
-        btn.setTitleColor(.white, for: .normal)
+        btn.setTitleColor(isTag ? UIColor.HayaseTheme.mutedForeground : .white, for: .normal)
         btn.setTitleColor(storedAccentColor, for: .highlighted)
-        btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: isTag ? 0.4 : 1)
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6
         btn.layer.masksToBounds = true
+        btn.dashedBorder = isTag
+        btn.alpha = isSpoiler ? 0.65 : 1
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 28).isActive = true
         btn.setContentHuggingPriority(.required, for: .horizontal)
@@ -1225,13 +1274,17 @@ class AnimeDetailViewController: UIViewController {
 
     var threads: [AniListThread] = []
     var themes: [AnimeThemesTheme] = []
+    var recommendations: [AnimeItem] = []
+    var followingEntriesByEpisode: [Int: [AniListUserSummary]] = [:]
+    var threadTotalCount: Int = 0
+    var activeThemeVideoURL: String?
     var threadsLoading = false
     var themesLoading = false
 
     var activeSection: Section = .episodes
 
     lazy var tabBar: HTabBar = {
-        let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes"])
+        let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes", "Recommendations"])
         bar.onChange = { [weak self] index in
             self?.tabChanged(to: index)
         }
@@ -1288,7 +1341,7 @@ class AnimeDetailViewController: UIViewController {
     }
 
     enum Section: Int, CaseIterable {
-        case header = 0, episodes, episodePagination, relations, threads, themes
+        case header = 0, episodes, episodePagination, relations, threads, themes, recommendations
     }
 
     static let gridOuterPad: CGFloat = 56
@@ -1358,6 +1411,7 @@ class AnimeDetailViewController: UIViewController {
         setupTableView()
         setupHeaderView()
         applyTabBarLayoutForSizeClass()
+        fetchAnimePageData()
         fetchEpisodes()
         fetchRelationsAndCharacters()
         fetchAniListProgress()
@@ -1413,6 +1467,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
         tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
         tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
+        tableView.register(RecommendationGridCell.self, forCellReuseIdentifier: RecommendationGridCell.reuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PaginationCell")
         tableView.rowHeight = UITableView.automaticDimension
@@ -1470,8 +1525,9 @@ class AnimeDetailViewController: UIViewController {
 
         headerView.onShare = { [weak self] in
             guard let self = self else { return }
-            let title = self.animeItem?.titleEnglish ?? self.animeItem?.titleRomaji
-                ?? self.animeEntity?.animeTitleEnglish ?? self.animeEntity?.animeTitleJapanese
+            let title = self.animeItem.map { AniListUtil.title(for: $0) }
+                ?? self.animeEntity?.animeTitleEnglish
+                ?? self.animeEntity?.animeTitleJapanese
                 ?? "Anime"
             let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
             var items: [Any] = [title]
@@ -1536,7 +1592,7 @@ class AnimeDetailViewController: UIViewController {
         editorVC.mediaID = mediaID
         editorVC.totalEpisodes = totalEpisodes
         editorVC.currentEntry = currentEntry
-        editorVC.animeTitle = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? "Unknown"
+        editorVC.animeTitle = animeItem.map { AniListUtil.title(for: $0) } ?? "Unknown"
         editorVC.coverURL = animeItem?.coverURL
         editorVC.bannerURL = animeItem?.bannerURL
 
@@ -1600,7 +1656,13 @@ class AnimeDetailViewController: UIViewController {
     // MARK: - Tab bar
 
     func tabChanged(to index: Int) {
-        let sectionMap: [Int: Section] = [0: .episodes, 1: .relations, 2: .threads, 3: .themes]
+        let sectionMap: [Int: Section] = [
+            0: .episodes,
+            1: .relations,
+            2: .threads,
+            3: .themes,
+            4: .recommendations
+        ]
         guard let sec = sectionMap[index] else { return }
         activeSection = sec
         let contentRange = Section.episodes.rawValue..<Section.allCases.count

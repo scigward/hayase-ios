@@ -687,6 +687,109 @@ public final class AniListClient: NSObject {
         }.resume()
     }
 
+    // MARK: - Anime page (anime/[id])
+
+    func fetchAnimePage(id: Int, completion: @escaping (AnimePagePayload) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else {
+            completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
+            return
+        }
+
+        var request = authorizedRequest(url: url)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "query": AniListQueries.animePage,
+            "variables": ["id": id]
+        ])
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            guard let self else { return }
+            if let error {
+                NSLog("[AniListClient] AnimePage network error: %@", error.localizedDescription)
+            }
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObject = json["data"] as? [String: Any] else {
+                DispatchQueue.main.async {
+                    completion(AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: []))
+                }
+                return
+            }
+
+            let mediaObject = dataObject["Media"] as? [String: Any]
+            var mediaItem = mediaObject
+                .flatMap { self.decodeAniListMedia(from: $0) }
+                .flatMap { AniListUtil.animeItem(from: $0) }
+
+            let recommendations = self.parseRecommendations(from: mediaObject)
+            let followingEntries = self.parseFollowingEntries(from: dataObject["following"] as? [String: Any])
+            let threadPage = dataObject["threads"] as? [String: Any]
+            let threads = (threadPage?["threads"] as? [[String: Any]] ?? []).compactMap { AniListThread(dict: $0) }
+            let total = ((threadPage?["pageInfo"] as? [String: Any])?["total"] as? Int) ?? threads.count
+
+            if var item = mediaItem {
+                item.relations = self.parseRelations(from: mediaObject)
+                mediaItem = item
+            }
+
+            DispatchQueue.main.async {
+                completion(AnimePagePayload(
+                    media: mediaItem,
+                    recommendations: recommendations,
+                    threads: threads,
+                    threadTotal: total,
+                    followingEntries: followingEntries))
+            }
+        }.resume()
+    }
+
+    private func decodeAniListMedia(from object: [String: Any]) -> AniListMedia? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return try? JSONDecoder().decode(AniListMedia.self, from: data)
+    }
+
+    private func parseRecommendations(from mediaObject: [String: Any]?) -> [AnimeItem] {
+        guard let nodes = (mediaObject?["recommendations"] as? [String: Any])?["nodes"] as? [[String: Any]] else {
+            return []
+        }
+        return nodes.compactMap { node in
+            guard let media = node["mediaRecommendation"] as? [String: Any],
+                  let decoded = decodeAniListMedia(from: media) else { return nil }
+            return AniListUtil.animeItem(from: decoded)
+        }
+    }
+
+    private func parseFollowingEntries(from page: [String: Any]?) -> [AniListFollowingEntry] {
+        let entries = page?["mediaList"] as? [[String: Any]] ?? []
+        let viewerID: Int? = {
+            guard let rawID = TrackerAccountManager.shared.viewer(for: .anilist)?.id else { return nil }
+            return Int(rawID)
+        }()
+        return entries.compactMap { entry in
+            guard let progress = entry["progress"] as? Int,
+                  let user = entry["user"] as? [String: Any],
+                  let userID = user["id"] as? Int,
+                  userID != viewerID,
+                  let name = user["name"] as? String else { return nil }
+            let avatar = (user["avatar"] as? [String: Any])?["large"] as? String
+            return AniListFollowingEntry(user: AniListUserSummary(id: userID, name: name, avatarURL: avatar),
+                                         progress: progress)
+        }
+    }
+
+    private func parseRelations(from mediaObject: [String: Any]?) -> [AnimeRelation] {
+        let edges = ((mediaObject?["relations"] as? [String: Any])?["edges"] as? [[String: Any]]) ?? []
+        return edges.compactMap { edge in
+            guard let type = edge["relationType"] as? String,
+                  let node = edge["node"] as? [String: Any],
+                  let decoded = decodeAniListMedia(from: node),
+                  let item = AniListUtil.animeItem(from: decoded) else { return nil }
+            let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
+            guard !skip.contains(type) else { return nil }
+            return AnimeRelation(relationType: type, media: item)
+        }
+    }
+
     // MARK: - Trailer + Genres
 
     func fetchTrailerAndGenres(id: Int, completion: @escaping (_ trailerYouTubeID: String?, _ genres: [String], _ malId: Int?) -> Void) {

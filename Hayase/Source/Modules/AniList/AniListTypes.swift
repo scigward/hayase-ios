@@ -14,6 +14,8 @@ struct AnimeItem {
     let id: Int
     let titleEnglish: String?
     let titleRomaji: String?
+    var titleNative: String? = nil
+    var titleUserPreferred: String? = nil
     let coverURL: String?
     let score: Float?
     let status: String?
@@ -32,6 +34,8 @@ struct AnimeItem {
     var coverColor: String? = nil
     var malId: Int? = nil
     var relations: [AnimeRelation] = []
+    var tags: [AnimeTag] = []
+    var isAdult: Bool? = nil
 
     struct MediaListEntry {
         let listID: Int
@@ -42,6 +46,17 @@ struct AnimeItem {
         let customLists: [String]
     }
     var mediaListEntry: MediaListEntry?
+}
+
+// MARK: - AnimeTag
+
+struct AnimeTag {
+    let id: Int
+    let name: String
+    let isMediaSpoiler: Bool
+    let isGeneralSpoiler: Bool
+    let rank: Int
+    let isAdult: Bool
 }
 
 // MARK: - AnimeRelation
@@ -66,6 +81,19 @@ struct AniListUserSummary {
     let id: Int
     let name: String
     let avatarURL: String?
+}
+
+struct AniListFollowingEntry {
+    let user: AniListUserSummary
+    let progress: Int
+}
+
+struct AnimePagePayload {
+    let media: AnimeItem?
+    let recommendations: [AnimeItem]
+    let threads: [AniListThread]
+    let threadTotal: Int
+    let followingEntries: [AniListFollowingEntry]
 }
 
 // MARK: - Staff + Stats models
@@ -167,6 +195,8 @@ struct AniListMedia: Codable {
     let nextAiringEpisode: NextAiringEpisode?
     let status: String?
     let genres: [String]?
+    let tags: [MediaTag]?
+    let isAdult: Bool?
     let favourites: Int?
     let trailer: Trailer?
     let seasonYear: Int?
@@ -178,8 +208,11 @@ struct AniListMedia: Codable {
     struct Title: Codable {
         let english: String?
         let romaji: String?
+        let native: String?
+        let userPreferred: String?
     }
     struct CoverImage: Codable {
+        let extraLarge: String?
         let large: String?
         let medium: String?
         let color: String?
@@ -193,9 +226,21 @@ struct AniListMedia: Codable {
         let site: String?
     }
     struct MediaListEntry: Codable {
+        let id: Int?
         let status: String?
+        let progress: Int?
+        let repeat: Int?
+        let score: Double?
     }
     let mediaListEntry: MediaListEntry?
+    struct MediaTag: Codable {
+        let id: Int?
+        let name: String?
+        let isMediaSpoiler: Bool?
+        let isGeneralSpoiler: Bool?
+        let rank: Int?
+        let isAdult: Bool?
+    }
 }
 
 struct AniListDetailResponse: Codable {

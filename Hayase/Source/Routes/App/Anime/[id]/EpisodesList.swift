@@ -1,6 +1,9 @@
 //
-//  Episodes.swift
+//  EpisodesList.swift
 //  Hayase
+//
+//  Created by scigward.
+//  Mirrors: routes/app/anime/[id]/EpisodesList.svelte
 //
 
 import UIKit
@@ -27,6 +30,69 @@ struct FilteredEpisode {
     let anidbEid: Int?
 }
 
+// MARK: - FollowerAvatarStackView
+
+final class FollowerAvatarStackView: UIStackView {
+    private var imageTasks: [URLSessionDataTask] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        axis = .horizontal
+        spacing = -6
+        alignment = .center
+        isHidden = true
+    }
+
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+        axis = .horizontal
+        spacing = -6
+        alignment = .center
+        isHidden = true
+    }
+
+    func configure(users: [AniListUserSummary]) {
+        reset()
+        let visibleUsers = Array(users.prefix(4))
+        isHidden = visibleUsers.isEmpty
+        for user in visibleUsers {
+            let avatar = UIImageView()
+            avatar.backgroundColor = UIColor(white: 0.18, alpha: 1)
+            avatar.contentMode = .scaleAspectFill
+            avatar.clipsToBounds = true
+            avatar.layer.cornerRadius = 8
+            avatar.layer.borderWidth = 1
+            avatar.layer.borderColor = UIColor.black.cgColor
+            avatar.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                avatar.widthAnchor.constraint(equalToConstant: 16),
+                avatar.heightAnchor.constraint(equalToConstant: 16),
+            ])
+            addArrangedSubview(avatar)
+
+            guard let urlString = user.avatarURL, let url = URL(string: urlString) else { continue }
+            let task = URLSession.shared.dataTask(with: url) { [weak avatar] data, _, _ in
+                guard let data, let image = UIImage(data: data) else { return }
+                DispatchQueue.main.async {
+                    avatar?.image = image
+                }
+            }
+            imageTasks.append(task)
+            task.resume()
+        }
+    }
+
+    func reset() {
+        imageTasks.forEach { $0.cancel() }
+        imageTasks.removeAll()
+        arrangedSubviews.forEach { view in
+            removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        isHidden = true
+    }
+}
+
 // MARK: - EpisodeCardView
 
 final class EpisodeCardView: UIView {
@@ -39,6 +105,8 @@ final class EpisodeCardView: UIView {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = UIColor(white: 0.10, alpha: 1)
+        iv.layer.cornerRadius = 6
+        iv.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         return iv
     }()
 
@@ -116,6 +184,26 @@ final class EpisodeCardView: UIView {
         return l
     }()
 
+    private let followerStack = FollowerAvatarStackView()
+
+    private let playOverlayView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        v.alpha = 0
+        v.isUserInteractionEnabled = false
+        v.layer.cornerRadius = 6
+        v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private let playOverlayIcon: UIImageView = {
+        let iv = UIImageView(image: UIImage.hayaseFilledIcon("play", pointSize: 22))
+        iv.tintColor = .white
+        iv.contentMode = .scaleAspectFit
+        return iv
+    }()
+
     static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .full
@@ -145,12 +233,18 @@ final class EpisodeCardView: UIView {
     private func setup() {
         backgroundColor = hayaseCardBackground
         layer.cornerRadius = 6
-        clipsToBounds = true
+        clipsToBounds = false
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowRadius = 0
+        layer.shadowOpacity = 0
+        layer.shadowOffset = CGSize(width: 0, height: 0)
 
-        [thumbImageView, runtimeBadge, ratingBadge].forEach {
+        [thumbImageView, playOverlayView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
+        playOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
+        playOverlayView.addSubview(playOverlayIcon)
         fillerBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fillerBadge)
 
@@ -169,7 +263,12 @@ final class EpisodeCardView: UIView {
         spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
         spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, metaLabel])
+        let bottomRow = UIStackView(arrangedSubviews: [metaLabel, UIView(), followerStack])
+        bottomRow.axis = .horizontal
+        bottomRow.spacing = 8
+        bottomRow.alignment = .center
+
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, bottomRow])
         textStack.axis = .vertical
         textStack.spacing = 4
         textStack.setCustomSpacing(8, after: numberLabel)
@@ -195,6 +294,15 @@ final class EpisodeCardView: UIView {
             thumbWidthPreferred,
             thumbMaxWidth,
 
+            playOverlayView.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
+            playOverlayView.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor),
+            playOverlayView.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor),
+            playOverlayView.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor),
+            playOverlayIcon.centerXAnchor.constraint(equalTo: playOverlayView.centerXAnchor),
+            playOverlayIcon.centerYAnchor.constraint(equalTo: playOverlayView.centerYAnchor),
+            playOverlayIcon.widthAnchor.constraint(equalToConstant: 28),
+            playOverlayIcon.heightAnchor.constraint(equalToConstant: 28),
+
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
 
@@ -214,18 +322,50 @@ final class EpisodeCardView: UIView {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
         addGestureRecognizer(tap)
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
+        press.minimumPressDuration = 0
+        press.cancelsTouchesInView = false
+        addGestureRecognizer(press)
     }
 
     @objc private func cardTapped() {
         onTap?(episodeNumber)
     }
 
+    @objc private func pressChanged(_ recognizer: UILongPressGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            setPressed(true, animated: true)
+        case .ended, .cancelled, .failed:
+            setPressed(false, animated: true)
+        default:
+            break
+        }
+    }
+
+    private func setPressed(_ pressed: Bool, animated: Bool) {
+        let changes = {
+            self.transform = pressed ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
+            self.playOverlayView.alpha = pressed ? 1 : 0
+            self.layer.shadowRadius = pressed ? 18 : 0
+            self.layer.shadowOpacity = pressed ? 0.45 : 0
+            self.layer.shadowOffset = pressed ? CGSize(width: 0, height: 8) : .zero
+        }
+        if animated {
+            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
+        } else {
+            changes()
+        }
+    }
+
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
-                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
+                   accentColor: UIColor = .white, isListCompleted: Bool = false,
+                   followers: [AniListUserSummary] = []) {
         episodeNumber = episode.number
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
+        followerStack.configure(users: followers)
 
         let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
@@ -306,6 +446,7 @@ final class EpisodeCardView: UIView {
 
         let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
         thumbImageView.isHidden = !hasImage
+        playOverlayView.isHidden = !hasImage
         runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
         ratingBadge.isHidden = !hasImage || episode.rating == nil
         thumbWidthPreferred.isActive = hasImage
@@ -351,6 +492,10 @@ final class EpisodeCardView: UIView {
         runtimeBadge.isHidden = true
         ratingBadge.isHidden = true
         fillerBadge.isHidden = true
+        playOverlayView.isHidden = false
+        playOverlayView.alpha = 0
+        followerStack.reset()
+        setPressed(false, animated: false)
         layer.borderWidth = 0
         layer.borderColor = UIColor.clear.cgColor
         alpha = 1.0
@@ -385,6 +530,8 @@ final class EpisodeCell: UITableViewCell {
 
     private func setup() {
         backgroundColor = .clear
+        clipsToBounds = false
+        contentView.clipsToBounds = false
         selectionStyle = .none
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
@@ -402,9 +549,11 @@ final class EpisodeCell: UITableViewCell {
     }
 
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
-                   accentColor: UIColor = .white, isListCompleted: Bool = false) {
+                   accentColor: UIColor = .white, isListCompleted: Bool = false,
+                   followers: [AniListUserSummary] = []) {
         cardView.configure(with: episode, anilistID: anilistID, anilistProgress: anilistProgress,
-                           accentColor: accentColor, isListCompleted: isListCompleted)
+                           accentColor: accentColor, isListCompleted: isListCompleted,
+                           followers: followers)
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
@@ -444,6 +593,10 @@ final class EpisodePairCell: UITableViewCell {
 
     private func setup() {
         backgroundColor = .clear
+        clipsToBounds = false
+        contentView.clipsToBounds = false
+        leftContainer.clipsToBounds = false
+        rightContainer.clipsToBounds = false
         selectionStyle = .none
 
         stack.axis = .horizontal
@@ -477,14 +630,17 @@ final class EpisodePairCell: UITableViewCell {
     }
 
     func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
-                   accentColor: UIColor, isListCompleted: Bool) {
+                   accentColor: UIColor, isListCompleted: Bool,
+                   followersByEpisode: [Int: [AniListUserSummary]] = [:]) {
         leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
-                           accentColor: accentColor, isListCompleted: isListCompleted)
+                           accentColor: accentColor, isListCompleted: isListCompleted,
+                           followers: followersByEpisode[left.number] ?? [])
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
         if let right = right {
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
-                                accentColor: accentColor, isListCompleted: isListCompleted)
+                                accentColor: accentColor, isListCompleted: isListCompleted,
+                                followers: followersByEpisode[right.number] ?? [])
             rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
             rightContainer.isHidden = false
         } else {
@@ -774,7 +930,8 @@ extension AnimeDetailViewController {
             let rightEp = paginatedEpisodes[safe: rightIdx]
             cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
                            anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
-                           isListCompleted: isCompleted)
+                           isListCompleted: isCompleted,
+                           followersByEpisode: followingEntriesByEpisode)
             cell.onTapEpisode = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }
@@ -786,7 +943,8 @@ extension AnimeDetailViewController {
             }
             guard let ep = paginatedEpisodes[safe: indexPath.row] else { return cell }
             cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
-                           accentColor: currentAnimeAccent, isListCompleted: isCompleted)
+                           accentColor: currentAnimeAccent, isListCompleted: isCompleted,
+                           followers: followingEntriesByEpisode[ep.number] ?? [])
             cell.cardView.onTap = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }

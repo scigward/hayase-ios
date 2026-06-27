@@ -343,6 +343,98 @@ enum AniListQueries {
     }
     """
 
+    // MARK: - Anime page (anime/[id]/+layout.svelte + +page.svelte)
+
+    static let animePage = """
+    query AnimePage($id: Int!) {
+      Media(id: $id, type: ANIME) {
+        id
+        idMal
+        title { romaji english native userPreferred }
+        description(asHtml: false)
+        season
+        seasonYear
+        format
+        status
+        episodes
+        duration
+        averageScore
+        genres
+        isFavourite
+        coverImage { extraLarge large medium color }
+        source
+        countryOfOrigin
+        isAdult
+        bannerImage
+        synonyms
+        nextAiringEpisode { id timeUntilAiring episode }
+        startDate { year }
+        trailer { id site }
+        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
+        mediaListEntry { id status progress repeat score(format: POINT_10) }
+        relations {
+          edges {
+            relationType(version: 2)
+            node {
+              id
+              title { userPreferred romaji english native }
+              coverImage { extraLarge large medium color }
+              type
+              status
+              format
+              episodes
+              season
+              seasonYear
+              startDate { year }
+            }
+          }
+        }
+        recommendations(sort: [RATING_DESC, ID], perPage: 24) {
+          nodes {
+            id
+            rating
+            mediaRecommendation {
+              id
+              title { userPreferred romaji english native }
+              coverImage { extraLarge large medium color }
+              type
+              status
+              format
+              episodes
+              season
+              seasonYear
+              startDate { year }
+              mediaListEntry { id status progress repeat score(format: POINT_10) }
+            }
+          }
+        }
+      }
+      following: Page {
+        mediaList(mediaId: $id, isFollowing: true, sort: UPDATED_TIME_DESC) {
+          id
+          status
+          score
+          progress
+          user { id name avatar { large } }
+        }
+      }
+      threads: Page(perPage: 16) {
+        pageInfo { hasNextPage total }
+        threads(mediaCategoryId: $id, sort: ID_DESC) {
+          id
+          title
+          viewCount
+          replyCount
+          likeCount
+          isLocked
+          createdAt
+          user { name avatar { large } }
+          categories { id name }
+        }
+      }
+    }
+    """
+
     // MARK: - Trailer + Genres
 
     static let trailerGenres = """
@@ -352,7 +444,7 @@ enum AniListQueries {
     // MARK: - Forum threads
 
     static let threads = """
-    query($id:Int){Page(perPage:20){threads(mediaCategoryId:$id,sort:CREATED_AT_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
+    query($id:Int){Page(perPage:16){threads(mediaCategoryId:$id,sort:ID_DESC){id title viewCount replyCount likeCount isLocked createdAt user{name avatar{large}} categories{id name}}}}
     """
 
     // MARK: - Airing schedule

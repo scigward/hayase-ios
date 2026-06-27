@@ -165,6 +165,9 @@ extension AnimeDetailViewController: UITableViewDataSource {
         case .themes:
             if activeSection != .themes { return 0 }
             return themesLoading ? 1 : max(themes.count, 1)
+        case .recommendations:
+            if activeSection != .recommendations { return 0 }
+            return recommendations.isEmpty ? 1 : 1
         case .none: return 0
         }
     }
@@ -232,6 +235,9 @@ extension AnimeDetailViewController: UITableViewDataSource {
 
         case .themes:
             return makeThemeCell(for: indexPath)
+
+        case .recommendations:
+            return makeRecommendationCell(for: indexPath)
 
         case .none:
             return UITableViewCell()
@@ -314,6 +320,7 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
         switch collectionView.tag {
         case 100: return relations.count
         case 300: return staff.count
+        case 400: return recommendations.count
         default:  return 0
         }
     }
@@ -335,6 +342,17 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
             guard let staffMember = staff[safe: indexPath.item] else { return cell }
             cell.configure(with: staffMember)
             return cell
+        case 400:
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: AnimeCollectionViewCell.reuseID, for: indexPath) as? AnimeCollectionViewCell
+            else { return UICollectionViewCell() }
+            guard let item = recommendations[safe: indexPath.item] else { return cell }
+            cell.configure(with: item)
+            Hover.shared.bind(to: cell,
+                              host: self,
+                              mediaProvider: { item },
+                              actions: hayasePreviewCardActions())
+            return cell
         default:
             return UICollectionViewCell()
         }
@@ -345,9 +363,23 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
 
 extension AnimeDetailViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard collectionView.tag == 100 else { return }
-        guard let relation = relations[safe: indexPath.item] else { return }
-        Router.shared.navigateToAnime(relation.media, hostTabIndex: tabBarController?.selectedIndex)
+        switch collectionView.tag {
+        case 100:
+            guard let relation = relations[safe: indexPath.item] else { return }
+            Router.shared.navigateToAnime(relation.media, hostTabIndex: tabBarController?.selectedIndex)
+        case 400:
+            guard let item = recommendations[safe: indexPath.item] else { return }
+            if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
+               Hover.shared.handleTouchSelection(source: cell,
+                                                 host: self,
+                                                 media: item,
+                                                 actions: hayasePreviewCardActions()) {
+                return
+            }
+            Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
+        default:
+            return
+        }
     }
 }
 

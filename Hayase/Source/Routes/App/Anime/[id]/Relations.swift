@@ -108,7 +108,7 @@ final class RelationCardCell: UICollectionViewCell {
             .replacingOccurrences(of: "_", with: " ")
             .capitalized
         typeLabel.text = " \(displayType) "
-        titleLabel.text = relation.media.titleEnglish ?? relation.media.titleRomaji
+        titleLabel.text = AniListUtil.title(for: relation.media)
         loadImage(from: relation.media.coverURL)
     }
 

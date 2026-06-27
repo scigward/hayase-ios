@@ -204,7 +204,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     func configure(media: AnimeItem, actions: PreviewCardActions) {
         self.media = media
         self.actions = actions
-        titleLabel.text = media.titleEnglish ?? media.titleRomaji ?? "Unknown"
+        titleLabel.text = AniListUtil.title(for: media)
         descriptionLabel.text = (media.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? media.description
             : "No description available."

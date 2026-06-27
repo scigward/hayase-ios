@@ -196,7 +196,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     func configure(with item: AnimeItem) {
         configuredAnimeItem = item
-        titleLabel.text = item.titleEnglish ?? item.titleRomaji ?? "Unknown"
+        titleLabel.text = AniListUtil.title(for: item)
         // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'
         let displayYear = item.year ?? item.startYear
         yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"

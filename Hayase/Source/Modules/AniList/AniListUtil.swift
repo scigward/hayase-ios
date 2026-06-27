@@ -47,6 +47,40 @@ enum AniListUtil {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Matches interface `title(media)`: default AniList title is `userPreferred`.
+    static func title(for item: AnimeItem) -> String {
+        item.titleUserPreferred
+            ?? item.titleRomaji
+            ?? item.titleEnglish
+            ?? item.titleNative
+            ?? "TBA"
+    }
+
+    /// Matches anime/[id]/+layout.svelte's muted alternate title line.
+    static func alternateTitle(for item: AnimeItem) -> String? {
+        let primary = title(for: item)
+        let normalizedPrimary = primary.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRomaji = item.titleRomaji?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let alternate = normalizedRomaji == normalizedPrimary
+            ? (item.titleNative ?? item.titleRomaji)
+            : (item.titleRomaji ?? item.titleNative)
+        guard let alternate, !alternate.isEmpty, alternate != primary else { return nil }
+        return alternate
+    }
+
+    static func tags(from mediaTags: [AniListMedia.MediaTag]?) -> [AnimeTag] {
+        (mediaTags ?? []).compactMap { tag in
+            guard let id = tag.id, let name = tag.name, !name.isEmpty else { return nil }
+            return AnimeTag(
+                id: id,
+                name: name,
+                isMediaSpoiler: tag.isMediaSpoiler ?? false,
+                isGeneralSpoiler: tag.isGeneralSpoiler ?? false,
+                rank: tag.rank ?? 0,
+                isAdult: tag.isAdult ?? false)
+        }
+    }
+
     /// NSFW genre filter — returns `["Hentai"]` when user hasn't enabled "Show Hentai".
     /// Matches settings.ts: `nsfw = showHentai ? null : ['Hentai']`.
     static var nsfwGenreFilter: [String]? {
@@ -63,7 +97,9 @@ enum AniListUtil {
             id: id,
             titleEnglish: media.title?.english,
             titleRomaji: media.title?.romaji,
-            coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+            titleNative: media.title?.native,
+            titleUserPreferred: media.title?.userPreferred,
+            coverURL: media.coverImage?.extraLarge ?? media.coverImage?.large ?? media.coverImage?.medium,
             score: media.averageScore,
             status: media.status,
             episodes: media.episodes,
@@ -79,10 +115,17 @@ enum AniListUtil {
             trailerYouTubeID: trailerID,
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
-            malId: media.idMal)
+            malId: media.idMal,
+            tags: tags(from: media.tags),
+            isAdult: media.isAdult)
         if let mle = media.mediaListEntry, let s = mle.status {
             item.mediaListEntry = AnimeItem.MediaListEntry(
-                listID: 0, status: s, progress: 0, score: 0, repeatCount: 0, customLists: [])
+                listID: mle.id ?? 0,
+                status: s,
+                progress: mle.progress ?? 0,
+                score: Int(mle.score ?? 0),
+                repeatCount: mle.repeat ?? 0,
+                customLists: [])
         }
         return item
     }
@@ -95,7 +138,9 @@ enum AniListUtil {
             id: id,
             titleEnglish: media.title?.english,
             titleRomaji: media.title?.romaji,
-            coverURL: media.coverImage?.large ?? media.coverImage?.medium,
+            titleNative: media.title?.native,
+            titleUserPreferred: media.title?.userPreferred,
+            coverURL: media.coverImage?.extraLarge ?? media.coverImage?.large ?? media.coverImage?.medium,
             score: media.averageScore,
             status: media.status,
             episodes: media.episodes,
