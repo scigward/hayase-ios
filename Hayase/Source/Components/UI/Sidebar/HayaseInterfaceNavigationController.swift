@@ -12,8 +12,14 @@ import UIKit
 // MARK: - HayaseInterfaceNavigationController
 
 final class HayaseInterfaceNavigationController: UINavigationController, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
+    private enum HistorySwipeDirection {
+        case back
+        case forward
+    }
+
     private var forwardViewControllers: [UIViewController] = []
     private var isRestoringForwardController = false
+    private var activeHistorySwipeDirection: HistorySwipeDirection?
 
     convenience init(wrapping navigationController: UINavigationController) {
         let viewControllers = navigationController.viewControllers
@@ -109,52 +115,71 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
     private func installHistorySwipeGestures() {
         interactivePopGestureRecognizer?.isEnabled = false
 
-        let backGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe(_:)))
-        backGesture.edges = .left
-        backGesture.delegate = self
-        view.addGestureRecognizer(backGesture)
-
-        let forwardGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleForwardSwipe(_:)))
-        forwardGesture.edges = .right
-        forwardGesture.delegate = self
-        view.addGestureRecognizer(forwardGesture)
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleHistoryPan(_:)))
+        panGesture.maximumNumberOfTouches = 1
+        panGesture.cancelsTouchesInView = false
+        panGesture.delegate = self
+        view.addGestureRecognizer(panGesture)
     }
 
-    @objc private func handleBackSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
-        guard translation.x > 60 || velocity.x > 400 else { return }
-        if isCurrentStackRouteOwned, Router.shared.back() { return }
-        _ = popViewController(animated: true)
-    }
+    @objc private func handleHistoryPan(_ gesture: UIPanGestureRecognizer) {
+        guard gesture.state == .ended else {
+            if gesture.state == .cancelled || gesture.state == .failed {
+                activeHistorySwipeDirection = nil
+            }
+            return
+        }
 
-    @objc private func handleForwardSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended else { return }
         let translation = gesture.translation(in: view)
         let velocity = gesture.velocity(in: view)
-        guard translation.x < -60 || velocity.x < -400 else { return }
-        if isCurrentStackRouteOwned, Router.shared.forward() { return }
-        guard let viewController = forwardViewControllers.popLast() else { return }
-        isRestoringForwardController = true
-        pushViewController(viewController, animated: true)
-        isRestoringForwardController = false
+        defer { activeHistorySwipeDirection = nil }
+
+        switch activeHistorySwipeDirection {
+        case .back:
+            guard translation.x > 60 || velocity.x > 400 else { return }
+            _ = popViewController(animated: true)
+        case .forward:
+            guard translation.x < -60 || velocity.x < -400,
+                  let viewController = forwardViewControllers.popLast() else { return }
+            isRestoringForwardController = true
+            pushViewController(viewController, animated: true)
+            isRestoringForwardController = false
+        case .none:
+            break
+        }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let edgeGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else { return true }
-        if edgeGesture.edges == .left {
-            return isCurrentStackRouteOwned ? Router.shared.canGoBack : viewControllers.count > 1
+        guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        guard !isCurrentStackRouteOwned else { return false }
+
+        let start = panGesture.location(in: view)
+        let velocity = panGesture.velocity(in: view)
+        let edgeWidth: CGFloat = 28
+        let isHorizontal = abs(velocity.x) > abs(velocity.y) * 1.4
+        guard isHorizontal else { return false }
+
+        if start.x <= edgeWidth, velocity.x > 0, viewControllers.count > 1 {
+            activeHistorySwipeDirection = .back
+            return true
         }
-        if edgeGesture.edges == .right {
-            return isCurrentStackRouteOwned ? Router.shared.canGoForward : !forwardViewControllers.isEmpty
+        if start.x >= view.bounds.width - edgeWidth, velocity.x < 0, !forwardViewControllers.isEmpty {
+            activeHistorySwipeDirection = .forward
+            return true
         }
-        return true
+
+        activeHistorySwipeDirection = nil
+        return false
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is UIPanGestureRecognizer
     }
 
     private var isCurrentStackRouteOwned: Bool {
         switch Router.shared.currentRoute {
-        case .anime, .animeThread:
+        case .anime, .animeThread, .player:
             return true
         default:
             return false

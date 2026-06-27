@@ -925,7 +925,7 @@ extension W2GViewController {
         player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
-        presentHayasePlayer(player)
+        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     private func showW2GError(_ message: String) {
@@ -1067,7 +1067,7 @@ extension W2GViewController {
             player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-            self.presentHayasePlayer(player)
+            Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {

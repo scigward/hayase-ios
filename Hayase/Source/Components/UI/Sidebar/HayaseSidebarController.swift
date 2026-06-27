@@ -43,8 +43,14 @@ final class HayaseSidebarController: UIViewController {
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
     private var selectedIndexObservation: NSKeyValueObservation?
+    private enum HistorySwipeDirection {
+        case back
+        case forward
+    }
+
     private var routeObservationID: UUID?
     private var isApplyingRoute = false
+    private var activeHistorySwipeDirection: HistorySwipeDirection?
 
     init(tabBarController: UITabBarController) {
         self.tabBarControllerHost = tabBarController
@@ -124,31 +130,32 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func installRouteHistoryGestures() {
-        let backGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleRouteBackSwipe(_:)))
-        backGesture.edges = .left
-        backGesture.delegate = self
-        view.addGestureRecognizer(backGesture)
-
-        let forwardGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleRouteForwardSwipe(_:)))
-        forwardGesture.edges = .right
-        forwardGesture.delegate = self
-        view.addGestureRecognizer(forwardGesture)
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleRouteHistoryPan(_:)))
+        panGesture.maximumNumberOfTouches = 1
+        panGesture.cancelsTouchesInView = false
+        panGesture.delegate = self
+        view.addGestureRecognizer(panGesture)
     }
 
-    @objc private func handleRouteBackSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
-        guard translation.x > 60 || velocity.x > 400 else { return }
-        router.back()
-    }
-
-    @objc private func handleRouteForwardSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
-        guard translation.x < -60 || velocity.x < -400 else { return }
-        router.forward()
+    @objc private func handleRouteHistoryPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .ended:
+            let translation = gesture.translation(in: view)
+            let velocity = gesture.velocity(in: view)
+            switch activeHistorySwipeDirection {
+            case .back:
+                if translation.x > 60 || velocity.x > 400 { router.back() }
+            case .forward:
+                if translation.x < -60 || velocity.x < -400 { router.forward() }
+            case .none:
+                break
+            }
+            activeHistorySwipeDirection = nil
+        case .cancelled, .failed:
+            activeHistorySwipeDirection = nil
+        default:
+            break
+        }
     }
 
     private func installInterfaceRoutes() {
@@ -471,7 +478,7 @@ final class HayaseSidebarController: UIViewController {
         case .animeThread(let animeID, let threadID):
             showAnimeRoute(id: animeID, threadID: threadID, kind: kind, animated: animated)
         case .player:
-            MiniPlayerManager.shared.restore()
+            showPlayerRoute(animated: animated)
         default:
             if route.resetsTabStack,
                let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
@@ -560,6 +567,27 @@ final class HayaseSidebarController: UIViewController {
            thread.routeThreadID == threadID { return }
         let thread = ThreadDetailViewController(threadID: threadID, title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread")
         navigationController.pushViewController(thread, animated: animated)
+    }
+
+    private func showPlayerRoute(animated: Bool) {
+        guard let player = router.cachedPlayer() else {
+            MiniPlayerManager.shared.restore()
+            return
+        }
+
+        if topVisibleHostedController() === player { return }
+
+        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
+            if nav.topViewController === player { return }
+            if nav.viewControllers.contains(where: { $0 === player }) {
+                nav.popToViewController(player, animated: animated)
+                return
+            }
+        }
+
+        player.isMinimizing = false
+        let presenter = topVisibleHostedController() ?? tabBarControllerHost
+        presenter.presentHayasePlayer(player, animated: animated)
     }
 
     private func minimizeVisiblePlayerIfNeeded() {
@@ -737,14 +765,46 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let edgeGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else { return true }
+        guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
 
-        if edgeGesture.edges == .left {
-            return router.canGoBack
+        let start = panGesture.location(in: view)
+        let velocity = panGesture.velocity(in: view)
+        let edgeWidth: CGFloat = 28
+        let isHorizontal = abs(velocity.x) > abs(velocity.y) * 1.4
+        guard isHorizontal else { return false }
+
+        // Native pushed tool screens keep their local stack gesture. Main app
+        // route history is only handled here when the visible stack is route-owned.
+        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController,
+           nav.viewControllers.count > 1,
+           !isCurrentRouteOwnedByRouter {
+            return false
         }
-        if edgeGesture.edges == .right {
-            return router.canGoForward
+
+        if start.x <= edgeWidth, velocity.x > 0, router.canGoBack {
+            activeHistorySwipeDirection = .back
+            return true
         }
-        return true
+        if start.x >= view.bounds.width - edgeWidth, velocity.x < 0, router.canGoForward {
+            activeHistorySwipeDirection = .forward
+            return true
+        }
+
+        activeHistorySwipeDirection = nil
+        return false
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is UIPanGestureRecognizer
+    }
+
+    private var isCurrentRouteOwnedByRouter: Bool {
+        switch router.currentRoute {
+        case .anime, .animeThread, .player:
+            return true
+        default:
+            return false
+        }
     }
 }

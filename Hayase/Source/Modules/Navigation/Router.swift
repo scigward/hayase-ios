@@ -27,6 +27,7 @@ final class Router {
     private var observers: [UUID: Observer] = [:]
     private var animePayloads: [Int: AnimeItem] = [:]
     private var threadTitles: [Int: String] = [:]
+    private var playerPayload: VideoPlayerViewController?
 
     private init(initialRoute: Route) {
         history = History(initialRoute: initialRoute)
@@ -93,6 +94,20 @@ final class Router {
 
     func cachedThreadTitle(for id: Int) -> String? {
         threadTitles[id]
+    }
+
+    func navigateToPlayer(_ player: VideoPlayerViewController, hostTabIndex: Int? = nil) {
+        playerPayload = player
+        navigate(.player, hostTabIndex: hostTabIndex)
+    }
+
+    func cachedPlayer() -> VideoPlayerViewController? {
+        playerPayload ?? MiniPlayerManager.shared.activePlayer
+    }
+
+    func clearCachedPlayer(_ player: VideoPlayerViewController) {
+        guard playerPayload === player else { return }
+        playerPayload = nil
     }
 
     @discardableResult

@@ -1741,7 +1741,7 @@ class DownloadsViewController: UIViewController {
         player.totalEpisodes = entity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos = videos
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
-        presentHayasePlayer(player)
+        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
         return true
     }
 
@@ -1874,7 +1874,7 @@ class DownloadsViewController: UIViewController {
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
         openingLibraryPlaybackHash = nil
         pendingLibraryPlaybackService = nil
-        presentHayasePlayer(player)
+        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 
     private func restoreMiniPlayerIfAlreadyPlaying(hash: String, episode: Int?) -> Bool {
@@ -1889,7 +1889,7 @@ class DownloadsViewController: UIViewController {
             return false
         }
 
-        MiniPlayerManager.shared.restore()
+        Router.shared.navigate(.player, hostTabIndex: tabBarController?.selectedIndex)
         return true
     }
 

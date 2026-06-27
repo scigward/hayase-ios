@@ -471,7 +471,7 @@ final class MiniPlayerManager {
             reveal()
             return
         }
-        restore()
+        Router.shared.navigate(.player)
     }
 
     @objc private func playPauseTapped() {
@@ -1133,24 +1133,24 @@ final class MiniPlayerManager {
     private func presentSearchVC(animeItem: AnimeItem, episode: Int) {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
               let window = appDelegate.window else { return }
-        // Walk the VC hierarchy to find a navigation controller we can push onto.
-        var vc = window.rootViewController
-        // Dismiss any presented VCs (e.g. a fullscreen player that was just closed).
-        while let presented = vc?.presentedViewController {
-            vc = presented
-        }
-        let nav: UINavigationController?
-        if let tabBar = vc as? UITabBarController {
-            nav = tabBar.selectedViewController as? UINavigationController
-        } else {
-            nav = vc as? UINavigationController ?? vc?.navigationController
-        }
-        guard let navController = nav else { return }
 
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = animeItem
         searchVC.initialEpisode = episode
         searchVC.shouldAutoSelectOnSearch = true
-        navController.pushViewController(searchVC, animated: true)
+
+        if let presenter = topViewController() {
+            if presenter.traitCollection.horizontalSizeClass == .regular {
+                searchVC.modalPresentationStyle = .custom
+                searchVC.transitioningDelegate = searchVC
+            } else {
+                searchVC.modalPresentationStyle = .fullScreen
+            }
+            presenter.present(searchVC, animated: true)
+            return
+        }
+
+        searchVC.modalPresentationStyle = .fullScreen
+        window.rootViewController?.present(searchVC, animated: true)
     }
 }

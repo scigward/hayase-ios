@@ -657,6 +657,7 @@ final class VideoPlayerViewController: UIViewController {
     /// mini-player.
     func tearDownPlayer() {
         saveProgress()
+        Router.shared.clearCachedPlayer(self)
         MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
         if #available(iOS 15.0, *) {
             pipController?.stopPictureInPicture()
