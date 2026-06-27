@@ -2255,8 +2255,18 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         return UITableView.automaticDimension
     }
 
-    private func makeColumnHeader(columns: [(String, CGFloat?)]) -> UIView {
-        ColumnHeader.make(columns: columns)
+    private func makeColumnHeader(columns: [(String, CGFloat?)],
+                                  sortableColumnIndices: Set<Int> = [],
+                                  activeColumnIndex: Int? = nil,
+                                  sortAscending: Bool = true,
+                                  target: Any? = nil,
+                                  action: Selector? = nil) -> UIView {
+        ColumnHeader.make(columns: columns,
+                          sortableColumnIndices: sortableColumnIndices,
+                          activeColumnIndex: activeColumnIndex,
+                          sortAscending: sortAscending,
+                          target: target,
+                          action: action)
     }
 
     /// Builds a sortable column header for the Files tab.
