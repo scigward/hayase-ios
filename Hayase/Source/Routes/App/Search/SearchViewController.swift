@@ -100,7 +100,6 @@ class SearchViewController: UIViewController {
     private var chipsLeadingConstraint: NSLayoutConstraint!
     private var chipsTrailingConstraint: NSLayoutConstraint!
     private var lastChipLayoutWidth: CGFloat = 0
-    private var lastFilterLayoutSignature: String?
 
     private var collectionView:    UICollectionView!
     private var loadingIndicator:  UIActivityIndicatorView!
