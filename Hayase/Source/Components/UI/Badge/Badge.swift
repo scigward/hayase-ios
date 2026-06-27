@@ -76,8 +76,12 @@ final class Badge: UIControl {
         didSet { updateRevealState(animated: true) }
     }
 
-    override var isFocused: Bool {
-        didSet { updateRevealState(animated: true) }
+    override func didUpdateFocus(in context: UIFocusUpdateContext,
+                                 with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        coordinator.addCoordinatedAnimations {
+            self.updateRevealState(animated: false)
+        }
     }
 
     override var intrinsicContentSize: CGSize {
@@ -88,7 +92,7 @@ final class Badge: UIControl {
     }
 
     private var shouldRevealCloseIcon: Bool {
-        isHighlighted || isSelected || isFocused
+        isHighlighted || isSelected || super.isFocused
     }
 
     private func updateRevealState(animated: Bool) {

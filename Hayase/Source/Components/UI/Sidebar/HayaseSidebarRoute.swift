@@ -23,17 +23,40 @@ enum HayaseSidebarRoute: Hashable, CaseIterable {
     case profile
 
     var tabIndex: Int? {
+        appRoute?.tabIndex
+    }
+
+    var appRoute: Route? {
         switch self {
-        case .home: return 0
-        case .search: return 1
-        case .schedule: return 2
-        case .w2g: return 3
-        case .chat: return 4
-        case .client: return 5
-        case .settings: return 6
-        case .profile: return 6
+        case .home: return .home
+        case .search: return .search(nil)
+        case .schedule: return .schedule
+        case .w2g: return .w2g(id: nil)
+        case .chat: return .chat
+        case .client: return .client(.overview)
+        case .settings: return .settings(.player)
+        case .profile: return .profile
         case .donate: return nil
         }
+    }
+
+    var pathPrefix: String? {
+        switch self {
+        case .home: return "/app/home"
+        case .search: return "/app/search"
+        case .schedule: return "/app/schedule"
+        case .w2g: return "/app/w2g"
+        case .chat: return "/app/chat"
+        case .client: return "/app/client"
+        case .settings: return "/app/settings"
+        case .profile: return "/app/profile"
+        case .donate: return nil
+        }
+    }
+
+    func matches(_ route: Route) -> Bool {
+        guard let pathPrefix else { return false }
+        return route.path == pathPrefix || route.path.hasPrefix(pathPrefix + "/")
     }
 
     var href: String {

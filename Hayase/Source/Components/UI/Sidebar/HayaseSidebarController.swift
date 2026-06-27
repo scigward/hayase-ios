@@ -23,6 +23,7 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropPlayerRoute = "player"
 
     private let tabBarControllerHost: UITabBarController
+    private let router = Router.shared
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
     private let contentContainer = UIView()
@@ -42,6 +43,8 @@ final class HayaseSidebarController: UIViewController {
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
     private var selectedIndexObservation: NSKeyValueObservation?
+    private var routeObservationID: UUID?
+    private var isApplyingRoute = false
 
     init(tabBarController: UITabBarController) {
         self.tabBarControllerHost = tabBarController
@@ -56,13 +59,15 @@ final class HayaseSidebarController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
         installInterfaceRoutes()
+        router.reset(to: Route(tabIndex: tabBarControllerHost.selectedIndex) ?? .home)
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
         configureActions()
         observeBannerBackdrop()
         observeTabSelection()
-        updateSelection(animated: false)
+        observeRouteChanges()
+        apply(route: router.currentRoute, kind: .replace, animated: false)
         updateLayoutForCurrentWidth()
     }
 
@@ -115,6 +120,35 @@ final class HayaseSidebarController: UIViewController {
             tabBarControllerHost.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
         tabBarControllerHost.didMove(toParent: self)
+        installRouteHistoryGestures()
+    }
+
+    private func installRouteHistoryGestures() {
+        let backGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleRouteBackSwipe(_:)))
+        backGesture.edges = .left
+        backGesture.delegate = self
+        view.addGestureRecognizer(backGesture)
+
+        let forwardGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleRouteForwardSwipe(_:)))
+        forwardGesture.edges = .right
+        forwardGesture.delegate = self
+        view.addGestureRecognizer(forwardGesture)
+    }
+
+    @objc private func handleRouteBackSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        guard translation.x > 60 || velocity.x > 400 else { return }
+        router.back()
+    }
+
+    @objc private func handleRouteForwardSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        guard translation.x < -60 || velocity.x < -400 else { return }
+        router.forward()
     }
 
     private func installInterfaceRoutes() {
@@ -386,34 +420,70 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func observeTabSelection() {
-        selectedIndexObservation = tabBarControllerHost.observe(\.selectedIndex, options: [.new]) { [weak self] _, _ in
+        selectedIndexObservation = tabBarControllerHost.observe(\.selectedIndex, options: [.new]) { [weak self] tab, _ in
             DispatchQueue.main.async {
-                self?.updateSelection(animated: true)
+                guard let self, !self.isApplyingRoute,
+                      self.router.currentRoute.tabIndex != tab.selectedIndex,
+                      let route = Route(tabIndex: tab.selectedIndex) else { return }
+                self.router.sync(route)
+            }
+        }
+    }
+
+    private func observeRouteChanges() {
+        routeObservationID = router.observe { [weak self] route, kind in
+            DispatchQueue.main.async {
+                self?.apply(route: route, kind: kind, animated: true)
             }
         }
     }
 
     private func handle(_ route: HayaseSidebarRoute) {
-        closeMobileMenu()
-
         if route == .donate {
+            closeMobileMenu()
             if let url = URL(string: route.href) {
                 UIApplication.shared.open(url)
             }
             return
         }
 
-        guard let index = route.tabIndex else { return }
-        minimizeVisiblePlayerIfNeeded()
-        tabBarControllerHost.selectedIndex = index
-        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
-            nav.popToRootViewController(animated: false)
-            if route == .profile,
-               let settings = nav.viewControllers.first as? SettingsViewController {
-                settings.openAccountsTab()
-            }
+        guard let appRoute = route.appRoute else { return }
+        router.navigate(appRoute)
+    }
+
+    private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
+        closeMobileMenu(animated: animated)
+        updateSelection(for: route, animated: animated)
+
+        guard let index = route.tabIndex else {
+            updateSidebarBackground()
+            return
         }
-        updateSelection(animated: true)
+
+        minimizeVisiblePlayerIfNeeded()
+        isApplyingRoute = true
+        if tabBarControllerHost.selectedIndex != index {
+            tabBarControllerHost.selectedIndex = index
+        }
+        isApplyingRoute = false
+
+        if route.resetsTabStack,
+           let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
+            nav.popToRootViewController(animated: false)
+            applyRouteState(route, to: nav)
+        }
+
+        hideHostedNavigationBars()
+        updateSidebarBackground()
+    }
+
+    private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
+        switch route {
+        case .profile:
+            (navigationController.viewControllers.first as? SettingsViewController)?.openAccountsTab()
+        default:
+            break
+        }
     }
 
     private func minimizeVisiblePlayerIfNeeded() {
@@ -422,10 +492,14 @@ final class HayaseSidebarController: UIViewController {
         MiniPlayerManager.shared.minimize(player)
     }
 
-    private func updateSelection(animated: Bool) {
-        sidebarList.setSelectedIndex(tabBarControllerHost.selectedIndex, animated: animated)
-        mobileSidebarList.setSelectedIndex(tabBarControllerHost.selectedIndex, animated: animated)
+    private func updateSelection(for route: Route, animated: Bool) {
+        sidebarList.setSelectedRoute(route, animated: animated)
+        mobileSidebarList.setSelectedRoute(route, animated: animated)
         updateSidebarBackground()
+    }
+
+    private func updateSelection(animated: Bool) {
+        updateSelection(for: router.currentRoute, animated: animated)
     }
 
     private func updateLayoutForCurrentWidth() {
@@ -520,6 +594,9 @@ final class HayaseSidebarController: UIViewController {
 
     deinit {
         sidebarBackdropTask?.cancel()
+        if let routeObservationID {
+            router.removeObserver(routeObservationID)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 }
@@ -577,9 +654,30 @@ private final class SidebarBackdropGradientView: UIView {
     }
 }
 
-extension HayaseSidebarController: UITabBarControllerDelegate {
+extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecognizerDelegate {
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
         hideHostedNavigationBars()
         updateSelection(animated: true)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let edgeGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else { return true }
+
+        // During phase 1 the router owns top-level page history, while pushed
+        // detail screens can still be managed by their local navigation stack.
+        // Once internal links move to Router.navigate(_:) this guard naturally
+        // becomes less important.
+        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController,
+           nav.viewControllers.count > 1 {
+            return false
+        }
+
+        if edgeGesture.edges == .left {
+            return router.canGoBack
+        }
+        if edgeGesture.edges == .right {
+            return router.canGoForward
+        }
+        return true
     }
 }

@@ -44,10 +44,15 @@ final class HayaseSidebarListView: UIView {
         self.actionHandler = actionHandler
     }
 
-    func setSelectedIndex(_ index: Int, animated: Bool) {
+    func setSelectedRoute(_ currentRoute: Route, animated: Bool) {
         for (route, button) in routeButtons {
-            button.setActive(route.tabIndex == index && route != .profile, animated: animated)
+            button.setActive(route.matches(currentRoute), animated: animated)
         }
+    }
+
+    func setSelectedIndex(_ index: Int, animated: Bool) {
+        guard let route = Route(tabIndex: index) else { return }
+        setSelectedRoute(route, animated: animated)
     }
 
     func refreshDynamicState() {
