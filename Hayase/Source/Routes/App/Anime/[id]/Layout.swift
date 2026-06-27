@@ -928,7 +928,6 @@ final class AnimeInfoHeaderView: UIView {
                       format:   item.format,
                       season:   seasonStr,
                       duration: item.duration,
-                      progress: item.mediaListEntry?.progress,
                       accent:   accent,
                       contrastColor: contrast)
 
@@ -981,18 +980,14 @@ final class AnimeInfoHeaderView: UIView {
 
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
                                 nextEp: Int?, format: String?, season: String?,
-                                duration: Int? = nil, progress: Int? = nil,
+                                duration: Int? = nil,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let badge1Text: String
         if let eps = episodes, eps > 1 {
-            if let prog = progress, prog > 0, prog != eps {
-                badge1Text = "\(prog) / \(eps) Episodes"
-            } else {
-                badge1Text = "\(eps) Episodes"
-            }
+            badge1Text = "\(eps) Episodes"
         } else if let dur = duration, dur > 0 {
             badge1Text = "\(dur) Minute\(dur > 1 ? "s" : "")"
         } else {

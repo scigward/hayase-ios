@@ -1165,13 +1165,6 @@ extension AnimeDetailViewController {
 
         let now = Date().timeIntervalSince1970 * 1000
 
-        var anizipBannerURL: String? = nil
-        if let images = response.images {
-            let fanart = images.first(where: { $0.coverType == "Fanart" })?.url
-            let poster = images.first(where: { $0.coverType == "Poster" })?.url
-            anizipBannerURL = fanart ?? poster
-        }
-
         var parsed: [AniZipEpisode] = []
         guard count > 0 else {
             DispatchQueue.main.async { [weak self] in
@@ -1179,9 +1172,6 @@ extension AnimeDetailViewController {
                 self.episodes = []
                 self.currentEpisodePage = 1
                 self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
-                if let bannerURL = anizipBannerURL {
-                    self.headerView.updateBanner(from: bannerURL)
-                }
             }
             return
         }
@@ -1255,9 +1245,6 @@ extension AnimeDetailViewController {
                     self.currentEpisodePage = 1
                 }
                 self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
-                if let bannerURL = anizipBannerURL {
-                    self.headerView.updateBanner(from: bannerURL)
-                }
             }
         }
     }
