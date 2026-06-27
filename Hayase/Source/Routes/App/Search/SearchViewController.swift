@@ -84,7 +84,7 @@ class SearchViewController: UIViewController {
     private var leftStack:     UIStackView!  // vertical: title label + search input
     private var titleLabel:    UILabel!
     private var searchInputRow: UIView!
-    private var searchField:   HayaseTextInput!
+    private var searchField:   Input!
     private var rightButtons:  UIStackView!  // horizontal: camera + bolt
     private var cameraButton:  UIButton!
     private var boltButton:    UIButton!
@@ -309,7 +309,7 @@ class SearchViewController: UIViewController {
         searchInputRow = UIView()
         searchInputRow.translatesAutoresizingMaskIntoConstraints = false
 
-        searchField = HayaseTextInput(placeholder: "Any", iconName: "search")
+        searchField = Input(placeholder: "Any", iconName: "search")
         searchField.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
         searchInputRow.addSubview(searchField)
         NSLayoutConstraint.activate([
@@ -326,11 +326,11 @@ class SearchViewController: UIViewController {
         leftStack.axis = .vertical; leftStack.spacing = 4; leftStack.alignment = .fill
 
         // Camera button (FileImage) — interface Button variant=outline size=icon border-0.
-        cameraButton = HayaseIconButton(iconName: "file-image", pointSize: 16)
+        cameraButton = Button(iconName: "file-image", pointSize: 16)
         cameraButton.addTarget(self, action: #selector(cameraTapped), for: .touchUpInside)
 
         // Bolt toggle — md:hidden in interface (only on compact screens).
-        boltButton = HayaseIconButton(iconName: "bolt", pointSize: 18)
+        boltButton = Button(iconName: "bolt", pointSize: 18)
         boltButton.tintColor = Self.mutedFg
         boltButton.addTarget(self, action: #selector(boltTapped), for: .touchUpInside)
 
@@ -1195,7 +1195,7 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
     var onTextChanged: ((String) -> Void)?
 
     private let titleLabel = UILabel()
-    private let searchField = HayaseTextInput(placeholder: "Any", iconName: "search")
+    private let searchField = Input(placeholder: "Any", iconName: "search")
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1256,8 +1256,8 @@ private final class SearchActionItemCell: UICollectionViewCell {
     var onImageTapped: (() -> Void)?
     var onClearTapped: (() -> Void)?
 
-    private let imageButton = HayaseIconButton(iconName: "file-image", pointSize: 16)
-    private let clearButton = HayaseIconButton(iconName: "trash", pointSize: 16)
+    private let imageButton = Button(iconName: "file-image", pointSize: 16)
+    private let clearButton = Button(iconName: "trash", pointSize: 16)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1310,7 +1310,7 @@ private final class SearchFilterItemCell: UICollectionViewCell {
     static let reuseID = "SearchFilterItemCell"
 
     private let titleLabel = UILabel()
-    private let comboBox = HayaseComboBoxControl()
+    private let comboBox = ComboBox()
 
     override init(frame: CGRect) {
         super.init(frame: frame)

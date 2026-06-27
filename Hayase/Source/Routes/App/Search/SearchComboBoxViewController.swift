@@ -2,12 +2,12 @@
 //  SearchComboBoxViewController.swift
 //  Hayase
 //
-//  Route adapter for HayaseCommandPopoverViewController.
+//  Route adapter for the shared command popover component.
 //
 
 import UIKit
 
-final class SearchComboBoxViewController: HayaseCommandPopoverViewController {
+final class SearchComboBoxViewController: CommandPopoverViewController {
     init(filterType: SearchFilterType,
          options: [SearchFilterOption],
          selectedValues: Set<String>,
@@ -25,22 +25,22 @@ final class SearchComboBoxViewController: HayaseCommandPopoverViewController {
     }
 
     private static func commandGroups(for type: SearchFilterType,
-                                      options: [SearchFilterOption]) -> [HayaseCommandGroup] {
+                                      options: [SearchFilterOption]) -> [CommandGroup] {
         if type == .genres {
             let genres = options
                 .filter { $0.group == .genre }
-                .map { HayaseCommandOption(value: $0.value, label: $0.label) }
+                .map { CommandOption(value: $0.value, label: $0.label) }
             let tags = options
                 .filter { $0.group == .tag }
-                .map { HayaseCommandOption(value: $0.value, label: $0.label) }
+                .map { CommandOption(value: $0.value, label: $0.label) }
             return [
-                HayaseCommandGroup(title: "Genres", options: genres),
-                HayaseCommandGroup(title: "Tags", options: tags),
+                CommandGroup(title: "Genres", options: genres),
+                CommandGroup(title: "Tags", options: tags),
             ].filter { !$0.options.isEmpty }
         }
 
-        return [HayaseCommandGroup(options: options.map {
-            HayaseCommandOption(value: $0.value, label: $0.label)
+        return [CommandGroup(options: options.map {
+            CommandOption(value: $0.value, label: $0.label)
         })]
     }
 }
