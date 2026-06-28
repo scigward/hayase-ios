@@ -1669,7 +1669,7 @@ public final class AniListClient: NSObject {
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        performAniListDataTask(req, context: "AniList") { data, _, _ in
+        AniListClient.shared.performAniListDataTask(req, context: "AniList") { data, _, _ in
             var fanartURL: String? = nil
             var clearlogoURL: String? = nil
             if let data,
