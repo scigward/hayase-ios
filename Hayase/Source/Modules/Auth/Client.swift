@@ -71,6 +71,10 @@ final class TrackerAccountManager {
     func logout(_ tracker: TrackerKind) {
         setViewer(nil, for: tracker)
         setToken(nil, for: tracker)
+        if tracker == .anilist {
+            AniListClient.shared.clearViewerDependentCaches()
+            AniListTracking.shared.clearViewerCache()
+        }
         notify()
     }
 

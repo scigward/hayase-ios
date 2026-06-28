@@ -167,6 +167,12 @@ enum AniListUtil {
         return show ? nil : ["Hentai"]
     }
 
+    static func mediaListCustomLists(from rawLists: [AniListMedia.MediaListEntry.CustomList]?) -> [String] {
+        (rawLists ?? []).compactMap { customList in
+            customList.enabled == true ? customList.name : nil
+        }
+    }
+
     /// Convert an AniListMedia Codable object to an AnimeItem value type.
     static func animeItem(from media: AniListMedia) -> AnimeItem? {
         guard let id = media.id else { return nil }
@@ -195,6 +201,7 @@ enum AniListUtil {
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
             malId: media.idMal,
+            isFavourite: media.isFavourite,
             tags: tags(from: media.tags),
             isAdult: media.isAdult)
         if let mle = media.mediaListEntry, let s = mle.status {
@@ -204,7 +211,7 @@ enum AniListUtil {
                 progress: mle.progress ?? 0,
                 score: Int(mle.score ?? 0),
                 repeatCount: mle.repeatCount ?? 0,
-                customLists: [])
+                customLists: mediaListCustomLists(from: mle.customLists))
         }
         return item
     }
@@ -236,6 +243,7 @@ enum AniListUtil {
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
             malId: media.idMal,
+            isFavourite: media.isFavourite,
             tags: tags(from: media.tags),
             isAdult: media.isAdult)
 

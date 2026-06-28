@@ -19,8 +19,8 @@ enum AniListQueries {
       Page(page: 1, perPage: 50) {
         media(status: RELEASING, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           popularity
@@ -44,11 +44,13 @@ enum AniListQueries {
         media(type: ANIME, format_not: MUSIC, id_in: $ids, search: $search, genre_in: $genre, tag_in: $tag, format_in: $format, status_in: $status, status_not_in: $statusNot, season: $season, seasonYear: $seasonYear, isAdult: $isAdult, sort: $sort, onList: $onList, genre_not_in: $nsfw) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -60,7 +62,7 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
-          mediaListEntry { status }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -73,8 +75,8 @@ enum AniListQueries {
       Page(page: 1, perPage: 50) {
         media(search: $search, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           popularity
@@ -92,16 +94,18 @@ enum AniListQueries {
     // MARK: - Home section
 
     static let homeSection = """
-    query ($status: MediaStatus, $sort: [MediaSort], $genre: String, $season: MediaSeason, $seasonYear: Int, $nsfw: [String]) {
-      Page(page: 1, perPage: 20) {
-        media(type: ANIME, status: $status, sort: $sort, genre: $genre, season: $season, seasonYear: $seasonYear, genre_not_in: $nsfw) {
+    query ($status: [MediaStatus], $sort: [MediaSort], $genre: [String], $season: MediaSeason, $seasonYear: Int, $nsfw: [String]) {
+      Page(page: 1) {
+        media(type: ANIME, format_not: MUSIC, status_in: $status, sort: $sort, genre_in: $genre, season: $season, seasonYear: $seasonYear, genre_not_in: $nsfw) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -113,7 +117,7 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
-          mediaListEntry { status }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -127,11 +131,13 @@ enum AniListQueries {
         media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot, genre_not_in: $nsfw) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -143,6 +149,7 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -177,11 +184,13 @@ enum AniListQueries {
         media(type: ANIME, id_in: $idIn) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -193,23 +202,25 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
-          mediaListEntry { status }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
     """
 
     static let idInFiltered = """
-    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean) {
+    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean, $sort: [MediaSort]) {
       Page(page: 1, perPage: 50) {
-        media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList) {
+        media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList, sort: $sort) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -221,7 +232,7 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
-          mediaListEntry { status }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -233,11 +244,13 @@ enum AniListQueries {
         media(type: ANIME, id_in: $ids, sort: POPULARITY_DESC) {
           id
           idMal
-          title { english romaji }
-          coverImage { large medium color }
+          title { romaji english native userPreferred }
+          coverImage { extraLarge large medium color }
           bannerImage
           averageScore
           genres
+          isFavourite
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
           episodes
           duration
           status
@@ -249,7 +262,7 @@ enum AniListQueries {
           trailer { id site }
           description(asHtml: false)
           synonyms
-          mediaListEntry { status }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -291,6 +304,8 @@ enum AniListQueries {
         bannerImage
         averageScore
         genres
+        isFavourite
+        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
         episodes
         duration
         status
@@ -302,9 +317,8 @@ enum AniListQueries {
         trailer { id site }
         description(asHtml: false)
         synonyms
-        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
         isAdult
-        mediaListEntry { id status progress repeat score(format: POINT_10) }
+        mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         relations {
           edges {
             relationType(version: 2)
@@ -376,7 +390,7 @@ enum AniListQueries {
         startDate { year month day }
         trailer { id site }
         tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-        mediaListEntry { id status progress repeat score(format: POINT_10) }
+        mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         relations {
           edges {
             relationType(version: 2)
@@ -424,7 +438,7 @@ enum AniListQueries {
               season
               seasonYear
               startDate { year month day }
-              mediaListEntry { id status progress repeat score(format: POINT_10) }
+              mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
             }
           }
         }
@@ -483,7 +497,7 @@ enum AniListQueries {
           airingAt
           media {
             id
-            title { english romaji }
+            title { romaji english native userPreferred }
             coverImage { large color }
             averageScore
             episodes
@@ -503,7 +517,7 @@ enum AniListQueries {
           airingAt
           media {
             id
-            title { english romaji }
+            title { romaji english native userPreferred }
             coverImage { large color }
             averageScore
             episodes

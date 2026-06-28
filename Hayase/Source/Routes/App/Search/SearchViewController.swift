@@ -68,6 +68,7 @@ class SearchViewController: UIViewController {
     /// discarded when a newer reset (e.g. from a View More prefill) has already started.
     private var fetchRequestID = 0
     private var searchTask: AniListRequestToken?
+    private let searchQuery = PageQuery<AniListSearchPage>()
     private var currentTitle = ""
     private var debounceTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
@@ -225,7 +226,7 @@ class SearchViewController: UIViewController {
         selectedStatuses = state.statuses
         selectedSort = state.sort
         selectedOnList = state.onList
-        traceIds = nil
+        traceIds = state.ids
         rebuildActiveChipEntries()
         refreshFilterPickers()
         rebuildActiveChips()
@@ -939,7 +940,9 @@ class SearchViewController: UIViewController {
         }
         let myRequestID = fetchRequestID
 
-        searchTask = AniListClient.shared.searchAnimeItems(
+        let previousResults = animeResults
+        let requestedPage = currentPage
+        searchTask = AniListClient.shared.searchAnimeItemsPage(
             title: currentTitle.isEmpty ? nil : currentTitle,
             genres: selectedGenres,
             tags: selectedTags,
@@ -951,19 +954,46 @@ class SearchViewController: UIViewController {
             season: selectedSeason,
             onList: selectedOnList,
             ids: traceIds,
-            page: currentPage
-        ) { [weak self] items, hasNext in
+            page: currentPage,
+            policy: .cacheAndNetwork,
+            query: searchQuery
+        ) { [weak self] result in
             guard let self = self, self.fetchRequestID == myRequestID else { return }
-            if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
-            self.hasNextPage = hasNext; self.currentPage += 1; self.isFetching = false
-            self.searchTask = nil
-            self.isShowingSkeleton = false
-            self.loadingIndicator.stopAnimating(); self.collectionView.reloadData()
-            self.emptyLabel.isHidden = !self.animeResults.isEmpty
-            if self.animeResults.isEmpty {
-                self.emptyLabel.text = self.currentTitle.isEmpty
-                    ? "No results found" : "No results for \"\(self.currentTitle)\""
+            switch result {
+            case .success(let page):
+                self.isFetching = page.isCacheResult
+                if !page.isCacheResult { self.searchTask = nil }
+                self.isShowingSkeleton = false
+                self.loadingIndicator.stopAnimating()
+                if reset {
+                    self.animeResults = page.items
+                } else if page.isCacheResult {
+                    self.animeResults.append(contentsOf: page.items)
+                } else if self.animeResults.count > previousResults.count {
+                    self.animeResults = Array(self.animeResults.prefix(previousResults.count)) + page.items
+                } else {
+                    self.animeResults.append(contentsOf: page.items)
+                }
+                self.hasNextPage = page.hasNextPage
+                self.currentPage = max(self.currentPage, requestedPage + 1)
+                self.emptyLabel.isHidden = !self.animeResults.isEmpty
+                if self.animeResults.isEmpty {
+                    self.emptyLabel.text = self.currentTitle.isEmpty
+                        ? "No results found" : "No results for \"\(self.currentTitle)\""
+                }
+            case .failure(let error):
+                self.isFetching = false
+                self.searchTask = nil
+                self.isShowingSkeleton = false
+                self.loadingIndicator.stopAnimating()
+                if reset { self.animeResults = previousResults }
+                self.hasNextPage = false
+                self.emptyLabel.isHidden = !self.animeResults.isEmpty
+                if self.animeResults.isEmpty {
+                    self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
+                }
             }
+            self.collectionView.reloadData()
         }
     }
 

@@ -33,6 +33,7 @@ struct AnimeItem {
     var favourites: Int? = nil
     var coverColor: String? = nil
     var malId: Int? = nil
+    var isFavourite: Bool? = nil
     var relations: [AnimeRelation] = []
     var tags: [AnimeTag] = []
     var isAdult: Bool? = nil
@@ -66,6 +67,7 @@ extension AnimeItem {
         if merged.relations.isEmpty { merged.relations = relations }
         if merged.tags.isEmpty { merged.tags = tags }
         if merged.mediaListEntry == nil { merged.mediaListEntry = mediaListEntry }
+        if merged.isFavourite == nil { merged.isFavourite = isFavourite }
         if merged.trailerYouTubeID == nil { merged.trailerYouTubeID = trailerYouTubeID }
         if merged.malId == nil { merged.malId = malId }
 
@@ -98,6 +100,21 @@ struct HomeSectionData {
     var items: [AnimeItem]
     var filterGenre: String? = nil
     var filterSort: String? = nil
+    var filterIDs: [Int]? = nil
+    var filterStatus: [String]? = nil
+    var filterOnList: Bool? = nil
+}
+
+struct AniListSearchPage {
+    let items: [AnimeItem]
+    let hasNextPage: Bool
+    let isCacheResult: Bool
+
+    init(items: [AnimeItem], hasNextPage: Bool, isCacheResult: Bool = false) {
+        self.items = items
+        self.hasNextPage = hasNextPage
+        self.isCacheResult = isCacheResult
+    }
 }
 
 // MARK: - AniList user summary
@@ -217,6 +234,7 @@ struct AniListMedia: Codable {
     let genres: [String]?
     let tags: [MediaTag]?
     let isAdult: Bool?
+    let isFavourite: Bool?
     let favourites: Int?
     let trailer: Trailer?
     let seasonYear: Int?
@@ -251,6 +269,12 @@ struct AniListMedia: Codable {
         let progress: Int?
         let repeatCount: Int?
         let score: Double?
+        let customLists: [CustomList]?
+
+        struct CustomList: Codable {
+            let enabled: Bool?
+            let name: String?
+        }
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -258,6 +282,23 @@ struct AniListMedia: Codable {
             case progress
             case repeatCount = "repeat"
             case score
+            case customLists
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(Int.self, forKey: .id)
+            status = try container.decodeIfPresent(String.self, forKey: .status)
+            progress = try container.decodeIfPresent(Int.self, forKey: .progress)
+            repeatCount = try container.decodeIfPresent(Int.self, forKey: .repeatCount)
+            score = try container.decodeIfPresent(Double.self, forKey: .score)
+            if let objectLists = try? container.decodeIfPresent([CustomList].self, forKey: .customLists) {
+                customLists = objectLists
+            } else if let nameLists = try? container.decodeIfPresent([String].self, forKey: .customLists) {
+                customLists = nameLists.map { CustomList(enabled: true, name: $0) }
+            } else {
+                customLists = nil
+            }
         }
     }
     let mediaListEntry: MediaListEntry?
@@ -320,6 +361,8 @@ struct AniListResolverMediaResponse: Codable {
         let startDate: AniListMedia.StartDate?
         let tags: [AniListMedia.MediaTag]?
         let isAdult: Bool?
+        let isFavourite: Bool?
+        let mediaListEntry: AniListMedia.MediaListEntry?
         let relations: ResolverRelationConnection?
     }
     struct ResolverRelationConnection: Codable { let edges: [ResolverRelationEdge]? }
@@ -356,7 +399,7 @@ struct AiringScheduleResponse: Codable {
         let averageScore: Float?
         let episodes: Int?
         let status: String?
-        struct AiringTitle: Codable { let english: String?; let romaji: String? }
+        struct AiringTitle: Codable { let english: String?; let romaji: String?; let native: String?; let userPreferred: String? }
         struct AiringCover: Codable { let large: String?; let color: String? }
     }
 }
@@ -379,7 +422,7 @@ struct AiringSchedulePagedResponse: Codable {
                 let averageScore: Float?
                 let episodes: Int?
                 let status: String?
-                struct PPTitle: Codable { let english: String?; let romaji: String? }
+                struct PPTitle: Codable { let english: String?; let romaji: String?; let native: String?; let userPreferred: String? }
                 struct PPCover: Codable { let large: String?; let color: String? }
             }
         }

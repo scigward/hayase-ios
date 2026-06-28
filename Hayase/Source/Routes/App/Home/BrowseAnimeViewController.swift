@@ -1755,6 +1755,8 @@ class BrowseAnimeViewController: UIViewController {
     private var homeRefreshTimer: Timer?
     private var personalSectionsLoadID = 0
     private var lastLocalContinueIDs: [Int] = []
+    private let homeSectionsQuery = PageQuery<[HomeSectionData]>()
+    private let bannerQuery = PageQuery<[AnimeItem]>()
 
     private let homeBackdropView = HomeBannerBackdropView()
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
@@ -2088,32 +2090,42 @@ class BrowseAnimeViewController: UIViewController {
         emptyLabel.isHidden = true
 
         // Fetch banner items separately with SCORE_DESC — matches Hayase banner.svelte:
-        //   client.search({ sort: ['SCORE_DESC'], perPage: 5, season: currentSeason,
+        //   client.search({ sort: ['SCORE_DESC'], perPage: 15, season: currentSeason,
         //                   seasonYear: currentYear, statusNot: ['NOT_YET_RELEASED'] })
-        AniListClient.shared.fetchBannerItems { [weak self] bannerResults in
+        AniListClient.shared.fetchBannerItemsResult(policy: .cacheAndNetwork, query: bannerQuery) { [weak self] result in
             guard let self = self else { return }
-            if !bannerResults.isEmpty {
-                self.bannerItems = bannerResults
-                // Reload banner cell if it already exists.
-                if self.collectionView.numberOfSections > 0,
-                   self.collectionView.numberOfItems(inSection: 0) > 0 {
-                    self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
-                    // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
-                    DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
-                }
+            guard case .success(let bannerResults) = result, !bannerResults.isEmpty else { return }
+            self.bannerItems = bannerResults
+            // Reload banner cell if it already exists.
+            if self.collectionView.numberOfSections > 0,
+               self.collectionView.numberOfItems(inSection: 0) > 0 {
+                self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
+                DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
             }
         }
 
-        AniListClient.shared.fetchHomeSections { [weak self] fetchedSections in
+        AniListClient.shared.fetchHomeSectionsResult(policy: .cacheAndNetwork, query: homeSectionsQuery) { [weak self] result in
             guard let self = self else { return }
-            self.fetchedHomeSections = fetchedSections
+            switch result {
+            case .success(let fetchedSections):
+                self.fetchedHomeSections = fetchedSections
 
-            // If banner didn't load from the separate SCORE_DESC query, fall back to first section
-            if self.bannerItems.isEmpty {
-                self.bannerItems = fetchedSections.first?.items ?? []
+                // If banner didn't load from the separate SCORE_DESC query, fall back to first section.
+                if self.bannerItems.isEmpty {
+                    self.bannerItems = fetchedSections.first?.items ?? []
+                }
+
+                self.loadPersonalSections(fetchedSections: fetchedSections, fetchRemoteLists: true)
+            case .failure(let error):
+                self.isLoadingSections = false
+                self.loadingIndicator.stopAnimating()
+                if self.sections.isEmpty {
+                    self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
+                    self.emptyLabel.isHidden = false
+                    self.collectionView.reloadData()
+                }
             }
-
-            self.loadPersonalSections(fetchedSections: fetchedSections, fetchRemoteLists: true)
         }
     }
 
@@ -2144,8 +2156,10 @@ class BrowseAnimeViewController: UIViewController {
                 AniListClient.shared.fetchSectionByIDs(Array(continueIDs.prefix(50))) { items in
                     if !items.isEmpty {
                         syncQueue.sync {
-                            personalSections.append((index: 0,
-                                                     section: HomeSectionData(title: "Continue Watching", items: items)))
+                            var section = HomeSectionData(title: "Continue Watching", items: items)
+                            section.filterIDs = Array(continueIDs.prefix(50))
+                            section.filterSort = "UPDATED_AT_DESC"
+                            personalSections.append((index: 0, section: section))
                         }
                     }
                     group.leave()
@@ -2156,12 +2170,16 @@ class BrowseAnimeViewController: UIViewController {
                 group.enter()
                 AniListClient.shared.fetchSectionByIDsFiltered(
                     planningIDs,
-                    status: ["FINISHED", "RELEASING"]
+                    status: ["FINISHED", "RELEASING"],
+                    sort: ["START_DATE_DESC"]
                 ) { items in
                     if !items.isEmpty {
                         syncQueue.sync {
-                            personalSections.append((index: 1,
-                                                     section: HomeSectionData(title: "Your List", items: items)))
+                            var section = HomeSectionData(title: "Your List", items: items)
+                            section.filterIDs = planningIDs
+                            section.filterStatus = ["FINISHED", "RELEASING"]
+                            section.filterSort = "START_DATE_DESC"
+                            personalSections.append((index: 1, section: section))
                         }
                     }
                     group.leave()
@@ -2177,8 +2195,11 @@ class BrowseAnimeViewController: UIViewController {
                 ) { items in
                     if !items.isEmpty {
                         syncQueue.sync {
-                            personalSections.append((index: 2,
-                                                     section: HomeSectionData(title: "Sequels You Missed", items: items)))
+                            var section = HomeSectionData(title: "Sequels You Missed", items: items)
+                            section.filterIDs = sequelIDs
+                            section.filterStatus = ["FINISHED", "RELEASING"]
+                            section.filterOnList = false
+                            personalSections.append((index: 2, section: section))
                         }
                     }
                     group.leave()
@@ -2434,7 +2455,10 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 let state = Route.SearchState(
                     genres: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [$0] : [] } ?? [],
                     tags: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [] : [$0] } ?? [],
-                    sort: section.filterSort ?? "TRENDING_DESC")
+                    statuses: section.filterStatus ?? [],
+                    sort: section.filterSort,
+                    onList: section.filterOnList,
+                    ids: section.filterIDs)
                 Router.shared.navigate(.search(state), hostTabIndex: self.tabBarController?.selectedIndex)
             }
         }

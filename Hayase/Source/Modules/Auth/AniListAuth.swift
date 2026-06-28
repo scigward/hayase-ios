@@ -33,7 +33,16 @@ final class AniListAuth {
 
     static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
         let query = """
-        { Viewer { id name avatar { large } } }
+        {
+          Viewer {
+            id
+            name
+            bannerImage
+            avatar { large }
+            mediaListOptions { animeList { customLists } }
+            options { titleLanguage displayAdultContent }
+          }
+        }
         """
         guard let url = URL(string: "https://graphql.anilist.co") else {
             completion(nil)
@@ -57,7 +66,17 @@ final class AniListAuth {
                 return
             }
             let avatar = (viewer["avatar"] as? [String: Any])?["large"] as? String
-            let tv = TrackerViewer(id: String(id), name: name, avatarURL: avatar)
+            let options = viewer["options"] as? [String: Any]
+            let animeList = (viewer["mediaListOptions"] as? [String: Any])?["animeList"] as? [String: Any]
+            let customLists = animeList?["customLists"] as? [String] ?? []
+            let tv = TrackerViewer(
+                id: String(id),
+                name: name,
+                avatarURL: avatar,
+                bannerURL: viewer["bannerImage"] as? String,
+                titleLanguage: options?["titleLanguage"] as? String,
+                displayAdultContent: options?["displayAdultContent"] as? Bool,
+                customLists: customLists)
             completion(tv)
         }
     }
@@ -117,7 +136,7 @@ final class AniListTracking {
             episodes
             format
             duration
-            title { english romaji }
+            title { romaji english native userPreferred }
             synonyms
             mediaListEntry {
                 id
@@ -264,6 +283,7 @@ final class AniListTracking {
                 score: self.jsonInt(entry["score"]),
                 repeatCount: self.jsonInt(entry["repeat"]),
                 customLists: enabledLists)
+            AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: result)
             self.updateCachedUserLists(mediaID: mediaID, status: result.status) { [weak self] in
                 self?.notifyTrackingDidChange()
             }
@@ -283,6 +303,7 @@ final class AniListTracking {
             let deleted = (data?["DeleteMediaListEntry"] as? [String: Any])?["deleted"] as? Bool ?? false
             if deleted {
                 if let mediaID {
+                    AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: nil)
                     self?.updateCachedUserLists(mediaID: mediaID, status: nil) { [weak self] in
                         self?.notifyTrackingDidChange()
                     }
@@ -563,6 +584,15 @@ final class AniListTracking {
         }
     }
 
+    func clearViewerCache() {
+        userListCacheQueue.async { [weak self] in
+            self?.cachedUserListViewerID = nil
+            self?.cachedUserListIDs = nil
+            self?.cachedUserListFetchedAt = nil
+            self?.userListFetchCompletions.removeAll()
+        }
+    }
+
     // MARK: - Fetch progress
 
     func fetchProgress(anilistID: Int, completion: @escaping (Int?) -> Void) {
@@ -595,9 +625,15 @@ final class AniListTracking {
 
     func toggleFavourite(mediaID: Int, completion: ((Bool) -> Void)? = nil) {
         authRequest(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { [weak self] data in
-            let success = data?["ToggleFavourite"] != nil
-            if success { self?.notifyTrackingDidChange() }
-            completion?(success)
+            guard let result = data?["ToggleFavourite"] as? [String: Any] else {
+                completion?(false)
+                return
+            }
+            let nodes = ((result["anime"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
+            let isFavourite = nodes.contains { ($0["id"] as? Int) == mediaID }
+            AniListClient.shared.updateFavouriteState(mediaID: mediaID, isFavourite: isFavourite)
+            self?.notifyTrackingDidChange()
+            completion?(true)
         }
     }
 

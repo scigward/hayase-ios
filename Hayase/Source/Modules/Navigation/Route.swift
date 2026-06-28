@@ -51,6 +51,7 @@ enum Route: Hashable {
         var statuses: [String]
         var sort: String?
         var onList: Bool?
+        var ids: [Int]?
 
         init(title: String? = nil,
              genres: [String] = [],
@@ -60,7 +61,8 @@ enum Route: Hashable {
              formats: [String] = [],
              statuses: [String] = [],
              sort: String? = nil,
-             onList: Bool? = nil) {
+             onList: Bool? = nil,
+             ids: [Int]? = nil) {
             self.title = title
             self.genres = genres
             self.tags = tags
@@ -70,6 +72,7 @@ enum Route: Hashable {
             self.statuses = statuses
             self.sort = sort
             self.onList = onList
+            self.ids = ids
         }
     }
 
