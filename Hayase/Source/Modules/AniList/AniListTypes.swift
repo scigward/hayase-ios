@@ -114,6 +114,7 @@ struct AnimeRelationGraph {
     var nodes: [Int: AnimeItem]
     var edges: [String: AnimeRelationGraphEdge]
     var boundaryIDs: Set<Int> = []
+    var expandedIDs: Set<Int> = []
 
     var visibleRelations: [AnimeRelation] {
         edges.values

@@ -1349,6 +1349,7 @@ class AnimeDetailViewController: UIViewController {
     var currentAnimeAccent: UIColor = .white
     var relations: [AnimeRelation] = []
     var relationGraph: AnimeRelationGraph?
+    var relationGraphExpanded = false
     var staff: [AnimeStaffMember] = []
     var scoreDistribution: [AnimeScorePoint] = []
     var statusDistribution: [AnimeStatusCount] = []

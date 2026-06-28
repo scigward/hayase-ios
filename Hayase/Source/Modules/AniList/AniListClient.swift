@@ -38,6 +38,9 @@ public final class AniListClient: NSObject {
     private var homeSectionItemCache: [String: [AnimeItem]] = [:]
     private var searchPageCache: [String: AniListSearchPage] = [:]
 
+    private let relationGraphQueue = DispatchQueue(label: "com.hayase.anilist.relationGraph")
+    private var relationGraphCache: [Int: AnimeRelationGraph] = [:]
+
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
     static let LocalAnimeWillUpdateNotification = "LocalAnimeWillUpdateNotification"
@@ -1420,15 +1423,17 @@ public final class AniListClient: NSObject {
                              reload: Bool = false,
                              completion: @escaping (Result<AnimeRelationGraph, AniListRequestError>) -> Void) {
         var graph = graph
-        var expandedIDs = Set<Int>()
+        var expandedIDs = graph.expandedIDs
 
         func run(_ ids: Set<Int>) {
             let pending = ids.subtracting(expandedIDs)
             guard !pending.isEmpty else {
+                self.storeRelationGraph(graph)
                 DispatchQueue.main.async { completion(.success(graph)) }
                 return
             }
             expandedIDs.formUnion(pending)
+            graph.expandedIDs.formUnion(pending)
 
             let variables: [String: Any] = ["ids": Array(pending).sorted()]
             requestExecutor.execute(query: AniListQueries.recursiveRelations,
@@ -1449,9 +1454,10 @@ public final class AniListClient: NSObject {
                     self.logGraphQLErrors(graphQLResult.graphQLErrors, context: "RelationsTree")
                     graph.boundaryIDs.removeAll()
                     for mediaObject in mediaList {
-                        self.mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: expandedIDs)
+                        self.mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: graph.expandedIDs)
                     }
-                    run(graph.boundaryIDs.subtracting(expandedIDs))
+                    self.storeRelationGraph(graph)
+                    run(graph.boundaryIDs.subtracting(graph.expandedIDs))
 
                 case .failure(let error):
                     DispatchQueue.main.async { completion(.failure(error)) }
@@ -1463,9 +1469,31 @@ public final class AniListClient: NSObject {
     }
 
     private func buildRelationGraph(from mediaObject: [String: Any]) -> AnimeRelationGraph {
-        var graph = AnimeRelationGraph(nodes: [:], edges: [:])
-        mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: [])
+        guard let mediaID = intValue(mediaObject["id"]) else {
+            var graph = AnimeRelationGraph(nodes: [:], edges: [:])
+            mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: [])
+            storeRelationGraph(graph)
+            return graph
+        }
+
+        var graph = cachedRelationGraph(for: mediaID) ?? AnimeRelationGraph(nodes: [:], edges: [:])
+        mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: graph.expandedIDs)
+        storeRelationGraph(graph)
         return graph
+    }
+
+    private func cachedRelationGraph(for mediaID: Int) -> AnimeRelationGraph? {
+        relationGraphQueue.sync { relationGraphCache[mediaID] }
+    }
+
+    private func storeRelationGraph(_ graph: AnimeRelationGraph) {
+        guard !graph.nodes.isEmpty else { return }
+        relationGraphQueue.async { [weak self] in
+            guard let self else { return }
+            for id in graph.nodes.keys {
+                self.relationGraphCache[id] = graph
+            }
+        }
     }
 
     private func mergeRelationMedia(_ mediaObject: [String: Any],

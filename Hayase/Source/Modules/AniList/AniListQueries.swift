@@ -418,7 +418,7 @@ enum AniListQueries {
           seasonYear
           relations {
             edges {
-              relationType(version: 2)
+              relationType
               node {
                 id
                 status
@@ -431,7 +431,7 @@ enum AniListQueries {
                 seasonYear
                 relations {
                   edges {
-                    relationType(version: 2)
+                    relationType
                     node {
                       id
                       status
