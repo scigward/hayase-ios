@@ -103,6 +103,21 @@ struct AniListGraphQLResult {
     let data: Data
     let json: [String: Any]
     let response: HTTPURLResponse?
+    let graphQLErrors: [String]
+
+    init(data: Data,
+         json: [String: Any],
+         response: HTTPURLResponse?,
+         graphQLErrors: [String] = []) {
+        self.data = data
+        self.json = json
+        self.response = response
+        self.graphQLErrors = graphQLErrors
+    }
+
+    var hasInvalidTokenError: Bool {
+        graphQLErrors.contains { $0.caseInsensitiveCompare("Invalid token") == .orderedSame }
+    }
 }
 
 final class AniListRequestExecutor {
@@ -286,9 +301,24 @@ final class AniListRequestExecutor {
         }
         if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
             let messages = errors.compactMap { $0["message"] as? String }
-            return .failure(.graphQLErrors(messages.isEmpty ? ["Unknown GraphQL error"] : messages))
+            let graphQLErrors = messages.isEmpty ? ["Unknown GraphQL error"] : messages
+            if hasUsableGraphQLData(json) {
+                return .success(AniListGraphQLResult(data: data,
+                                                     json: json,
+                                                     response: response,
+                                                     graphQLErrors: graphQLErrors))
+            }
+            return .failure(.graphQLErrors(graphQLErrors))
         }
         return .success(AniListGraphQLResult(data: data, json: json, response: response))
+    }
+
+
+    private func hasUsableGraphQLData(_ json: [String: Any]) -> Bool {
+        guard let data = json["data"] as? [String: Any] else { return false }
+        return data.values.contains { value in
+            !(value is NSNull)
+        }
     }
 
     private func scheduleRetry(query: String,
@@ -345,8 +375,14 @@ final class AniListRequestExecutor {
     }
 
     private func clearAuthIfNeeded(for result: Result<AniListGraphQLResult, AniListRequestError>) {
-        guard case .failure(let error) = result, error.isInvalidToken else { return }
-        TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
+        switch result {
+        case .failure(let error) where error.isInvalidToken:
+            TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
+        case .success(let response) where response.hasInvalidTokenError:
+            TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
+        default:
+            return
+        }
     }
 
     private func retryDelay(for error: AniListRequestError, attempt: Int) -> TimeInterval {

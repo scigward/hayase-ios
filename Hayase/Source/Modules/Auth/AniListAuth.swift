@@ -117,6 +117,7 @@ final class AniListTracking {
             score(format: POINT_10)
             repeat
             customLists(asArray: true)
+            media { id }
         }
     }
     """
@@ -277,6 +278,7 @@ final class AniListTracking {
                     }
                 }
             }
+            let resultMediaID = ((entry["media"] as? [String: Any])?["id"] as? Int) ?? mediaID
             let result = AnimeItem.MediaListEntry(
                 listID: listID,
                 status: entry["status"] as? String,
@@ -284,8 +286,10 @@ final class AniListTracking {
                 score: self.jsonInt(entry["score"]),
                 repeatCount: self.jsonInt(entry["repeat"]),
                 customLists: enabledLists)
-            AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: result)
-            self.updateCachedUserLists(mediaID: mediaID, status: result.status) { [weak self] in
+            AniListClient.shared.updateMediaListEntry(mediaID: resultMediaID, entry: result)
+            self.updateCachedUserLists(mediaID: resultMediaID,
+                                       status: result.status,
+                                       refreshAfterUpdate: result.status == "COMPLETED") { [weak self] in
                 self?.notifyTrackingDidChange()
             }
             completion?(result)
@@ -305,7 +309,9 @@ final class AniListTracking {
             if deleted {
                 if let mediaID {
                     AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: nil)
-                    self?.updateCachedUserLists(mediaID: mediaID, status: nil) { [weak self] in
+                    self?.updateCachedUserLists(mediaID: mediaID,
+                                                status: nil,
+                                                refreshAfterUpdate: true) { [weak self] in
                         self?.notifyTrackingDidChange()
                     }
                 } else {
@@ -558,7 +564,10 @@ final class AniListTracking {
         return result
     }
 
-    private func updateCachedUserLists(mediaID: Int, status: String?, completion: (() -> Void)? = nil) {
+    private func updateCachedUserLists(mediaID: Int,
+                                       status: String?,
+                                       refreshAfterUpdate: Bool = false,
+                                       completion: (() -> Void)? = nil) {
         userListCacheQueue.async { [weak self] in
             guard let self, var cached = self.cachedUserListIDs else {
                 DispatchQueue.main.async { completion?() }
@@ -581,7 +590,15 @@ final class AniListTracking {
             }
             self.cachedUserListIDs = cached
             self.cachedUserListFetchedAt = Date()
-            DispatchQueue.main.async { completion?() }
+            DispatchQueue.main.async { [weak self] in
+                guard refreshAfterUpdate else {
+                    completion?()
+                    return
+                }
+                self?.fetchUserLists(forceRefresh: true) { _ in
+                    completion?()
+                }
+            }
         }
     }
 

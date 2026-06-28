@@ -53,34 +53,43 @@ public final class AniListClient: NSObject {
 
     // MARK: - Private networking
 
-    private func graphQLRequest(query: String, variables: [String: Any]? = nil, completion: @escaping ([AniListMedia]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+    private func graphQLRequest(query: String,
+                                variables: [String: Any]? = nil,
+                                completion: @escaping (Result<[AniListMedia], AniListRequestError>) -> Void) {
+        guard let url = URL(string: graphQLEndpoint) else {
+            completion(.failure(.invalidEndpoint))
+            return
+        }
+        var request = authorizedRequest(url: url)
         var body: [String: Any] = ["query": query]
         if let variables = variables { body["variables"] = variables }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            completion(.failure(.encodingFailed(error)))
+            return
+        }
 
-        performAniListDataTask(request, context: "AniList") { data, _, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+        performAniListRequest(request, context: "AniListLegacy") { result in
+            switch result {
+            case .success(let data):
+                guard let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                      let mediaList = response.data?.Page?.media,
+                      !mediaList.isEmpty else {
+                    completion(.failure(.emptyData))
+                    return
                 }
-                print("Error getting anime data: \(error)")
-                return
+                completion(.success(mediaList))
+            case .failure(let error):
+                completion(.failure(error))
             }
-            guard let data = data,
-                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
-                  let mediaList = response.data?.Page?.media, !mediaList.isEmpty else {
-                let err = NSError(domain: "AniListClient", code: 4, userInfo: nil)
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: err)
-                }
-                return
-            }
-            completion(mediaList)
+        }
+    }
+
+    private func postLocalAnimeUpdateFailure(_ error: Error) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification),
+                                            object: error as NSError)
         }
     }
 
@@ -180,13 +189,18 @@ public final class AniListClient: NSObject {
         ClearTempAnimes()
         var variables: [String: Any] = [:]
         if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
-        graphQLRequest(query: AniListQueries.airingAnime, variables: variables.isEmpty ? nil : variables) { mediaList in
-            DispatchQueue.main.async {
-                do {
-                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
-                } catch let error {
-                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+        graphQLRequest(query: AniListQueries.airingAnime, variables: variables.isEmpty ? nil : variables) { result in
+            switch result {
+            case .success(let mediaList):
+                DispatchQueue.main.async {
+                    do {
+                        try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                    } catch let error {
+                        self.postLocalAnimeUpdateFailure(error)
+                    }
                 }
+            case .failure(let error):
+                self.postLocalAnimeUpdateFailure(error)
             }
         }
     }
@@ -195,13 +209,18 @@ public final class AniListClient: NSObject {
         ClearTempAnimes()
         var variables: [String: Any] = ["search": searchStr]
         if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
-        graphQLRequest(query: AniListQueries.searchLegacy, variables: variables) { mediaList in
-            DispatchQueue.main.async {
-                do {
-                    try self.UpdateLocalAnimes(mediaList, isTemp: true)
-                } catch let error {
-                    NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
+        graphQLRequest(query: AniListQueries.searchLegacy, variables: variables) { result in
+            switch result {
+            case .success(let mediaList):
+                DispatchQueue.main.async {
+                    do {
+                        try self.UpdateLocalAnimes(mediaList, isTemp: true)
+                    } catch let error {
+                        self.postLocalAnimeUpdateFailure(error)
+                    }
                 }
+            case .failure(let error):
+                self.postLocalAnimeUpdateFailure(error)
             }
         }
     }
