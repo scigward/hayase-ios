@@ -764,21 +764,23 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             // Mirrors Hayase full-banner.svelte FavoriteButton/BookmarkButton fill logic.
             let itemIDForState = item.id
             let accentForState = Self.uiColor(fromHex: item.coverColor) ?? .white
-            AniListTracking.shared.checkIsFavourite(mediaID: itemIDForState) { [weak self] isFav in
+            AniListTracking.shared.checkIsFavouriteResult(mediaID: itemIDForState) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
+                    guard case .success(let isFav) = result else { return }
                     self.favoriteButton.setImage(isFav ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
                     self.favoriteButton.tintColor = isFav ? accentForState : .white
                 }
             }
-            AniListTracking.shared.fetchMediaWithEntry(anilistID: itemIDForState) { [weak self] entry, _, _, _, _ in
+            AniListTracking.shared.fetchMediaWithEntryResult(anilistID: itemIDForState) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self,
                           self.currentIndex < self.items.count,
                           self.items[self.currentIndex].id == itemIDForState else { return }
-                    let isOnList = entry != nil
+                    guard case .success(let payload) = result else { return }
+                    let isOnList = payload.entry != nil
                     self.bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
                     self.bookmarkButton.tintColor = isOnList ? accentForState : .white
                 }
@@ -802,11 +804,17 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     private func loadFollowingUsers(for items: [AnimeItem]) {
         let ids = items.map(\.id)
-        AniListClient.shared.fetchFollowingMany(animeIDs: ids) { [weak self] usersByMediaID in
+        AniListClient.shared.fetchFollowingManyResult(animeIDs: ids) { [weak self] result in
             guard let self = self else { return }
             let currentIDs = self.items.map(\.id).sorted()
             guard currentIDs == ids.sorted() else { return }
-            self.followingUsersByMediaID = usersByMediaID
+            switch result {
+            case .success(let usersByMediaID):
+                self.followingUsersByMediaID = usersByMediaID
+            case .failure(let error):
+                NSLog("[Home] followingMany failed: %@", error.description)
+                self.followingUsersByMediaID = [:]
+            }
             if self.currentIndex < self.items.count {
                 self.updateSocialBlock(for: self.items[self.currentIndex])
             }

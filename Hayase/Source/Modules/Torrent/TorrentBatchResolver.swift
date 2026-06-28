@@ -245,9 +245,12 @@ struct TorrentBatchResolver {
                 }
 
                 let id = ids[index]
-                AniListClient.shared.fetchResolverMediaById(id) { item in
-                    if let item {
+                AniListClient.shared.fetchResolverMediaByIdResult(id) { result in
+                    switch result {
+                    case .success(let item):
                         mediaByID[id] = item
+                    case .failure(let error):
+                        NSLog("[TorrentBatchResolver] Resolver media fetch failed: %@", error.description)
                     }
                     fetchID(at: index + 1)
                 }
@@ -286,8 +289,14 @@ struct TorrentBatchResolver {
             build(at: 0)
         }
 
-        AniListClient.shared.searchResolverAnimeIDs(titleGroups: titleGroups) { ids in
-            titleIDs = ids
+        AniListClient.shared.searchResolverAnimeIDsResult(titleGroups: titleGroups) { result in
+            switch result {
+            case .success(let ids):
+                titleIDs = ids
+            case .failure(let error):
+                NSLog("[TorrentBatchResolver] AniList resolver search failed: %@", error.description)
+                titleIDs = [:]
+            }
             fetchResolvedMedia()
         }
     }
@@ -370,8 +379,11 @@ struct TorrentBatchResolver {
     }
 
     private static func fetchAndForceResolveRoot(edgeMedia: AnimeItem, completion: @escaping (AnimeItem?) -> Void) {
-        AniListClient.shared.fetchResolverMediaById(edgeMedia.id) { fullMedia in
-            guard let fullMedia else {
+        AniListClient.shared.fetchResolverMediaByIdResult(edgeMedia.id) { result in
+            guard case .success(let fullMedia) = result else {
+                if case .failure(let error) = result {
+                    NSLog("[TorrentBatchResolver] Root media fetch failed: %@", error.description)
+                }
                 completion(edgeMedia)
                 return
             }
@@ -470,8 +482,11 @@ struct TorrentBatchResolver {
                                               force: Bool,
                                               visited: Set<Int>,
                                               completion: @escaping (SeasonResolveResult) -> Void) {
-        AniListClient.shared.fetchResolverMediaById(edge.id) { fetched in
-            let nextMedia = fetched ?? edge
+        AniListClient.shared.fetchResolverMediaByIdResult(edge.id) { result in
+            if case .failure(let error) = result {
+                NSLog("[TorrentBatchResolver] Season edge media fetch failed: %@", error.description)
+            }
+            let nextMedia = (try? result.get()) ?? edge
             let highest = nextMedia.episodes ?? 1
             let diff = episode - (highest + offset)
             let nextOffset = offset + (increment ? rootHighest : highest)

@@ -397,7 +397,7 @@ extension AnimeDetailViewController {
 
         if threadsLoading || threads.isEmpty {
             return makeEmptyStateCell(
-                text: "Ooops! Looks like there's nothing here yet!",
+                text: animePageErrorDescription ?? "Ooops! Looks like there's nothing here yet!",
                 loading: threadsLoading)
         }
         guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }

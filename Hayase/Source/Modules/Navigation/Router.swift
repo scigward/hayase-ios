@@ -12,6 +12,7 @@ import Foundation
 
 final class Router {
     static let shared = Router(initialRoute: .home)
+    static let AnimeNavigationFailedNotification = "AnimeNavigationFailedNotification"
 
     enum NavigationKind {
         case push
@@ -152,14 +153,21 @@ final class Router {
         let requestID = UUID()
         let sourceRoute = currentRoute
         pendingAnimeNavigationID = requestID
-        AniListClient.shared.fetchResolverMediaById(item.id) { [weak self] media in
+        AniListClient.shared.fetchResolverMediaByIdResult(item.id) { [weak self] result in
             guard let self,
                   self.pendingAnimeNavigationID == requestID,
-                  self.currentRoute == sourceRoute,
-                  let media else { return }
-            self.pendingAnimeNavigationID = nil
-            self.cacheAnimeItem(media)
-            self.navigate(.anime(id: media.id), hostTabIndex: hostTabIndex)
+                  self.currentRoute == sourceRoute else { return }
+            switch result {
+            case .success(let media):
+                self.pendingAnimeNavigationID = nil
+                self.cacheAnimeItem(media)
+                self.navigate(.anime(id: media.id), hostTabIndex: hostTabIndex)
+            case .failure(let error):
+                self.pendingAnimeNavigationID = nil
+                NSLog("[Router] Anime route preload failed: %@", error.description)
+                NotificationCenter.default.post(name: NSNotification.Name(Router.AnimeNavigationFailedNotification),
+                                                object: error as NSError)
+            }
         }
     }
 

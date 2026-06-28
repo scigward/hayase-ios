@@ -41,6 +41,7 @@ final class AniListRequestToken {
 
 enum AniListRequestError: Error, CustomStringConvertible {
     case invalidEndpoint
+    case unauthenticated
     case encodingFailed(Error?)
     case emptyData
     case cancelled
@@ -78,6 +79,8 @@ enum AniListRequestError: Error, CustomStringConvertible {
         switch self {
         case .invalidEndpoint:
             return "Invalid AniList endpoint."
+        case .unauthenticated:
+            return "AniList authentication is required."
         case .encodingFailed(let error):
             return "Could not encode AniList request body: \(error?.localizedDescription ?? "unknown error")"
         case .emptyData:
@@ -359,7 +362,7 @@ final class AniListRequestExecutor {
 
     private func shouldRetry(_ error: AniListRequestError) -> Bool {
         switch error {
-        case .cancelled, .encodingFailed, .invalidEndpoint:
+        case .cancelled, .encodingFailed, .invalidEndpoint, .unauthenticated:
             return false
         case .network, .emptyData, .invalidJSON:
             return true

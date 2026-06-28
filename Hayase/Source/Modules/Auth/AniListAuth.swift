@@ -220,73 +220,104 @@ final class AniListTracking {
         return 0
     }
 
-    private func authRequest(query: String, variables: [String: Any], completion: @escaping ([String: Any]?) -> Void) {
-        guard let token = TrackerAccountManager.shared.token(for: .anilist),
-              let url = URL(string: endpoint) else {
-            NSLog("[AniListTracking] authRequest: no token or invalid endpoint")
-            completion(nil); return
+    private func authRequestResult(query: String,
+                                   variables: [String: Any],
+                                   completion: @escaping (Result<[String: Any], AniListRequestError>) -> Void) {
+        guard TrackerAccountManager.shared.token(for: .anilist) != nil else {
+            completion(.failure(.unauthenticated))
+            return
+        }
+        guard let url = URL(string: endpoint) else {
+            completion(.failure(.invalidEndpoint))
+            return
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["query": query, "variables": variables]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+        } catch {
+            completion(.failure(.encodingFailed(error)))
+            return
+        }
 
         AniListRequestExecutor.shared.perform(request, context: "AniListTracking") { result in
-            guard case .success(let data) = result else {
-                if case .failure(let error) = result, case .cancelled = error { return }
-                if case .failure(let error) = result {
-                    NSLog("[AniListTracking] authRequest failed: %@", error.description)
+            switch result {
+            case .success(let data):
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    completion(.failure(.invalidJSON))
+                    return
                 }
-                completion(nil); return
+                guard let dataObj = json["data"] as? [String: Any] else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                completion(.success(dataObj))
+            case .failure(let error):
+                completion(.failure(error))
             }
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                NSLog("[AniListTracking] authRequest: failed to parse JSON")
-                completion(nil); return
-            }
-            guard let dataObj = json["data"] as? [String: Any] else {
-                NSLog("[AniListTracking] authRequest: no 'data' field in response")
-                completion(nil); return
-            }
-            completion(dataObj)
         }
     }
 
     // MARK: - Fetch current list entry
 
     func fetchMediaWithEntry(anilistID: Int, completion: @escaping (AnimeItem.MediaListEntry?, String?, Int?, String?, Int?) -> Void) {
-        authRequest(query: singleMediaQuery, variables: ["id": anilistID]) { [weak self] data in
-            guard let self else { completion(nil, nil, nil, nil, nil); return }
-            guard let media = data?["Media"] as? [String: Any] else {
-                completion(LocalTracking.shared.entry(for: anilistID), nil, nil, nil, nil); return
+        fetchMediaWithEntryResult(anilistID: anilistID) { result in
+            switch result {
+            case .success(let payload):
+                completion(payload.entry, payload.mediaStatus, payload.episodes, payload.format, payload.duration)
+            case .failure(let error):
+                NSLog("[AniListTracking] fetchMediaWithEntry failed: %@", error.description)
+                completion(LocalTracking.shared.entry(for: anilistID), nil, nil, nil, nil)
             }
-            let mediaStatus = media["status"] as? String
-            let episodes = media["episodes"] as? Int
-            let format = media["format"] as? String
-            let duration = media["duration"] as? Int
+        }
+    }
 
-            var entry: AnimeItem.MediaListEntry?
-            if let mle = media["mediaListEntry"] as? [String: Any],
-               let listID = mle["id"] as? Int {
-                var enabledLists: [String] = []
-                if let customListsArray = mle["customLists"] as? [[String: Any]] {
-                    for cl in customListsArray {
-                        if let enabled = cl["enabled"] as? Bool, enabled,
-                           let name = cl["name"] as? String {
-                            enabledLists.append(name)
+    func fetchMediaWithEntryResult(anilistID: Int,
+                                   completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?), AniListRequestError>) -> Void) {
+        authRequestResult(query: singleMediaQuery, variables: ["id": anilistID]) { [weak self] result in
+            guard let self else {
+                completion(.failure(.cancelled))
+                return
+            }
+            switch result {
+            case .success(let data):
+                guard let media = data["Media"] as? [String: Any] else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                let mediaStatus = media["status"] as? String
+                let episodes = media["episodes"] as? Int
+                let format = media["format"] as? String
+                let duration = media["duration"] as? Int
+
+                var entry: AnimeItem.MediaListEntry?
+                if let mle = media["mediaListEntry"] as? [String: Any],
+                   let listID = mle["id"] as? Int {
+                    var enabledLists: [String] = []
+                    if let customListsArray = mle["customLists"] as? [[String: Any]] {
+                        for cl in customListsArray {
+                            if let enabled = cl["enabled"] as? Bool, enabled,
+                               let name = cl["name"] as? String {
+                                enabledLists.append(name)
+                            }
                         }
                     }
+                    entry = AnimeItem.MediaListEntry(
+                        listID: listID,
+                        status: mle["status"] as? String,
+                        progress: self.jsonInt(mle["progress"]),
+                        score: self.jsonInt(mle["score"]),
+                        repeatCount: self.jsonInt(mle["repeat"]),
+                        customLists: enabledLists)
                 }
-                entry = AnimeItem.MediaListEntry(
-                    listID: listID,
-                    status: mle["status"] as? String,
-                    progress: self.jsonInt(mle["progress"]),
-                    score: self.jsonInt(mle["score"]),
-                    repeatCount: self.jsonInt(mle["repeat"]),
-                    customLists: enabledLists)
+                completion(.success((entry ?? LocalTracking.shared.entry(for: anilistID), mediaStatus, episodes, format, duration)))
+            case .failure(let error):
+                completion(.failure(error))
             }
-            completion(entry ?? LocalTracking.shared.entry(for: anilistID), mediaStatus, episodes, format, duration)
         }
     }
 
@@ -299,6 +330,29 @@ final class AniListTracking {
                repeatCount: Int? = nil,
                lists: [String]? = nil,
                completion: ((AnimeItem.MediaListEntry?) -> Void)? = nil) {
+        entryResult(mediaID: mediaID,
+                    status: status,
+                    progress: progress,
+                    score: score,
+                    repeatCount: repeatCount,
+                    lists: lists) { result in
+            switch result {
+            case .success(let entry):
+                completion?(entry)
+            case .failure(let error):
+                NSLog("[AniListTracking] SaveMediaListEntry failed: %@", error.description)
+                completion?(nil)
+            }
+        }
+    }
+
+    func entryResult(mediaID: Int,
+                     status: String? = nil,
+                     progress: Int? = nil,
+                     score: Int? = nil,
+                     repeatCount: Int? = nil,
+                     lists: [String]? = nil,
+                     completion: @escaping (Result<AnimeItem.MediaListEntry, AniListRequestError>) -> Void) {
         let localEntry = LocalTracking.shared.entry(
             mediaID: mediaID,
             status: status,
@@ -308,7 +362,8 @@ final class AniListTracking {
             lists: lists)
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion?(localEntry); return
+            completion(.success(localEntry))
+            return
         }
 
         var vars: [String: Any] = ["id": mediaID]
@@ -323,62 +378,95 @@ final class AniListTracking {
         }
         vars["lists"] = customLists
 
-        authRequest(query: saveEntryMutation, variables: vars) { [weak self] data in
-            guard let self else { completion?(nil); return }
-            guard let entry = data?["SaveMediaListEntry"] as? [String: Any],
-                  let listID = entry["id"] as? Int else {
-                completion?(nil); return
+        authRequestResult(query: saveEntryMutation, variables: vars) { [weak self] result in
+            guard let self else {
+                completion(.failure(.cancelled))
+                return
             }
-            var enabledLists: [String] = []
-            if let cls = entry["customLists"] as? [[String: Any]] {
-                for cl in cls {
-                    if let enabled = cl["enabled"] as? Bool, enabled,
-                       let name = cl["name"] as? String {
-                        enabledLists.append(name)
+            switch result {
+            case .success(let data):
+                guard let entry = data["SaveMediaListEntry"] as? [String: Any],
+                      let listID = entry["id"] as? Int else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                var enabledLists: [String] = []
+                if let cls = entry["customLists"] as? [[String: Any]] {
+                    for cl in cls {
+                        if let enabled = cl["enabled"] as? Bool, enabled,
+                           let name = cl["name"] as? String {
+                            enabledLists.append(name)
+                        }
                     }
                 }
+                let resultMediaID = ((entry["media"] as? [String: Any])?["id"] as? Int) ?? mediaID
+                let resultEntry = AnimeItem.MediaListEntry(
+                    listID: listID,
+                    status: entry["status"] as? String,
+                    progress: self.jsonInt(entry["progress"]),
+                    score: self.jsonInt(entry["score"]),
+                    repeatCount: self.jsonInt(entry["repeat"]),
+                    customLists: enabledLists)
+                AniListClient.shared.updateMediaListEntry(mediaID: resultMediaID, entry: resultEntry)
+                self.updateCachedUserLists(mediaID: resultMediaID,
+                                           status: resultEntry.status,
+                                           refreshAfterUpdate: resultEntry.status == "COMPLETED") { [weak self] in
+                    self?.notifyTrackingDidChange()
+                }
+                completion(.success(resultEntry))
+            case .failure(let error):
+                completion(.failure(error))
             }
-            let resultMediaID = ((entry["media"] as? [String: Any])?["id"] as? Int) ?? mediaID
-            let result = AnimeItem.MediaListEntry(
-                listID: listID,
-                status: entry["status"] as? String,
-                progress: self.jsonInt(entry["progress"]),
-                score: self.jsonInt(entry["score"]),
-                repeatCount: self.jsonInt(entry["repeat"]),
-                customLists: enabledLists)
-            AniListClient.shared.updateMediaListEntry(mediaID: resultMediaID, entry: result)
-            self.updateCachedUserLists(mediaID: resultMediaID,
-                                       status: result.status,
-                                       refreshAfterUpdate: result.status == "COMPLETED") { [weak self] in
-                self?.notifyTrackingDidChange()
-            }
-            completion?(result)
         }
     }
 
     // MARK: - deleteEntry()
 
     func deleteEntry(listID: Int, mediaID: Int? = nil, completion: ((Bool) -> Void)? = nil) {
+        deleteEntryResult(listID: listID, mediaID: mediaID) { result in
+            switch result {
+            case .success(let deleted):
+                completion?(deleted)
+            case .failure(let error):
+                NSLog("[AniListTracking] DeleteMediaListEntry failed: %@", error.description)
+                completion?(false)
+            }
+        }
+    }
+
+    func deleteEntryResult(listID: Int,
+                           mediaID: Int? = nil,
+                           completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion?(LocalTracking.shared.delete(mediaID: mediaID ?? listID)); return
+            completion(.success(LocalTracking.shared.delete(mediaID: mediaID ?? listID)))
+            return
         }
 
-        authRequest(query: deleteEntryMutation, variables: ["id": listID]) { [weak self] data in
-            let deleted = (data?["DeleteMediaListEntry"] as? [String: Any])?["deleted"] as? Bool ?? false
-            if deleted {
-                if let mediaID {
-                    AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: nil)
-                    self?.updateCachedUserLists(mediaID: mediaID,
-                                                status: nil,
-                                                refreshAfterUpdate: true) { [weak self] in
+        authRequestResult(query: deleteEntryMutation, variables: ["id": listID]) { [weak self] result in
+            switch result {
+            case .success(let data):
+                guard let payload = data["DeleteMediaListEntry"] as? [String: Any],
+                      let deleted = payload["deleted"] as? Bool else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                if deleted {
+                    if let mediaID {
+                        AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: nil)
+                        self?.updateCachedUserLists(mediaID: mediaID,
+                                                    status: nil,
+                                                    refreshAfterUpdate: true) { [weak self] in
+                            self?.notifyTrackingDidChange()
+                        }
+                    } else {
                         self?.notifyTrackingDidChange()
                     }
-                } else {
-                    self?.notifyTrackingDidChange()
                 }
+                completion(.success(deleted))
+            case .failure(let error):
+                completion(.failure(error))
             }
-            completion?(deleted)
         }
     }
 
@@ -529,9 +617,16 @@ final class AniListTracking {
             self.userListFetchCompletions.append(completion)
             if alreadyFetching { return }
 
-            self.authRequest(query: self.userListsQuery, variables: ["id": viewerID]) { [weak self] data in
+            self.authRequestResult(query: self.userListsQuery, variables: ["id": viewerID]) { [weak self] result in
                 guard let self else { return }
-                let parsed = self.parseUserListIDs(from: data)
+                let parsed: UserListIDs?
+                switch result {
+                case .success(let data):
+                    parsed = self.parseUserListIDs(from: data)
+                case .failure(let error):
+                    NSLog("[AniListTracking] User lists failed: %@", error.description)
+                    parsed = nil
+                }
                 self.userListCacheQueue.async {
                     let completions = self.userListFetchCompletions
                     self.userListFetchCompletions = []
@@ -702,23 +797,63 @@ final class AniListTracking {
     """
 
     func toggleFavourite(mediaID: Int, completion: ((Bool) -> Void)? = nil) {
-        authRequest(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { [weak self] data in
-            guard let result = data?["ToggleFavourite"] as? [String: Any] else {
+        toggleFavouriteResult(mediaID: mediaID) { result in
+            switch result {
+            case .success:
+                completion?(true)
+            case .failure(let error):
+                NSLog("[AniListTracking] ToggleFavourite failed: %@", error.description)
                 completion?(false)
-                return
             }
-            let nodes = ((result["anime"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
-            let isFavourite = nodes.contains { ($0["id"] as? Int) == mediaID }
-            AniListClient.shared.updateFavouriteState(mediaID: mediaID, isFavourite: isFavourite)
-            self?.notifyTrackingDidChange()
-            completion?(true)
+        }
+    }
+
+    func toggleFavouriteResult(mediaID: Int,
+                               completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        authRequestResult(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { [weak self] result in
+            switch result {
+            case .success(let data):
+                guard let payload = data["ToggleFavourite"] as? [String: Any] else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                let nodes = ((payload["anime"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
+                let isFavourite = nodes.contains { ($0["id"] as? Int) == mediaID }
+                AniListClient.shared.updateFavouriteState(mediaID: mediaID, isFavourite: isFavourite)
+                self?.notifyTrackingDidChange()
+                completion(.success(isFavourite))
+            case .failure(let error):
+                completion(.failure(error))
+            }
         }
     }
 
     func checkIsFavourite(mediaID: Int, completion: @escaping (Bool) -> Void) {
-        authRequest(query: isFavouriteQuery, variables: ["id": mediaID]) { data in
-            let isFav = (data?["Media"] as? [String: Any])?["isFavourite"] as? Bool ?? false
-            completion(isFav)
+        checkIsFavouriteResult(mediaID: mediaID) { result in
+            switch result {
+            case .success(let isFavourite):
+                completion(isFavourite)
+            case .failure(let error):
+                NSLog("[AniListTracking] checkIsFavourite failed: %@", error.description)
+                completion(false)
+            }
+        }
+    }
+
+    func checkIsFavouriteResult(mediaID: Int,
+                                completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        authRequestResult(query: isFavouriteQuery, variables: ["id": mediaID]) { result in
+            switch result {
+            case .success(let data):
+                guard let media = data["Media"] as? [String: Any],
+                      let isFavourite = media["isFavourite"] as? Bool else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                completion(.success(isFavourite))
+            case .failure(let error):
+                completion(.failure(error))
+            }
         }
     }
 }

@@ -106,6 +106,7 @@ extension AnimeDetailViewController {
 
             switch result {
             case .success(let payload):
+                self.animePageErrorDescription = nil
                 if let media = payload.media {
                     let merged = self.animeItem?.mergingRouteMedia(media) ?? media
                     self.animeItem = merged
@@ -136,6 +137,7 @@ extension AnimeDetailViewController {
                 self.fetchLegacyAnimeDetailsIfNeeded()
             case .failure(let error):
                 NSLog("[AnimeDetail] AnimePage failed: %@", error.description)
+                self.animePageErrorDescription = error.description
                 self.recommendations = []
                 self.threads = []
                 self.threadTotalCount = 0
@@ -161,7 +163,7 @@ extension AnimeDetailViewController {
 
     func makeRecommendationCell(for indexPath: IndexPath) -> UITableViewCell {
         guard !recommendations.isEmpty else {
-            return makeEmptyStateCell(text: "Ooops! Looks like there's nothing here yet!", loading: false)
+            return makeEmptyStateCell(text: animePageErrorDescription ?? "Ooops! Looks like there's nothing here yet!", loading: false)
         }
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: RecommendationGridCell.reuseID,

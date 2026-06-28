@@ -583,10 +583,15 @@ final class HayaseSidebarController: UIViewController {
             return
         }
 
-        AniListClient.shared.fetchResolverMediaById(id) { [weak self, weak nav] item in
-            guard let self, let nav, self.isCurrentAnimeRoute(id), let item else { return }
-            self.router.cacheAnimeItem(item)
-            self.pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
+        AniListClient.shared.fetchResolverMediaByIdResult(id) { [weak self, weak nav] result in
+            guard let self, let nav, self.isCurrentAnimeRoute(id) else { return }
+            switch result {
+            case .success(let item):
+                self.router.cacheAnimeItem(item)
+                self.pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
+            case .failure(let error):
+                NSLog("[Sidebar] Anime route preload failed: %@", error.description)
+            }
         }
     }
 

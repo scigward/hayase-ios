@@ -1391,6 +1391,7 @@ class AnimeDetailViewController: UIViewController {
     var threadsLoading = false
     var themesLoading = false
     var animePageRequestID = UUID()
+    var animePageErrorDescription: String?
 
     var activeSection: Section = .episodes
 
