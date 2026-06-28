@@ -961,16 +961,24 @@ class SearchViewController: UIViewController {
             guard let self = self, self.fetchRequestID == myRequestID else { return }
             switch result {
             case .success(let page):
-                self.isFetching = page.isCacheResult
+                self.isFetching = false
                 if !page.isCacheResult { self.searchTask = nil }
                 self.isShowingSkeleton = false
                 self.loadingIndicator.stopAnimating()
                 if reset {
-                    self.animeResults = page.items
+                    if page.isCacheResult || self.currentPage <= requestedPage + 1 {
+                        self.animeResults = page.items
+                    } else {
+                        let tailStart = min(page.items.count, self.animeResults.count)
+                        self.animeResults = page.items + Array(self.animeResults.dropFirst(tailStart))
+                    }
                 } else if page.isCacheResult {
                     self.animeResults.append(contentsOf: page.items)
                 } else if self.animeResults.count > previousResults.count {
-                    self.animeResults = Array(self.animeResults.prefix(previousResults.count)) + page.items
+                    let prefix = Array(self.animeResults.prefix(previousResults.count))
+                    let tailStart = min(previousResults.count + page.items.count, self.animeResults.count)
+                    let tail = Array(self.animeResults.dropFirst(tailStart))
+                    self.animeResults = prefix + page.items + tail
                 } else {
                     self.animeResults.append(contentsOf: page.items)
                 }
@@ -986,12 +994,10 @@ class SearchViewController: UIViewController {
                 self.searchTask = nil
                 self.isShowingSkeleton = false
                 self.loadingIndicator.stopAnimating()
-                if reset { self.animeResults = previousResults }
+                if reset { self.animeResults = [] }
                 self.hasNextPage = false
-                self.emptyLabel.isHidden = !self.animeResults.isEmpty
-                if self.animeResults.isEmpty {
-                    self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
-                }
+                self.emptyLabel.isHidden = false
+                self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
             }
             self.collectionView.reloadData()
         }
@@ -1104,17 +1110,25 @@ class SearchViewController: UIViewController {
         collectionView.reloadData()
         emptyLabel.isHidden = true
 
-        AniListClient.shared.fetchAnimeByIds(ids) { [weak self] items in
+        AniListClient.shared.fetchAnimeByIdsResult(ids) { [weak self] result in
             guard let self = self else { return }
-            self.animeResults = items
             self.hasNextPage = false
             self.currentPage = 2
             self.isFetching = false
             self.isShowingSkeleton = false
             self.loadingIndicator.stopAnimating()
+
+            switch result {
+            case .success(let items):
+                self.animeResults = items
+                self.emptyLabel.isHidden = !items.isEmpty
+                if items.isEmpty { self.emptyLabel.text = "No matching anime found" }
+            case .failure(let error):
+                self.animeResults = []
+                self.emptyLabel.isHidden = false
+                self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
+            }
             self.collectionView.reloadData()
-            self.emptyLabel.isHidden = !items.isEmpty
-            if items.isEmpty { self.emptyLabel.text = "No matching anime found" }
         }
     }
 }

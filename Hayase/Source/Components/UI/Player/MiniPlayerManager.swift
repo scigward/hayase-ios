@@ -1118,10 +1118,15 @@ final class MiniPlayerManager {
         close()
 
         // Fetch the AnimeItem so the search VC has full metadata for queries.
-        AniListClient.shared.fetchAnimeByIds([anilistID]) { [weak self] items in
-            guard let animeItem = items.first else { return }
-            DispatchQueue.main.async {
-                self?.presentSearchVC(animeItem: animeItem, episode: episode)
+        AniListClient.shared.fetchAnimeByIdsResult([anilistID]) { [weak self] result in
+            switch result {
+            case .success(let items):
+                guard let animeItem = items.first else { return }
+                DispatchQueue.main.async {
+                    self?.presentSearchVC(animeItem: animeItem, episode: episode)
+                }
+            case .failure(let error):
+                NSLog("[MiniPlayer] AniList lookup failed: %@", error.description)
             }
         }
     }

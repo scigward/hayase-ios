@@ -718,9 +718,15 @@ extension W2GViewController {
         // Mirrors web: `const media = (await client.single(mediaId)).data?.Media`
         // Fetch AniList info first (if we have an ID), then add the torrent.
         if anilistID > 0 {
-            AniListClient.shared.fetchAnimeByIds([anilistID]) { [weak self] items in
+            AniListClient.shared.fetchAnimeByIdsResult([anilistID]) { [weak self] result in
                 guard let self else { return }
-                self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: items.first, hud: hud)
+                switch result {
+                case .success(let items):
+                    self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: items.first, hud: hud)
+                case .failure(let error):
+                    NSLog("[W2G] AniList lookup failed: %@", error.description)
+                    self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: nil, hud: hud)
+                }
             }
         } else {
             continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: nil, hud: hud)

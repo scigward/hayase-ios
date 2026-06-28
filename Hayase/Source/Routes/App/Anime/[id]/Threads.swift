@@ -351,9 +351,15 @@ extension AnimeDetailViewController {
         threadsLoading = true
         tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
 
-        AniListClient.shared.threads(mediaID: id) { [weak self] parsed in
+        AniListClient.shared.threadsResult(mediaID: id) { [weak self] result in
             guard let self else { return }
-            self.threads = parsed
+            switch result {
+            case .success(let parsed):
+                self.threads = parsed
+            case .failure(let error):
+                NSLog("[AnimeDetail] Threads failed: %@", error.description)
+                self.threads = []
+            }
             self.threadsLoading = false
             if self.activeSection == .threads {
                 self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)

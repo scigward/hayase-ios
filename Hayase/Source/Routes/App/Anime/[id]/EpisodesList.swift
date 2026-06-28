@@ -1029,8 +1029,16 @@ extension AnimeDetailViewController {
                 self.resolveParentID(format: fmt) { [weak self] parentID in
                     guard let self = self else { return }
                     if let parentID = parentID {
-                        AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                        AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
                             guard let self = self else { return }
+                            let schedResult: MediaScheduleResult?
+                            switch result {
+                            case .success(let schedule):
+                                schedResult = schedule
+                            case .failure(let error):
+                                NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
+                                schedResult = nil
+                            }
 
                             var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
                             let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
@@ -1064,8 +1072,16 @@ extension AnimeDetailViewController {
                     } else {
                         // No parent found - still try airing schedule for episode count
                         if anilistEpisodes == nil {
-                            AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                            AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
                                 guard let self = self else { return }
+                                let schedResult: MediaScheduleResult?
+                                switch result {
+                                case .success(let schedule):
+                                    schedResult = schedule
+                                case .failure(let error):
+                                    NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
+                                    schedResult = nil
+                                }
                                 let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
                                 let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
                                 self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
@@ -1082,8 +1098,16 @@ extension AnimeDetailViewController {
             // For ALL anime: if anilistEpisodes is nil (airing/new anime), fetch airing schedule
             // to compute episode count from aired/notaired data, matching web's episodes() fallback.
             if anilistEpisodes == nil {
-                AniListClient.shared.fetchMediaAiringSchedule(anilistID: id) { [weak self] schedResult in
+                AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
                     guard let self = self else { return }
+                    let schedResult: MediaScheduleResult?
+                    switch result {
+                    case .success(let schedule):
+                        schedResult = schedule
+                    case .failure(let error):
+                        NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
+                        schedResult = nil
+                    }
                     let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
                     let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
                     self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
@@ -1108,13 +1132,19 @@ extension AnimeDetailViewController {
             completion(nil)
             return
         }
-        AniListClient.shared.fetchDetailForItem(id: id) { [weak self] rels in
-            self?.animeItem?.relations = rels
-            self?.relations = rels
-            let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
-                rels.first { $0.relationType == relType }?.media.id
-            }.first
-            completion(parentID)
+        AniListClient.shared.fetchDetailForItemResult(id: id) { [weak self] result in
+            switch result {
+            case .success(let rels):
+                self?.animeItem?.relations = rels
+                self?.relations = rels
+                let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
+                    rels.first { $0.relationType == relType }?.media.id
+                }.first
+                completion(parentID)
+            case .failure(let error):
+                NSLog("[AnimeDetail] Parent relation fallback failed: %@", error.description)
+                completion(nil)
+            }
         }
     }
 

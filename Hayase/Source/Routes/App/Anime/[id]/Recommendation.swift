@@ -99,34 +99,46 @@ extension AnimeDetailViewController {
         followingEntriesByEpisode.removeAll()
         headerView?.clearFollowingAvatars()
 
-        AniListClient.shared.fetchAnimePage(id: id) { [weak self] payload in
+        AniListClient.shared.fetchAnimePageResult(id: id) { [weak self] result in
             guard let self,
                   self.routeAnimeID == id,
                   self.animePageRequestID == requestID else { return }
 
-            if let media = payload.media {
-                let merged = self.animeItem?.mergingRouteMedia(media) ?? media
-                self.animeItem = merged
-                Router.shared.cacheAnimeItem(merged)
-                self.headerView?.updateAnimePageDetails(with: merged)
-                if let accent = ExtensionSearchViewController.uiColor(fromHex: merged.coverColor) {
-                    self.currentAnimeAccent = accent
-                    self.tabBar.accentColor = accent
+            switch result {
+            case .success(let payload):
+                if let media = payload.media {
+                    let merged = self.animeItem?.mergingRouteMedia(media) ?? media
+                    self.animeItem = merged
+                    Router.shared.cacheAnimeItem(merged)
+                    self.headerView?.updateAnimePageDetails(with: merged)
+                    if let accent = ExtensionSearchViewController.uiColor(fromHex: merged.coverColor) {
+                        self.currentAnimeAccent = accent
+                        self.tabBar.accentColor = accent
+                    }
+                    if !merged.relations.isEmpty {
+                        self.relations = merged.relations
+                    }
                 }
-                if !merged.relations.isEmpty {
-                    self.relations = merged.relations
-                }
+
+                self.recommendations = payload.recommendations
+                self.threads = payload.threads
+                self.threadTotalCount = payload.threadTotal
+                self.followingEntriesByEpisode = Dictionary(grouping: payload.followingEntries, by: \.progress)
+                    .mapValues { entries in Array(entries.prefix(4)).map(\.user) }
+                self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
+
+                self.reloadAnimePagePayloadSections()
+                self.fetchLegacyAnimeDetailsIfNeeded()
+            case .failure(let error):
+                NSLog("[AnimeDetail] AnimePage failed: %@", error.description)
+                self.recommendations = []
+                self.threads = []
+                self.threadTotalCount = 0
+                self.followingEntriesByEpisode.removeAll()
+                self.headerView?.clearFollowingAvatars()
+                self.reloadAnimePagePayloadSections()
+                self.fetchLegacyAnimeDetailsIfNeeded()
             }
-
-            self.recommendations = payload.recommendations
-            self.threads = payload.threads
-            self.threadTotalCount = payload.threadTotal
-            self.followingEntriesByEpisode = Dictionary(grouping: payload.followingEntries, by: \.progress)
-                .mapValues { entries in Array(entries.prefix(4)).map(\.user) }
-            self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
-
-            self.reloadAnimePagePayloadSections()
-            self.fetchLegacyAnimeDetailsIfNeeded()
         }
     }
 

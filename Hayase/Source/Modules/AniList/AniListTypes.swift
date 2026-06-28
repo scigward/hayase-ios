@@ -182,6 +182,12 @@ struct AnimePagePayload {
     let followingEntries: [AniListFollowingEntry]
 }
 
+struct AnimeTrailerGenresPayload {
+    let trailerYouTubeID: String?
+    let genres: [String]
+    let malId: Int?
+}
+
 // MARK: - Staff + Stats models
 
 struct AnimeStaffMember {

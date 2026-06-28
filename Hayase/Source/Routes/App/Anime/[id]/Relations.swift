@@ -394,10 +394,17 @@ extension AnimeDetailViewController {
         guard let anilistId = routeAnimeID else { return }
 
         if relations.isEmpty && animeItem?.relations.isEmpty != false {
-            AniListClient.shared.fetchDetailForItem(id: anilistId) { [weak self] rels in
-                guard let self, self.routeAnimeID == anilistId, !rels.isEmpty else { return }
-                self.relations = rels
-                self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+            AniListClient.shared.fetchDetailForItemResult(id: anilistId) { [weak self] result in
+                guard let self, self.routeAnimeID == anilistId else { return }
+                switch result {
+                case .success(let rels) where !rels.isEmpty:
+                    self.relations = rels
+                    self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+                case .success:
+                    break
+                case .failure(let error):
+                    NSLog("[AnimeDetail] Relation fallback failed: %@", error.description)
+                }
             }
         }
 
@@ -406,21 +413,26 @@ extension AnimeDetailViewController {
         let needsGenres = animeItem == nil || animeItem?.genres.isEmpty == true
         guard needsTrailer || needsMAL || needsGenres else { return }
 
-        AniListClient.shared.fetchTrailerAndGenres(id: anilistId) { [weak self] trailerID, genres, malId in
+        AniListClient.shared.fetchTrailerAndGenresResult(id: anilistId) { [weak self] result in
             guard let self, self.routeAnimeID == anilistId else { return }
-            if needsGenres {
-                self.headerView?.updateGenresAndTrailer(genres: genres, trailerYouTubeID: trailerID)
-            } else if let trailerID {
-                self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
-            }
-            if self.animeItem?.trailerYouTubeID == nil {
-                self.animeItem?.trailerYouTubeID = trailerID
-            }
+            switch result {
+            case .success(let payload):
+                if needsGenres {
+                    self.headerView?.updateGenresAndTrailer(genres: payload.genres, trailerYouTubeID: payload.trailerYouTubeID)
+                } else if let trailerID = payload.trailerYouTubeID {
+                    self.headerView?.updateTrailerButton(trailerYouTubeID: trailerID)
+                }
+                if self.animeItem?.trailerYouTubeID == nil {
+                    self.animeItem?.trailerYouTubeID = payload.trailerYouTubeID
+                }
 
-            if let malId, self.headerView?.malId == nil {
-                self.headerView?.malId = malId
-                self.animeItem?.malId = malId
-                self.headerView?.updateMALButtonVisibility()
+                if let malId = payload.malId, self.headerView?.malId == nil {
+                    self.headerView?.malId = malId
+                    self.animeItem?.malId = malId
+                    self.headerView?.updateMALButtonVisibility()
+                }
+            case .failure(let error):
+                NSLog("[AnimeDetail] Trailer/genres failed: %@", error.description)
             }
         }
     }

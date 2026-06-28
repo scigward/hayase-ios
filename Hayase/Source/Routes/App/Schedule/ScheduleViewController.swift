@@ -422,24 +422,30 @@ final class ScheduleViewController: UIViewController {
         isFetching = true
         spinner.startAnimating()
 
-        AniListClient.shared.fetchAiringForMonth(month) { [weak self] entries in
+        AniListClient.shared.fetchAiringForMonthResult(month) { [weak self] result in
             guard let self = self else { return }
             self.isFetching = false
             self.spinner.stopAnimating()
-            self.fetchedMonths.insert(key)
-            var existing = Set(self.airingEpisodes.map { "\($0.mediaID)-\($0.episode)" })
-            for entry in entries {
-                let k = "\(entry.media.id)-\(entry.episode)"
-                if existing.insert(k).inserted {
-                    self.airingEpisodes.append(ScheduleAiringEpisode(
-                        airingAt: entry.airingAt,
-                        episode:  entry.episode,
-                        mediaID:  entry.media.id,
-                        titlePreferred: entry.media.titleUserPreferred,
-                        coverURL: entry.media.coverURL))
+
+            switch result {
+            case .success(let entries):
+                self.fetchedMonths.insert(key)
+                var existing = Set(self.airingEpisodes.map { "\($0.mediaID)-\($0.episode)" })
+                for entry in entries {
+                    let k = "\(entry.media.id)-\(entry.episode)"
+                    if existing.insert(k).inserted {
+                        self.airingEpisodes.append(ScheduleAiringEpisode(
+                            airingAt: entry.airingAt,
+                            episode:  entry.episode,
+                            mediaID:  entry.media.id,
+                            titlePreferred: entry.media.titleUserPreferred,
+                            coverURL: entry.media.coverURL))
+                    }
                 }
+                self.calendarCV.reloadData()
+            case .failure(let error):
+                NSLog("[Schedule] AniList schedule failed: %@", error.description)
             }
-            self.calendarCV.reloadData()
         }
     }
 
