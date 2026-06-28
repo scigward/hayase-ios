@@ -658,7 +658,13 @@ extension AnimeDetailViewController {
     }
 
 
+    var hasRelationsContent: Bool {
+        if let graph = relationGraph, !graph.nodes.isEmpty { return true }
+        return !relations.isEmpty
+    }
+
     func applyRelationGraph(_ graph: AnimeRelationGraph) {
+        guard !graph.nodes.isEmpty else { return }
         relationGraph = graph
     }
 
@@ -679,7 +685,7 @@ extension AnimeDetailViewController {
     }
 
     func makeRelationsCell(for indexPath: IndexPath) -> UITableViewCell {
-        if let graph = relationGraph,
+        if let graph = relationGraph, !graph.nodes.isEmpty,
            let cell = tableView.dequeueReusableCell(
             withIdentifier: RelationGraphCell.reuseID,
             for: indexPath) as? RelationGraphCell {
