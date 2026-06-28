@@ -67,6 +67,7 @@ class SearchViewController: UIViewController {
     /// Incremented on every reset fetch. Allows in-flight callbacks from a prior fetch to be
     /// discarded when a newer reset (e.g. from a View More prefill) has already started.
     private var fetchRequestID = 0
+    private var searchTask: URLSessionDataTask?
     private var currentTitle = ""
     private var debounceTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
@@ -93,6 +94,11 @@ class SearchViewController: UIViewController {
     private var filterCollectionView: UICollectionView!
     private var filterRowHeightConstraint: NSLayoutConstraint!
     private var titleRowSpacerHeightConstraint: NSLayoutConstraint!
+
+    deinit {
+        debounceTimer?.invalidate()
+        searchTask?.cancel()
+    }
 
     // Active chips (wrapping frame layout, min-h-9)
     private var chipsContainer:     UIView!
@@ -516,8 +522,8 @@ class SearchViewController: UIViewController {
     // MARK: - Responsive Filters
 
     private var shouldShowOnListFilter: Bool {
-        TrackerAccountManager.shared.isLoggedIn(.anilist)
-            || TrackerAccountManager.shared.token(for: .anilist) != nil
+        TrackerAccountManager.shared.viewer(for: .anilist)?.id != nil
+            && TrackerAccountManager.shared.token(for: .anilist) != nil
     }
 
     private var visibleFilterTypes: [SearchFilterType] {
@@ -917,10 +923,10 @@ class SearchViewController: UIViewController {
     private func fetchResults(reset: Bool) {
         if reset {
             currentPage = 1; hasNextPage = true
-            // Force-cancel any in-flight fetch by bumping the request ID. The old callback will
-            // see a mismatched ID and discard its results. This mirrors Hayase where navigating
-            // to /app/search with new state always starts a fresh search, discarding any prior request.
+            // Start a fresh search generation and cancel stale network work.
             fetchRequestID += 1
+            searchTask?.cancel()
+            searchTask = nil
             isFetching = false
         }
         guard !isFetching, hasNextPage else { return }
@@ -933,7 +939,7 @@ class SearchViewController: UIViewController {
         }
         let myRequestID = fetchRequestID
 
-        AniListClient.shared.searchAnimeItems(
+        searchTask = AniListClient.shared.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
             genres: selectedGenres,
             tags: selectedTags,
@@ -950,6 +956,7 @@ class SearchViewController: UIViewController {
             guard let self = self, self.fetchRequestID == myRequestID else { return }
             if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
             self.hasNextPage = hasNext; self.currentPage += 1; self.isFetching = false
+            self.searchTask = nil
             self.isShowingSkeleton = false
             self.loadingIndicator.stopAnimating(); self.collectionView.reloadData()
             self.emptyLabel.isHidden = !self.animeResults.isEmpty

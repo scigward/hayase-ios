@@ -25,8 +25,8 @@ public final class AniListClient: NSObject {
     private var fullMediaCompletions: [Int: [(AnimeItem?) -> Void]] = [:]
 
     private let animePageQueue = DispatchQueue(label: "com.hayase.anilist.animePage")
-    private var animePageCache: [Int: AnimePagePayload] = [:]
-    private var animePageCompletions: [Int: [(AnimePagePayload) -> Void]] = [:]
+    private var animePageCache: [String: AnimePagePayload] = [:]
+    private var animePageCompletions: [String: [(AnimePagePayload) -> Void]] = [:]
 
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
@@ -74,16 +74,34 @@ public final class AniListClient: NSObject {
         }.resume()
     }
 
-    /// Adds an auth header if the user is logged in.
+    /// Adds an auth header only when AniList has a persisted viewer.
+    /// Matches urql-client.ts: addAuthToOperation returns the original operation
+    /// when `viewer.value` is missing.
     private func authorizedRequest(url: URL) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+        if canUseAniListAuth, let token = TrackerAccountManager.shared.token(for: .anilist) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    private var aniListViewerID: Int? {
+        guard let rawID = TrackerAccountManager.shared.viewer(for: .anilist)?.id else { return nil }
+        return Int(rawID)
+    }
+
+    private var canUseAniListAuth: Bool {
+        TrackerAccountManager.shared.token(for: .anilist) != nil && aniListViewerID != nil
+    }
+
+    private func animePageCacheKey(for id: Int) -> String {
+        if let viewerID = aniListViewerID, canUseAniListAuth {
+            return "\(id):viewer:\(viewerID)"
+        }
+        return "\(id):public"
     }
 
     // MARK: - CoreData (legacy, iOS-specific)
@@ -394,6 +412,7 @@ public final class AniListClient: NSObject {
 
     // MARK: - Search (matches client.ts search())
 
+    @discardableResult
     func searchAnimeItems(title: String?,
                           genres: [String],
                           tags: [String] = [],
@@ -406,12 +425,16 @@ public final class AniListClient: NSObject {
                           isAdult: Bool? = nil,
                           onList: Bool? = nil,
                           ids: [Int]? = nil,
-                          perPage: Int = 20,
+                          perPage: Int? = nil,
                           page: Int,
-                          completion: @escaping ([AnimeItem], Bool) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
+                          completion: @escaping ([AnimeItem], Bool) -> Void) -> URLSessionDataTask? {
+        guard let url = URL(string: graphQLEndpoint) else {
+            completion([], false)
+            return nil
+        }
         var request = authorizedRequest(url: url)
-        var variables: [String: Any] = ["sort": [sort], "page": page, "perPage": perPage]
+        var variables: [String: Any] = ["sort": [sort], "page": page]
+        if let perPage { variables["perPage"] = perPage }
         if let t = title, !t.isEmpty { variables["search"] = t }
         if !genres.isEmpty   { variables["genre"] = genres }
         if !tags.isEmpty     { variables["tag"] = tags }
@@ -427,7 +450,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.search, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        let task = URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let pageData = response.data?.Page else {
@@ -437,7 +460,9 @@ public final class AniListClient: NSObject {
             let hasNext = pageData.pageInfo?.hasNextPage ?? false
             let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
             DispatchQueue.main.async { completion(items, hasNext) }
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 
     // MARK: - Fetch by IDs (single / trace.moe)
@@ -754,16 +779,17 @@ public final class AniListClient: NSObject {
     // MARK: - Anime page (anime/[id])
 
     func fetchAnimePage(id: Int, completion: @escaping (AnimePagePayload) -> Void) {
+        let cacheKey = animePageCacheKey(for: id)
         var cached: AnimePagePayload?
         var shouldStartRequest = false
 
         animePageQueue.sync {
-            cached = animePageCache[id]
+            cached = animePageCache[cacheKey]
             if cached == nil {
-                if animePageCompletions[id] != nil {
-                    animePageCompletions[id]?.append(completion)
+                if animePageCompletions[cacheKey] != nil {
+                    animePageCompletions[cacheKey]?.append(completion)
                 } else {
-                    animePageCompletions[id] = [completion]
+                    animePageCompletions[cacheKey] = [completion]
                     shouldStartRequest = true
                 }
             }
@@ -774,13 +800,13 @@ public final class AniListClient: NSObject {
             return
         }
         if shouldStartRequest {
-            fetchAnimePageFromNetwork(id)
+            fetchAnimePageFromNetwork(id, cacheKey: cacheKey)
         }
     }
 
-    private func fetchAnimePageFromNetwork(_ id: Int) {
+    private func fetchAnimePageFromNetwork(_ id: Int, cacheKey: String) {
         guard let url = URL(string: graphQLEndpoint) else {
-            finishAnimePageFetch(id: id, payload: emptyAnimePagePayload())
+            finishAnimePageFetch(id: id, cacheKey: cacheKey, payload: emptyAnimePagePayload())
             return
         }
 
@@ -799,23 +825,23 @@ public final class AniListClient: NSObject {
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObject = json["data"] as? [String: Any] else {
-                self.finishAnimePageFetch(id: id, payload: self.emptyAnimePagePayload())
+                self.finishAnimePageFetch(id: id, cacheKey: cacheKey, payload: self.emptyAnimePagePayload())
                 return
             }
 
             self.logGraphQLErrors(json["errors"], context: "AnimePage")
             let publicPayload = self.parseAnimePagePayload(from: dataObject, followingEntries: [])
-            self.finishAnimePageFetch(id: id, payload: publicPayload)
+            self.finishAnimePageFetch(id: id, cacheKey: cacheKey, payload: publicPayload)
         }.resume()
     }
 
-    private func finishAnimePageFetch(id: Int, payload: AnimePagePayload) {
+    private func finishAnimePageFetch(id: Int, cacheKey: String, payload: AnimePagePayload) {
         animePageQueue.async { [weak self] in
             guard let self else { return }
             if payload.media != nil {
-                self.animePageCache[id] = payload
+                self.animePageCache[cacheKey] = payload
             }
-            let callbacks = self.animePageCompletions.removeValue(forKey: id) ?? []
+            let callbacks = self.animePageCompletions.removeValue(forKey: cacheKey) ?? []
             callbacks.forEach { callback in
                 self.deliverAnimePagePayload(payload, id: id, completion: callback)
             }
@@ -846,9 +872,7 @@ public final class AniListClient: NSObject {
     }
 
     private var canFetchFollowingList: Bool {
-        TrackerAccountManager.shared.isLoggedIn(.anilist)
-            && TrackerAccountManager.shared.token(for: .anilist) != nil
-            && TrackerAccountManager.shared.viewer(for: .anilist)?.id != nil
+        canUseAniListAuth
     }
 
     private func fetchAnimePageFollowing(id: Int, completion: @escaping ([AniListFollowingEntry]) -> Void) {
@@ -1006,9 +1030,7 @@ public final class AniListClient: NSObject {
     }
 
     private func parseFollowingEntries(from page: [String: Any]?) -> [AniListFollowingEntry] {
-        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
-              let rawID = TrackerAccountManager.shared.viewer(for: .anilist)?.id,
-              let viewerID = Int(rawID) else { return [] }
+        guard let viewerID = aniListViewerID else { return [] }
         let entries = page?["mediaList"] as? [[String: Any]] ?? []
         return entries.compactMap { entry in
             guard let progress = entry["progress"] as? Int,
