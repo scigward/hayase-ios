@@ -16,13 +16,13 @@ enum HayaseIcon {
             cg.scaleBy(x: pointSize / 24, y: pointSize / 24)
             UIColor.white.setFill()
             UIColor.white.setStroke()
-            drawFilledIcon(lucideId, in: cg)
+            drawFilledIcon(lucideId, pointSize: pointSize, in: cg)
             cg.restoreGState()
         }
         return image.withRenderingMode(.alwaysTemplate)
     }
 
-    private static func drawFilledIcon(_ lucideId: String, in cg: CGContext) {
+    private static func drawFilledIcon(_ lucideId: String, pointSize: CGFloat, in cg: CGContext) {
         switch lucideId {
         case "play":
             filledPath(filledPlayPath(), strokeWidth: 0)
@@ -30,43 +30,39 @@ enum HayaseIcon {
             filledPath(UIBezierPath(roundedRect: CGRect(x: 6, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
             filledPath(UIBezierPath(roundedRect: CGRect(x: 14, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
         case "skip-back":
-            let triangle = UIBezierPath()
-            triangle.move(to: CGPoint(x: 19, y: 4))
-            triangle.addLine(to: CGPoint(x: 9, y: 12))
-            triangle.addLine(to: CGPoint(x: 19, y: 20))
-            triangle.close()
-            filledPath(triangle, strokeWidth: 1)
-            strokeLine(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 5, y: 19), width: 1)
+            drawSkipBackIcon()
         case "skip-forward":
-            let triangle = UIBezierPath()
-            triangle.move(to: CGPoint(x: 5, y: 4))
-            triangle.addLine(to: CGPoint(x: 15, y: 12))
-            triangle.addLine(to: CGPoint(x: 5, y: 20))
-            triangle.close()
-            filledPath(triangle, strokeWidth: 1)
-            strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
+            drawSkipForwardIcon()
         case "fast-forward":
-            filledTriangle(points: [
-                CGPoint(x: 13, y: 19),
-                CGPoint(x: 22, y: 12),
-                CGPoint(x: 13, y: 5),
-            ])
-            filledTriangle(points: [
-                CGPoint(x: 2, y: 19),
-                CGPoint(x: 11, y: 12),
-                CGPoint(x: 2, y: 5),
-            ])
+            if pointSize >= 48 {
+                drawSkipForwardIcon()
+            } else {
+                filledTriangle(points: [
+                    CGPoint(x: 13, y: 19),
+                    CGPoint(x: 22, y: 12),
+                    CGPoint(x: 13, y: 5),
+                ])
+                filledTriangle(points: [
+                    CGPoint(x: 2, y: 19),
+                    CGPoint(x: 11, y: 12),
+                    CGPoint(x: 2, y: 5),
+                ])
+            }
         case "rewind":
-            filledTriangle(points: [
-                CGPoint(x: 11, y: 19),
-                CGPoint(x: 2, y: 12),
-                CGPoint(x: 11, y: 5),
-            ])
-            filledTriangle(points: [
-                CGPoint(x: 22, y: 19),
-                CGPoint(x: 13, y: 12),
-                CGPoint(x: 22, y: 5),
-            ])
+            if pointSize >= 48 {
+                drawSkipBackIcon()
+            } else {
+                filledTriangle(points: [
+                    CGPoint(x: 11, y: 19),
+                    CGPoint(x: 2, y: 12),
+                    CGPoint(x: 11, y: 5),
+                ])
+                filledTriangle(points: [
+                    CGPoint(x: 22, y: 19),
+                    CGPoint(x: 13, y: 12),
+                    CGPoint(x: 22, y: 5),
+                ])
+            }
         case "star":
             let star = UIBezierPath()
             [
@@ -209,6 +205,26 @@ enum HayaseIcon {
                       controlPoint2: CGPoint(x: 23.0226, y: 11.9231))
         path.close()
         return path
+    }
+
+    private static func drawSkipBackIcon() {
+        let triangle = UIBezierPath()
+        triangle.move(to: CGPoint(x: 19, y: 4))
+        triangle.addLine(to: CGPoint(x: 9, y: 12))
+        triangle.addLine(to: CGPoint(x: 19, y: 20))
+        triangle.close()
+        filledPath(triangle, strokeWidth: 1)
+        strokeLine(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 5, y: 19), width: 1)
+    }
+
+    private static func drawSkipForwardIcon() {
+        let triangle = UIBezierPath()
+        triangle.move(to: CGPoint(x: 5, y: 4))
+        triangle.addLine(to: CGPoint(x: 15, y: 12))
+        triangle.addLine(to: CGPoint(x: 5, y: 20))
+        triangle.close()
+        filledPath(triangle, strokeWidth: 1)
+        strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
     }
 
     private static func strokeLine(from start: CGPoint, to end: CGPoint, width: CGFloat) {
