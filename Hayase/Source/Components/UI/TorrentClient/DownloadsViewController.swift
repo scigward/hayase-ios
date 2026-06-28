@@ -1665,12 +1665,17 @@ class DownloadsViewController: UIViewController {
         request.predicate = NSPredicate(format: "animeAnilistId == %@", NSNumber(value: mediaID))
         request.fetchLimit = 1
 
-        let anime = (try? context.fetch(request))?.first
-        let english = anime?.animeTitleEnglish?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let japanese = anime?.animeTitleJapanese?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let title = !english.isEmpty ? english : (!japanese.isEmpty ? japanese : "AniList #\(mediaID)")
-        animeTitleCache[mediaID] = title
-        return title
+        if let anime = (try? context.fetch(request))?.first {
+            let title = AniListUtil.title(for: anime)
+            if title != "TBA" {
+                animeTitleCache[mediaID] = title
+                return title
+            }
+        }
+
+        let fallback = "AniList #\(mediaID)"
+        animeTitleCache[mediaID] = fallback
+        return fallback
     }
 
     private func updateLibrarySelectionLabel() {
@@ -2670,7 +2675,7 @@ final class LibraryColumnCell: UITableViewCell {
             activeHandle.snapshot
         }
 
-        seriesLabel.text = entity?.animes?.animeTitleEnglish ?? entity?.animes?.animeTitleJapanese ?? "?"
+        seriesLabel.text = entity?.animes.map { AniListUtil.title(for: $0) } ?? "?"
         let episodeCount = entity?.videos?.count ?? 0
         episodeLabel.text = compact ? "E\(episodeCount > 0 ? String(episodeCount) : "?")" : (episodeCount > 0 ? "\(episodeCount)" : "?")
         torrentNameLabel.text = entity?.torrentName ?? snap?.name ?? handle.infoHashes.best.hex

@@ -1116,8 +1116,7 @@ final class LibraryEntryCell: UITableViewCell {
         guard let snap else { return }
 
         // Series name from CoreData Animes entity
-        let animeName = entity?.animes?.animeTitleEnglish
-            ?? entity?.animes?.animeTitleJapanese
+        let animeName = entity?.animes.map { AniListUtil.title(for: $0) }
             ?? "Unknown Series"
         seriesLabel.text = animeName
 

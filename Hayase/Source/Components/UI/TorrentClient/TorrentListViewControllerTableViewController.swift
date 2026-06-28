@@ -174,7 +174,7 @@ class TorrentListViewController: UIViewController {
     // MARK: - Setup
 
     private func setupNavigationBar() {
-        title = animeTitleOverride ?? animeEntity?.animeTitleEnglish ?? animeEntity?.animeTitleJapanese ?? "Torrents"
+        title = animeTitleOverride ?? animeEntity.map { AniListUtil.title(for: $0) } ?? "Torrents"
         navigationItem.largeTitleDisplayMode = .never
     }
 

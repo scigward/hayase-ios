@@ -6,6 +6,7 @@
 import UIKit
 import SafariServices
 import ObjectiveC
+import CoreImage
 
 // MARK: - Color constants
 
@@ -125,32 +126,116 @@ final class AnimeTagChipButton: UIButton {
     var dashedBorder = false {
         didSet { setNeedsLayout() }
     }
+    var isSpoilerChip = false {
+        didSet { updateSpoilerRendering() }
+    }
+
     private let dashLayer = CAShapeLayer()
+    private static let blurContext = CIContext(options: nil)
+
+    private let blurredTitleView = UIImageView()
+    private var blurredTitleCacheKey: String?
+
+    override var isHighlighted: Bool {
+        didSet { updateSpoilerRendering() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.addSublayer(dashLayer)
-        dashLayer.fillColor = UIColor.clear.cgColor
-        dashLayer.lineDashPattern = [6, 4]
-        dashLayer.isHidden = true
+        setupLayers()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setupLayers()
+    }
+
+    override func setTitle(_ title: String?, for state: UIControl.State) {
+        super.setTitle(title, for: state)
+        blurredTitleCacheKey = nil
+        updateSpoilerRendering()
+    }
+
+    private func setupLayers() {
         layer.addSublayer(dashLayer)
         dashLayer.fillColor = UIColor.clear.cgColor
         dashLayer.lineDashPattern = [6, 4]
         dashLayer.isHidden = true
+
+        blurredTitleView.isUserInteractionEnabled = false
+        blurredTitleView.contentMode = .center
+        blurredTitleView.isHidden = true
+        addSubview(blurredTitleView)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         dashLayer.isHidden = !dashedBorder
-        guard dashedBorder else { return }
-        dashLayer.frame = bounds
-        dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: layer.cornerRadius).cgPath
-        dashLayer.strokeColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1).cgColor
-        dashLayer.lineWidth = 2
+        if dashedBorder {
+            dashLayer.frame = bounds
+            dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: layer.cornerRadius).cgPath
+            dashLayer.strokeColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1).cgColor
+            dashLayer.lineWidth = 2
+        }
+
+        blurredTitleView.frame = titleLabel?.frame ?? bounds.insetBy(dx: contentEdgeInsets.left, dy: 0)
+        updateSpoilerRendering()
+    }
+
+    private func updateSpoilerRendering() {
+        guard isSpoilerChip, !isHighlighted else {
+            titleLabel?.alpha = 1
+            blurredTitleView.isHidden = true
+            return
+        }
+
+        titleLabel?.alpha = 0
+        blurredTitleView.isHidden = false
+        renderBlurredTitleIfNeeded()
+    }
+
+    private func renderBlurredTitleIfNeeded() {
+        guard let text = title(for: .normal), !text.isEmpty else {
+            blurredTitleView.image = nil
+            blurredTitleCacheKey = nil
+            return
+        }
+
+        let font = titleLabel?.font ?? .systemFont(ofSize: 14)
+        let color = titleColor(for: .normal) ?? UIColor.HayaseTheme.mutedForeground
+        let size = text.size(withAttributes: [.font: font])
+        let targetSize = CGSize(width: ceil(size.width) + 16, height: max(ceil(size.height), bounds.height))
+        let key = "\(text)|\(font.pointSize)|\(bounds.height)|\(color.description)"
+        guard key != blurredTitleCacheKey else { return }
+        blurredTitleCacheKey = key
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let textImage = renderer.image { _ in
+            let rect = CGRect(x: (targetSize.width - size.width) / 2,
+                              y: (targetSize.height - size.height) / 2,
+                              width: size.width,
+                              height: size.height)
+            text.draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
+        }
+
+        guard let cgImage = textImage.cgImage else {
+            blurredTitleView.image = textImage
+            return
+        }
+
+        let input = CIImage(cgImage: cgImage)
+        let filter = CIFilter(name: "CIGaussianBlur")
+        filter?.setValue(input, forKey: kCIInputImageKey)
+        filter?.setValue(6.0, forKey: kCIInputRadiusKey)
+        guard let output = filter?.outputImage?.cropped(to: input.extent),
+              let rendered = Self.blurContext.createCGImage(output, from: input.extent) else {
+            blurredTitleView.image = textImage
+            return
+        }
+        blurredTitleView.image = UIImage(cgImage: rendered, scale: textImage.scale, orientation: textImage.imageOrientation)
     }
 }
 
@@ -191,6 +276,7 @@ final class AnimeInfoHeaderView: UIView {
         v.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
         return v
     }()
+    private let headerFollowerStack = FollowerAvatarStackView()
 
     private var contentTopConstraint: NSLayoutConstraint?
     private var contentMaxWidthConstraint: NSLayoutConstraint?
@@ -499,6 +585,9 @@ final class AnimeInfoHeaderView: UIView {
         actionsRow.spacing = 8
         actionsRow.alignment = .fill
 
+        headerFollowerStack.setContentHuggingPriority(.required, for: .horizontal)
+        headerFollowerStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         genresContainer.addSubview(genresScrollView)
         chipWrapView.translatesAutoresizingMaskIntoConstraints = false
         genresContainer.addSubview(chipWrapView)
@@ -640,10 +729,12 @@ final class AnimeInfoHeaderView: UIView {
             actionsRow.addArrangedSubview(trailerButton)
             actionsRow.addArrangedSubview(anilistButton)
             actionsRow.addArrangedSubview(malButton)
+            actionsRow.addArrangedSubview(headerFollowerStack)
             actionsRow.addArrangedSubview(actionsTrailingSpacer)
             actionsRow.setCustomSpacing(20, after: playCombo)
             anilistButton.isHidden = false
             malButton.isHidden = (malId == nil)
+            headerFollowerStack.isHidden = headerFollowerStack.arrangedSubviews.isEmpty
         } else {
             actionsRow.addArrangedSubview(bookmarkButton)
             actionsRow.addArrangedSubview(favoriteButton)
@@ -654,6 +745,7 @@ final class AnimeInfoHeaderView: UIView {
             actionsRow.addArrangedSubview(malButton)
             anilistButton.isHidden = true
             malButton.isHidden = true
+            headerFollowerStack.isHidden = true
         }
 
         if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
@@ -857,10 +949,9 @@ final class AnimeInfoHeaderView: UIView {
         guard let anime = anime else { return }
         anilistId = anime.animeAnilistId?.intValue
 
-        let english = anime.animeTitleEnglish
-        let romaji  = anime.animeTitleJapanese
-        titleLabel.text   = english ?? romaji ?? "Unknown"
-        romajiLabel.text  = (english != nil && romaji != nil && english != romaji) ? romaji : nil
+        let item = AniListUtil.animeItem(from: anime)
+        titleLabel.text = AniListUtil.title(for: item)
+        romajiLabel.text = AniListUtil.alternateTitle(for: item)
         romajiLabel.isHidden = romajiLabel.text == nil
 
         rebuildBadges(score:   anime.animeScore?.floatValue,
@@ -1141,11 +1232,10 @@ final class AnimeInfoHeaderView: UIView {
             + sortedTags.map { makeGenreChip(text: $0.name, isTag: true, isSpoiler: $0.isMediaSpoiler || $0.isGeneralSpoiler) }
         chips.forEach { genresStack.addArrangedSubview($0) }
         chipWrapView.setChips(chips.map { chip in
-            if let button = chip as? UIButton {
-                let copy = makeGenreChip(text: button.title(for: .normal) ?? "", isTag: (button as? AnimeTagChipButton)?.dashedBorder == true, isSpoiler: false)
-                return copy
-            }
-            return chip
+            guard let button = chip as? AnimeTagChipButton else { return chip }
+            return makeGenreChip(text: button.title(for: .normal) ?? "",
+                                 isTag: button.dashedBorder,
+                                 isSpoiler: button.isSpoilerChip)
         })
         genresContainer.isHidden = chips.isEmpty
     }
@@ -1181,6 +1271,15 @@ final class AnimeInfoHeaderView: UIView {
         }
     }
 
+    func updateFollowingAvatars(users: [AniListUserSummary]) {
+        headerFollowerStack.configure(users: users)
+        headerFollowerStack.isHidden = traitCollection.horizontalSizeClass != .regular || headerFollowerStack.arrangedSubviews.isEmpty
+    }
+
+    func clearFollowingAvatars() {
+        headerFollowerStack.reset()
+    }
+
     private func makeGenreChip(text: String, isTag: Bool, isSpoiler: Bool) -> AnimeTagChipButton {
         let btn = AnimeTagChipButton(frame: .zero)
         btn.setTitle(text, for: .normal)
@@ -1192,7 +1291,7 @@ final class AnimeInfoHeaderView: UIView {
         btn.layer.cornerRadius = 6
         btn.layer.masksToBounds = true
         btn.dashedBorder = isTag
-        btn.alpha = isSpoiler ? 0.65 : 1
+        btn.isSpoilerChip = isSpoiler
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 28).isActive = true
         btn.setContentHuggingPriority(.required, for: .horizontal)
@@ -1263,6 +1362,16 @@ class AnimeDetailViewController: UIViewController {
     }
     var totalEpisodePages: Int {
         max(1, Int(ceil(Double(episodes.count) / Double(episodesPerPage))))
+    }
+
+    private func interfaceEpisodePage(progress: Int, listStatus: String?) -> Int {
+        let effectiveProgress = listStatus == "COMPLETED" ? 0 : max(0, progress)
+        let desiredPage = effectiveProgress / episodesPerPage + 1
+        return min(max(1, desiredPage), totalEpisodePages)
+    }
+
+    func syncEpisodePageToInterfaceProgress() {
+        currentEpisodePage = interfaceEpisodePage(progress: anilistProgress, listStatus: currentListStatus)
     }
     lazy var paginationBar: PaginationBarView = {
         let bar = PaginationBarView()
@@ -1411,6 +1520,7 @@ class AnimeDetailViewController: UIViewController {
 
         setupTableView()
         setupHeaderView()
+        headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         fetchAnimePageData()
         fetchEpisodes()
@@ -1527,8 +1637,7 @@ class AnimeDetailViewController: UIViewController {
         headerView.onShare = { [weak self] in
             guard let self = self else { return }
             let title = self.animeItem.map { AniListUtil.title(for: $0) }
-                ?? self.animeEntity?.animeTitleEnglish
-                ?? self.animeEntity?.animeTitleJapanese
+                ?? self.animeEntity.map { AniListUtil.title(for: $0) }
                 ?? "Anime"
             let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
             var items: [Any] = [title]
@@ -1605,6 +1714,7 @@ class AnimeDetailViewController: UIViewController {
             self?.anilistProgress = 0
             self?.currentListStatus = nil
             self?.isOnList = false
+            self?.syncEpisodePageToInterfaceProgress()
             self?.tableView.reloadData()
             self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false, isOnList: false)
             self?.headerView?.updatePlayButtonTitle(listStatus: nil)
@@ -1621,6 +1731,7 @@ class AnimeDetailViewController: UIViewController {
         guard var item = animeItem else { return }
         if let entry {
             item.mediaListEntry = entry
+            currentListStatus = entry.status
             anilistProgress = entry.progress
         } else if let fallbackProgress {
             let existing = item.mediaListEntry
@@ -1631,9 +1742,11 @@ class AnimeDetailViewController: UIViewController {
                 score: existing?.score ?? 0,
                 repeatCount: existing?.repeatCount ?? 0,
                 customLists: existing?.customLists ?? [])
+            currentListStatus = existing?.status
             anilistProgress = fallbackProgress
         } else {
             item.mediaListEntry = nil
+            currentListStatus = nil
             anilistProgress = 0
         }
         animeItem = item
@@ -1649,10 +1762,7 @@ class AnimeDetailViewController: UIViewController {
                 if self.anilistProgress != newProgress {
                     self.updateAnimeItemListEntry(nil, fallbackProgress: newProgress)
                 }
-                if newProgress > 0 {
-                    let desiredPage = newProgress / self.episodesPerPage + 1
-                    self.currentEpisodePage = min(max(1, desiredPage), self.totalEpisodePages)
-                }
+                self.syncEpisodePageToInterfaceProgress()
                 self.tableView.reloadData()
             }
         }
@@ -1672,6 +1782,7 @@ class AnimeDetailViewController: UIViewController {
                 self?.isOnList = entry != nil
                 self?.currentListStatus = entry?.status
                 self?.updateAnimeItemListEntry(entry)
+                self?.syncEpisodePageToInterfaceProgress()
                 self?.headerView?.updateButtonStates(isFavorite: self?.isFavorite ?? false,
                                                      isOnList: self?.isOnList ?? false)
                 self?.headerView?.updatePlayButtonTitle(listStatus: entry?.status)

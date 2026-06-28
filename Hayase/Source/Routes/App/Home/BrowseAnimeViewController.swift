@@ -735,7 +735,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         let block = {
             // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
             // Web: {#await episodesCached()} shows nothing while loading, then clearlogo or text.
-            self.titleLabel.text = item.titleEnglish ?? item.titleRomaji
+            self.titleLabel.text = AniListUtil.title(for: item)
             self.titleLabel.isHidden = true
             self.clearlogoImageView.isHidden = true
             self.clearlogoImageView.image = nil

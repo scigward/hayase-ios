@@ -767,7 +767,7 @@ extension W2GViewController {
         }
 
         if entity.torrentName?.isEmpty ?? true {
-            entity.torrentName = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? hash
+            entity.torrentName = animeItem.map { AniListUtil.title(for: $0) } ?? hash
         }
 
         // WebTorrent can rehydrate a W2G torrent from the info hash alone.
@@ -1084,17 +1084,7 @@ extension W2GViewController {
         if let anime = entity.animes,
            let id = anime.animeAnilistId?.intValue,
            id > 0 {
-            return AnimeItem(
-                id: id,
-                titleEnglish: anime.animeTitleEnglish,
-                titleRomaji: anime.animeTitleJapanese,
-                coverURL: anime.animeImgL ?? anime.animeImgM,
-                score: anime.animeScore?.floatValue,
-                status: anime.animeStatus,
-                episodes: anime.animeTotalEps?.intValue,
-                bannerURL: anime.animeImgS,
-                genres: [],
-                description: anime.animeDescription)
+            return AniListUtil.animeItem(from: anime)
         }
 
         guard anilistID > 0 else { return nil }

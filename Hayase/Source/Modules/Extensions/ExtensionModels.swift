@@ -204,7 +204,8 @@ struct TorrentQuery {
         var titleDict: [String: Any] = [:]
         if let eng = item.titleEnglish { titleDict["english"] = eng }
         if let rom = item.titleRomaji  { titleDict["romaji"]  = rom }
-        titleDict["userPreferred"] = item.titleEnglish ?? item.titleRomaji ?? ""
+        if let native = item.titleNative { titleDict["native"] = native }
+        titleDict["userPreferred"] = item.titleUserPreferred ?? item.titleEnglish ?? item.titleRomaji ?? item.titleNative ?? ""
 
         var mediaJSON: [String: Any] = [
             "id":       item.id,
@@ -221,7 +222,7 @@ struct TorrentQuery {
         //     Object.values(media.title ?? {}).concat(media.synonyms)
         //       .filter(name => name != null && name.length > 3)
         //   )]
-        let candidates = ([item.titleEnglish, item.titleRomaji].compactMap { $0 } + item.synonyms)
+        let candidates = ([item.titleRomaji, item.titleEnglish, item.titleNative, item.titleUserPreferred].compactMap { $0 } + item.synonyms)
             .filter { $0.count > 3 }
         var seen = Set<String>()
         var titles: [String] = []

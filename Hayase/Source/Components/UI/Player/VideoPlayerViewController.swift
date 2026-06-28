@@ -1528,8 +1528,7 @@ final class VideoPlayerViewController: UIViewController {
     /// Falls back to the video file name if no anime metadata is linked.
     private func animeTitleText() -> String {
         if let anime = videoEntity?.torrents?.animes {
-            if let t = anime.animeTitleEnglish, !t.isEmpty { return t }
-            if let t = anime.animeTitleJapanese, !t.isEmpty { return t }
+            return AniListUtil.title(for: anime)
         }
         return videoEntity?.videoName ?? "Playing"
     }

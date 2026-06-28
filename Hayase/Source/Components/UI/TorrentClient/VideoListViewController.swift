@@ -396,17 +396,7 @@ class VideoListViewController: UIViewController {
         guard let anime = torrentEntity?.animes,
               let id = anime.animeAnilistId?.intValue,
               id > 0 else { return nil }
-        return AnimeItem(
-            id: id,
-            titleEnglish: anime.animeTitleEnglish,
-            titleRomaji: anime.animeTitleJapanese,
-            coverURL: anime.animeImgL ?? anime.animeImgM,
-            score: anime.animeScore?.floatValue,
-            status: anime.animeStatus,
-            episodes: anime.animeTotalEps?.intValue,
-            bannerURL: anime.animeImgS,
-            genres: [],
-            description: anime.animeDescription)
+        return AniListUtil.animeItem(from: anime)
     }
 
     private func showErrorAlert(_ error: Error) {

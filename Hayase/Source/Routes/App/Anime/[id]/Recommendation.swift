@@ -96,6 +96,8 @@ extension AnimeDetailViewController {
         guard let id = routeAnimeID, id > 0 else { return }
         let requestID = UUID()
         animePageRequestID = requestID
+        followingEntriesByEpisode.removeAll()
+        headerView?.clearFollowingAvatars()
 
         AniListClient.shared.fetchAnimePage(id: id) { [weak self] payload in
             guard let self,
@@ -121,6 +123,7 @@ extension AnimeDetailViewController {
             self.threadTotalCount = payload.threadTotal
             self.followingEntriesByEpisode = Dictionary(grouping: payload.followingEntries, by: \.progress)
                 .mapValues { entries in Array(entries.prefix(4)).map(\.user) }
+            self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
 
             self.reloadAnimePagePayloadSections()
             self.fetchLegacyAnimeDetailsIfNeeded()

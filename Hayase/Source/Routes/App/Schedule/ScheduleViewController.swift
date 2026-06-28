@@ -435,7 +435,7 @@ final class ScheduleViewController: UIViewController {
                         airingAt: entry.airingAt,
                         episode:  entry.episode,
                         mediaID:  entry.media.id,
-                        titlePreferred: entry.media.titleEnglish ?? entry.media.titleRomaji,
+                        titlePreferred: entry.media.titleUserPreferred,
                         coverURL: entry.media.coverURL))
                 }
             }

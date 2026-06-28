@@ -392,7 +392,7 @@ final class ExtensionSearchViewController: UIViewController {
 
         // Anime title — matches web: text-2xl font-bold (1.5rem = 24px)
         let titleLabel = UILabel()
-        titleLabel.text = animeItem?.titleEnglish ?? animeItem?.titleRomaji ?? ""
+        titleLabel.text = animeItem.map { AniListUtil.title(for: $0) } ?? ""
         titleLabel.font = .nunito(ofSize: 24, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.numberOfLines = 1

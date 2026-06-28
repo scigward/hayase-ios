@@ -53,7 +53,7 @@ final class FollowerAvatarStackView: UIStackView {
 
     func configure(users: [AniListUserSummary]) {
         reset()
-        let visibleUsers = Array(users.prefix(4))
+        let visibleUsers = Array(users.filter { ($0.avatarURL?.isEmpty == false) }.prefix(4))
         isHidden = visibleUsers.isEmpty
         for user in visibleUsers {
             let avatar = UIImageView()
@@ -202,14 +202,6 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         iv.tintColor = .white
         iv.contentMode = .scaleAspectFit
         return iv
-    }()
-
-    static let relativeDateFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .full
-        f.dateTimeStyle = .numeric
-        f.locale = Locale(identifier: "en")
-        return f
     }()
 
     private var currentImageURL: String?
@@ -400,7 +392,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
 
         if let date = episode.airDate {
-            metaLabel.text = EpisodeCardView.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
+            metaLabel.text = AniListUtil.since(date)
             metaLabel.isHidden = false
         } else {
             metaLabel.isHidden = true
@@ -750,8 +742,19 @@ final class PaginationBarView: UIView {
         return sv
     }()
 
+    private let compactInfoLabel: UILabel = {
+        let label = UILabel()
+        label.font = .nunito(ofSize: 13)
+        label.textColor = UIColor(white: 0.63, alpha: 1)
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
     private var infoLeadingConstraint: NSLayoutConstraint?
     private var controlsTrailingConstraint: NSLayoutConstraint?
+    private var controlsCenterXConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -766,18 +769,25 @@ final class PaginationBarView: UIView {
 
         addSubview(infoLabel)
         addSubview(controlsStack)
+        addSubview(compactInfoLabel)
 
         infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+        controlsCenterXConstraint = controlsStack.centerXAnchor.constraint(equalTo: centerXAnchor)
 
         NSLayoutConstraint.activate([
             infoLeadingConstraint!,
-            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            infoLabel.centerYAnchor.constraint(equalTo: controlsStack.centerYAnchor),
 
             controlsTrailingConstraint!,
-            controlsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            controlsStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
+            controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             controlsStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+
+            compactInfoLabel.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 8),
+            compactInfoLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
+            compactInfoLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            compactInfoLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            compactInfoLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
 
             heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
         ])
@@ -903,28 +913,12 @@ final class PaginationBarView: UIView {
         }
 
         let isNarrow = (superview?.frame.width ?? UIScreen.main.bounds.width) < 600
-        pageStack.isHidden = isNarrow
+        pageStack.isHidden = false
         infoLabel.isHidden = isNarrow
-
-        if isNarrow {
-            if controlsStack.arrangedSubviews.count == 3 {
-                let compactInfo = UILabel()
-                compactInfo.font = .nunito(ofSize: 13)
-                compactInfo.textColor = UIColor(white: 0.63, alpha: 1)
-                compactInfo.textAlignment = .center
-                compactInfo.attributedText = str
-                compactInfo.tag = 999
-                compactInfo.translatesAutoresizingMaskIntoConstraints = false
-                controlsStack.insertArrangedSubview(compactInfo, at: 2)
-            } else if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) as? UILabel {
-                compact.attributedText = str
-            }
-        } else {
-            if let compact = controlsStack.arrangedSubviews.first(where: { $0.tag == 999 }) {
-                controlsStack.removeArrangedSubview(compact)
-                compact.removeFromSuperview()
-            }
-        }
+        compactInfoLabel.attributedText = str
+        compactInfoLabel.isHidden = !isNarrow
+        controlsTrailingConstraint?.isActive = !isNarrow
+        controlsCenterXConstraint?.isActive = isNarrow
     }
 
     @objc private func prevTapped() {

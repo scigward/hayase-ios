@@ -187,10 +187,11 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     // MARK: - Configuration
 
     func configure(with anime: Animes) {
-        titleLabel.text = anime.animeTitleEnglish ?? anime.animeTitleJapanese ?? "Unknown"
+        let item = AniListUtil.animeItem(from: anime)
+        titleLabel.text = AniListUtil.title(for: item)
         yearLabel.text = "TBA"   // Animes entity has no year field
         formatLabel.text = "TV"  // Animes entity has no format field
-        configuredAnimeItem = Self.animeItem(from: anime)
+        configuredAnimeItem = item
         loadCover(urlString: anime.animeImgL ?? anime.animeImgM ?? "")
     }
 
@@ -292,17 +293,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     }
 
     static func animeItem(from anime: Animes) -> AnimeItem {
-        AnimeItem(
-            id: anime.animeAnilistId?.intValue ?? 0,
-            titleEnglish: anime.animeTitleEnglish,
-            titleRomaji: anime.animeTitleJapanese,
-            coverURL: anime.animeImgL ?? anime.animeImgM ?? anime.animeImgS,
-            score: anime.animeScore?.floatValue,
-            status: anime.animeStatus,
-            episodes: anime.animeTotalEps?.intValue,
-            bannerURL: anime.animeImgL,
-            genres: [],
-            description: anime.animeDescription)
+        AniListUtil.animeItem(from: anime)
     }
 }
 

@@ -47,27 +47,104 @@ enum AniListUtil {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Matches interface `title(media)`: default AniList title is `userPreferred`.
+    enum TitlePreference: String {
+        case anilist = "ANILIST"
+        case english = "ENGLISH"
+        case native = "NATIVE"
+        case romaji = "ROMAJI"
+    }
+
+    static var titlePreference: TitlePreference {
+        let raw = UserDefaults.standard.string(forKey: "pref_titleType") ?? TitlePreference.anilist.rawValue
+        return TitlePreference(rawValue: raw) ?? .anilist
+    }
+
+    private static func cleanTitle(_ value: String?) -> String? {
+        guard let title = value?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return nil
+        }
+        return title
+    }
+
+    /// Matches interface `title(media)`: AniList/default uses `userPreferred` only.
     static func title(for item: AnimeItem) -> String {
-        item.titleUserPreferred
-            ?? item.titleRomaji
-            ?? item.titleEnglish
-            ?? item.titleNative
-            ?? "TBA"
+        let defaultTitle = cleanTitle(item.titleUserPreferred) ?? "TBA"
+        switch titlePreference {
+        case .anilist:
+            return defaultTitle
+        case .english:
+            return cleanTitle(item.titleEnglish) ?? defaultTitle
+        case .native:
+            return cleanTitle(item.titleNative) ?? defaultTitle
+        case .romaji:
+            return cleanTitle(item.titleRomaji) ?? defaultTitle
+        }
     }
 
     /// Matches anime/[id]/+layout.svelte's muted alternate title line.
     static func alternateTitle(for item: AnimeItem) -> String? {
-        let primary = title(for: item)
-        let normalizedPrimary = primary.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedRomaji = item.titleRomaji?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let alternate = normalizedRomaji == normalizedPrimary
-            ? (item.titleNative ?? item.titleRomaji)
-            : (item.titleRomaji ?? item.titleNative)
-        guard let alternate = alternate?.trimmingCharacters(in: .whitespacesAndNewlines), !alternate.isEmpty else {
-            return nil
-        }
+        let primary = title(for: item).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let romaji = cleanTitle(item.titleRomaji)
+        let native = cleanTitle(item.titleNative)
+        let alternate = romaji?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == primary
+            ? (native ?? romaji)
+            : (romaji ?? native)
+        guard let alternate = alternate, !alternate.isEmpty else { return nil }
         return alternate
+    }
+
+
+    static func animeItem(from anime: Animes) -> AnimeItem {
+        let english = cleanTitle(anime.animeTitleEnglish)
+        let romaji = cleanTitle(anime.animeTitleJapanese)
+        return AnimeItem(
+            id: anime.animeAnilistId?.intValue ?? 0,
+            titleEnglish: english,
+            titleRomaji: romaji,
+            titleUserPreferred: english ?? romaji,
+            coverURL: anime.animeImgL ?? anime.animeImgM ?? anime.animeImgS,
+            score: anime.animeScore?.floatValue,
+            status: anime.animeStatus,
+            episodes: anime.animeTotalEps?.intValue,
+            bannerURL: anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM,
+            genres: [],
+            description: anime.animeDescription)
+    }
+
+    static func title(for anime: Animes) -> String {
+        title(for: animeItem(from: anime))
+    }
+
+    static func alternateTitle(for anime: Animes) -> String? {
+        alternateTitle(for: animeItem(from: anime))
+    }
+
+    /// Mirrors utils.ts `since(...)` instead of Apple's rounded formatter.
+    static func since(_ date: Date, relativeTo now: Date = Date()) -> String {
+        let secondsElapsed = date.timeIntervalSince(now)
+        let ranges: [(unit: String, seconds: TimeInterval)] = [
+            ("year", 3600 * 24 * 365),
+            ("month", 3600 * 24 * 30),
+            ("week", 3600 * 24 * 7),
+            ("day", 3600 * 24),
+            ("hour", 3600),
+            ("minute", 60),
+            ("second", 1),
+        ]
+
+        for range in ranges where range.seconds < abs(secondsElapsed) {
+            let value = Int((secondsElapsed / range.seconds).rounded())
+            return relativeTime(value: value, unit: range.unit)
+        }
+        return "now"
+    }
+
+    private static func relativeTime(value: Int, unit: String) -> String {
+        let absValue = abs(value)
+        let label = absValue == 1 ? unit : "\(unit)s"
+        if value > 0 { return "in \(absValue) \(label)" }
+        if value < 0 { return "\(absValue) \(label) ago" }
+        return "now"
     }
 
     static func tags(from mediaTags: [AniListMedia.MediaTag]?) -> [AnimeTag] {

@@ -164,6 +164,13 @@ class SettingsViewController: UIViewController {
         ("quality", "Quality"), ("size", "Size"), ("seeders", "Availability"),
     ]
 
+    private static let titleTypes: [(key: String, label: String)] = [
+        ("ANILIST", "Anilist Account Preference"),
+        ("ROMAJI", "Romaji (Shingeki no Kyojin)"),
+        ("ENGLISH", "English (Attack on Titan)"),
+        ("NATIVE", "Native (進撃の巨人)"),
+    ]
+
     private static let torrentBackends: [(key: String, label: String)] = TorrentBackendKind.settingsOptions
 
     // MARK: - All sections (full data, tagged by tab)
@@ -271,6 +278,12 @@ class SettingsViewController: UIViewController {
         ], tab: .client),
 
         // ── Interface tab (Hayase /app/settings/interface/) ──
+
+        Section(header: "Display Preferences", rows: [
+            Row(title: "Title Language",
+                description: "What language should anime titles be displayed in.",
+                kind: .selectable(userDefaultsKey: "pref_titleType", options: Self.titleTypes, defaultKey: "ANILIST")),
+        ], tab: .interface_),
 
         Section(header: "Visibility Settings", rows: [
             Row(title: "Show Hentai",
