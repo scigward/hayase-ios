@@ -109,6 +109,7 @@ extension AnimeDetailViewController {
                 if let media = payload.media {
                     let merged = self.animeItem?.mergingRouteMedia(media) ?? media
                     self.animeItem = merged
+                    self.applyViewerState(from: merged)
                     Router.shared.cacheAnimeItem(merged)
                     self.headerView?.updateAnimePageDetails(with: merged)
                     if let accent = ExtensionSearchViewController.uiColor(fromHex: merged.coverColor) {
@@ -117,6 +118,10 @@ extension AnimeDetailViewController {
                     }
                     if !merged.relations.isEmpty {
                         self.relations = merged.relations
+                    }
+                    if let graph = payload.relationGraph {
+                        self.applyRelationGraph(graph)
+                        self.expandRelationGraphIfNeeded(graph)
                     }
                 }
 

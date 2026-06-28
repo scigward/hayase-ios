@@ -400,6 +400,59 @@ enum AniListQueries {
     }
     """
 
+    // MARK: - Recursive relations (ui/relations + client.relationsTree)
+
+    static let recursiveRelations = """
+    query RecrusiveRelations($ids: [Int]!) {
+      Page {
+        pageInfo { hasNextPage }
+        media(id_in: $ids, type: ANIME) {
+          id
+          status
+          format
+          episodes
+          title { userPreferred romaji english native }
+          type
+          coverImage { extraLarge medium color }
+          season
+          seasonYear
+          relations {
+            edges {
+              relationType(version: 2)
+              node {
+                id
+                status
+                format
+                episodes
+                title { userPreferred romaji english native }
+                type
+                coverImage { extraLarge medium color }
+                season
+                seasonYear
+                relations {
+                  edges {
+                    relationType(version: 2)
+                    node {
+                      id
+                      status
+                      format
+                      episodes
+                      title { userPreferred romaji english native }
+                      type
+                      coverImage { extraLarge medium color }
+                      season
+                      seasonYear
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
     // MARK: - Trailer + Genres
 
     static let trailerGenres = """

@@ -223,6 +223,199 @@ final class StaffCardCell: UICollectionViewCell {
     }
 }
 
+
+// MARK: - RelationGraphCell
+
+final class RelationGraphCell: UITableViewCell {
+    static let reuseID = "RelationGraphCell"
+
+    private let scrollView = UIScrollView()
+    private let content = UIView()
+    private var edgeLayer = CAShapeLayer()
+    private var graph: AnimeRelationGraph?
+    private var currentID: Int?
+    private var accentColor: UIColor = .white
+    private var nodeButtons: [Int: UIButton] = [:]
+
+    var onSelectMedia: ((Int) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        selectionStyle = .none
+
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.backgroundColor = UIColor(white: 0.02, alpha: 1)
+        scrollView.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor
+        scrollView.layer.borderWidth = 1
+        scrollView.layer.cornerRadius = 8
+        scrollView.clipsToBounds = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(scrollView)
+        scrollView.addSubview(content)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
+            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+        ])
+    }
+
+    func configure(graph: AnimeRelationGraph, currentID: Int?, accentColor: UIColor) {
+        self.graph = graph
+        self.currentID = currentID
+        self.accentColor = accentColor
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        rebuildGraph()
+    }
+
+    private func rebuildGraph() {
+        guard let graph, !graph.nodes.isEmpty else { return }
+        content.subviews.forEach { $0.removeFromSuperview() }
+        edgeLayer.removeFromSuperlayer()
+        edgeLayer = CAShapeLayer()
+        nodeButtons.removeAll()
+
+        let nodeWidth: CGFloat = 150
+        let nodeHeight: CGFloat = 70
+        let columnGap: CGFloat = 100
+        let rowGap: CGFloat = 24
+        let inset: CGFloat = 24
+
+        let depths = relationDepths(for: graph)
+        let grouped = Dictionary(grouping: graph.nodes.keys) { depths[$0] ?? 0 }
+        let sortedDepths = grouped.keys.sorted()
+        let maxRows = grouped.values.map(\.count).max() ?? 1
+        let contentWidth = max(scrollView.bounds.width + 1,
+                               inset * 2 + CGFloat(max(sortedDepths.count, 1)) * nodeWidth + CGFloat(max(sortedDepths.count - 1, 0)) * columnGap)
+        let contentHeight = max(scrollView.bounds.height + 1,
+                                inset * 2 + CGFloat(maxRows) * nodeHeight + CGFloat(maxRows - 1) * rowGap)
+        content.frame = CGRect(origin: .zero, size: CGSize(width: contentWidth, height: contentHeight))
+        scrollView.contentSize = content.bounds.size
+
+        for (columnIndex, depth) in sortedDepths.enumerated() {
+            let ids = (grouped[depth] ?? []).sorted { lhs, rhs in
+                if lhs == currentID { return true }
+                if rhs == currentID { return false }
+                return lhs < rhs
+            }
+            let columnHeight = CGFloat(ids.count) * nodeHeight + CGFloat(max(ids.count - 1, 0)) * rowGap
+            let startY = max(inset, (contentHeight - columnHeight) / 2)
+            let x = inset + CGFloat(columnIndex) * (nodeWidth + columnGap)
+            for (rowIndex, id) in ids.enumerated() {
+                guard let media = graph.nodes[id] else { continue }
+                let y = startY + CGFloat(rowIndex) * (nodeHeight + rowGap)
+                let button = makeNodeButton(media: media, isCurrent: id == currentID)
+                button.tag = id
+                button.frame = CGRect(x: x, y: y, width: nodeWidth, height: nodeHeight)
+                button.addTarget(self, action: #selector(nodeTapped(_:)), for: .touchUpInside)
+                content.addSubview(button)
+                nodeButtons[id] = button
+            }
+        }
+
+        drawEdges(graph)
+    }
+
+    private func relationDepths(for graph: AnimeRelationGraph) -> [Int: Int] {
+        guard let currentID, graph.nodes[currentID] != nil else {
+            return Dictionary(uniqueKeysWithValues: graph.nodes.keys.map { ($0, 0) })
+        }
+
+        var depths: [Int: Int] = [currentID: 0]
+        var queue: [Int] = [currentID]
+        while let id = queue.first {
+            queue.removeFirst()
+            let depth = depths[id] ?? 0
+            for edge in graph.edges.values {
+                if edge.sourceID == id, depths[edge.targetID] == nil {
+                    depths[edge.targetID] = depth + 1
+                    queue.append(edge.targetID)
+                } else if edge.targetID == id, depths[edge.sourceID] == nil {
+                    depths[edge.sourceID] = depth - 1
+                    queue.append(edge.sourceID)
+                }
+            }
+        }
+
+        let maxDepth = (depths.values.max() ?? 0) + 1
+        for id in graph.nodes.keys where depths[id] == nil {
+            depths[id] = maxDepth
+        }
+        let offset = -(depths.values.min() ?? 0)
+        return depths.mapValues { $0 + offset }
+    }
+
+    private func makeNodeButton(media: AnimeItem, isCurrent: Bool) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.backgroundColor = UIColor(white: 0.07, alpha: 1)
+        button.layer.cornerRadius = 6
+        button.layer.borderWidth = isCurrent ? 1.5 : 1
+        button.layer.borderColor = (isCurrent ? accentColor : UIColor(white: 0.18, alpha: 1)).cgColor
+        button.titleLabel?.numberOfLines = 3
+        button.titleLabel?.textAlignment = .center
+        button.titleLabel?.font = .nunito(ofSize: 11, weight: .semibold)
+        button.setTitleColor(isCurrent ? accentColor : .white, for: .normal)
+
+        let title = AniListUtil.title(for: media)
+        let meta = media.episodes.map { "\($0) Episodes" } ?? displayStatus(media.status)
+        button.setTitle("\(title)\n\(displayFormat(media.format)) · \(meta)", for: .normal)
+        return button
+    }
+
+    private func displayFormat(_ value: String?) -> String {
+        guard let value else { return "N/A" }
+        switch value {
+        case "TV": return "TV"
+        case "TV_SHORT": return "TV Short"
+        default: return value.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func displayStatus(_ value: String?) -> String {
+        guard let value else { return "TBA" }
+        return value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private func drawEdges(_ graph: AnimeRelationGraph) {
+        let path = UIBezierPath()
+        for edge in graph.edges.values {
+            guard let source = nodeButtons[edge.sourceID],
+                  let target = nodeButtons[edge.targetID] else { continue }
+            let start = CGPoint(x: source.frame.maxX, y: source.frame.midY)
+            let end = CGPoint(x: target.frame.minX, y: target.frame.midY)
+            path.move(to: start)
+            let midX = (start.x + end.x) / 2
+            path.addCurve(to: end,
+                          controlPoint1: CGPoint(x: midX, y: start.y),
+                          controlPoint2: CGPoint(x: midX, y: end.y))
+        }
+        edgeLayer.path = path.cgPath
+        edgeLayer.strokeColor = accentColor.withAlphaComponent(0.75).cgColor
+        edgeLayer.fillColor = UIColor.clear.cgColor
+        edgeLayer.lineWidth = 1.25
+        content.layer.insertSublayer(edgeLayer, at: 0)
+    }
+
+    @objc private func nodeTapped(_ sender: UIButton) {
+        guard sender.tag != currentID else { return }
+        onSelectMedia?(sender.tag)
+    }
+}
+
 // MARK: - ScoreBarChartView + StatsCell
 
 final class ScoreBarChartView: UIView {
@@ -368,7 +561,7 @@ final class StatsCell: UITableViewCell {
 extension AnimeDetailViewController {
 
     func fetchLegacyAnimeDetailsIfNeeded() {
-        let needsRelations = relations.isEmpty && animeItem?.relations.isEmpty != false
+        let needsRelations = relations.isEmpty && relationGraph == nil && animeItem?.relations.isEmpty != false
         let needsTrailer = animeItem == nil || animeItem?.trailerYouTubeID == nil
         let needsMAL = animeItem == nil || animeItem?.malId == nil
         let needsGenres = animeItem == nil || animeItem?.genres.isEmpty == true
@@ -376,7 +569,39 @@ extension AnimeDetailViewController {
         fetchRelationsAndCharacters()
     }
 
+
+    func applyRelationGraph(_ graph: AnimeRelationGraph) {
+        relationGraph = graph
+    }
+
+    func expandRelationGraphIfNeeded(_ graph: AnimeRelationGraph) {
+        guard !graph.boundaryIDs.isEmpty else { return }
+        AniListClient.shared.expandRelationGraph(graph) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let expandedGraph):
+                self.relationGraph = expandedGraph
+                if self.activeSection == .relations {
+                    self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+                }
+            case .failure(let error):
+                NSLog("[AnimeDetail] Relations tree expansion failed: %@", error.description)
+            }
+        }
+    }
+
     func makeRelationsCell(for indexPath: IndexPath) -> UITableViewCell {
+        if let graph = relationGraph,
+           let cell = tableView.dequeueReusableCell(
+            withIdentifier: RelationGraphCell.reuseID,
+            for: indexPath) as? RelationGraphCell {
+            cell.configure(graph: graph, currentID: routeAnimeID, accentColor: currentAnimeAccent)
+            cell.onSelectMedia = { [weak self] id in
+                Router.shared.navigate(.anime(id: id), hostTabIndex: self?.tabBarController?.selectedIndex)
+            }
+            return cell
+        }
+
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: HorizontalCardsCell.relationsReuseID,
             for: indexPath) as? HorizontalCardsCell else { return UITableViewCell() }

@@ -1144,7 +1144,8 @@ public final class AniListClient: NSObject {
             recommendations: updating(items: payload.recommendations, mediaID: mediaID, update: update),
             threads: payload.threads,
             threadTotal: payload.threadTotal,
-            followingEntries: payload.followingEntries)
+            followingEntries: payload.followingEntries,
+            relationGraph: payload.relationGraph)
     }
 
     private func bestResolverSearchMedia(in mediaList: [[String: Any]], title: String) -> [String: Any]? {
@@ -1393,7 +1394,7 @@ public final class AniListClient: NSObject {
     }
 
     private func emptyAnimePagePayload() -> AnimePagePayload {
-        AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: [])
+        AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: [], relationGraph: nil)
     }
 
     private func parseAnimePagePayload(from dataObject: [String: Any], followingEntries: [AniListFollowingEntry]) -> AnimePagePayload {
@@ -1416,7 +1417,8 @@ public final class AniListClient: NSObject {
             recommendations: parseRecommendations(from: mediaObject),
             threads: threads,
             threadTotal: total,
-            followingEntries: followingEntries.isEmpty ? pageFollowingEntries : followingEntries)
+            followingEntries: followingEntries.isEmpty ? pageFollowingEntries : followingEntries,
+            relationGraph: mediaObject.flatMap { buildRelationGraph(from: $0) })
     }
 
     private func logGraphQLErrors(_ rawErrors: Any?, context: String) {
@@ -1543,6 +1545,117 @@ public final class AniListClient: NSObject {
             return AniListFollowingEntry(user: AniListUserSummary(id: userID, name: name, avatarURL: avatar),
                                          progress: progress)
         }
+    }
+
+    func expandRelationGraph(_ graph: AnimeRelationGraph,
+                             reload: Bool = false,
+                             completion: @escaping (Result<AnimeRelationGraph, AniListRequestError>) -> Void) {
+        var graph = graph
+        var expandedIDs = Set<Int>()
+
+        func run(_ ids: Set<Int>) {
+            let pending = ids.subtracting(expandedIDs)
+            guard !pending.isEmpty else {
+                DispatchQueue.main.async { completion(.success(graph)) }
+                return
+            }
+            expandedIDs.formUnion(pending)
+
+            let variables: [String: Any] = ["ids": Array(pending).sorted()]
+            requestExecutor.execute(query: AniListQueries.recursiveRelations,
+                                    variables: variables,
+                                    authorized: true,
+                                    dedupeKey: cacheKey(prefix: reload ? "relations-tree-refresh" : "relations-tree",
+                                                        variables: variables)) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let graphQLResult):
+                    guard let dataObject = graphQLResult.json["data"] as? [String: Any],
+                          let page = dataObject["Page"] as? [String: Any],
+                          let mediaList = page["media"] as? [[String: Any]] else {
+                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
+                        return
+                    }
+
+                    self.logGraphQLErrors(graphQLResult.graphQLErrors, context: "RelationsTree")
+                    graph.boundaryIDs.removeAll()
+                    for mediaObject in mediaList {
+                        self.mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: expandedIDs)
+                    }
+                    run(graph.boundaryIDs.subtracting(expandedIDs))
+
+                case .failure(let error):
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                }
+            }
+        }
+
+        run(graph.boundaryIDs)
+    }
+
+    private func buildRelationGraph(from mediaObject: [String: Any]) -> AnimeRelationGraph {
+        var graph = AnimeRelationGraph(nodes: [:], edges: [:])
+        mergeRelationMedia(mediaObject, into: &graph, depth: 0, expandedIDs: [])
+        return graph
+    }
+
+    private func mergeRelationMedia(_ mediaObject: [String: Any],
+                                    into graph: inout AnimeRelationGraph,
+                                    depth: Int,
+                                    expandedIDs: Set<Int>) {
+        if let type = mediaObject["type"] as? String, type != "ANIME" { return }
+        guard let media = parseAnimeItem(from: mediaObject) else { return }
+
+        if let existing = graph.nodes[media.id] {
+            graph.nodes[media.id] = existing.mergingRouteMedia(media)
+        } else {
+            graph.nodes[media.id] = media
+        }
+
+        if depth >= 2 {
+            if !expandedIDs.contains(media.id) {
+                graph.boundaryIDs.insert(media.id)
+            }
+            return
+        }
+
+        let edges = ((mediaObject["relations"] as? [String: Any])?["edges"] as? [[String: Any]]) ?? []
+        for edge in edges {
+            guard let relationType = edge["relationType"] as? String,
+                  relationType != "CHARACTER",
+                  let nodeObject = edge["node"] as? [String: Any] else { continue }
+            if let nodeType = nodeObject["type"] as? String, nodeType != "ANIME" { continue }
+            guard let node = parseAnimeItem(from: nodeObject) else { continue }
+
+            if let existing = graph.nodes[node.id] {
+                graph.nodes[node.id] = existing.mergingRouteMedia(node)
+            } else {
+                graph.nodes[node.id] = node
+            }
+
+            let edgeID = relationEdgeKey(media.id, node.id)
+            if let existing = graph.edges[edgeID] {
+                if existing.relationType == "PARENT" {
+                    graph.edges.removeValue(forKey: edgeID)
+                } else {
+                    mergeRelationMedia(nodeObject, into: &graph, depth: depth + 1, expandedIDs: expandedIDs)
+                    continue
+                }
+            }
+
+            let isPrequel = relationType == "PREQUEL"
+            graph.edges[edgeID] = AnimeRelationGraphEdge(
+                id: "e\(edgeID)",
+                sourceID: isPrequel ? node.id : media.id,
+                targetID: isPrequel ? media.id : node.id,
+                relationType: isPrequel ? "SEQUEL" : relationType)
+
+            mergeRelationMedia(nodeObject, into: &graph, depth: depth + 1, expandedIDs: expandedIDs)
+        }
+    }
+
+    private func relationEdgeKey(_ lhs: Int, _ rhs: Int) -> String {
+        lhs < rhs ? "\(lhs)-\(rhs)" : "\(rhs)-\(lhs)"
     }
 
     private func parseRelations(from mediaObject: [String: Any]?) -> [AnimeRelation] {

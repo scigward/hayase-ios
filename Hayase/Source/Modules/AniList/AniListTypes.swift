@@ -94,6 +94,38 @@ struct AnimeTag {
 struct AnimeRelation {
     let relationType: String
     let media: AnimeItem
+    let sourceID: Int?
+
+    init(relationType: String, media: AnimeItem, sourceID: Int? = nil) {
+        self.relationType = relationType
+        self.media = media
+        self.sourceID = sourceID
+    }
+}
+
+struct AnimeRelationGraphEdge {
+    let id: String
+    let sourceID: Int
+    let targetID: Int
+    let relationType: String
+}
+
+struct AnimeRelationGraph {
+    var nodes: [Int: AnimeItem]
+    var edges: [String: AnimeRelationGraphEdge]
+    var boundaryIDs: Set<Int> = []
+
+    var visibleRelations: [AnimeRelation] {
+        edges.values
+            .sorted { lhs, rhs in
+                if lhs.sourceID != rhs.sourceID { return lhs.sourceID < rhs.sourceID }
+                return lhs.targetID < rhs.targetID
+            }
+            .compactMap { edge in
+                guard let item = nodes[edge.targetID] else { return nil }
+                return AnimeRelation(relationType: edge.relationType, media: item, sourceID: edge.sourceID)
+            }
+    }
 }
 
 // MARK: - HomeSectionData
@@ -180,6 +212,7 @@ struct AnimePagePayload {
     let threads: [AniListThread]
     let threadTotal: Int
     let followingEntries: [AniListFollowingEntry]
+    let relationGraph: AnimeRelationGraph?
 }
 
 struct AnimeTrailerGenresPayload {
