@@ -16,6 +16,7 @@ public final class AniListClient: NSObject {
     static let shared = AniListClient()
 
     private let graphQLEndpoint = "https://graphql.anilist.co"
+    private let requestExecutor = AniListRequestExecutor.shared
     private let followingManyQueue = DispatchQueue(label: "com.hayase.anilist.followingMany")
     private var followingManyCache: [String: (viewerID: Int, usersByMediaID: [Int: [AniListUserSummary]])] = [:]
     private var followingManyCompletions: [String: [([Int: [AniListUserSummary]]) -> Void]] = [:]
@@ -53,7 +54,7 @@ public final class AniListClient: NSObject {
         if let variables = variables { body["variables"] = variables }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, error in
+        performAniListDataTask(request, context: "AniList") { data, _, error in
             if let error = error {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: error as NSError)
@@ -71,7 +72,7 @@ public final class AniListClient: NSObject {
                 return
             }
             completion(mediaList)
-        }.resume()
+        }
     }
 
     /// Adds an auth header only when AniList has a persisted viewer.
@@ -86,6 +87,44 @@ public final class AniListClient: NSObject {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    @discardableResult
+    private func performAniListRequest(_ request: URLRequest,
+                                       context: String,
+                                       completion: @escaping (Result<Data, AniListRequestError>) -> Void) -> AniListRequestToken {
+        requestExecutor.perform(request, context: context, completion: completion)
+    }
+
+    private func dataOrLog(_ result: Result<Data, AniListRequestError>,
+                           context: String) -> Data? {
+        switch result {
+        case .success(let data):
+            return data
+        case .failure(let error):
+            if case .cancelled = error { return nil }
+            NSLog("[AniListClient] %@ failed: %@", context, error.description)
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func performAniListDataTask(_ request: URLRequest,
+                                        context: String,
+                                        completion: @escaping (Data?, URLResponse?, Error?) -> Void) -> AniListRequestToken {
+        performAniListRequest(request, context: context) { result in
+            switch result {
+            case .success(let data):
+                completion(data, nil, nil)
+            case .failure(let error):
+                if case .cancelled = error {
+                    completion(nil, nil, error)
+                    return
+                }
+                NSLog("[AniListClient] %@ failed: %@", context, error.description)
+                completion(nil, nil, error)
+            }
+        }
     }
 
     private var aniListViewerID: Int? {
@@ -212,7 +251,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.banner, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let mediaList = response.data?.Page?.media else {
@@ -221,7 +260,7 @@ public final class AniListClient: NSObject {
             }
             let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
             DispatchQueue.main.async { completion(items) }
-        }.resume()
+        }
     }
 
     // MARK: - Home sections (home/+page.svelte)
@@ -288,7 +327,7 @@ public final class AniListClient: NSObject {
                 "variables": ["ids": ids]
             ])
 
-            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            performAniListDataTask(request, context: "AniList") { [weak self] data, _, error in
                 guard let self = self else { return }
                 if let error = error {
                     NSLog("[AniListClient] followingMany network error: %@", error.localizedDescription)
@@ -302,7 +341,7 @@ public final class AniListClient: NSObject {
                         completions.forEach { $0(usersByMediaID) }
                     }
                 }
-            }.resume()
+            }
         }
     }
 
@@ -350,7 +389,7 @@ public final class AniListClient: NSObject {
         body["variables"] = vars
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let mediaList = response.data?.Page?.media else {
@@ -359,7 +398,7 @@ public final class AniListClient: NSObject {
             }
             let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
             completion(items)
-        }.resume()
+        }
     }
 
     // MARK: - Fetch by IDs
@@ -369,7 +408,7 @@ public final class AniListClient: NSObject {
         var request = authorizedRequest(url: url)
         let body: [String: Any] = ["query": AniListQueries.idIn, "variables": ["idIn": ids]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let mediaList = response.data?.Page?.media else {
@@ -384,7 +423,7 @@ public final class AniListClient: NSObject {
             }
             let ordered = ids.compactMap { itemMap[$0] }
             DispatchQueue.main.async { completion(ordered) }
-        }.resume()
+        }
     }
 
     func fetchSectionByIDsFiltered(_ ids: [Int],
@@ -398,7 +437,7 @@ public final class AniListClient: NSObject {
         if let onList = onList { variables["onList"] = onList }
         let body: [String: Any] = ["query": AniListQueries.idInFiltered, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let mediaList = response.data?.Page?.media else {
@@ -407,7 +446,7 @@ public final class AniListClient: NSObject {
             }
             let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
             DispatchQueue.main.async { completion(items) }
-        }.resume()
+        }
     }
 
     // MARK: - Search (matches client.ts search())
@@ -427,7 +466,7 @@ public final class AniListClient: NSObject {
                           ids: [Int]? = nil,
                           perPage: Int? = nil,
                           page: Int,
-                          completion: @escaping ([AnimeItem], Bool) -> Void) -> URLSessionDataTask? {
+                          completion: @escaping ([AnimeItem], Bool) -> Void) -> AniListRequestToken? {
         guard let url = URL(string: graphQLEndpoint) else {
             completion([], false)
             return nil
@@ -450,7 +489,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.search, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        let task = URLSession.shared.dataTask(with: request) { data, _, _ in
+        let task = performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let pageData = response.data?.Page else {
@@ -461,7 +500,6 @@ public final class AniListClient: NSObject {
             let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
             DispatchQueue.main.async { completion(items, hasNext) }
         }
-        task.resume()
         return task
     }
 
@@ -472,7 +510,7 @@ public final class AniListClient: NSObject {
         var request = authorizedRequest(url: url)
         let body: [String: Any] = ["query": AniListQueries.byIds, "variables": ["ids": ids]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let pageData = response.data?.Page else {
@@ -481,7 +519,7 @@ public final class AniListClient: NSObject {
             }
             let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
             DispatchQueue.main.async { completion(items) }
-        }.resume()
+        }
     }
 
     // MARK: - Resolver search/fetch (player resolver.ts parity)
@@ -543,7 +581,7 @@ public final class AniListClient: NSObject {
             }
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
 
-            URLSession.shared.dataTask(with: request) { data, _, _ in
+            performAniListDataTask(request, context: "AniList") { data, _, _ in
                 defer { runChunk(at: chunkIndex + 1) }
                 guard let data,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -558,7 +596,7 @@ public final class AniListClient: NSObject {
                           let id = best["id"] as? Int else { continue }
                     resultIDs[titleObject.key] = id
                 }
-            }.resume()
+            }
         }
 
         runChunk(at: 0)
@@ -600,7 +638,7 @@ public final class AniListClient: NSObject {
             "variables": ["id": id]
         ])
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        performAniListDataTask(request, context: "AniList") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[AniListClient] ResolverMedia network error: %@", error.localizedDescription)
@@ -620,7 +658,7 @@ public final class AniListClient: NSObject {
             }
             item.relations = self.parseRelations(from: media)
             self.finishFullMediaFetch(id: id, item: item)
-        }.resume()
+        }
     }
 
     private func finishFullMediaFetch(id: Int, item: AnimeItem?) {
@@ -705,7 +743,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.detail, "variables": ["id": id]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let resp = try? JSONDecoder().decode(AniListDetailResponse.self, from: data),
                   let media = resp.data?.Media else {
@@ -738,7 +776,7 @@ public final class AniListClient: NSObject {
             }
 
             DispatchQueue.main.async { completion(relations) }
-        }.resume()
+        }
     }
 
     // MARK: - Staff + Stats
@@ -753,7 +791,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.staffStats, "variables": ["id": id]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let resp = try? JSONDecoder().decode(StaffStatsResponse.self, from: data),
                   let media = resp.data?.Media else {
@@ -773,7 +811,7 @@ public final class AniListClient: NSObject {
                 return AnimeStatusCount(status: s, amount: a)
             }
             DispatchQueue.main.async { completion(staff, scores, statuses) }
-        }.resume()
+        }
     }
 
     // MARK: - Anime page (anime/[id])
@@ -816,7 +854,7 @@ public final class AniListClient: NSObject {
             "variables": ["id": id]
         ])
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        performAniListDataTask(request, context: "AniList") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[AniListClient] AnimePage network error: %@", error.localizedDescription)
@@ -832,7 +870,7 @@ public final class AniListClient: NSObject {
             self.logGraphQLErrors(json["errors"], context: "AnimePage")
             let publicPayload = self.parseAnimePagePayload(from: dataObject, followingEntries: [])
             self.finishAnimePageFetch(id: id, cacheKey: cacheKey, payload: publicPayload)
-        }.resume()
+        }
     }
 
     private func finishAnimePageFetch(id: Int, cacheKey: String, payload: AnimePagePayload) {
@@ -887,7 +925,7 @@ public final class AniListClient: NSObject {
             "variables": ["id": id]
         ])
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        performAniListDataTask(request, context: "AniList") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[AniListClient] AnimePageFollowing network error: %@", error.localizedDescription)
@@ -901,7 +939,7 @@ public final class AniListClient: NSObject {
             self.logGraphQLErrors(json["errors"], context: "AnimePageFollowing")
             let page = (json["data"] as? [String: Any])?["following"] as? [String: Any]
             completion(self.parseFollowingEntries(from: page))
-        }.resume()
+        }
     }
 
     private func parseAnimePagePayload(from dataObject: [String: Any], followingEntries: [AniListFollowingEntry]) -> AnimePagePayload {
@@ -1066,7 +1104,7 @@ public final class AniListClient: NSObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": AniListQueries.trailerGenres, "variables": ["id": id]])
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let media = ((json["data"] as? [String: Any])?["Media"]) as? [String: Any] else {
@@ -1081,7 +1119,7 @@ public final class AniListClient: NSObject {
                 trailerID = trailer["id"] as? String
             }
             DispatchQueue.main.async { completion(trailerID, genres, malId) }
-        }.resume()
+        }
     }
 
     // MARK: - Forum threads (matches client.ts threads())
@@ -1097,7 +1135,7 @@ public final class AniListClient: NSObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = data
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
@@ -1107,7 +1145,7 @@ public final class AniListClient: NSObject {
             }
             let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
             DispatchQueue.main.async { completion(parsed) }
-        }.resume()
+        }
     }
 
     // MARK: - Airing schedule
@@ -1139,7 +1177,7 @@ public final class AniListClient: NSObject {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+        performAniListDataTask(request, context: "AniList") { [weak self] data, _, _ in
             guard let self = self,
                   let data = data,
                   let resp = try? JSONDecoder().decode(AiringSchedulePagedResponse.self, from: data),
@@ -1175,7 +1213,7 @@ public final class AniListClient: NSObject {
             } else {
                 DispatchQueue.main.async { completion(all) }
             }
-        }.resume()
+        }
     }
 
     // MARK: - Per-media airing schedule
@@ -1193,7 +1231,7 @@ public final class AniListClient: NSObject {
         let body: [String: Any] = ["query": AniListQueries.mediaSchedule, "variables": ["id": anilistID]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
                   let resp = try? JSONDecoder().decode(MediaScheduleResponse.self, from: data),
                   let media = resp.data?.Media else {
@@ -1212,7 +1250,7 @@ public final class AniListClient: NSObject {
 
             let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
             finish(MediaScheduleResult(schedule: schedule, startDate: sd, episodeCount: media.episodes))
-        }.resume()
+        }
     }
 
     // MARK: - ani.zip image cache (Fanart + Clearlogo)
@@ -1283,7 +1321,7 @@ public final class AniListClient: NSObject {
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        URLSession.shared.dataTask(with: req) { data, _, _ in
+        performAniListDataTask(req, context: "AniList") { data, _, _ in
             var fanartURL: String? = nil
             var clearlogoURL: String? = nil
             if let data,
@@ -1303,7 +1341,7 @@ public final class AniListClient: NSObject {
                 if let clearlogoURL { _clearlogoURLs[anilistID] = clearlogoURL }
                 cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
             }
-        }.resume()
+        }
     }
 }
 private extension Array where Element == [String: Any] {

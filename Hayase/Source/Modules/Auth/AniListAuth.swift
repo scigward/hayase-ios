@@ -46,8 +46,8 @@ final class AniListAuth {
         let body: [String: Any] = ["query": query]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data,
+        AniListRequestExecutor.shared.perform(request, context: "AniListViewer") { result in
+            guard case .success(let data) = result,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
                   let viewer = dataObj["Viewer"] as? [String: Any],
@@ -59,7 +59,7 @@ final class AniListAuth {
             let avatar = (viewer["avatar"] as? [String: Any])?["large"] as? String
             let tv = TrackerViewer(id: String(id), name: name, avatarURL: avatar)
             completion(tv)
-        }.resume()
+        }
     }
 
     static func completeLogin(token: String) {
@@ -152,29 +152,24 @@ final class AniListTracking {
         let body: [String: Any] = ["query": query, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                NSLog("[AniListTracking] authRequest network error: %@", error.localizedDescription)
-                completion(nil); return
-            }
-            guard let data = data else {
-                NSLog("[AniListTracking] authRequest: no data received")
+        AniListRequestExecutor.shared.perform(request, context: "AniListTracking") { result in
+            guard case .success(let data) = result else {
+                if case .failure(let error) = result, case .cancelled = error { return }
+                if case .failure(let error) = result {
+                    NSLog("[AniListTracking] authRequest failed: %@", error.description)
+                }
                 completion(nil); return
             }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 NSLog("[AniListTracking] authRequest: failed to parse JSON")
                 completion(nil); return
             }
-            if let errors = json["errors"] as? [[String: Any]] {
-                let messages = errors.compactMap { $0["message"] as? String }
-                NSLog("[AniListTracking] GraphQL errors: %@", messages.joined(separator: ", "))
-            }
             guard let dataObj = json["data"] as? [String: Any] else {
                 NSLog("[AniListTracking] authRequest: no 'data' field in response")
                 completion(nil); return
             }
             completion(dataObj)
-        }.resume()
+        }
     }
 
     // MARK: - Fetch current list entry

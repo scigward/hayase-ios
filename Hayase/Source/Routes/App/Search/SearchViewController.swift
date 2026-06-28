@@ -67,7 +67,7 @@ class SearchViewController: UIViewController {
     /// Incremented on every reset fetch. Allows in-flight callbacks from a prior fetch to be
     /// discarded when a newer reset (e.g. from a View More prefill) has already started.
     private var fetchRequestID = 0
-    private var searchTask: URLSessionDataTask?
+    private var searchTask: AniListRequestToken?
     private var currentTitle = ""
     private var debounceTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
