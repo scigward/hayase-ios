@@ -22,8 +22,8 @@ public final class AniListClient: NSObject {
     private var followingManyCompletions: [String: [([Int: [AniListUserSummary]]) -> Void]] = [:]
 
     private let fullMediaQueue = DispatchQueue(label: "com.hayase.anilist.fullMedia")
-    private var fullMediaCache: [Int: AnimeItem] = [:]
-    private var fullMediaCompletions: [Int: [(AnimeItem?) -> Void]] = [:]
+    private var fullMediaCache: [String: AnimeItem] = [:]
+    private var fullMediaCompletions: [String: [(AnimeItem?) -> Void]] = [:]
 
     private let animePageQueue = DispatchQueue(label: "com.hayase.anilist.animePage")
     private var animePageCache: [String: AnimePagePayload] = [:]
@@ -34,7 +34,7 @@ public final class AniListClient: NSObject {
     private var animePageFollowingCompletions: [String: [([AniListFollowingEntry]) -> Void]] = [:]
 
     private let queryCacheQueue = DispatchQueue(label: "com.hayase.anilist.queryCache")
-    private var bannerCache: [AnimeItem]?
+    private var bannerCache: [String: [AnimeItem]] = [:]
     private var homeSectionItemCache: [String: [AnimeItem]] = [:]
     private var searchPageCache: [String: AniListSearchPage] = [:]
 
@@ -167,6 +167,10 @@ public final class AniListClient: NSObject {
     }
 
     private func animePageCacheKey(for id: Int) -> String {
+        "\(id):\(aniListCacheScope)"
+    }
+
+    private func fullMediaCacheKey(for id: Int) -> String {
         "\(id):\(aniListCacheScope)"
     }
 
@@ -314,7 +318,8 @@ public final class AniListClient: NSObject {
             "statusNot": ["NOT_YET_RELEASED"]
         ])
 
-        if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { bannerCache }) {
+        let bannerKey = cacheKey(prefix: "banner", variables: variables)
+        if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { bannerCache[bannerKey] }) {
             query?.setSuccess(cached, isEmpty: cached.isEmpty)
             completion(.success(cached))
             if policy == .cacheFirst { return nil }
@@ -325,14 +330,14 @@ public final class AniListClient: NSObject {
         let token = requestExecutor.execute(query: AniListQueries.search,
                                             variables: variables,
                                             authorized: true,
-                                            dedupeKey: cacheKey(prefix: "search", variables: variables)) { [weak self] result in
+                                            dedupeKey: bannerKey) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let graphQLResult):
                 do {
                     let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
                     let items = (response.data?.Page?.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
-                    self.queryCacheQueue.async { self.bannerCache = items }
+                    self.queryCacheQueue.async { self.bannerCache[bannerKey] = items }
                     query?.setSuccess(items, isEmpty: items.isEmpty)
                     DispatchQueue.main.async { completion(.success(items)) }
                 } catch {
@@ -964,15 +969,16 @@ public final class AniListClient: NSObject {
     }
 
     func fetchResolverMediaById(_ id: Int, completion: @escaping (AnimeItem?) -> Void) {
+        let cacheKey = fullMediaCacheKey(for: id)
         var cached: AnimeItem?
         var shouldStartRequest = false
         fullMediaQueue.sync {
-            cached = fullMediaCache[id]
+            cached = fullMediaCache[cacheKey]
             if cached == nil {
-                if fullMediaCompletions[id] != nil {
-                    fullMediaCompletions[id]?.append(completion)
+                if fullMediaCompletions[cacheKey] != nil {
+                    fullMediaCompletions[cacheKey]?.append(completion)
                 } else {
-                    fullMediaCompletions[id] = [completion]
+                    fullMediaCompletions[cacheKey] = [completion]
                     shouldStartRequest = true
                 }
             }
@@ -983,13 +989,13 @@ public final class AniListClient: NSObject {
             return
         }
         if shouldStartRequest {
-            fetchResolverMediaByIdFromNetwork(id)
+            fetchResolverMediaByIdFromNetwork(id, cacheKey: cacheKey)
         }
     }
 
-    private func fetchResolverMediaByIdFromNetwork(_ id: Int) {
+    private func fetchResolverMediaByIdFromNetwork(_ id: Int, cacheKey: String) {
         guard let url = URL(string: graphQLEndpoint) else {
-            finishFullMediaFetch(id: id, item: nil)
+            finishFullMediaFetch(id: id, cacheKey: cacheKey, item: nil)
             return
         }
 
@@ -1008,27 +1014,27 @@ public final class AniListClient: NSObject {
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let media = (json["data"] as? [String: Any])?["Media"] as? [String: Any] else {
-                self.finishFullMediaFetch(id: id, item: nil)
+                self.finishFullMediaFetch(id: id, cacheKey: cacheKey, item: nil)
                 return
             }
 
             self.logGraphQLErrors(json["errors"], context: "ResolverMedia")
             guard var item = self.parseAnimeItem(from: media) else {
-                self.finishFullMediaFetch(id: id, item: nil)
+                self.finishFullMediaFetch(id: id, cacheKey: cacheKey, item: nil)
                 return
             }
             item.relations = self.parseRelations(from: media)
-            self.finishFullMediaFetch(id: id, item: item)
+            self.finishFullMediaFetch(id: id, cacheKey: cacheKey, item: item)
         }
     }
 
-    private func finishFullMediaFetch(id: Int, item: AnimeItem?) {
+    private func finishFullMediaFetch(id: Int, cacheKey: String, item: AnimeItem?) {
         fullMediaQueue.async { [weak self] in
             guard let self else { return }
             if let item {
-                self.fullMediaCache[id] = item
+                self.fullMediaCache[cacheKey] = item
             }
-            let callbacks = self.fullMediaCompletions.removeValue(forKey: id) ?? []
+            let callbacks = self.fullMediaCompletions.removeValue(forKey: cacheKey) ?? []
             DispatchQueue.main.async {
                 callbacks.forEach { $0(item) }
             }
@@ -1037,12 +1043,13 @@ public final class AniListClient: NSObject {
 
     private func storeFullMediaPayload(_ item: AnimeItem) {
         guard item.isRouteReadyMediaPayload else { return }
+        let cacheKey = fullMediaCacheKey(for: item.id)
         fullMediaQueue.async { [weak self] in
             guard let self else { return }
-            if let existing = self.fullMediaCache[item.id] {
-                self.fullMediaCache[item.id] = existing.mergingRouteMedia(item)
+            if let existing = self.fullMediaCache[cacheKey] {
+                self.fullMediaCache[cacheKey] = existing.mergingRouteMedia(item)
             } else {
-                self.fullMediaCache[item.id] = item
+                self.fullMediaCache[cacheKey] = item
             }
         }
     }
@@ -1062,12 +1069,11 @@ public final class AniListClient: NSObject {
     func clearViewerDependentCaches() {
         fullMediaQueue.async { [weak self] in
             guard let self else { return }
-            self.fullMediaCache = self.fullMediaCache.mapValues { item in
-                var item = item
-                item.mediaListEntry = nil
-                item.isFavourite = nil
-                return item
+            self.fullMediaCache = self.fullMediaCache.reduce(into: [:]) { result, pair in
+                guard pair.key.hasSuffix(":public") else { return }
+                result[pair.key] = self.strippingViewerState(from: pair.value)
             }
+            self.fullMediaCompletions.removeAll()
         }
         animePageQueue.async { [weak self] in
             self?.animePageCache.removeAll()
@@ -1083,11 +1089,18 @@ public final class AniListClient: NSObject {
         }
         queryCacheQueue.async { [weak self] in
             guard let self else { return }
-            self.bannerCache = self.bannerCache?.map { self.strippingViewerState(from: $0) }
-            self.homeSectionItemCache = self.homeSectionItemCache.mapValues { $0.map { self.strippingViewerState(from: $0) } }
-            self.searchPageCache = self.searchPageCache.mapValues { page in
-                AniListSearchPage(items: page.items.map { self.strippingViewerState(from: $0) },
-                                  hasNextPage: page.hasNextPage)
+            self.bannerCache = self.bannerCache.reduce(into: [:]) { result, pair in
+                guard pair.key.contains("|public|") else { return }
+                result[pair.key] = pair.value.map { self.strippingViewerState(from: $0) }
+            }
+            self.homeSectionItemCache = self.homeSectionItemCache.reduce(into: [:]) { result, pair in
+                guard pair.key.contains("|public|") else { return }
+                result[pair.key] = pair.value.map { self.strippingViewerState(from: $0) }
+            }
+            self.searchPageCache = self.searchPageCache.reduce(into: [:]) { result, pair in
+                guard pair.key.contains("|public|") else { return }
+                result[pair.key] = AniListSearchPage(items: pair.value.items.map { self.strippingViewerState(from: $0) },
+                                                     hasNextPage: pair.value.hasNextPage)
             }
         }
     }
@@ -1100,25 +1113,40 @@ public final class AniListClient: NSObject {
     }
 
     private func updateCachedMedia(mediaID: Int, update: @escaping (inout AnimeItem) -> Void) {
+        let scope = aniListCacheScope
         fullMediaQueue.async { [weak self] in
-            guard let self, var item = self.fullMediaCache[mediaID] else { return }
-            update(&item)
-            self.fullMediaCache[mediaID] = item
+            guard let self else { return }
+            let suffix = ":\(scope)"
+            for key in Array(self.fullMediaCache.keys) where key.hasSuffix(suffix) {
+                guard var item = self.fullMediaCache[key], item.id == mediaID else { continue }
+                update(&item)
+                self.fullMediaCache[key] = item
+            }
         }
         animePageQueue.async { [weak self] in
             guard let self else { return }
-            self.animePageCache = self.animePageCache.mapValues { payload in
-                self.updating(payload: payload, mediaID: mediaID, update: update)
+            self.animePageCache = self.animePageCache.reduce(into: [:]) { result, pair in
+                guard pair.key.hasSuffix(":\(scope)") else { result[pair.key] = pair.value; return }
+                result[pair.key] = self.updating(payload: pair.value, mediaID: mediaID, update: update)
             }
         }
         queryCacheQueue.async { [weak self] in
             guard let self else { return }
-            self.bannerCache = self.bannerCache.map { self.updating(items: $0, mediaID: mediaID, update: update) }
-            self.homeSectionItemCache = self.homeSectionItemCache.mapValues { self.updating(items: $0, mediaID: mediaID, update: update) }
-            self.searchPageCache = self.searchPageCache.mapValues { page in
-                AniListSearchPage(items: self.updating(items: page.items, mediaID: mediaID, update: update),
-                                  hasNextPage: page.hasNextPage)
+            let scopeNeedle = "|\(scope)|"
+            self.bannerCache = self.bannerCache.reduce(into: [:]) { result, pair in
+                result[pair.key] = pair.key.contains(scopeNeedle) ? self.updating(items: pair.value, mediaID: mediaID, update: update) : pair.value
             }
+            self.homeSectionItemCache = self.homeSectionItemCache.reduce(into: [:]) { result, pair in
+                result[pair.key] = pair.key.contains(scopeNeedle) ? self.updating(items: pair.value, mediaID: mediaID, update: update) : pair.value
+            }
+            self.searchPageCache = self.searchPageCache.reduce(into: [:]) { result, pair in
+                guard pair.key.contains(scopeNeedle) else { result[pair.key] = pair.value; return }
+                result[pair.key] = AniListSearchPage(items: self.updating(items: pair.value.items, mediaID: mediaID, update: update),
+                                                     hasNextPage: pair.value.hasNextPage)
+            }
+        }
+        DispatchQueue.main.async {
+            Router.shared.updateCachedAnimeItem(mediaID: mediaID, update: update)
         }
     }
 

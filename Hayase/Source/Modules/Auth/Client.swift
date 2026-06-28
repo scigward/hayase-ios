@@ -37,10 +37,14 @@ final class TrackerAccountManager {
     }
 
     func setViewer(_ viewer: TrackerViewer?, for tracker: TrackerKind) {
+        let previousViewer = self.viewer(for: tracker)
         if let viewer = viewer, let data = try? JSONEncoder().encode(viewer) {
             UserDefaults.standard.set(data, forKey: tracker.viewerKey)
         } else {
             UserDefaults.standard.removeObject(forKey: tracker.viewerKey)
+        }
+        if tracker == .anilist, previousViewer?.id != viewer?.id {
+            clearAniListRuntimeState()
         }
         notify()
     }
@@ -48,7 +52,10 @@ final class TrackerAccountManager {
     // MARK: - Token
 
     func token(for tracker: TrackerKind) -> String? {
-        guard !isTokenExpired(for: tracker) else { return nil }
+        guard !isTokenExpired(for: tracker) else {
+            expireSession(for: tracker)
+            return nil
+        }
         return UserDefaults.standard.string(forKey: tracker.tokenKey)
     }
 
@@ -77,12 +84,28 @@ final class TrackerAccountManager {
         }
     }
 
+    private func expireSession(for tracker: TrackerKind) {
+        setViewer(nil, for: tracker)
+        setToken(nil, for: tracker)
+        if tracker == .anilist {
+            clearAniListRuntimeState()
+        }
+        notify()
+    }
+
     func clearAniListSessionForAuthFailure() {
         setViewer(nil, for: .anilist)
         setToken(nil, for: .anilist)
+        clearAniListRuntimeState()
+        notify()
+    }
+
+    private func clearAniListRuntimeState() {
         AniListClient.shared.clearViewerDependentCaches()
         AniListTracking.shared.clearViewerCache()
-        notify()
+        DispatchQueue.main.async {
+            Router.shared.clearAniListViewerState()
+        }
     }
 
     // MARK: - Login state
@@ -104,8 +127,7 @@ final class TrackerAccountManager {
         setViewer(nil, for: tracker)
         setToken(nil, for: tracker)
         if tracker == .anilist {
-            AniListClient.shared.clearViewerDependentCaches()
-            AniListTracking.shared.clearViewerCache()
+            clearAniListRuntimeState()
         }
         notify()
     }

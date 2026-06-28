@@ -13,6 +13,7 @@ import Foundation
 final class AniListAuth {
 
     static let defaultClientID = "37117"
+    static let hayaseCustomListName = "Watched using Hayase"
 
     static var clientID: String {
         get { UserDefaults.standard.string(forKey: "pref_anilistClientID") ?? defaultClientID }
@@ -31,16 +32,30 @@ final class AniListAuth {
         return components.url ?? URL(string: "https://anilist.co/api/v2/oauth/authorize")!
     }
 
-    static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
-        let query = """
-        {
-          Viewer {
+    private static let viewerFields = """
             id
             name
             bannerImage
             avatar { large }
             mediaListOptions { animeList { customLists } }
             options { titleLanguage displayAdultContent }
+    """
+
+    private static var updateUserMutation: String {
+        """
+        mutation UpdateUser($lists: [String], $adult: Boolean, $language: UserTitleLanguage) {
+          UpdateUser(animeListOptions: { customLists: $lists }, displayAdultContent: $adult, titleLanguage: $language) {
+        \(viewerFields)
+          }
+        }
+        """
+    }
+
+    static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
+        let query = """
+        {
+          Viewer {
+        \(viewerFields)
           }
         }
         """
@@ -59,25 +74,62 @@ final class AniListAuth {
             guard case .success(let data) = result,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
-                  let viewer = dataObj["Viewer"] as? [String: Any],
-                  let id = viewer["id"] as? Int,
-                  let name = viewer["name"] as? String else {
+                  let viewer = dataObj["Viewer"] as? [String: Any] else {
                 completion(nil)
                 return
             }
-            let avatar = (viewer["avatar"] as? [String: Any])?["large"] as? String
-            let options = viewer["options"] as? [String: Any]
-            let animeList = (viewer["mediaListOptions"] as? [String: Any])?["animeList"] as? [String: Any]
-            let customLists = animeList?["customLists"] as? [String] ?? []
-            let tv = TrackerViewer(
-                id: String(id),
-                name: name,
-                avatarURL: avatar,
-                bannerURL: viewer["bannerImage"] as? String,
-                titleLanguage: options?["titleLanguage"] as? String,
-                displayAdultContent: options?["displayAdultContent"] as? Bool,
-                customLists: customLists)
+            guard let tv = trackerViewer(from: viewer) else {
+                completion(nil)
+                return
+            }
             completion(tv)
+        }
+    }
+
+    private static func trackerViewer(from viewer: [String: Any]) -> TrackerViewer? {
+        guard let id = viewer["id"] as? Int,
+              let name = viewer["name"] as? String else { return nil }
+        let avatar = (viewer["avatar"] as? [String: Any])?["large"] as? String
+        let options = viewer["options"] as? [String: Any]
+        let animeList = (viewer["mediaListOptions"] as? [String: Any])?["animeList"] as? [String: Any]
+        let customLists = (animeList?["customLists"] as? [Any] ?? []).compactMap { $0 as? String }
+        return TrackerViewer(
+            id: String(id),
+            name: name,
+            avatarURL: avatar,
+            bannerURL: viewer["bannerImage"] as? String,
+            titleLanguage: options?["titleLanguage"] as? String,
+            displayAdultContent: options?["displayAdultContent"] as? Bool,
+            customLists: customLists)
+    }
+
+    private static func ensureHayaseCustomList(token: String, viewer: TrackerViewer, completion: @escaping (TrackerViewer) -> Void) {
+        guard !viewer.customLists.contains(hayaseCustomListName),
+              let url = URL(string: "https://graphql.anilist.co") else {
+            completion(viewer)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var lists = viewer.customLists
+        lists.append(hayaseCustomListName)
+        let variables: [String: Any] = ["lists": lists]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": updateUserMutation, "variables": variables])
+
+        AniListRequestExecutor.shared.perform(request, context: "AniListUpdateUser") { result in
+            guard case .success(let data) = result,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let updated = dataObj["UpdateUser"] as? [String: Any],
+                  let updatedViewer = trackerViewer(from: updated) else {
+                NSLog("[AniListAuth] Failed to ensure AniList custom list; continuing with fetched viewer")
+                completion(viewer)
+                return
+            }
+            completion(updatedViewer)
         }
     }
 
@@ -85,8 +137,16 @@ final class AniListAuth {
         let expiresAt = expiresIn.map { Date().addingTimeInterval($0) }
         TrackerAccountManager.shared.setToken(token, for: .anilist, expiresAt: expiresAt)
         fetchViewer(token: token) { viewer in
-            DispatchQueue.main.async {
-                TrackerAccountManager.shared.setViewer(viewer, for: .anilist)
+            guard let viewer else {
+                DispatchQueue.main.async {
+                    TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
+                }
+                return
+            }
+            ensureHayaseCustomList(token: token, viewer: viewer) { ensuredViewer in
+                DispatchQueue.main.async {
+                    TrackerAccountManager.shared.setViewer(ensuredViewer, for: .anilist)
+                }
             }
         }
     }
@@ -258,8 +318,8 @@ final class AniListTracking {
         if let r = repeatCount { vars["repeat"] = r }
 
         var customLists = lists ?? []
-        if !customLists.contains("Watched using Hayase") {
-            customLists.append("Watched using Hayase")
+        if !customLists.contains(AniListAuth.hayaseCustomListName) {
+            customLists.append(AniListAuth.hayaseCustomListName)
         }
         vars["lists"] = customLists
 

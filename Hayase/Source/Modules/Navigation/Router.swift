@@ -122,6 +122,22 @@ final class Router {
         return nil
     }
 
+    func updateCachedAnimeItem(mediaID: Int, update: (inout AnimeItem) -> Void) {
+        guard var item = animePayloads[mediaID] else { return }
+        update(&item)
+        animePayloads[mediaID] = item
+    }
+
+    func clearAniListViewerState() {
+        pendingAnimeNavigationID = nil
+        animePayloads = animePayloads.mapValues { item in
+            var item = item
+            item.mediaListEntry = nil
+            item.isFavourite = nil
+            return item
+        }
+    }
+
     func navigateToAnime(_ item: AnimeItem, hostTabIndex: Int? = nil) {
         cacheAnimeItem(item)
 
