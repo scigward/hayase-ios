@@ -67,6 +67,7 @@ class SearchViewController: UIViewController {
     /// Incremented on every reset fetch. Allows in-flight callbacks from a prior fetch to be
     /// discarded when a newer reset (e.g. from a View More prefill) has already started.
     private var fetchRequestID = 0
+    private var searchRequestToken: AniListRequestToken?
     private var currentTitle = ""
     private var debounceTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
@@ -175,6 +176,11 @@ class SearchViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         Hover.shared.unhoverLastElement()
+    }
+
+    deinit {
+        searchRequestToken?.cancel()
+        debounceTimer?.invalidate()
     }
 
     override func viewDidLayoutSubviews() {
@@ -517,7 +523,8 @@ class SearchViewController: UIViewController {
 
     private var shouldShowOnListFilter: Bool {
         TrackerAccountManager.shared.isLoggedIn(.anilist)
-            || TrackerAccountManager.shared.token(for: .anilist) != nil
+            && TrackerAccountManager.shared.viewer(for: .anilist)?.id != nil
+            && TrackerAccountManager.shared.token(for: .anilist) != nil
     }
 
     private var visibleFilterTypes: [SearchFilterType] {
@@ -921,6 +928,8 @@ class SearchViewController: UIViewController {
             // see a mismatched ID and discard its results. This mirrors Hayase where navigating
             // to /app/search with new state always starts a fresh search, discarding any prior request.
             fetchRequestID += 1
+            searchRequestToken?.cancel()
+            searchRequestToken = nil
             isFetching = false
         }
         guard !isFetching, hasNextPage else { return }
@@ -933,7 +942,7 @@ class SearchViewController: UIViewController {
         }
         let myRequestID = fetchRequestID
 
-        AniListClient.shared.searchAnimeItems(
+        searchRequestToken = AniListClient.shared.searchAnimeItems(
             title: currentTitle.isEmpty ? nil : currentTitle,
             genres: selectedGenres,
             tags: selectedTags,
@@ -948,6 +957,7 @@ class SearchViewController: UIViewController {
             page: currentPage
         ) { [weak self] items, hasNext in
             guard let self = self, self.fetchRequestID == myRequestID else { return }
+            self.searchRequestToken = nil
             if reset { self.animeResults = items } else { self.animeResults.append(contentsOf: items) }
             self.hasNextPage = hasNext; self.currentPage += 1; self.isFetching = false
             self.isShowingSkeleton = false

@@ -8,6 +8,37 @@
 
 import UIKit
 import CoreData
+import CryptoKit
+
+final class AniListRequestToken {
+    private let lock = NSLock()
+    private var cancellation: (() -> Void)?
+    private var cancelled = false
+
+    fileprivate func setCancellation(_ cancellation: @escaping () -> Void) {
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            cancellation()
+            return
+        }
+        self.cancellation = cancellation
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !cancelled else {
+            lock.unlock()
+            return
+        }
+        cancelled = true
+        let cancellation = self.cancellation
+        self.cancellation = nil
+        lock.unlock()
+        cancellation?()
+    }
+}
 
 // MARK: - AniListClient
 
@@ -25,8 +56,29 @@ public final class AniListClient: NSObject {
     private var fullMediaCompletions: [Int: [(AnimeItem?) -> Void]] = [:]
 
     private let animePageQueue = DispatchQueue(label: "com.hayase.anilist.animePage")
-    private var animePageCache: [Int: AnimePagePayload] = [:]
-    private var animePageCompletions: [Int: [(AnimePagePayload) -> Void]] = [:]
+    private var animePageCache: [String: AnimePagePayload] = [:]
+    private var animePageCompletions: [String: [(AnimePagePayload) -> Void]] = [:]
+
+    private enum GraphQLRequestPolicy {
+        case cacheFirst
+        case networkOnly
+    }
+
+    private struct GraphQLCacheEntry: Codable {
+        let insertedAt: Date
+        let data: Data
+    }
+
+    private typealias GraphQLCompletion = (Data?, URLResponse?, Error?) -> Void
+
+    private let graphQLQueue = DispatchQueue(label: "com.hayase.anilist.graphql")
+    private var graphQLMemoryCache: [String: GraphQLCacheEntry] = [:]
+    private var graphQLCompletions: [String: [UUID: GraphQLCompletion]] = [:]
+    private var graphQLTasks: [String: URLSessionDataTask] = [:]
+    private var lastGraphQLRetryAt = Date(timeIntervalSince1970: 0)
+    private let graphQLCacheTTL: TimeInterval = 21 * 24 * 60 * 60
+    private let graphQLMinimumRetryDelay: TimeInterval = 11
+    private let graphQLMaxAttempts = 3
 
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
@@ -80,10 +132,232 @@ public final class AniListClient: NSObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = TrackerAccountManager.shared.token(for: .anilist) {
+        if hasAniListViewer,
+           let token = TrackerAccountManager.shared.token(for: .anilist) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    private var hasAniListViewer: Bool {
+        TrackerAccountManager.shared.isLoggedIn(.anilist)
+            && TrackerAccountManager.shared.viewer(for: .anilist)?.id != nil
+            && TrackerAccountManager.shared.token(for: .anilist) != nil
+    }
+
+    private var graphQLAuthScope: String {
+        guard hasAniListViewer,
+              let viewerID = TrackerAccountManager.shared.viewer(for: .anilist)?.id else {
+            return "public"
+        }
+        return "viewer:\(viewerID)"
+    }
+
+    @discardableResult
+    private func performGraphQL(query: String,
+                                variables: [String: Any],
+                                requestPolicy: GraphQLRequestPolicy = .networkOnly,
+                                context: String,
+                                completion: @escaping GraphQLCompletion) -> AniListRequestToken? {
+        guard let url = URL(string: graphQLEndpoint),
+              let bodyData = makeGraphQLBody(query: query, variables: variables) else {
+            DispatchQueue.main.async { completion(nil, nil, nil) }
+            return nil
+        }
+
+        let key = graphQLCacheKey(query: query, variables: variables)
+        let callbackID = UUID()
+        let token = AniListRequestToken()
+
+        graphQLQueue.async { [weak self] in
+            guard let self else { return }
+            if requestPolicy == .cacheFirst,
+               let cached = self.cachedGraphQLResponse(forKey: key) {
+                DispatchQueue.main.async { completion(cached.data, nil, nil) }
+                return
+            }
+
+            self.graphQLCompletions[key, default: [:]][callbackID] = completion
+            token.setCancellation { [weak self] in
+                self?.cancelGraphQLCallback(id: callbackID, key: key)
+            }
+
+            if self.graphQLTasks[key] != nil { return }
+            self.startGraphQLRequest(url: url,
+                                     key: key,
+                                     bodyData: bodyData,
+                                     context: context,
+                                     attempt: 1)
+        }
+
+        return token
+    }
+
+    private func makeGraphQLBody(query: String, variables: [String: Any]) -> Data? {
+        let body: [String: Any] = ["query": query, "variables": variables]
+        guard JSONSerialization.isValidJSONObject(body) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+    }
+
+    private func graphQLCacheKey(query: String, variables: [String: Any]) -> String {
+        let body = makeGraphQLBody(query: query, variables: variables) ?? Data()
+        let bodyString = String(data: body, encoding: .utf8) ?? query
+        return "\(graphQLAuthScope)|\(bodyString)"
+    }
+
+    private func startGraphQLRequest(url: URL,
+                                     key: String,
+                                     bodyData: Data,
+                                     context: String,
+                                     attempt: Int) {
+        var request = authorizedRequest(url: url)
+        request.httpBody = bodyData
+
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            self.graphQLQueue.async {
+                self.graphQLTasks[key] = nil
+
+                if (self.shouldRetryGraphQL(response: response, error: error)
+                    || self.hasRetryableGraphQLError(data)),
+                   attempt < self.graphQLMaxAttempts,
+                   self.graphQLCompletions[key]?.isEmpty == false {
+                    let delay = self.graphQLRetryDelay(response: response)
+                    NSLog("[AniListClient] %@ retrying in %.1fs after AniList error", context, delay)
+                    self.graphQLQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self,
+                              self.graphQLCompletions[key]?.isEmpty == false else { return }
+                        self.startGraphQLRequest(url: url,
+                                                 key: key,
+                                                 bodyData: bodyData,
+                                                 context: context,
+                                                 attempt: attempt + 1)
+                    }
+                    return
+                }
+
+                if let data,
+                   self.isSuccessfulGraphQLResponse(response) {
+                    self.storeGraphQLResponse(data, forKey: key)
+                    self.finishGraphQLRequest(key: key, data: data, response: response, error: nil)
+                    return
+                }
+
+                if let cached = self.cachedGraphQLResponse(forKey: key) {
+                    NSLog("[AniListClient] %@ using cached data after request failure", context)
+                    self.finishGraphQLRequest(key: key, data: cached.data, response: response, error: error)
+                } else {
+                    if let error {
+                        NSLog("[AniListClient] %@ network error: %@", context, error.localizedDescription)
+                    }
+                    self.finishGraphQLRequest(key: key, data: data, response: response, error: error)
+                }
+            }
+        }
+        graphQLTasks[key] = task
+        task.resume()
+    }
+
+    private func finishGraphQLRequest(key: String, data: Data?, response: URLResponse?, error: Error?) {
+        let callbacks = graphQLCompletions.removeValue(forKey: key) ?? [:]
+        DispatchQueue.main.async {
+            callbacks.values.forEach { $0(data, response, error) }
+        }
+    }
+
+    private func cancelGraphQLCallback(id: UUID, key: String) {
+        graphQLQueue.async { [weak self] in
+            guard let self else { return }
+            self.graphQLCompletions[key]?.removeValue(forKey: id)
+            if self.graphQLCompletions[key]?.isEmpty == true {
+                self.graphQLCompletions.removeValue(forKey: key)
+                self.graphQLTasks.removeValue(forKey: key)?.cancel()
+            }
+        }
+    }
+
+    private func isSuccessfulGraphQLResponse(_ response: URLResponse?) -> Bool {
+        guard let http = response as? HTTPURLResponse else { return true }
+        return (200..<300).contains(http.statusCode)
+    }
+
+    private func shouldRetryGraphQL(response: URLResponse?, error: Error?) -> Bool {
+        if let error {
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain,
+               nsError.code == NSURLErrorCancelled {
+                return false
+            }
+        }
+        if error != nil { return true }
+        guard let http = response as? HTTPURLResponse else { return false }
+        return http.statusCode == 429 || http.statusCode == 500
+    }
+
+    private func hasRetryableGraphQLError(_ data: Data?) -> Bool {
+        guard let data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errors = json["errors"] as? [[String: Any]] else { return false }
+        return errors.contains { error in
+            let message = (error["message"] as? String ?? "").lowercased()
+            return message.contains("429") || message.contains("rate") || message.contains("500")
+        }
+    }
+
+    private func graphQLRetryDelay(response: URLResponse?) -> TimeInterval {
+        if let http = response as? HTTPURLResponse,
+           let retryAfter = http.value(forHTTPHeaderField: "Retry-After"),
+           let seconds = TimeInterval(retryAfter) {
+            return seconds + 1
+        }
+
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastGraphQLRetryAt)
+        let delay = elapsed < graphQLMinimumRetryDelay
+            ? graphQLMinimumRetryDelay - elapsed
+            : graphQLMinimumRetryDelay
+        lastGraphQLRetryAt = now.addingTimeInterval(delay)
+        return delay
+    }
+
+    private func cachedGraphQLResponse(forKey key: String) -> GraphQLCacheEntry? {
+        let now = Date()
+        if let entry = graphQLMemoryCache[key],
+           now.timeIntervalSince(entry.insertedAt) < graphQLCacheTTL {
+            return entry
+        }
+
+        guard let url = graphQLCacheURL(forKey: key),
+              let data = try? Data(contentsOf: url),
+              let entry = try? JSONDecoder().decode(GraphQLCacheEntry.self, from: data),
+              now.timeIntervalSince(entry.insertedAt) < graphQLCacheTTL else {
+            return nil
+        }
+        graphQLMemoryCache[key] = entry
+        return entry
+    }
+
+    private func storeGraphQLResponse(_ data: Data, forKey key: String) {
+        let entry = GraphQLCacheEntry(insertedAt: Date(), data: data)
+        graphQLMemoryCache[key] = entry
+
+        guard let url = graphQLCacheURL(forKey: key),
+              let encoded = try? JSONEncoder().encode(entry) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true,
+                                                 attributes: nil)
+        try? encoded.write(to: url, options: [.atomic])
+    }
+
+    private func graphQLCacheURL(forKey key: String) -> URL? {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let digest = SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return base.appendingPathComponent("AniListGraphQLCache", isDirectory: true)
+            .appendingPathComponent("\(digest).json")
     }
 
     // MARK: - CoreData (legacy, iOS-specific)
@@ -394,6 +668,7 @@ public final class AniListClient: NSObject {
 
     // MARK: - Search (matches client.ts search())
 
+    @discardableResult
     func searchAnimeItems(title: String?,
                           genres: [String],
                           tags: [String] = [],
@@ -406,12 +681,11 @@ public final class AniListClient: NSObject {
                           isAdult: Bool? = nil,
                           onList: Bool? = nil,
                           ids: [Int]? = nil,
-                          perPage: Int = 20,
+                          perPage: Int? = nil,
                           page: Int,
-                          completion: @escaping ([AnimeItem], Bool) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion([], false); return }
-        var request = authorizedRequest(url: url)
-        var variables: [String: Any] = ["sort": [sort], "page": page, "perPage": perPage]
+                          completion: @escaping ([AnimeItem], Bool) -> Void) -> AniListRequestToken? {
+        var variables: [String: Any] = ["sort": [sort], "page": page]
+        if let perPage { variables["perPage"] = perPage }
         if let t = title, !t.isEmpty { variables["search"] = t }
         if !genres.isEmpty   { variables["genre"] = genres }
         if !tags.isEmpty     { variables["tag"] = tags }
@@ -424,30 +698,34 @@ public final class AniListClient: NSObject {
         if let onList = onList { variables["onList"] = onList }
         if let ids = ids, !ids.isEmpty { variables["ids"] = ids }
         if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
-        let body: [String: Any] = ["query": AniListQueries.search, "variables": variables]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        return performGraphQL(query: AniListQueries.search,
+                              variables: variables,
+                              requestPolicy: .cacheFirst,
+                              context: "Search") { [weak self] data, _, _ in
+            guard let self else { completion([], false); return }
             guard let data = data,
-                  let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
-                  let pageData = response.data?.Page else {
+                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+                   let pageData = response.data?.Page else {
                 DispatchQueue.main.async { completion([], false) }
                 return
             }
             let hasNext = pageData.pageInfo?.hasNextPage ?? false
             let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
+            self.cacheFullMediaItems(items)
             DispatchQueue.main.async { completion(items, hasNext) }
-        }.resume()
+        }
     }
 
     // MARK: - Fetch by IDs (single / trace.moe)
 
     func fetchAnimeByIds(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
-        guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
-        var request = authorizedRequest(url: url)
-        let body: [String: Any] = ["query": AniListQueries.byIds, "variables": ["ids": ids]]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        guard !ids.isEmpty else { completion([]); return }
+        performGraphQL(query: AniListQueries.byIds,
+                       variables: ["ids": ids],
+                       requestPolicy: .cacheFirst,
+                       context: "ByIds") { [weak self] data, _, _ in
+            guard let self else { completion([]); return }
             guard let data = data,
                   let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
                   let pageData = response.data?.Page else {
@@ -455,8 +733,9 @@ public final class AniListClient: NSObject {
                 return
             }
             let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
+            self.cacheFullMediaItems(items)
             DispatchQueue.main.async { completion(items) }
-        }.resume()
+        }
     }
 
     // MARK: - Resolver search/fetch (player resolver.ts parity)
@@ -611,6 +890,16 @@ public final class AniListClient: NSObject {
         }
     }
 
+    private func cacheFullMediaItems(_ items: [AnimeItem]) {
+        guard !items.isEmpty else { return }
+        fullMediaQueue.async { [weak self] in
+            guard let self else { return }
+            for item in items {
+                self.fullMediaCache[item.id] = item
+            }
+        }
+    }
+
     private func bestResolverSearchMedia(in mediaList: [[String: Any]], title: String) -> [String: Any]? {
         mediaList.min { lhs, rhs in
             let leftDistance = resolverTitleDistance(lhs, title: title)
@@ -754,16 +1043,17 @@ public final class AniListClient: NSObject {
     // MARK: - Anime page (anime/[id])
 
     func fetchAnimePage(id: Int, completion: @escaping (AnimePagePayload) -> Void) {
+        let key = animePageCacheKey(id: id)
         var cached: AnimePagePayload?
         var shouldStartRequest = false
 
         animePageQueue.sync {
-            cached = animePageCache[id]
+            cached = animePageCache[key]
             if cached == nil {
-                if animePageCompletions[id] != nil {
-                    animePageCompletions[id]?.append(completion)
+                if animePageCompletions[key] != nil {
+                    animePageCompletions[key]?.append(completion)
                 } else {
-                    animePageCompletions[id] = [completion]
+                    animePageCompletions[key] = [completion]
                     shouldStartRequest = true
                 }
             }
@@ -774,23 +1064,19 @@ public final class AniListClient: NSObject {
             return
         }
         if shouldStartRequest {
-            fetchAnimePageFromNetwork(id)
+            fetchAnimePageFromNetwork(id: id, cacheKey: key)
         }
     }
 
-    private func fetchAnimePageFromNetwork(_ id: Int) {
-        guard let url = URL(string: graphQLEndpoint) else {
-            finishAnimePageFetch(id: id, payload: emptyAnimePagePayload())
-            return
-        }
+    private func animePageCacheKey(id: Int) -> String {
+        "\(graphQLAuthScope):\(id)"
+    }
 
-        var request = authorizedRequest(url: url)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": AniListQueries.animePage,
-            "variables": ["id": id]
-        ])
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+    private func fetchAnimePageFromNetwork(id: Int, cacheKey: String) {
+        performGraphQL(query: AniListQueries.animePage,
+                       variables: ["id": id],
+                       requestPolicy: .cacheFirst,
+                       context: "AnimePage") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[AniListClient] AnimePage network error: %@", error.localizedDescription)
@@ -799,23 +1085,24 @@ public final class AniListClient: NSObject {
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObject = json["data"] as? [String: Any] else {
-                self.finishAnimePageFetch(id: id, payload: self.emptyAnimePagePayload())
+                self.finishAnimePageFetch(cacheKey: cacheKey, id: id, payload: self.emptyAnimePagePayload())
                 return
             }
 
             self.logGraphQLErrors(json["errors"], context: "AnimePage")
             let publicPayload = self.parseAnimePagePayload(from: dataObject, followingEntries: [])
-            self.finishAnimePageFetch(id: id, payload: publicPayload)
-        }.resume()
+            self.cacheFullMediaItems([publicPayload.media].compactMap { $0 } + publicPayload.recommendations)
+            self.finishAnimePageFetch(cacheKey: cacheKey, id: id, payload: publicPayload)
+        }
     }
 
-    private func finishAnimePageFetch(id: Int, payload: AnimePagePayload) {
+    private func finishAnimePageFetch(cacheKey: String, id: Int, payload: AnimePagePayload) {
         animePageQueue.async { [weak self] in
             guard let self else { return }
             if payload.media != nil {
-                self.animePageCache[id] = payload
+                self.animePageCache[cacheKey] = payload
             }
-            let callbacks = self.animePageCompletions.removeValue(forKey: id) ?? []
+            let callbacks = self.animePageCompletions.removeValue(forKey: cacheKey) ?? []
             callbacks.forEach { callback in
                 self.deliverAnimePagePayload(payload, id: id, completion: callback)
             }
@@ -852,18 +1139,15 @@ public final class AniListClient: NSObject {
     }
 
     private func fetchAnimePageFollowing(id: Int, completion: @escaping ([AniListFollowingEntry]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint), canFetchFollowingList else {
+        guard canFetchFollowingList else {
             completion([])
             return
         }
 
-        var request = authorizedRequest(url: url)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": AniListQueries.animePageFollowing,
-            "variables": ["id": id]
-        ])
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        performGraphQL(query: AniListQueries.animePageFollowing,
+                       variables: ["id": id],
+                       requestPolicy: .cacheFirst,
+                       context: "AnimePageFollowing") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[AniListClient] AnimePageFollowing network error: %@", error.localizedDescription)
@@ -877,7 +1161,7 @@ public final class AniListClient: NSObject {
             self.logGraphQLErrors(json["errors"], context: "AnimePageFollowing")
             let page = (json["data"] as? [String: Any])?["following"] as? [String: Any]
             completion(self.parseFollowingEntries(from: page))
-        }.resume()
+        }
     }
 
     private func parseAnimePagePayload(from dataObject: [String: Any], followingEntries: [AniListFollowingEntry]) -> AnimePagePayload {
