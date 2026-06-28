@@ -322,18 +322,43 @@ public final class AniListClient: NSObject {
 
     // MARK: - Home sections (home/+page.svelte)
 
-    private var homeSectionConfigs: [(title: String, variables: [String: Any])] {
+    func homeSectionDefinitions() -> [AniListHomeSectionDefinition] {
         let season = AniListUtil.currentSeason()
         let year = AniListUtil.currentYear()
         return [
-            ("Popular This Season", ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year]),
-            ("Trending Now",        ["sort": ["TRENDING_DESC"]]),
-            ("All Time Popular",    ["sort": ["POPULARITY_DESC"]]),
-            ("Romance",             ["sort": ["TRENDING_DESC"], "genre": ["Romance"]]),
-            ("Action",              ["sort": ["TRENDING_DESC"], "genre": ["Action"]]),
-            ("Adventure",           ["sort": ["TRENDING_DESC"], "genre": ["Adventure"]]),
-            ("Fantasy",             ["sort": ["TRENDING_DESC"], "genre": ["Fantasy"]]),
+            AniListHomeSectionDefinition(id: "home.popular-season",
+                                         title: "Popular This Season",
+                                         variables: ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.trending",
+                                         title: "Trending Now",
+                                         variables: ["sort": ["TRENDING_DESC"]],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.all-time-popular",
+                                         title: "All Time Popular",
+                                         variables: ["sort": ["POPULARITY_DESC"]],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.romance",
+                                         title: "Romance",
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Romance"]],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.action",
+                                         title: "Action",
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Action"]],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.adventure",
+                                         title: "Adventure",
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Adventure"]],
+                                         startsPaused: true),
+            AniListHomeSectionDefinition(id: "home.fantasy",
+                                         title: "Fantasy",
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Fantasy"]],
+                                         startsPaused: true),
         ]
+    }
+
+    private var homeSectionConfigs: [(title: String, variables: [String: Any])] {
+        homeSectionDefinitions().map { ($0.title, $0.variables) }
     }
 
     func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
@@ -345,20 +370,95 @@ public final class AniListClient: NSObject {
         }
     }
 
+    @discardableResult
+    func fetchHomeSectionResult(definition: AniListHomeSectionDefinition,
+                                policy: AniListRequestPolicy = .cacheAndNetwork,
+                                query: PageQuery<HomeSectionData>? = nil,
+                                completion: @escaping (Result<HomeSectionData, AniListRequestError>) -> Void) -> AniListRequestToken? {
+        if policy == .pausedUntilVisible {
+            query?.preparePaused { [weak self, weak query] in
+                self?.fetchHomeSectionResult(definition: definition,
+                                             policy: .cacheAndNetwork,
+                                             query: query,
+                                             completion: completion)
+            }
+            return nil
+        }
+
+        let vars = applyNsfwFilter(to: definition.variables)
+        let key = cacheKey(prefix: "homeSection", variables: vars)
+        let cachedItems = queryCacheQueue.sync { homeSectionItemCache[key] }
+        let cachedSection = cachedItems.map {
+            makeHomeSectionData(definition: definition,
+                                items: $0,
+                                state: $0.isEmpty ? .empty : .loaded)
+        }
+
+        if policy != .networkOnly, let cachedSection {
+            query?.setSuccess(cachedSection, isEmpty: cachedSection.items.isEmpty)
+            completion(.success(cachedSection))
+            if policy == .cacheFirst { return nil }
+        }
+
+        query?.setFetching(previous: cachedSection)
+        let token = requestExecutor.execute(query: AniListQueries.homeSection,
+                                            variables: vars,
+                                            authorized: true,
+                                            dedupeKey: key) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let graphQLResult):
+                do {
+                    let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
+                    guard let mediaList = response.data?.Page?.media else {
+                        query?.setFailure(AniListRequestError.emptyData, previous: cachedSection)
+                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
+                        return
+                    }
+                    let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
+                    let section = self.makeHomeSectionData(definition: definition,
+                                                           items: items,
+                                                           state: items.isEmpty ? .empty : .loaded)
+                    self.queryCacheQueue.async { self.homeSectionItemCache[key] = items }
+                    query?.setSuccess(section, isEmpty: items.isEmpty)
+                    DispatchQueue.main.async { completion(.success(section)) }
+                } catch {
+                    query?.setFailure(AniListRequestError.invalidJSON, previous: cachedSection)
+                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
+                }
+            case .failure(let error):
+                query?.setFailure(error, previous: cachedSection)
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+        query?.attach(token)
+        return token
+    }
+
+    private func makeHomeSectionData(definition: AniListHomeSectionDefinition,
+                                     items: [AnimeItem],
+                                     state: HomeSectionContentState = .loaded) -> HomeSectionData {
+        var section = HomeSectionData(title: definition.title, items: items)
+        section.queryID = definition.id
+        section.contentState = state
+        section.filterGenre = (definition.variables["genre"] as? [String])?.first
+        section.filterSort = (definition.variables["sort"] as? [String])?.first
+        return section
+    }
+
     func fetchHomeSectionsResult(policy: AniListRequestPolicy = .cacheAndNetwork,
                                  query: PageQuery<[HomeSectionData]>? = nil,
                                  completion: @escaping (Result<[HomeSectionData], AniListRequestError>) -> Void) {
-        let configs = homeSectionConfigs
+        let definitions = homeSectionDefinitions()
         let cachedSections: [HomeSectionData]? = queryCacheQueue.sync {
-            let sections = configs.compactMap { config -> HomeSectionData? in
-                let vars = applyNsfwFilter(to: config.variables)
+            let sections = definitions.compactMap { definition -> HomeSectionData? in
+                let vars = applyNsfwFilter(to: definition.variables)
                 guard let items = homeSectionItemCache[cacheKey(prefix: "homeSection", variables: vars)] else { return nil }
-                var section = HomeSectionData(title: config.title, items: items)
-                section.filterGenre = (config.variables["genre"] as? [String])?.first
-                section.filterSort = (config.variables["sort"] as? [String])?.first
-                return section
+                return makeHomeSectionData(definition: definition,
+                                           items: items,
+                                           state: items.isEmpty ? .empty : .loaded)
             }
-            return sections.count == configs.count ? sections : nil
+            return sections.count == definitions.count ? sections : nil
         }
 
         if policy != .networkOnly, let cachedSections {
@@ -371,18 +471,15 @@ public final class AniListClient: NSObject {
         query?.setFetching(previous: cachedSections)
         let group = DispatchGroup()
         let syncQueue = DispatchQueue(label: "com.hayase.homeSections")
-        var results = [HomeSectionData?](repeating: nil, count: configs.count)
+        var results = [HomeSectionData?](repeating: nil, count: definitions.count)
         var firstError: AniListRequestError?
 
-        for (index, config) in configs.enumerated() {
+        for (index, definition) in definitions.enumerated() {
             group.enter()
-            fetchSectionItemsResult(variables: config.variables, policy: .networkOnly) { result in
+            fetchHomeSectionResult(definition: definition, policy: .networkOnly) { result in
                 switch result {
-                case .success(let items):
-                    var sectionData = HomeSectionData(title: config.title, items: items)
-                    sectionData.filterGenre = (config.variables["genre"] as? [String])?.first
-                    sectionData.filterSort = (config.variables["sort"] as? [String])?.first
-                    syncQueue.sync { results[index] = sectionData }
+                case .success(let section):
+                    syncQueue.sync { results[index] = section }
                 case .failure(let error):
                     syncQueue.sync { if firstError == nil { firstError = error } }
                 }

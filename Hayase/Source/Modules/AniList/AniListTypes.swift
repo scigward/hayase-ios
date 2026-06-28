@@ -95,9 +95,47 @@ struct AnimeRelation {
 
 // MARK: - HomeSectionData
 
+struct AniListHomeSectionDefinition {
+    let id: String
+    let title: String
+    let variables: [String: Any]
+    let startsPaused: Bool
+}
+
+enum HomeSectionContentState {
+    case idle
+    case paused
+    case fetching
+    case loaded
+    case empty
+    case failed(String)
+
+    var showsPlaceholderItems: Bool {
+        switch self {
+        case .idle, .paused, .fetching:
+            return true
+        case .loaded, .empty, .failed:
+            return false
+        }
+    }
+
+    var message: String? {
+        switch self {
+        case .empty:
+            return "Looks like there's nothing here."
+        case .failed(let message):
+            return message
+        case .idle, .paused, .fetching, .loaded:
+            return nil
+        }
+    }
+}
+
 struct HomeSectionData {
     let title: String
     var items: [AnimeItem]
+    var queryID: String? = nil
+    var contentState: HomeSectionContentState = .loaded
     var filterGenre: String? = nil
     var filterSort: String? = nil
     var filterIDs: [Int]? = nil

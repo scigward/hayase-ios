@@ -1555,6 +1555,55 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }
 }
 
+
+// MARK: - HomeSectionMessageCell
+
+private final class HomeSectionMessageCell: UICollectionViewCell {
+    static let reuseID = "HomeSectionMessageCell"
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .nunito(ofSize: 20, weight: .bold)
+        label.textColor = .label
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        return label
+    }()
+
+    private let messageLabel: UILabel = {
+        let label = UILabel()
+        label.font = .nunito(ofSize: 14)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(title: String, message: String) {
+        titleLabel.text = title
+        messageLabel.text = message
+    }
+}
+
 // MARK: - SkeletonBannerCell
 // Matches Hayase's banner/skeleton-banner.svelte:
 // Full-height cell with placeholder bars at bottom-left (pl-5 pb-5 justify-end flex-col)
@@ -1737,7 +1786,6 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Properties
 
     private var sections: [HomeSectionData] = []
-    private var fetchedHomeSections: [HomeSectionData] = []
     /// Items used exclusively for the hero banner rotation.  Always sourced from
     /// the first *fetched* section (trending/popular) — never "Continue Watching".
     private var bannerItems: [AnimeItem] = []
@@ -1755,12 +1803,32 @@ class BrowseAnimeViewController: UIViewController {
     private var homeRefreshTimer: Timer?
     private var personalSectionsLoadID = 0
     private var lastLocalContinueIDs: [Int] = []
-    private let homeSectionsQuery = PageQuery<[HomeSectionData]>()
     private let bannerQuery = PageQuery<[AnimeItem]>()
+    private var homeSectionDescriptors: [String: HomeSectionDescriptor] = [:]
+    private var homeSectionQueries: [String: PageQuery<HomeSectionData>] = [:]
+    private var homeSectionObserverIDs: [String: UUID] = [:]
+    private var visibleHomeSectionIDs = Set<String>()
 
     private let homeBackdropView = HomeBannerBackdropView()
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
     private var homeBackdropTrailingConstraint: NSLayoutConstraint?
+
+    private enum HomeSectionLoadKind {
+        case generic(AniListHomeSectionDefinition)
+        case ids(ids: [Int], status: [String]?, onList: Bool?, sort: [String]?, preserveOrder: Bool)
+    }
+
+    private struct HomeSectionDescriptor {
+        let id: String
+        let title: String
+        let startsPaused: Bool
+        let kind: HomeSectionLoadKind
+        let filterGenre: String?
+        let filterSort: String?
+        let filterIDs: [Int]?
+        let filterStatus: [String]?
+        let filterOnList: Bool?
+    }
 
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
 
@@ -1873,6 +1941,7 @@ class BrowseAnimeViewController: UIViewController {
         NotificationCenter.default.removeObserver(self)
         searchDebounceTimer?.invalidate()
         homeRefreshTimer?.invalidate()
+        resetHomeSectionQueries()
     }
 
     // MARK: - Setup
@@ -1923,6 +1992,8 @@ class BrowseAnimeViewController: UIViewController {
                                 forCellWithReuseIdentifier: SkeletonPosterCell.reuseID)
         collectionView.register(SkeletonBannerCell.self,
                                 forCellWithReuseIdentifier: SkeletonBannerCell.reuseID)
+        collectionView.register(HomeSectionMessageCell.self,
+                                forCellWithReuseIdentifier: HomeSectionMessageCell.reuseID)
         // Section headers (sections 1..n when home)
         collectionView.register(SectionHeaderView.self,
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -2081,137 +2152,106 @@ class BrowseAnimeViewController: UIViewController {
     private func loadSections() {
         isSearching = false
         homeBackdropView.isHidden = false
-        sections = []
         bannerItems = []
-        isLoadingSections = true
+        isLoadingSections = false
+        personalSectionsLoadID += 1
+        lastLocalContinueIDs = []
+        visibleHomeSectionIDs.removeAll()
+        resetHomeSectionQueries()
         collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
-        collectionView.reloadData()
         loadingIndicator.isHidden = true
         emptyLabel.isHidden = true
 
-        // Fetch banner items separately with SCORE_DESC — matches Hayase banner.svelte:
-        //   client.search({ sort: ['SCORE_DESC'], perPage: 15, season: currentSeason,
-        //                   seasonYear: currentYear, statusNot: ['NOT_YET_RELEASED'] })
+        installHomeSectionDescriptors(genericHomeSectionDescriptors(), resetPersonalQueries: true)
+
+        // Interface Banner is an active query. It is intentionally separate from
+        // the paused row queries so the hero can load without waking every row.
         AniListClient.shared.fetchBannerItemsResult(policy: .cacheAndNetwork, query: bannerQuery) { [weak self] result in
             guard let self = self else { return }
             guard case .success(let bannerResults) = result, !bannerResults.isEmpty else { return }
             self.bannerItems = bannerResults
-            // Reload banner cell if it already exists.
             if self.collectionView.numberOfSections > 0,
                self.collectionView.numberOfItems(inSection: 0) > 0 {
                 self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
-                // prepareForReuse resets the banner cell's alpha; re-sync the fade state.
                 DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
             }
         }
 
-        AniListClient.shared.fetchHomeSectionsResult(policy: .cacheAndNetwork, query: homeSectionsQuery) { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let fetchedSections):
-                self.fetchedHomeSections = fetchedSections
+        refreshPersonalSectionQueries(fetchRemoteLists: true)
+    }
 
-                // If banner didn't load from the separate SCORE_DESC query, fall back to first section.
-                if self.bannerItems.isEmpty {
-                    self.bannerItems = fetchedSections.first?.items ?? []
-                }
-
-                self.loadPersonalSections(fetchedSections: fetchedSections, fetchRemoteLists: true)
-            case .failure(let error):
-                self.isLoadingSections = false
-                self.loadingIndicator.stopAnimating()
-                if self.sections.isEmpty {
-                    self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
-                    self.emptyLabel.isHidden = false
-                    self.collectionView.reloadData()
-                }
-            }
+    private func genericHomeSectionDescriptors() -> [HomeSectionDescriptor] {
+        AniListClient.shared.homeSectionDefinitions().map { definition in
+            HomeSectionDescriptor(
+                id: definition.id,
+                title: definition.title,
+                startsPaused: definition.startsPaused,
+                kind: .generic(definition),
+                filterGenre: (definition.variables["genre"] as? [String])?.first,
+                filterSort: (definition.variables["sort"] as? [String])?.first,
+                filterIDs: nil,
+                filterStatus: nil,
+                filterOnList: nil)
         }
     }
 
-    private func loadPersonalSections(fetchedSections: [HomeSectionData], fetchRemoteLists: Bool) {
-        // Fetch personalized sections from AniList user lists and local watch progress.
-        // This mirrors desktop home/+page.svelte, with local progress merged into
-        // Continue Watching so offline/local tracking updates the home page too.
+    private func personalHomeSectionDescriptors(userListIDs: AniListTracking.UserListIDs?) -> [HomeSectionDescriptor] {
+        let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+        lastLocalContinueIDs = localContinueIDs
+        let remoteContinueIDs = userListIDs?.continueIDs ?? []
+        let continueIDs = mergeIDs(localContinueIDs, remoteContinueIDs)
+        let planningIDs = userListIDs?.planningIDs ?? []
+        let sequelIDs = userListIDs?.sequelIDs ?? []
+
+        var descriptors: [HomeSectionDescriptor] = []
+        if !continueIDs.isEmpty {
+            let ids = Array(continueIDs.prefix(50))
+            descriptors.append(HomeSectionDescriptor(
+                id: "personal.continue",
+                title: "Continue Watching",
+                startsPaused: false,
+                kind: .ids(ids: ids, status: nil, onList: nil, sort: ["UPDATED_AT_DESC"], preserveOrder: true),
+                filterGenre: nil,
+                filterSort: "UPDATED_AT_DESC",
+                filterIDs: ids,
+                filterStatus: nil,
+                filterOnList: nil))
+        }
+        if !planningIDs.isEmpty {
+            descriptors.append(HomeSectionDescriptor(
+                id: "personal.planning",
+                title: "Your List",
+                startsPaused: true,
+                kind: .ids(ids: planningIDs, status: ["FINISHED", "RELEASING"], onList: nil, sort: ["START_DATE_DESC"], preserveOrder: false),
+                filterGenre: nil,
+                filterSort: "START_DATE_DESC",
+                filterIDs: planningIDs,
+                filterStatus: ["FINISHED", "RELEASING"],
+                filterOnList: nil))
+        }
+        if !sequelIDs.isEmpty {
+            descriptors.append(HomeSectionDescriptor(
+                id: "personal.sequels",
+                title: "Sequels You Missed",
+                startsPaused: true,
+                kind: .ids(ids: sequelIDs, status: ["FINISHED", "RELEASING"], onList: false, sort: nil, preserveOrder: false),
+                filterGenre: nil,
+                filterSort: nil,
+                filterIDs: sequelIDs,
+                filterStatus: ["FINISHED", "RELEASING"],
+                filterOnList: false))
+        }
+        return descriptors
+    }
+
+    private func refreshPersonalSectionQueries(fetchRemoteLists: Bool) {
         personalSectionsLoadID += 1
         let loadID = personalSectionsLoadID
-
         let applyLists: (AniListTracking.UserListIDs?) -> Void = { [weak self] userListIDs in
-            guard let self = self else { return }
-
-            let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-            self.lastLocalContinueIDs = localContinueIDs
-            let remoteContinueIDs = userListIDs?.continueIDs ?? []
-            let continueIDs = self.mergeIDs(localContinueIDs, remoteContinueIDs)
-
-            let planningIDs = userListIDs?.planningIDs ?? []
-            let sequelIDs = userListIDs?.sequelIDs ?? []
-
-            let group = DispatchGroup()
-            let syncQueue = DispatchQueue(label: "com.hayase.personalSections")
-            var personalSections: [(index: Int, section: HomeSectionData)] = []
-
-            if !continueIDs.isEmpty {
-                group.enter()
-                AniListClient.shared.fetchSectionByIDs(Array(continueIDs.prefix(50))) { items in
-                    if !items.isEmpty {
-                        syncQueue.sync {
-                            var section = HomeSectionData(title: "Continue Watching", items: items)
-                            section.filterIDs = Array(continueIDs.prefix(50))
-                            section.filterSort = "UPDATED_AT_DESC"
-                            personalSections.append((index: 0, section: section))
-                        }
-                    }
-                    group.leave()
-                }
-            }
-
-            if !planningIDs.isEmpty {
-                group.enter()
-                AniListClient.shared.fetchSectionByIDsFiltered(
-                    planningIDs,
-                    status: ["FINISHED", "RELEASING"],
-                    sort: ["START_DATE_DESC"]
-                ) { items in
-                    if !items.isEmpty {
-                        syncQueue.sync {
-                            var section = HomeSectionData(title: "Your List", items: items)
-                            section.filterIDs = planningIDs
-                            section.filterStatus = ["FINISHED", "RELEASING"]
-                            section.filterSort = "START_DATE_DESC"
-                            personalSections.append((index: 1, section: section))
-                        }
-                    }
-                    group.leave()
-                }
-            }
-
-            if !sequelIDs.isEmpty {
-                group.enter()
-                AniListClient.shared.fetchSectionByIDsFiltered(
-                    sequelIDs,
-                    status: ["FINISHED", "RELEASING"],
-                    onList: false
-                ) { items in
-                    if !items.isEmpty {
-                        syncQueue.sync {
-                            var section = HomeSectionData(title: "Sequels You Missed", items: items)
-                            section.filterIDs = sequelIDs
-                            section.filterStatus = ["FINISHED", "RELEASING"]
-                            section.filterOnList = false
-                            personalSections.append((index: 2, section: section))
-                        }
-                    }
-                    group.leave()
-                }
-            }
-
-            group.notify(queue: .main) { [weak self] in
-                guard let self = self else { return }
-                guard loadID == self.personalSectionsLoadID else { return }
-                let sorted = personalSections.sorted { $0.index < $1.index }.map { $0.section }
-                self.finishLoadSections(fetchedSections: fetchedSections, personalSections: sorted)
-            }
+            guard let self else { return }
+            guard loadID == self.personalSectionsLoadID else { return }
+            let descriptors = self.personalHomeSectionDescriptors(userListIDs: userListIDs)
+            self.installHomeSectionDescriptors(descriptors + self.genericHomeSectionDescriptors(), resetPersonalQueries: true)
         }
 
         if fetchRemoteLists {
@@ -2219,6 +2259,167 @@ class BrowseAnimeViewController: UIViewController {
         } else {
             applyLists(AniListTracking.shared.cachedUserLists())
         }
+    }
+
+    private func installHomeSectionDescriptors(_ descriptors: [HomeSectionDescriptor], resetPersonalQueries: Bool) {
+        if resetPersonalQueries {
+            removeHomeSectionQueries(where: { $0.hasPrefix("personal.") })
+        }
+
+        let newIDs = Set(descriptors.map(\.id))
+        removeHomeSectionQueries(where: { !newIDs.contains($0) })
+        homeSectionDescriptors = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+
+        let existing = Dictionary(uniqueKeysWithValues: sections.compactMap { section -> (String, HomeSectionData)? in
+            guard let id = section.queryID else { return nil }
+            return (id, section)
+        })
+        sections = descriptors.map { descriptor in
+            existing[descriptor.id] ?? placeholderSection(for: descriptor)
+        }
+        collectionView.reloadData()
+        emptyLabel.isHidden = !sections.isEmpty
+
+        for descriptor in descriptors where homeSectionQueries[descriptor.id] == nil {
+            configureHomeSectionQuery(for: descriptor)
+        }
+        resumeVisibleHomeSections()
+    }
+
+    private func configureHomeSectionQuery(for descriptor: HomeSectionDescriptor) {
+        let query = PageQuery<HomeSectionData>()
+        homeSectionQueries[descriptor.id] = query
+        homeSectionObserverIDs[descriptor.id] = query.observe { [weak self] state in
+            self?.applyHomeSectionState(state, for: descriptor)
+        }
+
+        switch descriptor.kind {
+        case .generic(let definition):
+            let policy: AniListRequestPolicy = descriptor.startsPaused ? .pausedUntilVisible : .cacheAndNetwork
+            AniListClient.shared.fetchHomeSectionResult(definition: definition, policy: policy, query: query) { _ in }
+        case .ids:
+            if descriptor.startsPaused {
+                query.preparePaused { [weak self, weak query] in
+                    self?.startPersonalSectionFetch(descriptor, query: query)
+                    return nil
+                }
+            } else {
+                startPersonalSectionFetch(descriptor, query: query)
+            }
+        }
+    }
+
+    @discardableResult
+    private func startPersonalSectionFetch(_ descriptor: HomeSectionDescriptor,
+                                           query: PageQuery<HomeSectionData>?) -> AniListRequestToken? {
+        guard case .ids(let ids, let status, let onList, let sort, let preserveOrder) = descriptor.kind else { return nil }
+        query?.setFetching(previous: currentHomeSection(for: descriptor.id))
+        let finish: ([AnimeItem]) -> Void = { [weak self, weak query] items in
+            guard let self else { return }
+            var section = self.sectionData(for: descriptor, items: items)
+            section.contentState = items.isEmpty ? .empty : .loaded
+            query?.setSuccess(section, isEmpty: items.isEmpty)
+        }
+
+        if preserveOrder {
+            AniListClient.shared.fetchSectionByIDs(ids, completion: finish)
+        } else {
+            AniListClient.shared.fetchSectionByIDsFiltered(ids,
+                                                           status: status,
+                                                           onList: onList,
+                                                           sort: sort,
+                                                           completion: finish)
+        }
+        return nil
+    }
+
+    private func applyHomeSectionState(_ state: PageQuery<HomeSectionData>.State,
+                                       for descriptor: HomeSectionDescriptor) {
+        var section: HomeSectionData
+        switch state {
+        case .idle:
+            section = placeholderSection(for: descriptor, state: .idle)
+        case .paused:
+            section = placeholderSection(for: descriptor, state: .paused)
+        case .fetching(let previous):
+            section = previous ?? currentHomeSection(for: descriptor.id) ?? placeholderSection(for: descriptor)
+            section.contentState = .fetching
+        case .success(let value):
+            section = value
+            section.contentState = section.items.isEmpty ? .empty : .loaded
+        case .empty:
+            section = currentHomeSection(for: descriptor.id) ?? placeholderSection(for: descriptor)
+            section.items = []
+            section.contentState = .empty
+        case .failure(let error, let previous):
+            section = previous ?? currentHomeSection(for: descriptor.id) ?? placeholderSection(for: descriptor)
+            section.contentState = .failed((error as? AniListRequestError)?.description ?? error.localizedDescription)
+        }
+        updateHomeSection(section, id: descriptor.id)
+    }
+
+    private func placeholderSection(for descriptor: HomeSectionDescriptor,
+                                    state: HomeSectionContentState? = nil) -> HomeSectionData {
+        var section = sectionData(for: descriptor, items: [])
+        section.contentState = state ?? (descriptor.startsPaused ? .paused : .fetching)
+        return section
+    }
+
+    private func sectionData(for descriptor: HomeSectionDescriptor, items: [AnimeItem]) -> HomeSectionData {
+        var section = HomeSectionData(title: descriptor.title, items: items)
+        section.queryID = descriptor.id
+        section.filterGenre = descriptor.filterGenre
+        section.filterSort = descriptor.filterSort
+        section.filterIDs = descriptor.filterIDs
+        section.filterStatus = descriptor.filterStatus
+        section.filterOnList = descriptor.filterOnList
+        return section
+    }
+
+    private func currentHomeSection(for id: String) -> HomeSectionData? {
+        sections.first { $0.queryID == id }
+    }
+
+    private func updateHomeSection(_ section: HomeSectionData, id: String) {
+        guard let rowIndex = sections.firstIndex(where: { $0.queryID == id }) else { return }
+        sections[rowIndex] = section
+        let collectionSection = rowIndex + 1
+        guard isViewLoaded, collectionView.numberOfSections > collectionSection else { return }
+        collectionView.reloadSections(IndexSet(integer: collectionSection))
+        emptyLabel.isHidden = true
+        DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
+    }
+
+    private func resumeHomeSectionIfNeeded(rowSection: Int) {
+        guard !isSearching,
+              rowSection >= 0,
+              rowSection < sections.count,
+              let id = sections[rowSection].queryID else { return }
+        visibleHomeSectionIDs.insert(id)
+        _ = homeSectionQueries[id]?.resume()
+    }
+
+    private func resumeVisibleHomeSections() {
+        for id in visibleHomeSectionIDs {
+            _ = homeSectionQueries[id]?.resume()
+        }
+    }
+
+    private func removeHomeSectionQueries(where shouldRemove: (String) -> Bool) {
+        for id in Array(homeSectionQueries.keys) where shouldRemove(id) {
+            if let observerID = homeSectionObserverIDs[id] {
+                homeSectionQueries[id]?.removeObserver(observerID)
+            }
+            homeSectionQueries[id]?.pause()
+            homeSectionQueries[id] = nil
+            homeSectionObserverIDs[id] = nil
+            homeSectionDescriptors[id] = nil
+            visibleHomeSectionIDs.remove(id)
+        }
+    }
+
+    private func resetHomeSectionQueries() {
+        removeHomeSectionQueries(where: { _ in true })
     }
 
     private func mergeIDs(_ primary: [Int], _ secondary: [Int]) -> [Int] {
@@ -2234,32 +2435,12 @@ class BrowseAnimeViewController: UIViewController {
         guard !isSearching else { return }
         let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
         let remoteListChanged = notification.object is AniListTracking
-        guard remoteListChanged || fetchedHomeSections.isEmpty || currentLocalContinueIDs != lastLocalContinueIDs else { return }
+        guard remoteListChanged || currentLocalContinueIDs != lastLocalContinueIDs else { return }
         homeRefreshTimer?.invalidate()
         homeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
             guard let self else { return }
-            if self.fetchedHomeSections.isEmpty {
-                self.loadSections()
-            } else {
-                self.loadPersonalSections(fetchedSections: self.fetchedHomeSections, fetchRemoteLists: false)
-            }
+            self.refreshPersonalSectionQueries(fetchRemoteLists: remoteListChanged)
         }
-    }
-
-    /// Combines personal and fetched sections and reloads the collection view.
-    private func finishLoadSections(fetchedSections: [HomeSectionData], personalSections: [HomeSectionData]) {
-        self.isLoadingSections = false
-        // Desktop order: Continue Watching, Your List, Sequels You Missed, then generic sections
-        var allSections = personalSections
-        allSections.append(contentsOf: fetchedSections)
-        self.sections = allSections
-        self.collectionView.reloadData()
-        self.loadingIndicator.stopAnimating()
-        self.emptyLabel.isHidden = !allSections.isEmpty
-        // prepareForReuse resets the banner cell's alpha/state; re-sync the fade.
-        // scrollViewDidScroll is not automatically re-fired after reloadData when the
-        // contentOffset hasn't changed, so we have to call this explicitly.
-        DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
     }
 
     private func performFetch() {
@@ -2334,7 +2515,10 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         if section == 0 { return sections.isEmpty ? 0 : 1 }      // banner = 1 item
         let rowSection = section - 1
         guard rowSection < sections.count else { return 0 }
-        return sections[rowSection].items.count
+        let homeSection = sections[rowSection]
+        if homeSection.contentState.showsPlaceholderItems { return 10 }
+        if homeSection.contentState.message != nil { return 1 }
+        return homeSection.items.count
     }
 
     func collectionView(_ collectionView: UICollectionView,
@@ -2371,6 +2555,12 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         // Section 0: hero banner (always uses the trending/popular items, never Continue Watching)
         if indexPath.section == 0 {
+            if bannerItems.isEmpty {
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SkeletonBannerCell.reuseID, for: indexPath)
+                cell.layer.zPosition = 0
+                return cell
+            }
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
@@ -2415,13 +2605,32 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         }
 
         // Sections 1..n: poster row
+        let rowSection = indexPath.section - 1
+        guard rowSection < sections.count else { return UICollectionViewCell() }
+        let homeSection = sections[rowSection]
+
+        if homeSection.contentState.showsPlaceholderItems {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
+            cell.layer.zPosition = 10
+            return cell
+        }
+
+        if let message = homeSection.contentState.message {
+            guard let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: HomeSectionMessageCell.reuseID,
+                for: indexPath) as? HomeSectionMessageCell else { return UICollectionViewCell() }
+            cell.layer.zPosition = 10
+            cell.configure(title: "Ooops!", message: message)
+            return cell
+        }
+
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-        let rowSection = indexPath.section - 1
         cell.layer.zPosition = 10
-        if rowSection < sections.count, indexPath.item < sections[rowSection].items.count {
-            let item = sections[rowSection].items[indexPath.item]
+        if indexPath.item < homeSection.items.count {
+            let item = homeSection.items[indexPath.item]
             cell.configure(with: item)
             Hover.shared.bind(to: cell,
                               host: self,
@@ -2470,6 +2679,13 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
 extension BrowseAnimeViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
+                        willDisplay cell: UICollectionViewCell,
+                        forItemAt indexPath: IndexPath) {
+        guard !isSearching, !isLoadingSections, indexPath.section > 0 else { return }
+        resumeHomeSectionIfNeeded(rowSection: indexPath.section - 1)
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
         if isSearching {
             if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
@@ -2500,6 +2716,8 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         // Tap on poster row
         let rowSection = indexPath.section - 1
         guard rowSection < sections.count,
+              !sections[rowSection].contentState.showsPlaceholderItems,
+              sections[rowSection].contentState.message == nil,
               indexPath.item < sections[rowSection].items.count else { return }
         let item = sections[rowSection].items[indexPath.item]
         if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,

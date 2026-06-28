@@ -19,6 +19,7 @@ enum AniListRequestPolicy {
 final class PageQuery<Value> {
     enum State {
         case idle
+        case paused
         case fetching(previous: Value?)
         case success(Value)
         case empty
@@ -29,6 +30,8 @@ final class PageQuery<Value> {
     private var observers: [UUID: (State) -> Void] = [:]
     private(set) var state: State = .idle
     private var token: AniListRequestToken?
+    private var resumeHandler: (() -> AniListRequestToken?)?
+    private var hasStarted = false
 
     var currentValue: Value? {
         queue.sync {
@@ -37,7 +40,7 @@ final class PageQuery<Value> {
                 return value
             case .fetching(let previous), .failure(_, let previous):
                 return previous
-            case .idle, .empty:
+            case .idle, .paused, .empty:
                 return nil
             }
         }
@@ -60,10 +63,37 @@ final class PageQuery<Value> {
         }
     }
 
+    func preparePaused(_ resumeHandler: @escaping () -> AniListRequestToken?) {
+        transition { [weak self] in
+            self?.token?.cancel()
+            self?.token = nil
+            self?.resumeHandler = resumeHandler
+            self?.hasStarted = false
+            return .paused
+        }
+    }
+
+    @discardableResult
+    func resume() -> Bool {
+        let handler = queue.sync { () -> (() -> AniListRequestToken?)? in
+            guard !hasStarted, let resumeHandler else { return nil }
+            hasStarted = true
+            self.resumeHandler = nil
+            state = .fetching(previous: currentValueUnlocked())
+            return resumeHandler
+        }
+
+        guard let handler else { return false }
+        notifyObservers()
+        _ = handler()
+        return true
+    }
+
     func pause() {
         queue.async { [weak self] in
             self?.token?.cancel()
             self?.token = nil
+            self?.resumeHandler = nil
         }
     }
 
@@ -75,24 +105,60 @@ final class PageQuery<Value> {
     }
 
     func setFetching(previous: Value? = nil) {
-        transition(to: .fetching(previous: previous ?? currentValue))
+        transition { [weak self] in
+            self?.hasStarted = true
+            return .fetching(previous: previous ?? self?.currentValueUnlocked())
+        }
     }
 
     func setSuccess(_ value: Value, isEmpty: Bool = false) {
-        transition(to: isEmpty ? .empty : .success(value))
+        transition { [weak self] in
+            self?.resumeHandler = nil
+            self?.hasStarted = true
+            return isEmpty ? .empty : .success(value)
+        }
     }
 
     func setFailure(_ error: Error, previous: Value? = nil) {
-        transition(to: .failure(error, previous: previous ?? currentValue))
+        transition { [weak self] in
+            self?.resumeHandler = nil
+            self?.hasStarted = true
+            return .failure(error, previous: previous ?? self?.currentValueUnlocked())
+        }
     }
 
-    private func transition(to newState: State) {
+    private func currentValueUnlocked() -> Value? {
+        switch state {
+        case .success(let value):
+            return value
+        case .fetching(let previous), .failure(_, let previous):
+            return previous
+        case .idle, .paused, .empty:
+            return nil
+        }
+    }
+
+    private func transition(_ mutate: @escaping () -> State) {
         let callbacks = queue.sync { () -> [(State) -> Void] in
-            state = newState
+            state = mutate()
             return Array(observers.values)
         }
+        let newState = stateSnapshot()
         DispatchQueue.main.async {
             callbacks.forEach { $0(newState) }
+        }
+    }
+
+    private func stateSnapshot() -> State {
+        queue.sync { state }
+    }
+
+    private func notifyObservers() {
+        let current = queue.sync { () -> (State, [(State) -> Void]) in
+            (state, Array(observers.values))
+        }
+        DispatchQueue.main.async {
+            current.1.forEach { $0(current.0) }
         }
     }
 }
