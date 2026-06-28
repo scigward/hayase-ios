@@ -80,6 +80,57 @@ enum AniListQueries {
           }
     """
 
+    static let userFields = """
+          id
+          bannerImage
+          about
+          isFollowing
+          isFollower
+          donatorBadge
+          options { profileColor }
+          createdAt
+          name
+          avatar { large }
+          statistics {
+            anime {
+              count
+              minutesWatched
+              episodesWatched
+              genres(limit: 3, sort: COUNT_DESC) { genre count }
+            }
+          }
+    """
+
+    static let threadFields = """
+          id
+          title
+          body
+          userId
+          replyCount
+          viewCount
+          isLocked
+          isSubscribed
+          isLiked
+          likeCount
+          repliedAt
+          createdAt
+          user { \(userFields) }
+          categories { id name }
+    """
+
+    static let scheduleMediaFields = """
+          id
+          coverImage { extraLarge large color }
+          title { userPreferred romaji english native }
+          mediaListEntry { status progress id }
+          aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
+            n: nodes { a: airingAt e: episode }
+          }
+          notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) {
+            n: nodes { a: airingAt e: episode }
+          }
+    """
+
     // MARK: - Airing anime (legacy CoreData flow)
 
     static let airingAnime = """
@@ -294,109 +345,56 @@ enum AniListQueries {
     static let animePage = """
     query AnimePage($id: Int!) {
       Media(id: $id, type: ANIME) {
-        id
-        idMal
-        title { romaji english native userPreferred }
-        description(asHtml: false)
-        season
-        seasonYear
-        format
-        status
-        episodes
-        duration
-        averageScore
-        genres
-        isFavourite
-        coverImage { extraLarge medium color }
-        source
-        countryOfOrigin
-        isAdult
-        bannerImage
-        synonyms
-        nextAiringEpisode { id timeUntilAiring episode }
-        startDate { year month day }
-        trailer { id site }
-        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-        mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
-        relations {
-          edges {
-            relationType(version: 2)
-            node {
-              id
-              title { userPreferred romaji english native }
-              coverImage { extraLarge medium color }
-              type
-              status
-              format
-              episodes
-              synonyms
-              season
-              seasonYear
-              startDate { year month day }
-              relations {
-                edges {
-                  relationType(version: 2)
-                  node {
-                    id
-                    title { userPreferred }
-                    type
-                    status
-                    format
-                    episodes
-                  }
-                }
-              }
-            }
-          }
-        }
+        \(fullMediaFields)
         recommendations(sort: [RATING_DESC, ID], perPage: 24) {
           nodes {
             id
             rating
             mediaRecommendation {
+              mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
               id
-              title { userPreferred romaji english native }
-              coverImage { extraLarge medium color }
-              type
               status
               format
               episodes
+              title { userPreferred romaji english native }
+              coverImage { extraLarge medium color }
+              type
               synonyms
               season
               seasonYear
+              relations {
+                edges {
+                  relationType(version: 2)
+                  node {
+                    id
+                    status
+                    format
+                    episodes
+                    title { userPreferred }
+                    type
+                    coverImage { extraLarge }
+                  }
+                }
+              }
               startDate { year month day }
-              mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+              endDate { year month day }
             }
           }
         }
       }
-      threads: Page(perPage: 16) {
-        pageInfo { hasNextPage total }
-        threads(mediaCategoryId: $id, sort: ID_DESC) {
-          id
-          title
-          viewCount
-          replyCount
-          likeCount
-          isLocked
-          repliedAt
-          createdAt
-          user { id name avatar { large } }
-          categories { id name }
-        }
-      }
-    }
-    """
-
-    static let animePageFollowing = """
-    query AnimePageFollowing($id: Int!) {
       following: Page {
         mediaList(mediaId: $id, isFollowing: true, sort: UPDATED_TIME_DESC) {
           id
           status
           score
           progress
-          user { id name avatar { large } }
+          user { \(userFields) }
+        }
+      }
+      threads: Page(perPage: 16) {
+        pageInfo { hasNextPage total }
+        threads(mediaCategoryId: $id, sort: ID_DESC) {
+          \(threadFields)
         }
       }
     }
@@ -411,10 +409,52 @@ enum AniListQueries {
     // MARK: - Forum threads
 
     static let threads = """
-    query($id:Int){Page(perPage:16){pageInfo{hasNextPage total} threads(mediaCategoryId:$id,sort:ID_DESC){id title viewCount replyCount likeCount isLocked repliedAt createdAt user{id name avatar{large}} categories{id name}}}}
+    query Threads($id: Int!, $page: Int, $perPage: Int) {
+      threads: Page(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage total }
+        threads(mediaCategoryId: $id, sort: ID_DESC) {
+          \(threadFields)
+        }
+      }
+    }
     """
 
     // MARK: - Airing schedule
+
+    static let schedule = """
+    query Schedule($seasonCurrent: MediaSeason, $seasonYearCurrent: Int, $seasonLast: MediaSeason, $seasonYearLast: Int, $seasonNext: MediaSeason, $seasonYearNext: Int, $onList: Boolean, $ids: [Int], $formatNot: MediaFormat, $nsfw: [String]) {
+      curr1: Page(page: 1) {
+        media(type: ANIME, season: $seasonCurrent, seasonYear: $seasonYearCurrent, format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+      curr2: Page(page: 2) {
+        media(type: ANIME, season: $seasonCurrent, seasonYear: $seasonYearCurrent, format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+      curr3: Page(page: 3) {
+        media(type: ANIME, season: $seasonCurrent, seasonYear: $seasonYearCurrent, format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+      residue: Page(page: 1) {
+        media(type: ANIME, season: $seasonLast, seasonYear: $seasonYearLast, episodes_greater: 11, format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+      next1: Page(page: 1) {
+        media(type: ANIME, season: $seasonNext, seasonYear: $seasonYearNext, sort: [START_DATE], format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+      next2: Page(page: 2) {
+        media(type: ANIME, season: $seasonNext, seasonYear: $seasonYearNext, sort: [START_DATE], format_not: $formatNot, onList: $onList, id_in: $ids, genre_not_in: $nsfw) {
+          \(scheduleMediaFields)
+        }
+      }
+    }
+    """
 
     static let airingSchedule = """
     query ($from: Int, $to: Int) {

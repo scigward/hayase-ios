@@ -218,6 +218,7 @@ enum AniListUtil {
         }
         item.relations = (media.relations?.edges ?? []).compactMap { edge in
             guard let type = edge.relationType,
+                  type != "CHARACTER",
                   let node = edge.node,
                   node.type == nil || node.type == "ANIME",
                   let nodeID = node.id else { return nil }
@@ -281,7 +282,9 @@ enum AniListUtil {
 
         item.relations = (media.relations?.edges ?? []).compactMap { edge in
             guard let type = edge.relationType,
+                  type != "CHARACTER",
                   let node = edge.node,
+                  node.type == nil || node.type == "ANIME",
                   let nodeID = node.id else { return nil }
             let relation = AnimeItem(
                 id: nodeID,

@@ -213,10 +213,14 @@ struct AiringScheduleEntry {
 struct AniListThread {
     let id: Int
     let title: String
+    let body: String?
+    let userID: Int?
     let viewCount: Int
     let replyCount: Int
     let likeCount: Int
     let isLocked: Bool
+    let isSubscribed: Bool?
+    let isLiked: Bool?
     let createdAt: TimeInterval
     let userName: String?
     let avatarURL: String?
@@ -226,10 +230,14 @@ struct AniListThread {
         guard let id = dict["id"] as? Int else { return nil }
         self.id = id
         self.title = dict["title"] as? String ?? "Thread \(id)"
+        self.body = dict["body"] as? String
+        self.userID = dict["userId"] as? Int
         self.viewCount = dict["viewCount"] as? Int ?? 0
         self.replyCount = dict["replyCount"] as? Int ?? 0
         self.likeCount = dict["likeCount"] as? Int ?? 0
         self.isLocked = dict["isLocked"] as? Bool ?? false
+        self.isSubscribed = dict["isSubscribed"] as? Bool
+        self.isLiked = dict["isLiked"] as? Bool
         let repliedAt = (dict["repliedAt"] as? NSNumber)?.doubleValue ?? dict["repliedAt"] as? TimeInterval
         let createdAt = (dict["createdAt"] as? NSNumber)?.doubleValue ?? dict["createdAt"] as? TimeInterval
         self.createdAt = repliedAt ?? createdAt ?? 0
@@ -446,6 +454,7 @@ struct AniListResolverMediaResponse: Codable {
         let id: Int?
         let title: AniListMedia.Title?
         let coverImage: AniListMedia.CoverImage?
+        let type: String?
         let averageScore: Float?
         let episodes: Int?
         let status: String?

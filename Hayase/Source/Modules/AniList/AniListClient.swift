@@ -1172,9 +1172,11 @@ public final class AniListClient: NSObject {
             }
 
             let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge -> AnimeRelation? in
-                guard let type = edge.relationType, let node = edge.node, let nid = node.id else { return nil }
-                let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
-                if skip.contains(type) || (node.type ?? "ANIME") != "ANIME" { return nil }
+                guard let type = edge.relationType,
+                      type != "CHARACTER",
+                      let node = edge.node,
+                      (node.type ?? "ANIME") == "ANIME",
+                      let nid = node.id else { return nil }
                 let relItem = AnimeItem(
                     id: nid,
                     titleEnglish: node.title?.english,
@@ -1301,108 +1303,20 @@ public final class AniListClient: NSObject {
                 self.storeFullMediaPayload(media)
             }
             let callbacks = self.animePageCompletions.removeValue(forKey: cacheKey) ?? []
-            callbacks.forEach { callback in
-                self.deliverAnimePagePayload(payload, id: id, completion: callback)
+            DispatchQueue.main.async {
+                callbacks.forEach { $0(payload) }
             }
         }
     }
 
-    private func deliverAnimePagePayload(_ publicPayload: AnimePagePayload,
-                                         id: Int,
+    private func deliverAnimePagePayload(_ payload: AnimePagePayload,
+                                         id _: Int,
                                          completion: @escaping (AnimePagePayload) -> Void) {
-        guard canFetchFollowingList else {
-            DispatchQueue.main.async { completion(publicPayload) }
-            return
-        }
-
-        fetchAnimePageFollowing(id: id) { entries in
-            let payload = AnimePagePayload(
-                media: publicPayload.media,
-                recommendations: publicPayload.recommendations,
-                threads: publicPayload.threads,
-                threadTotal: publicPayload.threadTotal,
-                followingEntries: entries)
-            DispatchQueue.main.async { completion(payload) }
-        }
+        DispatchQueue.main.async { completion(payload) }
     }
 
     private func emptyAnimePagePayload() -> AnimePagePayload {
         AnimePagePayload(media: nil, recommendations: [], threads: [], threadTotal: 0, followingEntries: [])
-    }
-
-    private var canFetchFollowingList: Bool {
-        canUseAniListAuth
-    }
-
-    private func fetchAnimePageFollowing(id: Int, completion: @escaping ([AniListFollowingEntry]) -> Void) {
-        guard canFetchFollowingList, let viewerID = aniListViewerID else {
-            completion([])
-            return
-        }
-
-        let key = "\(id):viewer:\(viewerID)"
-        var cached: [AniListFollowingEntry]?
-        var shouldStartRequest = false
-
-        animePageFollowingQueue.sync {
-            cached = animePageFollowingCache[key]
-            if cached == nil {
-                if animePageFollowingCompletions[key] != nil {
-                    animePageFollowingCompletions[key]?.append(completion)
-                } else {
-                    animePageFollowingCompletions[key] = [completion]
-                    shouldStartRequest = true
-                }
-            }
-        }
-
-        if let cached {
-            completion(cached)
-            return
-        }
-
-        guard shouldStartRequest, let url = URL(string: graphQLEndpoint) else {
-            finishAnimePageFollowingFetch(key: key, entries: [], shouldCache: false)
-            return
-        }
-
-        var request = authorizedRequest(url: url)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": AniListQueries.animePageFollowing,
-            "variables": ["id": id]
-        ])
-
-        performAniListDataTask(request, context: "AniList.AnimePageFollowing") { [weak self] data, _, error in
-            guard let self else { return }
-            if let error {
-                NSLog("[AniListClient] AnimePageFollowing failed: %@", error.localizedDescription)
-            }
-            guard error == nil,
-                  let data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                self.finishAnimePageFollowingFetch(key: key, entries: [], shouldCache: false)
-                return
-            }
-
-            self.logGraphQLErrors(json["errors"], context: "AnimePageFollowing")
-            let page = (json["data"] as? [String: Any])?["following"] as? [String: Any]
-            self.finishAnimePageFollowingFetch(key: key, entries: self.parseFollowingEntries(from: page))
-        }
-    }
-
-    private func finishAnimePageFollowingFetch(key: String,
-                                               entries: [AniListFollowingEntry],
-                                               shouldCache: Bool = true) {
-        animePageFollowingQueue.async { [weak self] in
-            guard let self else { return }
-            if shouldCache {
-                self.animePageFollowingCache[key] = entries
-            }
-            let callbacks = self.animePageFollowingCompletions.removeValue(forKey: key) ?? []
-            DispatchQueue.main.async {
-                callbacks.forEach { $0(entries) }
-            }
-        }
     }
 
     private func parseAnimePagePayload(from dataObject: [String: Any], followingEntries: [AniListFollowingEntry]) -> AnimePagePayload {
@@ -1417,13 +1331,15 @@ public final class AniListClient: NSObject {
         let threadPage = dataObject["threads"] as? [String: Any]
         let threads = (threadPage?["threads"] as? [[String: Any]] ?? []).compactMap { AniListThread(dict: $0) }
         let total = intValue((threadPage?["pageInfo"] as? [String: Any])?["total"]) ?? threads.count
+        let followingPage = dataObject["following"] as? [String: Any]
+        let pageFollowingEntries = parseFollowingEntries(from: followingPage)
 
         return AnimePagePayload(
             media: mediaItem,
             recommendations: parseRecommendations(from: mediaObject),
             threads: threads,
             threadTotal: total,
-            followingEntries: followingEntries)
+            followingEntries: followingEntries.isEmpty ? pageFollowingEntries : followingEntries)
     }
 
     private func logGraphQLErrors(_ rawErrors: Any?, context: String) {
@@ -1553,8 +1469,7 @@ public final class AniListClient: NSObject {
                   let node = edge["node"] as? [String: Any],
                   (node["type"] as? String ?? "ANIME") == "ANIME",
                   let item = parseAnimeItem(from: node) else { return nil }
-            let skip = ["ADAPTATION", "CHARACTER", "OTHER"]
-            guard !skip.contains(type) else { return nil }
+            guard type != "CHARACTER" else { return nil }
             return AnimeRelation(relationType: type, media: item)
         }
     }
@@ -1588,22 +1503,27 @@ public final class AniListClient: NSObject {
 
     // MARK: - Forum threads (matches client.ts threads())
 
-    func threads(mediaID: Int, completion: @escaping ([AniListThread]) -> Void) {
+    func threads(mediaID: Int,
+                 page: Int = 1,
+                 perPage: Int = 16,
+                 completion: @escaping ([AniListThread]) -> Void) {
         guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
-        let body: [String: Any] = ["query": AniListQueries.threads, "variables": ["id": mediaID]]
+        let body: [String: Any] = [
+            "query": AniListQueries.threads,
+            "variables": ["id": mediaID, "page": page, "perPage": perPage]
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else {
             completion([]); return
         }
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = authorizedRequest(url: url)
+        request.timeoutInterval = 15
         request.httpBody = data
 
-        performAniListDataTask(request, context: "AniList") { data, _, _ in
+        performAniListDataTask(request, context: "AniList.Threads") { data, _, _ in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let page = ((json["data"] as? [String: Any])?["Page"] as? [String: Any]),
-                  let rawThreads = page["threads"] as? [[String: Any]] else {
+                  let threadPage = ((json["data"] as? [String: Any])?["threads"] as? [String: Any]),
+                  let rawThreads = threadPage["threads"] as? [[String: Any]] else {
                 DispatchQueue.main.async { completion([]) }
                 return
             }
@@ -1615,71 +1535,116 @@ public final class AniListClient: NSObject {
     // MARK: - Airing schedule
 
     func fetchAiringForMonth(_ month: Date, completion: @escaping ([AiringScheduleEntry]) -> Void) {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
-        let comps = cal.dateComponents([.year, .month], from: month)
-        guard let monthStart = cal.date(from: comps),
-              let monthEnd = cal.date(byAdding: DateComponents(month: 1), to: monthStart) else {
-            completion([]); return
-        }
-        let from = Int(monthStart.timeIntervalSince1970)
-        let to = Int(monthEnd.timeIntervalSince1970) - 1
-        collectAiringPages(from: from, to: to, page: 1, accumulated: [], completion: completion)
-    }
+        guard let url = URL(string: graphQLEndpoint) else { completion([]); return }
 
-    private func collectAiringPages(from: Int, to: Int, page: Int,
-                                    accumulated: [AiringScheduleEntry],
-                                    completion: @escaping ([AiringScheduleEntry]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint) else { completion(accumulated); return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let body: [String: Any] = [
-            "query": AniListQueries.airingMonth,
-            "variables": ["from": from, "to": to, "page": page]
+        let seasonWindow = scheduleSeasonWindow(around: Date())
+        var variables: [String: Any] = [
+            "seasonCurrent": seasonWindow.current.season,
+            "seasonYearCurrent": seasonWindow.current.year,
+            "seasonLast": seasonWindow.last.season,
+            "seasonYearLast": seasonWindow.last.year,
+            "seasonNext": seasonWindow.next.season,
+            "seasonYearNext": seasonWindow.next.year,
+            "formatNot": "TV_SHORT"
         ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
 
-        performAniListDataTask(request, context: "AniList") { [weak self] data, _, _ in
-            guard let self = self,
-                  let data = data,
-                  let resp = try? JSONDecoder().decode(AiringSchedulePagedResponse.self, from: data),
-                  let pageData = resp.data?.Page else {
-                DispatchQueue.main.async { completion(accumulated) }
+        var request = authorizedRequest(url: url)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "query": AniListQueries.schedule,
+            "variables": variables
+        ])
+
+        performAniListDataTask(request, context: "AniList.Schedule") { [weak self] data, _, _ in
+            guard let self,
+                  let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObject = json["data"] as? [String: Any] else {
+                DispatchQueue.main.async { completion([]) }
                 return
             }
-            let entries: [AiringScheduleEntry] = (pageData.airingSchedules ?? []).compactMap { sched in
-                guard let epNum = sched.episode,
-                      let atUnix = sched.airingAt,
-                      let media = sched.media,
-                      let id = media.id else { return nil }
-                let item = AnimeItem(
-                    id: id,
-                    titleEnglish: media.title?.english,
-                    titleRomaji: media.title?.romaji,
-                    titleNative: media.title?.native,
-                    titleUserPreferred: media.title?.userPreferred,
-                    coverURL: media.coverImage?.large,
-                    score: media.averageScore,
-                    status: media.status,
-                    episodes: media.episodes,
-                    bannerURL: nil,
-                    genres: [],
-                    description: nil,
-                    coverColor: media.coverImage?.color)
-                return AiringScheduleEntry(
-                    episode: epNum,
-                    airingAt: Date(timeIntervalSince1970: Double(atUnix)),
-                    media: item)
-            }
-            let all = accumulated + entries
-            if pageData.pageInfo?.hasNextPage == true {
-                self.collectAiringPages(from: from, to: to, page: page + 1, accumulated: all, completion: completion)
-            } else {
-                DispatchQueue.main.async { completion(all) }
+
+            self.logGraphQLErrors(json["errors"], context: "Schedule")
+            let entries = self.parseScheduleEntries(from: dataObject, visibleMonth: month)
+            DispatchQueue.main.async { completion(entries) }
+        }
+    }
+
+    private func scheduleSeasonWindow(around month: Date) -> (current: (season: String, year: Int), last: (season: String, year: Int), next: (season: String, year: Int)) {
+        let calendar = Calendar(identifier: .gregorian)
+        func seasonTuple(for date: Date) -> (season: String, year: Int) {
+            let monthNumber = calendar.component(.month, from: date)
+            let year = calendar.component(.year, from: date)
+            switch monthNumber {
+            case 1...3: return ("WINTER", year)
+            case 4...6: return ("SPRING", year)
+            case 7...9: return ("SUMMER", year)
+            default: return ("FALL", year)
             }
         }
+
+        let lastDate = calendar.date(byAdding: .month, value: -3, to: month) ?? month
+        let nextDate = calendar.date(byAdding: .month, value: 3, to: month) ?? month
+        return (seasonTuple(for: month), seasonTuple(for: lastDate), seasonTuple(for: nextDate))
+    }
+
+    private func parseScheduleEntries(from dataObject: [String: Any], visibleMonth: Date) -> [AiringScheduleEntry] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let monthComponents = calendar.dateComponents([.year, .month], from: visibleMonth)
+        guard let monthStart = calendar.date(from: monthComponents),
+              let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return [] }
+
+        var seenMediaIDs = Set<Int>()
+        var entries: [AiringScheduleEntry] = []
+        for key in ["curr1", "curr2", "curr3", "residue", "next1", "next2"] {
+            guard let page = dataObject[key] as? [String: Any],
+                  let mediaObjects = page["media"] as? [[String: Any]] else { continue }
+            for mediaObject in mediaObjects {
+                guard let mediaID = intValue(mediaObject["id"]), seenMediaIDs.insert(mediaID).inserted else { continue }
+                if ((mediaObject["mediaListEntry"] as? [String: Any])?["status"] as? String) == "DROPPED" { continue }
+                guard let item = parseScheduleMediaItem(from: mediaObject) else { continue }
+
+                var seenEpisodes = Set<Int>()
+                for node in scheduleNodes(from: mediaObject) {
+                    guard let episode = intValue(node["e"]),
+                          let airingAt = intValue(node["a"]),
+                          seenEpisodes.insert(episode).inserted else { continue }
+                    let date = Date(timeIntervalSince1970: Double(airingAt))
+                    guard date >= monthStart && date < monthEnd else { continue }
+                    entries.append(AiringScheduleEntry(episode: episode, airingAt: date, media: item))
+                }
+            }
+        }
+        return entries.sorted { $0.airingAt < $1.airingAt }
+    }
+
+    private func scheduleNodes(from mediaObject: [String: Any]) -> [[String: Any]] {
+        func nodes(for key: String) -> [[String: Any]] {
+            let schedule = mediaObject[key] as? [String: Any]
+            return schedule?["n"] as? [[String: Any]] ?? []
+        }
+        return nodes(for: "aired") + nodes(for: "notaired")
+    }
+
+    private func parseScheduleMediaItem(from object: [String: Any]) -> AnimeItem? {
+        guard let id = intValue(object["id"]) else { return nil }
+        let title = object["title"] as? [String: Any]
+        let cover = object["coverImage"] as? [String: Any]
+        return AnimeItem(
+            id: id,
+            titleEnglish: title?["english"] as? String,
+            titleRomaji: title?["romaji"] as? String,
+            titleNative: title?["native"] as? String,
+            titleUserPreferred: title?["userPreferred"] as? String,
+            coverURL: cover?["extraLarge"] as? String ?? cover?["large"] as? String,
+            score: nil,
+            status: nil,
+            episodes: nil,
+            bannerURL: nil,
+            genres: [],
+            description: nil,
+            coverColor: cover?["color"] as? String)
     }
 
     // MARK: - Per-media airing schedule
