@@ -80,4 +80,6 @@ enum TrackerKind: String, CaseIterable {
     var viewerKey: String { "tracker_viewer_\(rawValue)" }
 
     var tokenKey: String { "tracker_token_\(rawValue)" }
+
+    var tokenExpiryKey: String { "tracker_token_expiry_\(rawValue)" }
 }

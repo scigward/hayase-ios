@@ -84,15 +84,15 @@ public final class AniListClient: NSObject {
         }
     }
 
-    /// Adds an auth header only when AniList has a persisted viewer.
-    /// Matches urql-client.ts: addAuthToOperation returns the original operation
-    /// when `viewer.value` is missing.
+    /// Adds an auth header whenever a valid AniList token exists.
+    /// Interface stores the token before the viewer query resolves, so the
+    /// native client must not wait for persisted viewer metadata to attach auth.
     private func authorizedRequest(url: URL) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if canUseAniListAuth, let token = TrackerAccountManager.shared.token(for: .anilist) {
+        if let token = TrackerAccountManager.shared.token(for: .anilist) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
@@ -436,6 +436,14 @@ public final class AniListClient: NSObject {
                 guard let self = self else { return }
                 if let error = error {
                     NSLog("[AniListClient] followingMany network error: %@", error.localizedDescription)
+                }
+
+                guard error == nil, data != nil else {
+                    self.followingManyQueue.async {
+                        let completions = self.followingManyCompletions.removeValue(forKey: key) ?? []
+                        DispatchQueue.main.async { completions.forEach { $0([:]) } }
+                    }
+                    return
                 }
 
                 let usersByMediaID = self.parseFollowingMany(data: data, viewerID: viewerID)
@@ -1249,7 +1257,7 @@ public final class AniListClient: NSObject {
         }
 
         guard shouldStartRequest, let url = URL(string: graphQLEndpoint) else {
-            finishAnimePageFollowingFetch(key: key, entries: [])
+            finishAnimePageFollowingFetch(key: key, entries: [], shouldCache: false)
             return
         }
 
@@ -1264,9 +1272,10 @@ public final class AniListClient: NSObject {
             if let error {
                 NSLog("[AniListClient] AnimePageFollowing failed: %@", error.localizedDescription)
             }
-            guard let data,
+            guard error == nil,
+                  let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                self.finishAnimePageFollowingFetch(key: key, entries: [])
+                self.finishAnimePageFollowingFetch(key: key, entries: [], shouldCache: false)
                 return
             }
 
@@ -1276,10 +1285,14 @@ public final class AniListClient: NSObject {
         }
     }
 
-    private func finishAnimePageFollowingFetch(key: String, entries: [AniListFollowingEntry]) {
+    private func finishAnimePageFollowingFetch(key: String,
+                                               entries: [AniListFollowingEntry],
+                                               shouldCache: Bool = true) {
         animePageFollowingQueue.async { [weak self] in
             guard let self else { return }
-            self.animePageFollowingCache[key] = entries
+            if shouldCache {
+                self.animePageFollowingCache[key] = entries
+            }
             let callbacks = self.animePageFollowingCompletions.removeValue(forKey: key) ?? []
             DispatchQueue.main.async {
                 callbacks.forEach { $0(entries) }
@@ -1669,7 +1682,15 @@ public final class AniListClient: NSObject {
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        AniListClient.shared.performAniListDataTask(req, context: "AniList") { data, _, _ in
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            if let error {
+                NSLog("[AniZip] image fetch failed: %@", error.localizedDescription)
+            }
+            if let http = response as? HTTPURLResponse,
+               http.statusCode < 200 || http.statusCode >= 300 {
+                NSLog("[AniZip] image fetch HTTP %@", String(http.statusCode))
+            }
+
             var fanartURL: String? = nil
             var clearlogoURL: String? = nil
             if let data,
@@ -1689,7 +1710,7 @@ public final class AniListClient: NSObject {
                 if let clearlogoURL { _clearlogoURLs[anilistID] = clearlogoURL }
                 cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }
             }
-        }
+        }.resume()
     }
 }
 private extension Array where Element == [String: Any] {

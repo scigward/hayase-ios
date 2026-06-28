@@ -81,8 +81,9 @@ final class AniListAuth {
         }
     }
 
-    static func completeLogin(token: String) {
-        TrackerAccountManager.shared.setToken(token, for: .anilist)
+    static func completeLogin(token: String, expiresIn: TimeInterval? = nil) {
+        let expiresAt = expiresIn.map { Date().addingTimeInterval($0) }
+        TrackerAccountManager.shared.setToken(token, for: .anilist, expiresAt: expiresAt)
         fetchViewer(token: token) { viewer in
             DispatchQueue.main.async {
                 TrackerAccountManager.shared.setViewer(viewer, for: .anilist)

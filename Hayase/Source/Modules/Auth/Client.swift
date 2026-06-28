@@ -48,27 +48,59 @@ final class TrackerAccountManager {
     // MARK: - Token
 
     func token(for tracker: TrackerKind) -> String? {
-        UserDefaults.standard.string(forKey: tracker.tokenKey)
+        guard !isTokenExpired(for: tracker) else { return nil }
+        return UserDefaults.standard.string(forKey: tracker.tokenKey)
     }
 
-    func setToken(_ token: String?, for tracker: TrackerKind) {
+    func tokenExpiryDate(for tracker: TrackerKind) -> Date? {
+        let timestamp = UserDefaults.standard.double(forKey: tracker.tokenExpiryKey)
+        guard timestamp > 0 else { return nil }
+        return Date(timeIntervalSince1970: timestamp)
+    }
+
+    func isTokenExpired(for tracker: TrackerKind, now: Date = Date()) -> Bool {
+        guard let expiry = tokenExpiryDate(for: tracker) else { return false }
+        return expiry.timeIntervalSince(now) <= 0
+    }
+
+    func setToken(_ token: String?, for tracker: TrackerKind, expiresAt: Date? = nil) {
         if let token = token {
             UserDefaults.standard.set(token, forKey: tracker.tokenKey)
+            if let expiresAt {
+                UserDefaults.standard.set(expiresAt.timeIntervalSince1970, forKey: tracker.tokenExpiryKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tracker.tokenExpiryKey)
+            }
         } else {
             UserDefaults.standard.removeObject(forKey: tracker.tokenKey)
+            UserDefaults.standard.removeObject(forKey: tracker.tokenExpiryKey)
         }
+    }
+
+    func clearAniListSessionForAuthFailure() {
+        setViewer(nil, for: .anilist)
+        setToken(nil, for: .anilist)
+        AniListClient.shared.clearViewerDependentCaches()
+        AniListTracking.shared.clearViewerCache()
+        notify()
     }
 
     // MARK: - Login state
 
     func isLoggedIn(_ tracker: TrackerKind) -> Bool {
         if tracker == .local { return true }
+        if tracker == .anilist {
+            return viewer(for: tracker) != nil && token(for: tracker) != nil
+        }
         return viewer(for: tracker) != nil
     }
 
     // MARK: - Logout
 
     func logout(_ tracker: TrackerKind) {
+        if tracker == .anilist {
+            AniListRequestExecutor.shared.cancelAll()
+        }
         setViewer(nil, for: tracker)
         setToken(nil, for: tracker)
         if tracker == .anilist {

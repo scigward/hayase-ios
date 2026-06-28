@@ -394,7 +394,8 @@ final class HayaseAccountCardCell: UITableViewCell {
                         if parts.count == 2 { dict[parts[0]] = parts[1] }
                     }
                 if let token = params["access_token"] {
-                    AniListAuth.completeLogin(token: token)
+                    let expiresIn = params["expires_in"].flatMap(TimeInterval.init)
+                    AniListAuth.completeLogin(token: token, expiresIn: expiresIn)
                 }
             }
         }

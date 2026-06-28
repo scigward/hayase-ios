@@ -49,6 +49,31 @@ enum AniListRequestError: Error, CustomStringConvertible {
     case graphQLErrors([String])
     case invalidJSON
 
+    var isInvalidToken: Bool {
+        switch self {
+        case .httpStatus(let status, _):
+            return status == 401
+        case .graphQLErrors(let messages):
+            return messages.contains { $0.caseInsensitiveCompare("Invalid token") == .orderedSame }
+        default:
+            return false
+        }
+    }
+
+    var isRateLimitLike: Bool {
+        switch self {
+        case .httpStatus(let status, _):
+            return status == 429
+        case .graphQLErrors(let messages):
+            return messages.contains { message in
+                let lowercased = message.lowercased()
+                return lowercased.contains("429") || lowercased.contains("rate")
+            }
+        default:
+            return false
+        }
+    }
+
     var description: String {
         switch self {
         case .invalidEndpoint:
@@ -98,6 +123,15 @@ final class AniListRequestExecutor {
 
     private init(session: URLSession = .shared) {
         self.session = session
+    }
+
+    func cancelAll() {
+        lockQueue.async { [weak self] in
+            guard let self else { return }
+            let callbacks = self.inFlight.values.flatMap { $0 }
+            self.inFlight.removeAll()
+            callbacks.forEach { $0.token.cancel() }
+        }
     }
 
     @discardableResult
@@ -151,10 +185,15 @@ final class AniListRequestExecutor {
             guard let self else { return }
             let httpResponse = response as? HTTPURLResponse
             let result = self.validate(data: data, response: httpResponse, error: error)
+            self.clearAuthIfNeeded(for: result)
+
+            if self.hasOnlyCancelledCallbacks(for: key) {
+                self.finish(key: key, result: .failure(.cancelled))
+                return
+            }
 
             if case .failure(let requestError) = result,
-               self.shouldRetry(requestError),
-               !self.hasOnlyCancelledCallbacks(for: key) {
+               self.shouldRetry(requestError) {
                 self.scheduleRetry(request: request, key: key, attempt: attempt, error: requestError)
                 return
             }
@@ -183,10 +222,15 @@ final class AniListRequestExecutor {
             guard let self else { return }
             let httpResponse = response as? HTTPURLResponse
             let result = self.validate(data: data, response: httpResponse, error: error)
+            self.clearAuthIfNeeded(for: result)
+
+            if self.hasOnlyCancelledCallbacks(for: key) {
+                self.finish(key: key, result: .failure(.cancelled))
+                return
+            }
 
             if case .failure(let requestError) = result,
-               self.shouldRetry(requestError),
-               !self.hasOnlyCancelledCallbacks(for: key) {
+               self.shouldRetry(requestError) {
                 self.scheduleRetry(query: query,
                                    variables: variables,
                                    authorized: authorized,
@@ -211,9 +255,7 @@ final class AniListRequestExecutor {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if authorized,
-           TrackerAccountManager.shared.viewer(for: .anilist) != nil,
-           let token = TrackerAccountManager.shared.token(for: .anilist) {
+        if authorized, let token = TrackerAccountManager.shared.token(for: .anilist) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -257,7 +299,11 @@ final class AniListRequestExecutor {
                                error: AniListRequestError) {
         let delay = retryDelay(for: error, attempt: attempt)
         retryQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, !self.hasOnlyCancelledCallbacks(for: key) else { return }
+            guard let self else { return }
+            if self.hasOnlyCancelledCallbacks(for: key) {
+                self.finish(key: key, result: .failure(.cancelled))
+                return
+            }
             self.perform(query: query,
                          variables: variables,
                          authorized: authorized,
@@ -272,7 +318,11 @@ final class AniListRequestExecutor {
                                error: AniListRequestError) {
         let delay = retryDelay(for: error, attempt: attempt)
         retryQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, !self.hasOnlyCancelledCallbacks(for: key) else { return }
+            guard let self else { return }
+            if self.hasOnlyCancelledCallbacks(for: key) {
+                self.finish(key: key, result: .failure(.cancelled))
+                return
+            }
             self.perform(request, key: key, attempt: attempt + 1)
         }
     }
@@ -286,6 +336,7 @@ final class AniListRequestExecutor {
         case .httpStatus(let status, _):
             return status == 429 || status >= 500
         case .graphQLErrors(let messages):
+            if error.isInvalidToken { return false }
             return messages.contains { message in
                 let lowercased = message.lowercased()
                 return lowercased.contains("429") || lowercased.contains("rate") || lowercased.contains("500")
@@ -293,24 +344,29 @@ final class AniListRequestExecutor {
         }
     }
 
+    private func clearAuthIfNeeded(for result: Result<AniListGraphQLResult, AniListRequestError>) {
+        guard case .failure(let error) = result, error.isInvalidToken else { return }
+        TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
+    }
+
     private func retryDelay(for error: AniListRequestError, attempt: Int) -> TimeInterval {
         if case .httpStatus(_, let retryAfter?) = error {
             return retryAfter + 1
         }
 
-        // Interface retryExchange uses an explicit minimum delay between retries
-        // for rate-limit-like failures. Keep the same safety margin to avoid
-        // request storms when AniList begins throttling.
+        // Interface retryExchange starts at 100ms and caps at 60s. For
+        // rate-limit-like failures, keep the native AniList-safe spacing that
+        // prevents immediate retry storms.
+        let baseDelay = min(0.1 * Double(attempt), 60)
+        guard error.isRateLimitLike else { return baseDelay }
+
         let minimumSpacing: TimeInterval = 11
         return lockQueue.sync {
             let now = Date()
             let elapsed = now.timeIntervalSince(lastRetryTime)
             let spacingDelay = max(0, minimumSpacing - elapsed)
-            lastRetryTime = now.addingTimeInterval(spacingDelay)
-            // urql retryExchange in the interface is configured with initialDelayMs=100,
-            // randomDelay=false, maxDelayMs=60s, retryIf=true. The 11s limiter above is
-            // the important AniList-safe part for repeated failures.
-            return min(max(0.1 * Double(attempt), spacingDelay), 60)
+            lastRetryTime = now.addingTimeInterval(max(minimumSpacing, spacingDelay))
+            return min(max(baseDelay, minimumSpacing, spacingDelay), 60)
         }
     }
 
@@ -349,8 +405,13 @@ final class AniListRequestExecutor {
     private func makeDedupeKey(query: String, variables: [String: Any]?, authorized: Bool) -> String {
         let variableData = (try? JSONSerialization.data(withJSONObject: variables ?? [:], options: [.sortedKeys])) ?? Data()
         let variablesString = String(data: variableData, encoding: .utf8) ?? "{}"
-        let viewerID = authorized ? (TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "public") : "public"
-        return "\(viewerID)|\(query.hashValue)|\(variablesString)"
+        let authKey: String
+        if authorized, let token = TrackerAccountManager.shared.token(for: .anilist) {
+            authKey = "token:\(token.hashValue)"
+        } else {
+            authKey = "public"
+        }
+        return "\(authKey)|\(query.hashValue)|\(variablesString)"
     }
 }
 
