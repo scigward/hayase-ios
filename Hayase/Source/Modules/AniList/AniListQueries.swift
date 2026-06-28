@@ -12,6 +12,74 @@ import Foundation
 
 enum AniListQueries {
 
+    // MARK: - Shared media selection
+
+    /// Interface `FullMedia` fragment equivalent. Keep Search/Home/Banner/ID
+    /// surfaces on the same media shape so native cache behavior stays aligned
+    /// with `client.search(...)`.
+    static let fullMediaFields = """
+          id
+          idMal
+          title { romaji english native userPreferred }
+          description(asHtml: false)
+          season
+          seasonYear
+          format
+          status
+          episodes
+          duration
+          averageScore
+          genres
+          isFavourite
+          coverImage { extraLarge medium color }
+          source
+          countryOfOrigin
+          isAdult
+          bannerImage
+          synonyms
+          nextAiringEpisode { id timeUntilAiring episode }
+          startDate { year month day }
+          trailer { id site }
+          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
+          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+          studios(isMain: true) { nodes { id name } }
+          notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) { n: nodes { a: airingAt e: episode } }
+          aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt e: episode } }
+          relations {
+            edges {
+              relationType(version: 2)
+              node {
+                id
+                status
+                format
+                episodes
+                title { userPreferred }
+                coverImage { extraLarge }
+                type
+                synonyms
+                season
+                seasonYear
+                relations {
+                  edges {
+                    relationType(version: 2)
+                    node {
+                      id
+                      status
+                      format
+                      episodes
+                      title { userPreferred }
+                      type
+                      coverImage { extraLarge }
+                    }
+                  }
+                }
+                startDate { year month day }
+                endDate { year month day }
+              }
+            }
+          }
+    """
+
     // MARK: - Airing anime (legacy CoreData flow)
 
     static let airingAnime = """
@@ -42,27 +110,7 @@ enum AniListQueries {
       Page(page: $page, perPage: $perPage) {
         pageInfo { hasNextPage }
         media(type: ANIME, format_not: MUSIC, id_in: $ids, search: $search, genre_in: $genre, tag_in: $tag, format_in: $format, status_in: $status, status_not_in: $statusNot, season: $season, seasonYear: $seasonYear, isAdult: $isAdult, sort: $sort, onList: $onList, genre_not_in: $nsfw) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+          \(fullMediaFields)
         }
       }
     }
@@ -86,70 +134,6 @@ enum AniListQueries {
           nextAiringEpisode { episode timeUntilAiring }
           status
           synonyms
-        }
-      }
-    }
-    """
-
-    // MARK: - Home section
-
-    static let homeSection = """
-    query ($status: [MediaStatus], $sort: [MediaSort], $genre: [String], $season: MediaSeason, $seasonYear: Int, $nsfw: [String]) {
-      Page(page: 1) {
-        media(type: ANIME, format_not: MUSIC, status_in: $status, sort: $sort, genre_in: $genre, season: $season, seasonYear: $seasonYear, genre_not_in: $nsfw) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
-        }
-      }
-    }
-    """
-
-    // MARK: - Banner (banner.svelte)
-
-    static let banner = """
-    query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $statusNot: [MediaStatus], $nsfw: [String]) {
-      Page(page: 1, perPage: 15) {
-        media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, status_not_in: $statusNot, genre_not_in: $nsfw) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         }
       }
     }
@@ -179,90 +163,30 @@ enum AniListQueries {
     // MARK: - ID-based fetch
 
     static let idIn = """
-    query ($idIn: [Int]) {
+    query ($idIn: [Int], $nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(type: ANIME, id_in: $idIn) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+        media(type: ANIME, format_not: MUSIC, id_in: $idIn, genre_not_in: $nsfw) {
+          \(fullMediaFields)
         }
       }
     }
     """
 
     static let idInFiltered = """
-    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean, $sort: [MediaSort]) {
+    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean, $sort: [MediaSort], $nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(type: ANIME, id_in: $idIn, status_in: $status, onList: $onList, sort: $sort) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+        media(type: ANIME, format_not: MUSIC, id_in: $idIn, status_in: $status, onList: $onList, sort: $sort, genre_not_in: $nsfw) {
+          \(fullMediaFields)
         }
       }
     }
     """
 
     static let byIds = """
-    query ($ids: [Int]) {
+    query ($ids: [Int], $nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(type: ANIME, id_in: $ids, sort: POPULARITY_DESC) {
-          id
-          idMal
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          genres
-          isFavourite
-          tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-          episodes
-          duration
-          status
-          seasonYear
-          season
-          format
-          startDate { year }
-          favourites
-          trailer { id site }
-          description(asHtml: false)
-          synonyms
-          mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+        media(type: ANIME, format_not: MUSIC, id_in: $ids, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
+          \(fullMediaFields)
         }
       }
     }
@@ -317,7 +241,10 @@ enum AniListQueries {
         trailer { id site }
         description(asHtml: false)
         synonyms
+        source
+        countryOfOrigin
         isAdult
+        studios(isMain: true) { nodes { id name } }
         mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
         relations {
           edges {

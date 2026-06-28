@@ -51,7 +51,7 @@ class SearchViewController: UIViewController {
     private var selectedSeason:   String?  = nil
     private var selectedFormats:  [String] = []
     private var selectedStatuses: [String] = []
-    private var selectedSort:     String?  = "TRENDING_DESC"
+    private var selectedSort:     String?  = nil
     private var selectedOnList:   Bool?    = nil
 
     // Active chip entries mirror interface list(search), including sort and trace IDs.
@@ -277,7 +277,7 @@ class SearchViewController: UIViewController {
         selectedSeason = nil
         selectedFormats = []
         selectedStatuses = []
-        selectedSort = "TRENDING_DESC"
+        selectedSort = nil
         selectedOnList = nil
         traceIds = nil
         if let genre = genre {

@@ -37,6 +37,9 @@ struct AnimeItem {
     var relations: [AnimeRelation] = []
     var tags: [AnimeTag] = []
     var isAdult: Bool? = nil
+    var source: String? = nil
+    var countryOfOrigin: String? = nil
+    var studioNames: [String] = []
 
     struct MediaListEntry {
         let listID: Int
@@ -141,6 +144,9 @@ struct HomeSectionData {
     var filterIDs: [Int]? = nil
     var filterStatus: [String]? = nil
     var filterOnList: Bool? = nil
+    var filterSeason: String? = nil
+    var filterYear: String? = nil
+    var filterFormats: [String] = []
 }
 
 struct AniListSearchPage {
@@ -279,8 +285,33 @@ struct AniListMedia: Codable {
     let season: String?
     let format: String?
     let synonyms: [String]?
-    struct StartDate: Codable { let year: Int? }
+    struct StartDate: Codable { let year: Int?; let month: Int?; let day: Int? }
     let startDate: StartDate?
+    let source: String?
+    let countryOfOrigin: String?
+    struct StudioConnection: Codable {
+        let nodes: [Studio]?
+        struct Studio: Codable { let id: Int?; let name: String? }
+    }
+    let studios: StudioConnection?
+    let relations: RelationConnection?
+    struct RelationConnection: Codable { let edges: [RelationEdge]? }
+    struct RelationEdge: Codable {
+        let relationType: String?
+        let node: RelationNode?
+    }
+    struct RelationNode: Codable {
+        let id: Int?
+        let title: Title?
+        let coverImage: CoverImage?
+        let type: String?
+        let averageScore: Float?
+        let episodes: Int?
+        let status: String?
+        let seasonYear: Int?
+        let season: String?
+        let format: String?
+    }
     struct Title: Codable {
         let english: String?
         let romaji: String?
@@ -400,6 +431,9 @@ struct AniListResolverMediaResponse: Codable {
         let tags: [AniListMedia.MediaTag]?
         let isAdult: Bool?
         let isFavourite: Bool?
+        let source: String?
+        let countryOfOrigin: String?
+        let studios: AniListMedia.StudioConnection?
         let mediaListEntry: AniListMedia.MediaListEntry?
         let relations: ResolverRelationConnection?
     }

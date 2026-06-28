@@ -1828,6 +1828,9 @@ class BrowseAnimeViewController: UIViewController {
         let filterIDs: [Int]?
         let filterStatus: [String]?
         let filterOnList: Bool?
+        let filterSeason: String?
+        let filterYear: String?
+        let filterFormats: [String]
     }
 
     // MARK: - Init (set tabBarItem before viewDidLoad so tab bar reads it at launch)
@@ -2191,7 +2194,10 @@ class BrowseAnimeViewController: UIViewController {
                 filterSort: (definition.variables["sort"] as? [String])?.first,
                 filterIDs: nil,
                 filterStatus: nil,
-                filterOnList: nil)
+                filterOnList: nil,
+                filterSeason: definition.variables["season"] as? String,
+                filterYear: (definition.variables["seasonYear"] as? Int).map(String.init),
+                filterFormats: definition.variables["format"] as? [String] ?? [])
         }
     }
 
@@ -2215,7 +2221,10 @@ class BrowseAnimeViewController: UIViewController {
                 filterSort: "UPDATED_AT_DESC",
                 filterIDs: ids,
                 filterStatus: nil,
-                filterOnList: nil))
+                filterOnList: nil,
+                filterSeason: nil,
+                filterYear: nil,
+                filterFormats: []))
         }
         if !planningIDs.isEmpty {
             descriptors.append(HomeSectionDescriptor(
@@ -2227,7 +2236,10 @@ class BrowseAnimeViewController: UIViewController {
                 filterSort: "START_DATE_DESC",
                 filterIDs: planningIDs,
                 filterStatus: ["FINISHED", "RELEASING"],
-                filterOnList: nil))
+                filterOnList: nil,
+                filterSeason: nil,
+                filterYear: nil,
+                filterFormats: []))
         }
         if !sequelIDs.isEmpty {
             descriptors.append(HomeSectionDescriptor(
@@ -2239,7 +2251,10 @@ class BrowseAnimeViewController: UIViewController {
                 filterSort: nil,
                 filterIDs: sequelIDs,
                 filterStatus: ["FINISHED", "RELEASING"],
-                filterOnList: false))
+                filterOnList: false,
+                filterSeason: nil,
+                filterYear: nil,
+                filterFormats: []))
         }
         return descriptors
     }
@@ -2314,23 +2329,35 @@ class BrowseAnimeViewController: UIViewController {
                                            query: PageQuery<HomeSectionData>?) -> AniListRequestToken? {
         guard case .ids(let ids, let status, let onList, let sort, let preserveOrder) = descriptor.kind else { return nil }
         query?.setFetching(previous: currentHomeSection(for: descriptor.id))
-        let finish: ([AnimeItem]) -> Void = { [weak self, weak query] items in
+        return AniListClient.shared.searchAnimeItemsPage(
+            title: nil,
+            genres: [],
+            tags: [],
+            formats: [],
+            statuses: status ?? [],
+            sort: sort?.first,
+            onList: onList,
+            ids: ids,
+            policy: .cacheAndNetwork
+        ) { [weak self, weak query] result in
             guard let self else { return }
-            var section = self.sectionData(for: descriptor, items: items)
-            section.contentState = items.isEmpty ? .empty : .loaded
-            query?.setSuccess(section, isEmpty: items.isEmpty)
+            switch result {
+            case .success(let page):
+                let items: [AnimeItem]
+                if preserveOrder {
+                    var byID: [Int: AnimeItem] = [:]
+                    page.items.forEach { byID[$0.id] = $0 }
+                    items = ids.compactMap { byID[$0] }
+                } else {
+                    items = page.items
+                }
+                var section = self.sectionData(for: descriptor, items: items)
+                section.contentState = items.isEmpty ? .empty : .loaded
+                query?.setSuccess(section, isEmpty: items.isEmpty)
+            case .failure(let error):
+                query?.setFailure(error, previous: self.currentHomeSection(for: descriptor.id))
+            }
         }
-
-        if preserveOrder {
-            AniListClient.shared.fetchSectionByIDs(ids, completion: finish)
-        } else {
-            AniListClient.shared.fetchSectionByIDsFiltered(ids,
-                                                           status: status,
-                                                           onList: onList,
-                                                           sort: sort,
-                                                           completion: finish)
-        }
-        return nil
     }
 
     private func applyHomeSectionState(_ state: PageQuery<HomeSectionData>.State,
@@ -2373,6 +2400,9 @@ class BrowseAnimeViewController: UIViewController {
         section.filterIDs = descriptor.filterIDs
         section.filterStatus = descriptor.filterStatus
         section.filterOnList = descriptor.filterOnList
+        section.filterSeason = descriptor.filterSeason
+        section.filterYear = descriptor.filterYear
+        section.filterFormats = descriptor.filterFormats
         return section
     }
 
@@ -2664,6 +2694,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 let state = Route.SearchState(
                     genres: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [$0] : [] } ?? [],
                     tags: section.filterGenre.map { SearchValues.genreSet.contains($0) ? [] : [$0] } ?? [],
+                    year: section.filterYear,
+                    season: section.filterSeason,
+                    formats: section.filterFormats,
                     statuses: section.filterStatus ?? [],
                     sort: section.filterSort,
                     onList: section.filterOnList,
@@ -2773,14 +2806,13 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
     private func navigateToSearch(genre: String) {
         let state = Route.SearchState(
             genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
-            tags: SearchValues.genreSet.contains(genre) ? [] : [genre],
-            sort: "TRENDING_DESC")
+            tags: SearchValues.genreSet.contains(genre) ? [] : [genre])
         Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 
     /// Navigate to Search with a badge filter. filterType: "format", "status", "season", "score"
     private func navigateToSearch(filterType: String, value: String, value2: String?) {
-        var state = Route.SearchState(sort: "TRENDING_DESC")
+        var state = Route.SearchState()
         switch filterType {
         case "format":
             state.formats = [value]

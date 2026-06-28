@@ -203,7 +203,10 @@ enum AniListUtil {
             malId: media.idMal,
             isFavourite: media.isFavourite,
             tags: tags(from: media.tags),
-            isAdult: media.isAdult)
+            isAdult: media.isAdult,
+            source: media.source,
+            countryOfOrigin: media.countryOfOrigin,
+            studioNames: (media.studios?.nodes ?? []).compactMap { $0.name })
         if let mle = media.mediaListEntry, let s = mle.status {
             item.mediaListEntry = AnimeItem.MediaListEntry(
                 listID: mle.id ?? 0,
@@ -212,6 +215,32 @@ enum AniListUtil {
                 score: Int(mle.score ?? 0),
                 repeatCount: mle.repeatCount ?? 0,
                 customLists: mediaListCustomLists(from: mle.customLists))
+        }
+        item.relations = (media.relations?.edges ?? []).compactMap { edge in
+            guard let type = edge.relationType,
+                  let node = edge.node,
+                  node.type == nil || node.type == "ANIME",
+                  let nodeID = node.id else { return nil }
+            let relation = AnimeItem(
+                id: nodeID,
+                titleEnglish: node.title?.english,
+                titleRomaji: node.title?.romaji,
+                titleNative: node.title?.native,
+                titleUserPreferred: node.title?.userPreferred,
+                coverURL: node.coverImage?.extraLarge ?? node.coverImage?.large ?? node.coverImage?.medium,
+                score: node.averageScore,
+                status: node.status,
+                episodes: node.episodes,
+                bannerURL: nil,
+                genres: [],
+                description: nil,
+                synonyms: [],
+                year: node.seasonYear,
+                startYear: nil,
+                season: node.season,
+                format: node.format,
+                coverColor: node.coverImage?.color)
+            return AnimeRelation(relationType: type, media: relation)
         }
         return item
     }
@@ -245,7 +274,10 @@ enum AniListUtil {
             malId: media.idMal,
             isFavourite: media.isFavourite,
             tags: tags(from: media.tags),
-            isAdult: media.isAdult)
+            isAdult: media.isAdult,
+            source: media.source,
+            countryOfOrigin: media.countryOfOrigin,
+            studioNames: (media.studios?.nodes ?? []).compactMap { $0.name })
 
         item.relations = (media.relations?.edges ?? []).compactMap { edge in
             guard let type = edge.relationType,

@@ -294,10 +294,10 @@ public final class AniListClient: NSObject {
         guard policy != .pausedUntilVisible else { return nil }
 
         query?.setFetching()
-        let token = requestExecutor.execute(query: AniListQueries.banner,
+        let token = requestExecutor.execute(query: AniListQueries.search,
                                             variables: variables,
                                             authorized: true,
-                                            dedupeKey: cacheKey(prefix: "banner", variables: variables)) { [weak self] result in
+                                            dedupeKey: cacheKey(prefix: "search", variables: variables)) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let graphQLResult):
@@ -386,7 +386,7 @@ public final class AniListClient: NSObject {
         }
 
         let vars = applyNsfwFilter(to: definition.variables)
-        let key = cacheKey(prefix: "homeSection", variables: vars)
+        let key = cacheKey(prefix: "search", variables: vars)
         let cachedItems = queryCacheQueue.sync { homeSectionItemCache[key] }
         let cachedSection = cachedItems.map {
             makeHomeSectionData(definition: definition,
@@ -401,7 +401,7 @@ public final class AniListClient: NSObject {
         }
 
         query?.setFetching(previous: cachedSection)
-        let token = requestExecutor.execute(query: AniListQueries.homeSection,
+        let token = requestExecutor.execute(query: AniListQueries.search,
                                             variables: vars,
                                             authorized: true,
                                             dedupeKey: key) { [weak self] result in
@@ -443,6 +443,9 @@ public final class AniListClient: NSObject {
         section.contentState = state
         section.filterGenre = (definition.variables["genre"] as? [String])?.first
         section.filterSort = (definition.variables["sort"] as? [String])?.first
+        section.filterSeason = definition.variables["season"] as? String
+        section.filterYear = (definition.variables["seasonYear"] as? Int).map(String.init)
+        section.filterFormats = definition.variables["format"] as? [String] ?? []
         return section
     }
 
@@ -453,7 +456,7 @@ public final class AniListClient: NSObject {
         let cachedSections: [HomeSectionData]? = queryCacheQueue.sync {
             let sections = definitions.compactMap { definition -> HomeSectionData? in
                 let vars = applyNsfwFilter(to: definition.variables)
-                guard let items = homeSectionItemCache[cacheKey(prefix: "homeSection", variables: vars)] else { return nil }
+                guard let items = homeSectionItemCache[cacheKey(prefix: "search", variables: vars)] else { return nil }
                 return makeHomeSectionData(definition: definition,
                                            items: items,
                                            state: items.isEmpty ? .empty : .loaded)
@@ -604,7 +607,7 @@ public final class AniListClient: NSObject {
                                          policy: AniListRequestPolicy,
                                          completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) -> AniListRequestToken? {
         let vars = applyNsfwFilter(to: variables)
-        let key = cacheKey(prefix: "homeSection", variables: vars)
+        let key = cacheKey(prefix: "search", variables: vars)
 
         if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { homeSectionItemCache[key] }) {
             completion(.success(cached))
@@ -612,7 +615,7 @@ public final class AniListClient: NSObject {
         }
         guard policy != .pausedUntilVisible else { return nil }
 
-        return requestExecutor.execute(query: AniListQueries.homeSection,
+        return requestExecutor.execute(query: AniListQueries.search,
                                        variables: vars,
                                        authorized: true,
                                        dedupeKey: key) { [weak self] result in
@@ -642,7 +645,8 @@ public final class AniListClient: NSObject {
     func fetchSectionByIDs(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
         guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
         var request = authorizedRequest(url: url)
-        let body: [String: Any] = ["query": AniListQueries.idIn, "variables": ["idIn": ids]]
+        let variables = applyNsfwFilter(to: ["idIn": ids])
+        let body: [String: Any] = ["query": AniListQueries.idIn, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
@@ -673,6 +677,7 @@ public final class AniListClient: NSObject {
         if let status = status { variables["status"] = status }
         if let onList = onList { variables["onList"] = onList }
         if let sort = sort { variables["sort"] = sort }
+        variables = applyNsfwFilter(to: variables)
         let body: [String: Any] = ["query": AniListQueries.idInFiltered, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         performAniListDataTask(request, context: "AniList") { data, _, _ in
@@ -696,7 +701,7 @@ public final class AniListClient: NSObject {
                           formats: [String],
                           statuses: [String],
                           statusNot: [String] = [],
-                          sort: String,
+                          sort: String?,
                           seasonYear: Int? = nil,
                           season: String? = nil,
                           isAdult: Bool? = nil,
@@ -733,18 +738,20 @@ public final class AniListClient: NSObject {
                               formats: [String],
                               statuses: [String],
                               statusNot: [String] = [],
-                              sort: String,
+                              sort: String?,
                               seasonYear: Int? = nil,
                               season: String? = nil,
                               isAdult: Bool? = nil,
                               onList: Bool? = nil,
                               ids: [Int]? = nil,
                               perPage: Int? = nil,
-                              page: Int,
+                              page: Int? = nil,
                               policy: AniListRequestPolicy = .cacheAndNetwork,
                               query: PageQuery<AniListSearchPage>? = nil,
                               completion: @escaping (Result<AniListSearchPage, AniListRequestError>) -> Void) -> AniListRequestToken? {
-        var variables: [String: Any] = ["sort": [sort], "page": page]
+        var variables: [String: Any] = [:]
+        if let page { variables["page"] = page }
+        if let sort { variables["sort"] = [sort] }
         if let perPage { variables["perPage"] = perPage }
         if let t = title, !t.isEmpty { variables["search"] = t }
         if !genres.isEmpty { variables["genre"] = genres }
@@ -808,7 +815,8 @@ public final class AniListClient: NSObject {
     func fetchAnimeByIds(_ ids: [Int], completion: @escaping ([AnimeItem]) -> Void) {
         guard !ids.isEmpty, let url = URL(string: graphQLEndpoint) else { completion([]); return }
         var request = authorizedRequest(url: url)
-        let body: [String: Any] = ["query": AniListQueries.byIds, "variables": ["ids": ids]]
+        let variables = applyNsfwFilter(to: ["ids": ids])
+        let body: [String: Any] = ["query": AniListQueries.byIds, "variables": variables]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         performAniListDataTask(request, context: "AniList") { data, _, _ in
             guard let data = data,
