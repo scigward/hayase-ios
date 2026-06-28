@@ -910,7 +910,7 @@ public final class AniListClient: NSObject {
         }
     }
 
-    private func fetchResolverMediaByIdFromNetwork(_ id: Int, cacheKey: String) {
+    private func fetchResolverMediaByIdFromNetwork(_ id: Int, cacheKey storageKey: String) {
         requestExecutor.execute(query: AniListQueries.resolverMediaById,
                                 variables: ["id": id],
                                 authorized: true,
@@ -919,17 +919,17 @@ public final class AniListClient: NSObject {
             switch result {
             case .success(let graphQLResult):
                 guard let media = (graphQLResult.json["data"] as? [String: Any])?["Media"] as? [String: Any] else {
-                    self.finishFullMediaFetch(id: id, cacheKey: cacheKey, result: .failure(.emptyData))
+                    self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(.emptyData))
                     return
                 }
                 guard var item = self.parseAnimeItem(from: media) else {
-                    self.finishFullMediaFetch(id: id, cacheKey: cacheKey, result: .failure(.invalidJSON))
+                    self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(.invalidJSON))
                     return
                 }
                 item.relations = self.parseRelations(from: media)
-                self.finishFullMediaFetch(id: id, cacheKey: cacheKey, result: .success(item))
+                self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .success(item))
             case .failure(let error):
-                self.finishFullMediaFetch(id: id, cacheKey: cacheKey, result: .failure(error))
+                self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(error))
             }
         }
     }
