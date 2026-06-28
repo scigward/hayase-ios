@@ -281,8 +281,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch Section(rawValue: indexPath.section) {
         case .relations:
-            guard relationGraph != nil else { return 160 }
-            return relationGraphExpanded ? max(320, tableView.bounds.height * 0.8) : 300
+            return relationGraphExpanded ? max(332, tableView.bounds.height * 0.8 + 12) : 300
         default:                  return UITableView.automaticDimension
         }
     }

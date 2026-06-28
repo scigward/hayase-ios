@@ -226,21 +226,152 @@ final class StaffCardCell: UICollectionViewCell {
 
 // MARK: - RelationGraphCell
 
+private extension UIColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(red: CGFloat((hex >> 16) & 0xff) / 255,
+                  green: CGFloat((hex >> 8) & 0xff) / 255,
+                  blue: CGFloat(hex & 0xff) / 255,
+                  alpha: alpha)
+    }
+}
+
+private final class RelationGraphNodeView: UIControl {
+    static let width: CGFloat = 150
+    private static let titleLineHeight: CGFloat = 19.2
+    private static let baseHeight: CGFloat = 48.6
+
+    private let titleContainer = UIView()
+    private let titleLabel = UILabel()
+    private let metaContainer = UIView()
+    private let formatLabel = UILabel()
+    private let statusLabel = UILabel()
+
+    var mediaID: Int = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        backgroundColor = UIColor(hex: 0x111111)
+        layer.cornerRadius = 2
+        layer.borderWidth = 1
+        clipsToBounds = true
+
+        titleContainer.backgroundColor = UIColor(hex: 0x1e1e1e)
+        titleContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleContainer)
+
+        titleLabel.font = .nunito(ofSize: 12, weight: .bold)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleContainer.addSubview(titleLabel)
+
+        metaContainer.backgroundColor = UIColor(hex: 0x111111)
+        metaContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(metaContainer)
+
+        formatLabel.font = .nunito(ofSize: 8.5, weight: .medium)
+        formatLabel.textAlignment = .left
+        formatLabel.textColor = .white
+        formatLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        formatLabel.translatesAutoresizingMaskIntoConstraints = false
+        metaContainer.addSubview(formatLabel)
+
+        statusLabel.font = .nunito(ofSize: 8.5, weight: .medium)
+        statusLabel.textAlignment = .right
+        statusLabel.textColor = .white
+        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        metaContainer.addSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            titleContainer.topAnchor.constraint(equalTo: topAnchor),
+            titleContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            titleContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            titleLabel.topAnchor.constraint(equalTo: titleContainer.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: titleContainer.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: titleContainer.trailingAnchor, constant: -10),
+            titleLabel.bottomAnchor.constraint(equalTo: titleContainer.bottomAnchor, constant: -8),
+
+            metaContainer.topAnchor.constraint(equalTo: titleContainer.bottomAnchor),
+            metaContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            metaContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            metaContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            metaContainer.heightAnchor.constraint(equalToConstant: 20.6),
+
+            formatLabel.topAnchor.constraint(equalTo: metaContainer.topAnchor, constant: 6),
+            formatLabel.leadingAnchor.constraint(equalTo: metaContainer.leadingAnchor, constant: 8),
+            formatLabel.bottomAnchor.constraint(equalTo: metaContainer.bottomAnchor, constant: -6),
+
+            statusLabel.topAnchor.constraint(equalTo: metaContainer.topAnchor, constant: 6),
+            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: formatLabel.trailingAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(equalTo: metaContainer.trailingAnchor, constant: -8),
+            statusLabel.bottomAnchor.constraint(equalTo: metaContainer.bottomAnchor, constant: -6),
+        ])
+    }
+
+    func configure(media: AnimeItem, isCurrent: Bool, accentColor: UIColor) {
+        mediaID = media.id
+        let foreground = isCurrent ? accentColor : UIColor.white
+        titleLabel.text = AniListUtil.title(for: media).isEmpty ? "TBA" : AniListUtil.title(for: media)
+        titleLabel.textColor = foreground
+        formatLabel.text = Self.displayFormat(media.format)
+        statusLabel.text = media.episodes.map { "\($0) Episodes" } ?? Self.displayStatus(media.status)
+        formatLabel.textColor = foreground
+        statusLabel.textColor = foreground
+        layer.borderColor = (isCurrent ? accentColor : UIColor(hex: 0x111111)).cgColor
+    }
+
+    static func preferredHeight(for media: AnimeItem) -> CGFloat {
+        let title = AniListUtil.title(for: media).isEmpty ? "TBA" : AniListUtil.title(for: media)
+        let lineCount = max(1, Int(ceil(Double(title.count) / 20.0)))
+        return baseHeight + CGFloat(lineCount) * titleLineHeight
+    }
+
+    private static func displayFormat(_ value: String?) -> String {
+        guard let value else { return "N/A" }
+        switch value {
+        case "TV": return "TV"
+        case "TV_SHORT": return "TV Short"
+        default: return value.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private static func displayStatus(_ value: String?) -> String {
+        guard let value else { return "TBA" }
+        return value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
 final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     static let reuseID = "RelationGraphCell"
 
     private let scrollView = UIScrollView()
     private let content = UIView()
     private let controlsStack = UIStackView()
+    private let zoomInButton = UIButton(type: .system)
+    private let zoomOutButton = UIButton(type: .system)
+    private let fitButton = UIButton(type: .system)
     private let expandButton = UIButton(type: .system)
     private let refreshButton = UIButton(type: .system)
+    private let emptyLabel = UILabel()
 
+    private var backgroundLayers: [CAShapeLayer] = []
     private var edgeLayers: [CAShapeLayer] = []
     private var graph: AnimeRelationGraph?
     private var currentID: Int?
     private var accentColor: UIColor = .white
     private var isExpanded = false
-    private var nodeButtons: [Int: UIButton] = [:]
+    private var didInitialFit = false
+    private var lastLayoutSize: CGSize = .zero
+    private var nodeViews: [Int: RelationGraphNodeView] = [:]
 
     var onSelectMedia: ((Int) -> Void)?
     var onRefreshGraph: (() -> Void)?
@@ -259,53 +390,68 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         selectionStyle = .none
 
         scrollView.delegate = self
-        scrollView.minimumZoomScale = 0.35
+        scrollView.minimumZoomScale = 0.05
         scrollView.maximumZoomScale = 1.2
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        scrollView.backgroundColor = UIColor(white: 0.02, alpha: 1)
-        scrollView.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor
+        scrollView.backgroundColor = .black
+        scrollView.layer.borderColor = UIColor(white: 0.22, alpha: 1).cgColor
         scrollView.layer.borderWidth = 1
-        scrollView.layer.cornerRadius = 8
+        scrollView.layer.cornerRadius = 4
         scrollView.clipsToBounds = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(scrollView)
         scrollView.addSubview(content)
 
+        emptyLabel.text = "No relations yet."
+        emptyLabel.font = .nunito(ofSize: 12, weight: .semibold)
+        emptyLabel.textColor = UIColor(white: 0.72, alpha: 1)
+        emptyLabel.textAlignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(emptyLabel)
+
         controlsStack.axis = .horizontal
-        controlsStack.spacing = 8
+        controlsStack.spacing = 0
         controlsStack.alignment = .center
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(controlsStack)
 
+        configureControlButton(zoomInButton, title: "+")
+        configureControlButton(zoomOutButton, title: "−")
+        configureControlButton(fitButton, title: "⌖")
         configureControlButton(expandButton, title: "⛶")
         configureControlButton(refreshButton, title: "↻")
+
+        zoomInButton.addTarget(self, action: #selector(zoomInTapped), for: .touchUpInside)
+        zoomOutButton.addTarget(self, action: #selector(zoomOutTapped), for: .touchUpInside)
+        fitButton.addTarget(self, action: #selector(fitTapped), for: .touchUpInside)
         expandButton.addTarget(self, action: #selector(toggleExpanded), for: .touchUpInside)
         refreshButton.addTarget(self, action: #selector(refreshTapped), for: .touchUpInside)
-        controlsStack.addArrangedSubview(expandButton)
-        controlsStack.addArrangedSubview(refreshButton)
+        [zoomInButton, zoomOutButton, fitButton, expandButton, refreshButton].forEach { controlsStack.addArrangedSubview($0) }
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            controlsStack.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 10),
-            controlsStack.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -10),
+            emptyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
+
+            controlsStack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 10),
+            controlsStack.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -10),
         ])
     }
 
     private func configureControlButton(_ button: UIButton, title: String) {
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
-        button.setTitleColor(.white, for: .normal)
-        button.backgroundColor = UIColor(white: 0.09, alpha: 0.92)
-        button.layer.cornerRadius = 6
-        button.layer.borderColor = UIColor(white: 0.22, alpha: 1).cgColor
-        button.layer.borderWidth = 1
-        button.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        button.setTitleColor(UIColor(white: 0.08, alpha: 1), for: .normal)
+        button.backgroundColor = UIColor(white: 0.96, alpha: 1)
+        button.layer.borderColor = UIColor(white: 0.78, alpha: 1).cgColor
+        button.layer.borderWidth = 1 / UIScreen.main.scale
+        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
     }
 
     func configure(graph: AnimeRelationGraph, currentID: Int?, accentColor: UIColor, expanded: Bool) {
@@ -313,61 +459,116 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         self.currentID = currentID
         self.accentColor = accentColor
         self.isExpanded = expanded
-        expandButton.setTitle(expanded ? "⛶" : "⛶", for: .normal)
+        self.didInitialFit = false
+        expandButton.setTitle(expanded ? "▣" : "⛶", for: .normal)
         setNeedsLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        graph = nil
+        currentID = nil
+        didInitialFit = false
+        lastLayoutSize = .zero
+        clearGraph()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        rebuildGraph()
+        guard scrollView.bounds.size != .zero else { return }
+        if scrollView.bounds.size != lastLayoutSize {
+            lastLayoutSize = scrollView.bounds.size
+            didInitialFit = false
+            rebuildGraph()
+        } else if !didInitialFit {
+            fitGraph(animated: false)
+        }
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { content }
 
-    private func rebuildGraph() {
-        guard let graph, !graph.nodes.isEmpty else { return }
+    private func clearGraph() {
         content.subviews.forEach { $0.removeFromSuperview() }
+        backgroundLayers.forEach { $0.removeFromSuperlayer() }
+        backgroundLayers.removeAll()
         edgeLayers.forEach { $0.removeFromSuperlayer() }
         edgeLayers.removeAll()
-        nodeButtons.removeAll()
+        nodeViews.removeAll()
+    }
+
+    private func rebuildGraph() {
+        clearGraph()
+        guard let graph else { return }
+
+        let nodes = graph.nodes
+        emptyLabel.isHidden = !nodes.isEmpty
         scrollView.zoomScale = 1
 
-        let nodeWidth: CGFloat = 150
-        let baseNodeHeight: CGFloat = 56
+        let nodeWidth = RelationGraphNodeView.width
         let columnGap: CGFloat = 120
         let rowGap: CGFloat = 50
-        let inset: CGFloat = 36
+        let inset: CGFloat = 48
 
         let depths = relationDepths(for: graph)
-        let grouped = Dictionary(grouping: graph.nodes.keys) { depths[$0] ?? 0 }
+        let grouped = Dictionary(grouping: nodes.keys) { depths[$0] ?? 0 }
         let sortedDepths = grouped.keys.sorted()
-        let maxRows = grouped.values.map(\.count).max() ?? 1
+        var columnHeights: [Int: CGFloat] = [:]
+        for depth in sortedDepths {
+            let ids = sortedNodeIDs(grouped[depth] ?? [], graph: graph)
+            let height = ids.reduce(CGFloat(0)) { total, id in
+                guard let media = nodes[id] else { return total }
+                return total + RelationGraphNodeView.preferredHeight(for: media)
+            } + CGFloat(max(ids.count - 1, 0)) * rowGap
+            columnHeights[depth] = height
+        }
+
+        let maxColumnHeight = max(columnHeights.values.max() ?? 0, 1)
         let contentWidth = max(scrollView.bounds.width + 1,
                                inset * 2 + CGFloat(max(sortedDepths.count, 1)) * nodeWidth + CGFloat(max(sortedDepths.count - 1, 0)) * columnGap)
-        let contentHeight = max(scrollView.bounds.height + 1,
-                                inset * 2 + CGFloat(maxRows) * baseNodeHeight + CGFloat(max(maxRows - 1, 0)) * rowGap)
+        let contentHeight = max(scrollView.bounds.height + 1, inset * 2 + maxColumnHeight)
         content.frame = CGRect(origin: .zero, size: CGSize(width: contentWidth, height: contentHeight))
         scrollView.contentSize = content.bounds.size
+        drawBackground(in: content.bounds)
 
         for (columnIndex, depth) in sortedDepths.enumerated() {
             let ids = sortedNodeIDs(grouped[depth] ?? [], graph: graph)
-            let columnHeight = CGFloat(ids.count) * baseNodeHeight + CGFloat(max(ids.count - 1, 0)) * rowGap
-            let startY = max(inset, (contentHeight - columnHeight) / 2)
+            let columnHeight = columnHeights[depth] ?? 0
+            var y = max(inset, (contentHeight - columnHeight) / 2)
             let x = inset + CGFloat(columnIndex) * (nodeWidth + columnGap)
-            for (rowIndex, id) in ids.enumerated() {
-                guard let media = graph.nodes[id] else { continue }
-                let y = startY + CGFloat(rowIndex) * (baseNodeHeight + rowGap)
-                let button = makeNodeButton(media: media, isCurrent: id == currentID)
-                button.tag = id
-                button.frame = CGRect(x: x, y: y, width: nodeWidth, height: baseNodeHeight)
-                button.addTarget(self, action: #selector(nodeTapped(_:)), for: .touchUpInside)
-                content.addSubview(button)
-                nodeButtons[id] = button
+            for id in ids {
+                guard let media = nodes[id] else { continue }
+                let height = RelationGraphNodeView.preferredHeight(for: media)
+                let node = RelationGraphNodeView(frame: CGRect(x: x, y: y, width: nodeWidth, height: height))
+                node.configure(media: media, isCurrent: id == currentID, accentColor: accentColor)
+                node.addTarget(self, action: #selector(nodeTapped(_:)), for: .touchUpInside)
+                content.addSubview(node)
+                nodeViews[id] = node
+                y += height + rowGap
             }
         }
 
         drawEdges(graph)
-        centerCurrentNodeIfNeeded()
+        fitGraph(animated: false)
+    }
+
+    private func drawBackground(in rect: CGRect) {
+        let spacing: CGFloat = 24
+        let dotRadius: CGFloat = 0.7
+        let path = UIBezierPath()
+        var y: CGFloat = 0
+        while y <= rect.height {
+            var x: CGFloat = 0
+            while x <= rect.width {
+                path.append(UIBezierPath(ovalIn: CGRect(x: x, y: y, width: dotRadius * 2, height: dotRadius * 2)))
+                x += spacing
+            }
+            y += spacing
+        }
+        let layer = CAShapeLayer()
+        layer.path = path.cgPath
+        layer.fillColor = UIColor(white: 0.24, alpha: 0.38).cgColor
+        content.layer.insertSublayer(layer, at: 0)
+        backgroundLayers.append(layer)
     }
 
     private func sortedNodeIDs(_ ids: [Int], graph: AnimeRelationGraph) -> [Int] {
@@ -410,41 +611,10 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         return depths.mapValues { $0 + offset }
     }
 
-    private func makeNodeButton(media: AnimeItem, isCurrent: Bool) -> UIButton {
-        let button = UIButton(type: .custom)
-        button.backgroundColor = UIColor(white: 0.07, alpha: 1)
-        button.layer.cornerRadius = 4
-        button.layer.borderWidth = isCurrent ? 1.5 : 1
-        button.layer.borderColor = (isCurrent ? accentColor : UIColor(white: 0.18, alpha: 1)).cgColor
-        button.titleLabel?.numberOfLines = 3
-        button.titleLabel?.textAlignment = .center
-        button.titleLabel?.font = .nunito(ofSize: 11, weight: .semibold)
-        button.setTitleColor(isCurrent ? accentColor : .white, for: .normal)
-
-        let title = AniListUtil.title(for: media)
-        let meta = media.episodes.map { "\($0) Episodes" } ?? displayStatus(media.status)
-        button.setTitle("\(title)\n\(displayFormat(media.format)) · \(meta)", for: .normal)
-        return button
-    }
-
-    private func displayFormat(_ value: String?) -> String {
-        guard let value else { return "N/A" }
-        switch value {
-        case "TV": return "TV"
-        case "TV_SHORT": return "TV Short"
-        default: return value.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private func displayStatus(_ value: String?) -> String {
-        guard let value else { return "TBA" }
-        return value.replacingOccurrences(of: "_", with: " ").capitalized
-    }
-
     private func drawEdges(_ graph: AnimeRelationGraph) {
         for edge in graph.edges.values.sorted(by: { $0.id < $1.id }) {
-            guard let source = nodeButtons[edge.sourceID],
-                  let target = nodeButtons[edge.targetID] else { continue }
+            guard let source = nodeViews[edge.sourceID],
+                  let target = nodeViews[edge.targetID] else { continue }
             let start = CGPoint(x: source.frame.maxX, y: source.frame.midY)
             let end = CGPoint(x: target.frame.minX, y: target.frame.midY)
             let midX = (start.x + end.x) / 2
@@ -458,49 +628,83 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
             let isCurrentEdge = [edge.sourceID, edge.targetID].contains(currentID ?? -1)
             let layer = CAShapeLayer()
             layer.path = path.cgPath
-            layer.strokeColor = (isCurrentEdge ? accentColor : UIColor(white: 0.45, alpha: 1)).withAlphaComponent(isCurrentEdge ? 0.9 : 0.55).cgColor
+            layer.strokeColor = (isCurrentEdge ? accentColor : UIColor(white: 0.62, alpha: 1)).cgColor
             layer.fillColor = UIColor.clear.cgColor
-            layer.lineWidth = isCurrentEdge ? 1.6 : 1.1
-            content.layer.insertSublayer(layer, at: 0)
+            layer.lineWidth = isCurrentEdge ? 2 : 1.5
+            content.layer.insertSublayer(layer, above: backgroundLayers.last)
             edgeLayers.append(layer)
 
-            let label = UILabel()
-            label.text = edge.relationType.replacingOccurrences(of: "_", with: " ")
-            label.font = .nunito(ofSize: 9, weight: .semibold)
-            label.textColor = isCurrentEdge ? accentColor : UIColor(white: 0.78, alpha: 1)
-            label.backgroundColor = UIColor(white: 0.02, alpha: 0.92)
-            label.textAlignment = .center
-            label.sizeToFit()
-            let width = max(52, label.bounds.width + 12)
-            label.frame = CGRect(x: midX - width / 2, y: (start.y + end.y) / 2 - 11, width: width, height: 22)
-            label.layer.cornerRadius = 4
-            label.clipsToBounds = true
-            content.addSubview(label)
+            addEdgeLabel(edge.relationType.replacingOccurrences(of: "_", with: " "),
+                         at: CGPoint(x: midX, y: (start.y + end.y) / 2),
+                         highlighted: isCurrentEdge)
         }
     }
 
-    private func centerCurrentNodeIfNeeded() {
-        guard let currentID, let button = nodeButtons[currentID] else { return }
-        let visibleSize = scrollView.bounds.size
-        var target = button.frame.insetBy(dx: -visibleSize.width / 2 + button.bounds.width / 2,
-                                          dy: -visibleSize.height / 2 + button.bounds.height / 2)
-        target.origin.x = max(0, target.origin.x)
-        target.origin.y = max(0, target.origin.y)
-        scrollView.scrollRectToVisible(target, animated: false)
+    private func addEdgeLabel(_ text: String, at center: CGPoint, highlighted: Bool) {
+        let label = UILabel()
+        label.text = text
+        label.font = .nunito(ofSize: 9, weight: .semibold)
+        label.textColor = highlighted ? accentColor : UIColor(white: 0.84, alpha: 1)
+        label.backgroundColor = .black
+        label.textAlignment = .center
+        label.sizeToFit()
+        let width = max(52, label.bounds.width + 12)
+        label.frame = CGRect(x: center.x - width / 2, y: center.y - 11, width: width, height: 22)
+        content.addSubview(label)
+    }
+
+    private func fitGraph(animated: Bool) {
+        guard content.bounds.width > 0, content.bounds.height > 0 else { return }
+        let viewport = scrollView.bounds.insetBy(dx: 18, dy: 18).size
+        guard viewport.width > 0, viewport.height > 0 else { return }
+        let scale = min(1.2, max(0.05, min(viewport.width / content.bounds.width,
+                                           viewport.height / content.bounds.height)))
+        scrollView.setZoomScale(scale, animated: animated)
+        centerCurrentNode(animated: animated)
+        didInitialFit = true
+    }
+
+    private func centerCurrentNode(animated: Bool) {
+        guard let currentID, let node = nodeViews[currentID] else { return }
+        let visibleWidth = scrollView.bounds.width / max(scrollView.zoomScale, 0.05)
+        let visibleHeight = scrollView.bounds.height / max(scrollView.zoomScale, 0.05)
+        var rect = CGRect(x: node.frame.midX - visibleWidth / 2,
+                          y: node.frame.midY - visibleHeight / 2,
+                          width: visibleWidth,
+                          height: visibleHeight)
+        rect.origin.x = max(0, min(rect.origin.x, max(0, content.bounds.width - rect.width)))
+        rect.origin.y = max(0, min(rect.origin.y, max(0, content.bounds.height - rect.height)))
+        scrollView.scrollRectToVisible(rect, animated: animated)
+    }
+
+    @objc private func zoomInTapped() {
+        scrollView.setZoomScale(min(scrollView.maximumZoomScale, scrollView.zoomScale * 1.2), animated: true)
+    }
+
+    @objc private func zoomOutTapped() {
+        scrollView.setZoomScale(max(scrollView.minimumZoomScale, scrollView.zoomScale / 1.2), animated: true)
+    }
+
+    @objc private func fitTapped() {
+        fitGraph(animated: true)
     }
 
     @objc private func toggleExpanded() {
         isExpanded.toggle()
+        expandButton.setTitle(isExpanded ? "▣" : "⛶", for: .normal)
         onToggleExpanded?(isExpanded)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
+            self?.fitGraph(animated: true)
+        }
     }
 
     @objc private func refreshTapped() {
         onRefreshGraph?()
     }
 
-    @objc private func nodeTapped(_ sender: UIButton) {
-        guard sender.tag != currentID else { return }
-        onSelectMedia?(sender.tag)
+    @objc private func nodeTapped(_ sender: RelationGraphNodeView) {
+        guard sender.mediaID != currentID else { return }
+        onSelectMedia?(sender.mediaID)
     }
 }
 
@@ -659,13 +863,31 @@ extension AnimeDetailViewController {
 
 
     var hasRelationsContent: Bool {
-        if let graph = relationGraph, !graph.nodes.isEmpty { return true }
-        return !relations.isEmpty
+        relationGraph != nil || animeItem != nil || !relations.isEmpty
     }
 
     func applyRelationGraph(_ graph: AnimeRelationGraph) {
-        guard !graph.nodes.isEmpty else { return }
-        relationGraph = graph
+        relationGraph = graph.nodes.isEmpty ? fallbackRelationGraph() : graph
+    }
+
+    func fallbackRelationGraph() -> AnimeRelationGraph? {
+        guard let current = animeItem else { return nil }
+        var graph = AnimeRelationGraph(nodes: [current.id: current], edges: [:])
+        for relation in current.relations {
+            graph.nodes[relation.media.id] = relation.media
+            let sourceID = relation.sourceID ?? current.id
+            let targetID = relation.media.id
+            let relationType = relation.relationType
+            let isPrequel = relationType == "PREQUEL"
+            let lhs = min(sourceID, targetID)
+            let rhs = max(sourceID, targetID)
+            graph.edges["\(lhs)-\(rhs)"] = AnimeRelationGraphEdge(
+                id: "e\(lhs)-\(rhs)",
+                sourceID: isPrequel ? targetID : sourceID,
+                targetID: isPrequel ? sourceID : targetID,
+                relationType: isPrequel ? "SEQUEL" : relationType)
+        }
+        return graph
     }
 
     func expandRelationGraphIfNeeded(_ graph: AnimeRelationGraph, reload: Bool = false) {
@@ -685,10 +907,11 @@ extension AnimeDetailViewController {
     }
 
     func makeRelationsCell(for indexPath: IndexPath) -> UITableViewCell {
-        if let graph = relationGraph, !graph.nodes.isEmpty,
+        if let graph = relationGraph ?? fallbackRelationGraph(),
            let cell = tableView.dequeueReusableCell(
             withIdentifier: RelationGraphCell.reuseID,
             for: indexPath) as? RelationGraphCell {
+            if relationGraph == nil { relationGraph = graph }
             cell.configure(graph: graph,
                            currentID: routeAnimeID,
                            accentColor: currentAnimeAccent,
