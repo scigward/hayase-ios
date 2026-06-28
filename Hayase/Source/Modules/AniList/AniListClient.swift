@@ -308,6 +308,7 @@ public final class AniListClient: NSObject {
         let year = AniListUtil.currentYear()
         let variables = applyNsfwFilter(to: [
             "sort": ["SCORE_DESC"],
+            "perPage": 15,
             "season": season,
             "seasonYear": year,
             "statusNot": ["NOT_YET_RELEASED"]
@@ -382,19 +383,6 @@ public final class AniListClient: NSObject {
                                          variables: ["sort": ["TRENDING_DESC"], "genre": ["Fantasy"]],
                                          startsPaused: true),
         ]
-    }
-
-    private var homeSectionConfigs: [(title: String, variables: [String: Any])] {
-        homeSectionDefinitions().map { ($0.title, $0.variables) }
-    }
-
-    func fetchHomeSections(completion: @escaping ([HomeSectionData]) -> Void) {
-        fetchHomeSectionsResult(policy: .cacheAndNetwork) { result in
-            switch result {
-            case .success(let sections): completion(sections)
-            case .failure: completion([])
-            }
-        }
     }
 
     @discardableResult
@@ -476,59 +464,9 @@ public final class AniListClient: NSObject {
         return section
     }
 
-    func fetchHomeSectionsResult(policy: AniListRequestPolicy = .cacheAndNetwork,
-                                 query: PageQuery<[HomeSectionData]>? = nil,
-                                 completion: @escaping (Result<[HomeSectionData], AniListRequestError>) -> Void) {
-        let definitions = homeSectionDefinitions()
-        let cachedSections: [HomeSectionData]? = queryCacheQueue.sync {
-            let sections = definitions.compactMap { definition -> HomeSectionData? in
-                let vars = applyNsfwFilter(to: definition.variables)
-                guard let items = homeSectionItemCache[cacheKey(prefix: "search", variables: vars)] else { return nil }
-                return makeHomeSectionData(definition: definition,
-                                           items: items,
-                                           state: items.isEmpty ? .empty : .loaded)
-            }
-            return sections.count == definitions.count ? sections : nil
-        }
-
-        if policy != .networkOnly, let cachedSections {
-            query?.setSuccess(cachedSections, isEmpty: cachedSections.isEmpty)
-            completion(.success(cachedSections))
-            if policy == .cacheFirst { return }
-        }
-        guard policy != .pausedUntilVisible else { return }
-
-        query?.setFetching(previous: cachedSections)
-        let group = DispatchGroup()
-        let syncQueue = DispatchQueue(label: "com.hayase.homeSections")
-        var results = [HomeSectionData?](repeating: nil, count: definitions.count)
-        var firstError: AniListRequestError?
-
-        for (index, definition) in definitions.enumerated() {
-            group.enter()
-            fetchHomeSectionResult(definition: definition, policy: .networkOnly) { result in
-                switch result {
-                case .success(let section):
-                    syncQueue.sync { results[index] = section }
-                case .failure(let error):
-                    syncQueue.sync { if firstError == nil { firstError = error } }
-                }
-                group.leave()
-            }
-        }
-
-        group.notify(queue: .main) {
-            let sections = results.compactMap { $0 }
-            if !sections.isEmpty {
-                query?.setSuccess(sections, isEmpty: false)
-                completion(.success(sections))
-            } else {
-                let error = firstError ?? .emptyData
-                query?.setFailure(error, previous: cachedSections)
-                completion(.failure(error))
-            }
-        }
-    }
+    // Home sections are intentionally fetched independently through PageQuery-backed
+    // section descriptors. Interface's QueryCard rows are visibility-resumed stores,
+    // so there must not be a grouped API here that can wake every Home section at once.
 
     func fetchFollowingMany(animeIDs: [Int], completion: @escaping ([Int: [AniListUserSummary]]) -> Void) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
@@ -953,9 +891,19 @@ public final class AniListClient: NSObject {
         }
 
         var resultIDs: [String: Int] = [:]
-        let chunks = stride(from: 0, to: flattened.count, by: 24).map {
-            Array(flattened[$0..<min($0 + 24, flattened.count)])
+        var chunks: [[(key: String, title: String, year: Int?, isAdult: Bool)]] = []
+        var currentChunk: [(key: String, title: String, year: Int?, isAdult: Bool)] = []
+        for object in flattened {
+            // Keep the adult duplicate beside its non-adult title so the GraphQL
+            // operation can reuse the same title variable, matching Interface's
+            // searchCompound construction without adding needless variables.
+            if currentChunk.count >= 24 && !object.isAdult {
+                chunks.append(currentChunk)
+                currentChunk = []
+            }
+            currentChunk.append(object)
         }
+        if !currentChunk.isEmpty { chunks.append(currentChunk) }
 
         func runChunk(at chunkIndex: Int) {
             guard chunkIndex < chunks.count else {
@@ -964,12 +912,15 @@ public final class AniListClient: NSObject {
             }
 
             let chunk = chunks[chunkIndex]
-            let variableDefs = chunk.enumerated().map { "$v\($0.offset): String" }.joined(separator: ", ")
+            let variableDefs = chunk.enumerated().compactMap { index, object in
+                object.isAdult && index != 0 ? nil : "$v\(index): String"
+            }.joined(separator: ", ")
             let pages = chunk.enumerated().map { index, object in
                 let yearPart = object.year.map { ", seasonYear: \($0)" } ?? ""
+                let variableIndex = object.isAdult && index != 0 ? index - 1 : index
                 return """
                 v\(index): Page(perPage: 10) {
-                  media(type: ANIME, search: $v\(index), status_in: [RELEASING, FINISHED], isAdult: \(object.isAdult)\(yearPart)) {
+                  media(type: ANIME, search: $v\(variableIndex), status_in: [RELEASING, FINISHED], isAdult: \(object.isAdult)\(yearPart)) {
                     id
                     title { romaji english native }
                     startDate { year month day }
@@ -986,7 +937,7 @@ public final class AniListClient: NSObject {
 
             var request = authorizedRequest(url: url)
             var variables: [String: Any] = [:]
-            for (index, object) in chunk.enumerated() {
+            for (index, object) in chunk.enumerated() where !(object.isAdult && index != 0) {
                 variables["v\(index)"] = object.title
             }
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])

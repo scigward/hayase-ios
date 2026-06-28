@@ -136,7 +136,7 @@ enum AniListQueries {
     static let airingAnime = """
     query ($nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(status: RELEASING, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
+        media(status: RELEASING, type: ANIME, format_not: MUSIC, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
           title { romaji english native userPreferred }
           coverImage { extraLarge large medium color }
@@ -172,7 +172,7 @@ enum AniListQueries {
     static let searchLegacy = """
     query ($search: String, $nsfw: [String]) {
       Page(page: 1, perPage: 50) {
-        media(search: $search, type: ANIME, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
+        media(search: $search, type: ANIME, format_not: MUSIC, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
           id
           title { romaji english native userPreferred }
           coverImage { extraLarge large medium color }

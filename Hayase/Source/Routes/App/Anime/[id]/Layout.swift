@@ -1482,13 +1482,12 @@ class AnimeDetailViewController: UIViewController {
     func navigateToSearchTab(genre: String) {
         let state = Route.SearchState(
             genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
-            tags: SearchValues.genreSet.contains(genre) ? [] : [genre],
-            sort: "TRENDING_DESC")
+            tags: SearchValues.genreSet.contains(genre) ? [] : [genre])
         Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
     }
 
     func navigateToSearchTab(filterType: String, value: String) {
-        var state = Route.SearchState(sort: "TRENDING_DESC")
+        var state = Route.SearchState()
         switch filterType {
         case "format":
             state.formats = [value]

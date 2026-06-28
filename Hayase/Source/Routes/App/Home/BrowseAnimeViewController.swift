@@ -2219,7 +2219,7 @@ class BrowseAnimeViewController: UIViewController {
                 kind: .ids(ids: ids, status: nil, onList: nil, sort: ["UPDATED_AT_DESC"], preserveOrder: true),
                 filterGenre: nil,
                 filterSort: "UPDATED_AT_DESC",
-                filterIDs: ids,
+                filterIDs: continueIDs,
                 filterStatus: nil,
                 filterOnList: nil,
                 filterSeason: nil,
