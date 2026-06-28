@@ -26,7 +26,8 @@ final class Router {
     private let history: History
     private var observers: [UUID: Observer] = [:]
     private var animePayloads: [Int: AnimeItem] = [:]
-    private var fullAnimePayloadIDs: Set<Int> = []
+    private var routeReadyAnimePayloadIDs: Set<Int> = []
+    private var pendingAnimeNavigationID: UUID?
     private var threadTitles: [Int: String] = [:]
     private var playerPayload: VideoPlayerViewController?
 
@@ -56,6 +57,7 @@ final class Router {
     }
 
     func navigate(_ route: Route, hostTabIndex: Int? = nil) {
+        pendingAnimeNavigationID = nil
         if route == currentRoute {
             notify(route, kind: .replace)
             return
@@ -65,6 +67,7 @@ final class Router {
     }
 
     func replace(_ route: Route, hostTabIndex: Int? = nil) {
+        pendingAnimeNavigationID = nil
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
         notify(route, kind: .replace)
     }
@@ -84,19 +87,26 @@ final class Router {
     }
 
     func sync(_ route: Route, hostTabIndex: Int? = nil) {
+        pendingAnimeNavigationID = nil
         guard route != currentRoute else { return }
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
         notify(route, kind: .sync)
     }
 
     func cacheAnimeItem(_ item: AnimeItem) {
-        let isFullPayload = Self.isFullAnimePayload(item)
-        if let existing = animePayloads[item.id], Self.isFullAnimePayload(existing), !isFullPayload {
+        let isRouteReady = item.isRouteReadyMediaPayload
+        if let existing = animePayloads[item.id] {
+            let merged = existing.mergingRouteMedia(item)
+            animePayloads[item.id] = merged
+            if isRouteReady || merged.isRouteReadyMediaPayload {
+                routeReadyAnimePayloadIDs.insert(item.id)
+            }
             return
         }
+
         animePayloads[item.id] = item
-        if isFullPayload {
-            fullAnimePayloadIDs.insert(item.id)
+        if isRouteReady {
+            routeReadyAnimePayloadIDs.insert(item.id)
         }
     }
 
@@ -106,21 +116,35 @@ final class Router {
 
     func cachedFullAnimeItem(for id: Int) -> AnimeItem? {
         guard let item = animePayloads[id] else { return nil }
-        if fullAnimePayloadIDs.contains(id) || Self.isFullAnimePayload(item) {
+        if routeReadyAnimePayloadIDs.contains(id) || item.isRouteReadyMediaPayload {
             return item
         }
         return nil
     }
 
-    private static func isFullAnimePayload(_ item: AnimeItem) -> Bool {
-        item.isAdult != nil
-            || !item.tags.isEmpty
-            || !item.relations.isEmpty
-    }
-
     func navigateToAnime(_ item: AnimeItem, hostTabIndex: Int? = nil) {
         cacheAnimeItem(item)
-        navigate(.anime(id: item.id), hostTabIndex: hostTabIndex)
+
+        if cachedFullAnimeItem(for: item.id) != nil {
+            navigate(.anime(id: item.id), hostTabIndex: hostTabIndex)
+            return
+        }
+
+        // Match SvelteKit's /app/anime/[id] load: do not render the anime
+        // route from a partial card/search payload. Keep the current route on
+        // screen until the route-ready IDMedia equivalent is available.
+        let requestID = UUID()
+        let sourceRoute = currentRoute
+        pendingAnimeNavigationID = requestID
+        AniListClient.shared.fetchResolverMediaById(item.id) { [weak self] media in
+            guard let self,
+                  self.pendingAnimeNavigationID == requestID,
+                  self.currentRoute == sourceRoute,
+                  let media else { return }
+            self.pendingAnimeNavigationID = nil
+            self.cacheAnimeItem(media)
+            self.navigate(.anime(id: media.id), hostTabIndex: hostTabIndex)
+        }
     }
 
     func navigateToAnimeThread(animeID: Int, threadID: Int, title: String?, hostTabIndex: Int? = nil) {
@@ -148,6 +172,7 @@ final class Router {
 
     @discardableResult
     func back() -> Bool {
+        pendingAnimeNavigationID = nil
         guard let entry = history.back() else { return false }
         notify(entry.route, kind: .back)
         return true
@@ -155,6 +180,7 @@ final class Router {
 
     @discardableResult
     func forward() -> Bool {
+        pendingAnimeNavigationID = nil
         guard let entry = history.forward() else { return false }
         notify(entry.route, kind: .forward)
         return true

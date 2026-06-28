@@ -94,19 +94,25 @@ extension AnimeDetailViewController {
 
     func fetchAnimePageData() {
         guard let id = routeAnimeID, id > 0 else { return }
+        let requestID = UUID()
+        animePageRequestID = requestID
+
         AniListClient.shared.fetchAnimePage(id: id) { [weak self] payload in
-            guard let self, self.routeAnimeID == id else { return }
+            guard let self,
+                  self.routeAnimeID == id,
+                  self.animePageRequestID == requestID else { return }
 
             if let media = payload.media {
-                self.animeItem = media
-                Router.shared.cacheAnimeItem(media)
-                self.headerView?.updateAnimePageDetails(with: media)
-                if let accent = ExtensionSearchViewController.uiColor(fromHex: media.coverColor) {
+                let merged = self.animeItem?.mergingRouteMedia(media) ?? media
+                self.animeItem = merged
+                Router.shared.cacheAnimeItem(merged)
+                self.headerView?.updateAnimePageDetails(with: merged)
+                if let accent = ExtensionSearchViewController.uiColor(fromHex: merged.coverColor) {
                     self.currentAnimeAccent = accent
                     self.tabBar.accentColor = accent
                 }
-                if !media.relations.isEmpty {
-                    self.relations = media.relations
+                if !merged.relations.isEmpty {
+                    self.relations = merged.relations
                 }
             }
 
@@ -117,6 +123,7 @@ extension AnimeDetailViewController {
                 .mapValues { entries in Array(entries.prefix(4)).map(\.user) }
 
             self.reloadAnimePagePayloadSections()
+            self.fetchLegacyAnimeDetailsIfNeeded()
         }
     }
 

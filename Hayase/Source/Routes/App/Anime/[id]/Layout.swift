@@ -1280,6 +1280,7 @@ class AnimeDetailViewController: UIViewController {
     var activeThemeVideoURL: String?
     var threadsLoading = false
     var themesLoading = false
+    var animePageRequestID = UUID()
 
     var activeSection: Section = .episodes
 
@@ -1413,7 +1414,6 @@ class AnimeDetailViewController: UIViewController {
         applyTabBarLayoutForSizeClass()
         fetchAnimePageData()
         fetchEpisodes()
-        fetchRelationsAndCharacters()
         fetchAniListProgress()
         refreshButtonStates()
         headerView?.publishSidebarBackdrop()

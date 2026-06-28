@@ -29,6 +29,10 @@ public final class AniListClient: NSObject {
     private var animePageCache: [String: AnimePagePayload] = [:]
     private var animePageCompletions: [String: [(AnimePagePayload) -> Void]] = [:]
 
+    private let animePageFollowingQueue = DispatchQueue(label: "com.hayase.anilist.animePageFollowing")
+    private var animePageFollowingCache: [String: [AniListFollowingEntry]] = [:]
+    private var animePageFollowingCompletions: [String: [([AniListFollowingEntry]) -> Void]] = [:]
+
     // MARK: - Notifications (iOS-specific, for CoreData sync)
 
     static let LocalAnimeWillUpdateNotification = "LocalAnimeWillUpdateNotification"
@@ -674,6 +678,18 @@ public final class AniListClient: NSObject {
         }
     }
 
+    private func storeFullMediaPayload(_ item: AnimeItem) {
+        guard item.isRouteReadyMediaPayload else { return }
+        fullMediaQueue.async { [weak self] in
+            guard let self else { return }
+            if let existing = self.fullMediaCache[item.id] {
+                self.fullMediaCache[item.id] = existing.mergingRouteMedia(item)
+            } else {
+                self.fullMediaCache[item.id] = item
+            }
+        }
+    }
+
     private func bestResolverSearchMedia(in mediaList: [[String: Any]], title: String) -> [String: Any]? {
         mediaList.min { lhs, rhs in
             let leftDistance = resolverTitleDistance(lhs, title: title)
@@ -876,8 +892,9 @@ public final class AniListClient: NSObject {
     private func finishAnimePageFetch(id: Int, cacheKey: String, payload: AnimePagePayload) {
         animePageQueue.async { [weak self] in
             guard let self else { return }
-            if payload.media != nil {
+            if let media = payload.media {
                 self.animePageCache[cacheKey] = payload
+                self.storeFullMediaPayload(media)
             }
             let callbacks = self.animePageCompletions.removeValue(forKey: cacheKey) ?? []
             callbacks.forEach { callback in
@@ -914,8 +931,34 @@ public final class AniListClient: NSObject {
     }
 
     private func fetchAnimePageFollowing(id: Int, completion: @escaping ([AniListFollowingEntry]) -> Void) {
-        guard let url = URL(string: graphQLEndpoint), canFetchFollowingList else {
+        guard canFetchFollowingList, let viewerID = aniListViewerID else {
             completion([])
+            return
+        }
+
+        let key = "\(id):viewer:\(viewerID)"
+        var cached: [AniListFollowingEntry]?
+        var shouldStartRequest = false
+
+        animePageFollowingQueue.sync {
+            cached = animePageFollowingCache[key]
+            if cached == nil {
+                if animePageFollowingCompletions[key] != nil {
+                    animePageFollowingCompletions[key]?.append(completion)
+                } else {
+                    animePageFollowingCompletions[key] = [completion]
+                    shouldStartRequest = true
+                }
+            }
+        }
+
+        if let cached {
+            completion(cached)
+            return
+        }
+
+        guard shouldStartRequest, let url = URL(string: graphQLEndpoint) else {
+            finishAnimePageFollowingFetch(key: key, entries: [])
             return
         }
 
@@ -925,20 +968,31 @@ public final class AniListClient: NSObject {
             "variables": ["id": id]
         ])
 
-        performAniListDataTask(request, context: "AniList") { [weak self] data, _, error in
+        performAniListDataTask(request, context: "AniList.AnimePageFollowing") { [weak self] data, _, error in
             guard let self else { return }
             if let error {
-                NSLog("[AniListClient] AnimePageFollowing network error: %@", error.localizedDescription)
+                NSLog("[AniListClient] AnimePageFollowing failed: %@", error.localizedDescription)
             }
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                completion([])
+                self.finishAnimePageFollowingFetch(key: key, entries: [])
                 return
             }
 
             self.logGraphQLErrors(json["errors"], context: "AnimePageFollowing")
             let page = (json["data"] as? [String: Any])?["following"] as? [String: Any]
-            completion(self.parseFollowingEntries(from: page))
+            self.finishAnimePageFollowingFetch(key: key, entries: self.parseFollowingEntries(from: page))
+        }
+    }
+
+    private func finishAnimePageFollowingFetch(key: String, entries: [AniListFollowingEntry]) {
+        animePageFollowingQueue.async { [weak self] in
+            guard let self else { return }
+            self.animePageFollowingCache[key] = entries
+            let callbacks = self.animePageFollowingCompletions.removeValue(forKey: key) ?? []
+            DispatchQueue.main.async {
+                callbacks.forEach { $0(entries) }
+            }
         }
     }
 

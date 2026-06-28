@@ -48,6 +48,31 @@ struct AnimeItem {
     var mediaListEntry: MediaListEntry?
 }
 
+
+// MARK: - AnimeItem payload quality
+
+extension AnimeItem {
+    /// Route-ready media mirrors the interface IDMedia route payload.
+    /// Partial card/search payloads must not be used to render /app/anime/:id.
+    var isRouteReadyMediaPayload: Bool {
+        isAdult != nil
+            && (!genres.isEmpty || !tags.isEmpty || !relations.isEmpty || bannerURL != nil || description != nil)
+    }
+
+    func mergingRouteMedia(_ newer: AnimeItem) -> AnimeItem {
+        guard newer.id == id else { return self }
+        var merged = newer
+
+        if merged.relations.isEmpty { merged.relations = relations }
+        if merged.tags.isEmpty { merged.tags = tags }
+        if merged.mediaListEntry == nil { merged.mediaListEntry = mediaListEntry }
+        if merged.trailerYouTubeID == nil { merged.trailerYouTubeID = trailerYouTubeID }
+        if merged.malId == nil { merged.malId = malId }
+
+        return merged
+    }
+}
+
 // MARK: - AnimeTag
 
 struct AnimeTag {

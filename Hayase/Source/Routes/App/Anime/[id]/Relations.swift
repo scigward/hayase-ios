@@ -367,6 +367,15 @@ final class StatsCell: UITableViewCell {
 
 extension AnimeDetailViewController {
 
+    func fetchLegacyAnimeDetailsIfNeeded() {
+        let needsRelations = relations.isEmpty && animeItem?.relations.isEmpty != false
+        let needsTrailer = animeItem == nil || animeItem?.trailerYouTubeID == nil
+        let needsMAL = animeItem == nil || animeItem?.malId == nil
+        let needsGenres = animeItem == nil || animeItem?.genres.isEmpty == true
+        guard needsRelations || needsTrailer || needsMAL || needsGenres else { return }
+        fetchRelationsAndCharacters()
+    }
+
     func makeRelationsCell(for indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: HorizontalCardsCell.relationsReuseID,
