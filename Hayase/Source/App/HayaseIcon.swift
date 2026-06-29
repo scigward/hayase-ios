@@ -34,27 +34,9 @@ enum HayaseIcon {
         case "skip-forward":
             drawSkipForwardIcon()
         case "fast-forward":
-            filledTriangle(points: [
-                CGPoint(x: 13, y: 19),
-                CGPoint(x: 22, y: 12),
-                CGPoint(x: 13, y: 5),
-            ], strokeWidth: 2)
-            filledTriangle(points: [
-                CGPoint(x: 2, y: 19),
-                CGPoint(x: 11, y: 12),
-                CGPoint(x: 2, y: 5),
-            ], strokeWidth: 2)
+            drawFastForwardIcon()
         case "rewind":
-            filledTriangle(points: [
-                CGPoint(x: 11, y: 19),
-                CGPoint(x: 2, y: 12),
-                CGPoint(x: 11, y: 5),
-            ], strokeWidth: 2)
-            filledTriangle(points: [
-                CGPoint(x: 22, y: 19),
-                CGPoint(x: 13, y: 12),
-                CGPoint(x: 22, y: 5),
-            ], strokeWidth: 2)
+            drawRewindIcon()
         case "star":
             let star = UIBezierPath()
             [
@@ -200,23 +182,88 @@ enum HayaseIcon {
     }
 
     private static func drawSkipBackIcon() {
-        let triangle = UIBezierPath()
-        triangle.move(to: CGPoint(x: 19, y: 4))
-        triangle.addLine(to: CGPoint(x: 9, y: 12))
-        triangle.addLine(to: CGPoint(x: 19, y: 20))
-        triangle.close()
-        filledPath(triangle, strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 5, y: 19), width: 1)
+        filledPath(roundedSkipTriangle(direction: -1), strokeWidth: 1)
+        strokeLine(from: CGPoint(x: 3, y: 20), to: CGPoint(x: 3, y: 4), width: 1)
     }
 
     private static func drawSkipForwardIcon() {
-        let triangle = UIBezierPath()
-        triangle.move(to: CGPoint(x: 5, y: 4))
-        triangle.addLine(to: CGPoint(x: 15, y: 12))
-        triangle.addLine(to: CGPoint(x: 5, y: 20))
-        triangle.close()
-        filledPath(triangle, strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
+        filledPath(roundedSkipTriangle(direction: 1), strokeWidth: 1)
+        strokeLine(from: CGPoint(x: 21, y: 4), to: CGPoint(x: 21, y: 20), width: 1)
+    }
+
+    private static func drawFastForwardIcon() {
+        filledPath(roundedSeekTriangle(baseX: 2, direction: 1), strokeWidth: 2)
+        filledPath(roundedSeekTriangle(baseX: 12, direction: 1), strokeWidth: 2)
+    }
+
+    private static func drawRewindIcon() {
+        filledPath(roundedSeekTriangle(baseX: 12, direction: -1), strokeWidth: 2)
+        filledPath(roundedSeekTriangle(baseX: 22, direction: -1), strokeWidth: 2)
+    }
+
+    private static func roundedSeekTriangle(baseX: CGFloat, direction: CGFloat) -> UIBezierPath {
+        let path = UIBezierPath()
+        let tipX = baseX + direction * 9.412
+        let shoulderX = baseX + direction * 3.412
+        let controlX1 = baseX + direction * 0.489
+        let controlX2 = baseX + direction * 1.235
+        let controlX3 = baseX + direction * 1.984
+        let controlX4 = baseX + direction * 2.844
+        let tipControlX = tipX - direction * 0.37
+
+        path.move(to: CGPoint(x: baseX, y: 6))
+        path.addCurve(to: CGPoint(x: controlX2, y: 4.151),
+                      controlPoint1: CGPoint(x: baseX, y: 5.193),
+                      controlPoint2: CGPoint(x: controlX1, y: 4.464))
+        path.addCurve(to: CGPoint(x: shoulderX, y: 4.588),
+                      controlPoint1: CGPoint(x: controlX3, y: 3.844),
+                      controlPoint2: CGPoint(x: controlX4, y: 4.016))
+        path.addLine(to: CGPoint(x: tipX, y: 10.59))
+        path.addCurve(to: CGPoint(x: tipX, y: 13.41),
+                      controlPoint1: CGPoint(x: tipControlX, y: 11.36),
+                      controlPoint2: CGPoint(x: tipControlX, y: 12.64))
+        path.addLine(to: CGPoint(x: shoulderX, y: 19.412))
+        path.addCurve(to: CGPoint(x: controlX2, y: 19.849),
+                      controlPoint1: CGPoint(x: controlX4, y: 19.984),
+                      controlPoint2: CGPoint(x: controlX3, y: 20.156))
+        path.addCurve(to: CGPoint(x: baseX, y: 18),
+                      controlPoint1: CGPoint(x: controlX1, y: 19.54),
+                      controlPoint2: CGPoint(x: baseX, y: 18.807))
+        path.close()
+        return path
+    }
+
+    private static func roundedSkipTriangle(direction: CGFloat) -> UIBezierPath {
+        let path = UIBezierPath()
+        let baseX: CGFloat = direction > 0 ? 3 : 21
+        let topShoulderX: CGFloat = baseX + direction * 3.031
+        let tipX: CGFloat = baseX + direction * 14
+        let lowerShoulderX: CGFloat = topShoulderX
+
+        path.move(to: CGPoint(x: topShoulderX, y: 4.287))
+        path.addCurve(to: CGPoint(x: baseX + direction * 1.016, y: 4.26),
+                      controlPoint1: CGPoint(x: baseX + direction * 2.412, y: 3.917),
+                      controlPoint2: CGPoint(x: baseX + direction * 1.64, y: 3.907))
+        path.addCurve(to: CGPoint(x: baseX, y: 6),
+                      controlPoint1: CGPoint(x: baseX + direction * 0.385, y: 4.615),
+                      controlPoint2: CGPoint(x: baseX, y: 5.281))
+        path.addLine(to: CGPoint(x: baseX, y: 18))
+        path.addCurve(to: CGPoint(x: baseX + direction * 1.016, y: 19.74),
+                      controlPoint1: CGPoint(x: baseX, y: 18.719),
+                      controlPoint2: CGPoint(x: baseX + direction * 0.385, y: 19.385))
+        path.addCurve(to: CGPoint(x: lowerShoulderX, y: 19.713),
+                      controlPoint1: CGPoint(x: baseX + direction * 1.64, y: 20.093),
+                      controlPoint2: CGPoint(x: baseX + direction * 2.412, y: 20.083))
+        path.addLine(to: CGPoint(x: baseX + direction * 13.027, y: 13.713))
+        path.addLine(to: CGPoint(x: baseX + direction * 13.027, y: 13.719))
+        path.addCurve(to: CGPoint(x: tipX, y: 12),
+                      controlPoint1: CGPoint(x: baseX + direction * 13.631, y: 13.355),
+                      controlPoint2: CGPoint(x: tipX, y: 12.703))
+        path.addCurve(to: CGPoint(x: baseX + direction * 13.031, y: 10.287),
+                      controlPoint1: CGPoint(x: tipX, y: 11.297),
+                      controlPoint2: CGPoint(x: baseX + direction * 13.631, y: 10.645))
+        path.close()
+        return path
     }
 
     private static func strokeLine(from start: CGPoint, to end: CGPoint, width: CGFloat) {
@@ -226,15 +273,6 @@ enum HayaseIcon {
         path.lineWidth = width
         path.lineCapStyle = .round
         path.stroke()
-    }
-
-    private static func filledTriangle(points: [CGPoint], strokeWidth: CGFloat = 0) {
-        guard let first = points.first else { return }
-        let path = UIBezierPath()
-        path.move(to: first)
-        points.dropFirst().forEach { path.addLine(to: $0) }
-        path.close()
-        filledPath(path, strokeWidth: strokeWidth)
     }
 
     private static func filledPath(_ path: UIBezierPath, strokeWidth: CGFloat) {
