@@ -183,12 +183,12 @@ enum HayaseIcon {
 
     private static func drawSkipBackIcon() {
         filledPath(roundedSkipTriangle(direction: -1), strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 3, y: 20), to: CGPoint(x: 3, y: 4), width: 1)
+        strokeLine(from: CGPoint(x: 3.5, y: 20), to: CGPoint(x: 3.5, y: 4), width: 1)
     }
 
     private static func drawSkipForwardIcon() {
         filledPath(roundedSkipTriangle(direction: 1), strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 21, y: 4), to: CGPoint(x: 21, y: 20), width: 1)
+        strokeLine(from: CGPoint(x: 20.5, y: 4), to: CGPoint(x: 20.5, y: 20), width: 1)
     }
 
     private static func drawFastForwardIcon() {
