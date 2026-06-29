@@ -476,6 +476,7 @@ final class VideoPlayerViewController: UIViewController {
     private var showRemainingTime = false
     private var controlsVisible = true
     private var hideWork: DispatchWorkItem?
+    private var doubleTapSeekRestoreWork: DispatchWorkItem?
     private var isBuffering = true
     private var isFastForwarding = false
     private var playbackRateBeforeFastForward = 1.0
@@ -1146,6 +1147,10 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func performDoubleTapSeek(forward: Bool) {
+        doubleTapSeekRestoreWork?.cancel()
+        isSeeking = true
+        updateInterfaceOverlayVisibility(animated: false)
+
         let seekAmount = seekDurationSeconds
         if forward {
             let newTime = min(duration, currentTime + seekAmount)
@@ -1165,6 +1170,15 @@ final class VideoPlayerViewController: UIViewController {
             showPlayerAnimation(icon: "rewind")
         }
         updateTimeUI()
+
+        let restoreWork = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.doubleTapSeekRestoreWork = nil
+            self.isSeeking = false
+            self.updateInterfaceOverlayVisibility(animated: true)
+        }
+        doubleTapSeekRestoreWork = restoreWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: restoreWork)
     }
 
     private func showPlayerAnimation(icon: String) {
@@ -1899,6 +1913,8 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func seekBegan() {
+        doubleTapSeekRestoreWork?.cancel()
+        doubleTapSeekRestoreWork = nil
         isSeeking = true
         hideWork?.cancel()
         updateInterfaceOverlayVisibility(animated: true)
