@@ -38,23 +38,23 @@ enum HayaseIcon {
                 CGPoint(x: 13, y: 19),
                 CGPoint(x: 22, y: 12),
                 CGPoint(x: 13, y: 5),
-            ])
+            ], strokeWidth: 2)
             filledTriangle(points: [
                 CGPoint(x: 2, y: 19),
                 CGPoint(x: 11, y: 12),
                 CGPoint(x: 2, y: 5),
-            ])
+            ], strokeWidth: 2)
         case "rewind":
             filledTriangle(points: [
                 CGPoint(x: 11, y: 19),
                 CGPoint(x: 2, y: 12),
                 CGPoint(x: 11, y: 5),
-            ])
+            ], strokeWidth: 2)
             filledTriangle(points: [
                 CGPoint(x: 22, y: 19),
                 CGPoint(x: 13, y: 12),
                 CGPoint(x: 22, y: 5),
-            ])
+            ], strokeWidth: 2)
         case "star":
             let star = UIBezierPath()
             [
@@ -228,13 +228,13 @@ enum HayaseIcon {
         path.stroke()
     }
 
-    private static func filledTriangle(points: [CGPoint]) {
+    private static func filledTriangle(points: [CGPoint], strokeWidth: CGFloat = 0) {
         guard let first = points.first else { return }
         let path = UIBezierPath()
         path.move(to: first)
         points.dropFirst().forEach { path.addLine(to: $0) }
         path.close()
-        filledPath(path, strokeWidth: 0)
+        filledPath(path, strokeWidth: strokeWidth)
     }
 
     private static func filledPath(_ path: UIBezierPath, strokeWidth: CGFloat) {

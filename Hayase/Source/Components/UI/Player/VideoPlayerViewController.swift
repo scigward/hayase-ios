@@ -831,7 +831,8 @@ final class VideoPlayerViewController: UIViewController {
         button.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
         button.layer.cornerRadius = size / 2
         button.clipsToBounds = true
-        button.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
+        let iconSize = max(1, size - inset * 2)
+        button.setImage(UIImage.hayaseFilledIcon(icon, pointSize: iconSize), for: .normal)
         button.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         button.addTarget(self, action: action, for: .touchUpInside)
     }
