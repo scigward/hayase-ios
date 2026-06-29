@@ -8,11 +8,13 @@ enum HayaseIcon {
         return image?.withConfiguration(configuration)
     }
 
-    static func filledImage(_ lucideId: String, pointSize: CGFloat = 24) -> UIImage? {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: pointSize, height: pointSize))
+    static func filledImage(_ lucideId: String, pointSize: CGFloat = 24, canvasPadding: CGFloat = 0) -> UIImage? {
+        let canvasSize = pointSize + canvasPadding * 2
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: canvasSize, height: canvasSize))
         let image = renderer.image { context in
             let cg = context.cgContext
             cg.saveGState()
+            cg.translateBy(x: canvasPadding, y: canvasPadding)
             cg.scaleBy(x: pointSize / 24, y: pointSize / 24)
             UIColor.white.setFill()
             UIColor.white.setStroke()
@@ -297,7 +299,7 @@ extension UIImage {
         }.withRenderingMode(.alwaysTemplate)
     }
 
-    static func hayaseFilledIcon(_ lucideId: String, pointSize: CGFloat = 24) -> UIImage? {
-        HayaseIcon.filledImage(lucideId, pointSize: pointSize)
+    static func hayaseFilledIcon(_ lucideId: String, pointSize: CGFloat = 24, canvasPadding: CGFloat = 0) -> UIImage? {
+        HayaseIcon.filledImage(lucideId, pointSize: pointSize, canvasPadding: canvasPadding)
     }
 }
