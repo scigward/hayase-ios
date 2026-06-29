@@ -34,35 +34,27 @@ enum HayaseIcon {
         case "skip-forward":
             drawSkipForwardIcon()
         case "fast-forward":
-            if pointSize >= 48 {
-                drawSkipForwardIcon()
-            } else {
-                filledTriangle(points: [
-                    CGPoint(x: 13, y: 19),
-                    CGPoint(x: 22, y: 12),
-                    CGPoint(x: 13, y: 5),
-                ])
-                filledTriangle(points: [
-                    CGPoint(x: 2, y: 19),
-                    CGPoint(x: 11, y: 12),
-                    CGPoint(x: 2, y: 5),
-                ])
-            }
+            filledTriangle(points: [
+                CGPoint(x: 13, y: 19),
+                CGPoint(x: 22, y: 12),
+                CGPoint(x: 13, y: 5),
+            ])
+            filledTriangle(points: [
+                CGPoint(x: 2, y: 19),
+                CGPoint(x: 11, y: 12),
+                CGPoint(x: 2, y: 5),
+            ])
         case "rewind":
-            if pointSize >= 48 {
-                drawSkipBackIcon()
-            } else {
-                filledTriangle(points: [
-                    CGPoint(x: 11, y: 19),
-                    CGPoint(x: 2, y: 12),
-                    CGPoint(x: 11, y: 5),
-                ])
-                filledTriangle(points: [
-                    CGPoint(x: 22, y: 19),
-                    CGPoint(x: 13, y: 12),
-                    CGPoint(x: 22, y: 5),
-                ])
-            }
+            filledTriangle(points: [
+                CGPoint(x: 11, y: 19),
+                CGPoint(x: 2, y: 12),
+                CGPoint(x: 11, y: 5),
+            ])
+            filledTriangle(points: [
+                CGPoint(x: 22, y: 19),
+                CGPoint(x: 13, y: 12),
+                CGPoint(x: 22, y: 5),
+            ])
         case "star":
             let star = UIBezierPath()
             [

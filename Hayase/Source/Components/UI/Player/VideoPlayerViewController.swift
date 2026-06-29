@@ -786,7 +786,7 @@ final class VideoPlayerViewController: UIViewController {
         configureMobileControlButton(mobilePrevButton,
                                      icon: "skip-back",
                                      size: 40,
-                                     inset: 8,
+                                     inset: 12,
                                      action: #selector(prevTapped))
         configureMobileControlButton(mobilePlayPauseButton,
                                      icon: "pause",
@@ -796,7 +796,7 @@ final class VideoPlayerViewController: UIViewController {
         configureMobileControlButton(mobileNextButton,
                                      icon: "skip-forward",
                                      size: 40,
-                                     inset: 8,
+                                     inset: 12,
                                      action: #selector(nextTapped))
 
         mobileControlsStack.addArrangedSubview(mobilePrevButton)
