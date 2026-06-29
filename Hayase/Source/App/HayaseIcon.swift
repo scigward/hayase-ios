@@ -30,12 +30,12 @@ enum HayaseIcon {
             filledPath(UIBezierPath(roundedRect: CGRect(x: 6, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
             filledPath(UIBezierPath(roundedRect: CGRect(x: 14, y: 4, width: 4, height: 16), cornerRadius: 1), strokeWidth: 1)
         case "skip-back":
-            drawSkipBackIcon()
+            drawTemplateIcon("skip-back")
         case "skip-forward":
-            drawSkipForwardIcon()
+            drawTemplateIcon("skip-forward")
         case "fast-forward":
             if pointSize >= 48 {
-                drawSkipForwardIcon()
+                drawTemplateIcon("skip-forward")
             } else {
                 filledTriangle(points: [
                     CGPoint(x: 13, y: 19),
@@ -50,7 +50,7 @@ enum HayaseIcon {
             }
         case "rewind":
             if pointSize >= 48 {
-                drawSkipBackIcon()
+                drawTemplateIcon("skip-back")
             } else {
                 filledTriangle(points: [
                     CGPoint(x: 11, y: 19),
@@ -182,6 +182,10 @@ enum HayaseIcon {
         }
     }
 
+    private static func drawTemplateIcon(_ lucideId: String) {
+        image(lucideId)?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
+    }
+
     private static func filledPlayPath() -> UIBezierPath {
         let path = UIBezierPath()
         path.move(to: CGPoint(x: 22.99, y: 11.7773))
@@ -205,26 +209,6 @@ enum HayaseIcon {
                       controlPoint2: CGPoint(x: 23.0226, y: 11.9231))
         path.close()
         return path
-    }
-
-    private static func drawSkipBackIcon() {
-        let triangle = UIBezierPath()
-        triangle.move(to: CGPoint(x: 19, y: 4))
-        triangle.addLine(to: CGPoint(x: 9, y: 12))
-        triangle.addLine(to: CGPoint(x: 19, y: 20))
-        triangle.close()
-        filledPath(triangle, strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 5, y: 19), width: 1)
-    }
-
-    private static func drawSkipForwardIcon() {
-        let triangle = UIBezierPath()
-        triangle.move(to: CGPoint(x: 5, y: 4))
-        triangle.addLine(to: CGPoint(x: 15, y: 12))
-        triangle.addLine(to: CGPoint(x: 5, y: 20))
-        triangle.close()
-        filledPath(triangle, strokeWidth: 1)
-        strokeLine(from: CGPoint(x: 19, y: 5), to: CGPoint(x: 19, y: 19), width: 1)
     }
 
     private static func strokeLine(from start: CGPoint, to end: CGPoint, width: CGFloat) {
