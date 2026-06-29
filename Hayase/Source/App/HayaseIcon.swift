@@ -8,13 +8,11 @@ enum HayaseIcon {
         return image?.withConfiguration(configuration)
     }
 
-    static func filledImage(_ lucideId: String, pointSize: CGFloat = 24, canvasPadding: CGFloat = 0) -> UIImage? {
-        let canvasSize = pointSize + canvasPadding * 2
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: canvasSize, height: canvasSize))
+    static func filledImage(_ lucideId: String, pointSize: CGFloat = 24) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: pointSize, height: pointSize))
         let image = renderer.image { context in
             let cg = context.cgContext
             cg.saveGState()
-            cg.translateBy(x: canvasPadding, y: canvasPadding)
             cg.scaleBy(x: pointSize / 24, y: pointSize / 24)
             UIColor.white.setFill()
             UIColor.white.setStroke()
@@ -194,13 +192,30 @@ enum HayaseIcon {
     }
 
     private static func drawFastForwardIcon() {
-        filledPath(roundedSeekTriangle(baseX: 2, direction: 1), strokeWidth: 2)
-        filledPath(roundedSeekTriangle(baseX: 12, direction: 1), strokeWidth: 2)
+        drawSeekIcon(paths: [
+            roundedSeekTriangle(baseX: 2, direction: 1),
+            roundedSeekTriangle(baseX: 12, direction: 1),
+        ])
     }
 
     private static func drawRewindIcon() {
-        filledPath(roundedSeekTriangle(baseX: 12, direction: -1), strokeWidth: 2)
-        filledPath(roundedSeekTriangle(baseX: 22, direction: -1), strokeWidth: 2)
+        drawSeekIcon(paths: [
+            roundedSeekTriangle(baseX: 12, direction: -1),
+            roundedSeekTriangle(baseX: 22, direction: -1),
+        ])
+    }
+
+    private static func drawSeekIcon(paths: [UIBezierPath]) {
+        let strokePath = UIBezierPath()
+        paths.forEach { path in
+            path.lineJoinStyle = .round
+            path.fill()
+            strokePath.append(path)
+        }
+        strokePath.lineJoinStyle = .round
+        strokePath.lineCapStyle = .round
+        strokePath.lineWidth = 2
+        strokePath.stroke()
     }
 
     private static func roundedSeekTriangle(baseX: CGFloat, direction: CGFloat) -> UIBezierPath {
@@ -299,7 +314,7 @@ extension UIImage {
         }.withRenderingMode(.alwaysTemplate)
     }
 
-    static func hayaseFilledIcon(_ lucideId: String, pointSize: CGFloat = 24, canvasPadding: CGFloat = 0) -> UIImage? {
-        HayaseIcon.filledImage(lucideId, pointSize: pointSize, canvasPadding: canvasPadding)
+    static func hayaseFilledIcon(_ lucideId: String, pointSize: CGFloat = 24) -> UIImage? {
+        HayaseIcon.filledImage(lucideId, pointSize: pointSize)
     }
 }

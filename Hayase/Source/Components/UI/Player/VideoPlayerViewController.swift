@@ -1168,23 +1168,19 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func showPlayerAnimation(icon: String) {
-        let pointSize: CGFloat = 64
-        let canvasPadding: CGFloat = (icon == "fast-forward" || icon == "rewind") ? 6 : 0
-        let canvasSize = pointSize + canvasPadding * 2
-        guard let image = UIImage.hayaseFilledIcon(icon, pointSize: pointSize, canvasPadding: canvasPadding) else { return }
+        guard let image = UIImage.hayaseFilledIcon(icon, pointSize: 64) else { return }
         let iconView = UIImageView(image: image)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.tintColor = .white
         iconView.alpha = 1
         iconView.contentMode = .scaleAspectFit
-        iconView.clipsToBounds = false
         iconView.isUserInteractionEnabled = false
         overlay.addSubview(iconView)
         NSLayoutConstraint.activate([
             iconView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: canvasSize),
-            iconView.heightAnchor.constraint(equalToConstant: canvasSize),
+            iconView.widthAnchor.constraint(equalToConstant: 64),
+            iconView.heightAnchor.constraint(equalToConstant: 64),
         ])
         UIView.animate(withDuration: 0.4, delay: 0, options: [.curveLinear]) {
             iconView.alpha = 0
