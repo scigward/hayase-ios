@@ -755,6 +755,8 @@ final class PaginationBarView: UIView {
     private var infoLeadingConstraint: NSLayoutConstraint?
     private var controlsTrailingConstraint: NSLayoutConstraint?
     private var controlsCenterXConstraint: NSLayoutConstraint?
+    private var renderedInfoText: NSAttributedString?
+    private var lastAppliedCompactMode: Bool?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -797,6 +799,7 @@ final class PaginationBarView: UIView {
         let sidePad: CGFloat = isRegular ? 56 : 16
         infoLeadingConstraint?.constant = sidePad
         controlsTrailingConstraint?.constant = -sidePad
+        applyResponsiveModeIfNeeded()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -807,6 +810,12 @@ final class PaginationBarView: UIView {
         self.perPage = perPage
         self.totalPages = max(1, Int(ceil(Double(totalCount) / Double(perPage))))
         rebuild()
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyResponsiveModeIfNeeded()
     }
 
     // MARK: - Pagination algorithm
@@ -866,6 +875,7 @@ final class PaginationBarView: UIView {
         str.append(NSAttributedString(string: " of ", attributes: normalAttrs))
         str.append(NSAttributedString(string: "\(totalCount)", attributes: boldAttrs))
         str.append(NSAttributedString(string: " episodes", attributes: normalAttrs))
+        renderedInfoText = str
         infoLabel.attributedText = str
 
         prevButton.isEnabled = currentPage > 1
@@ -912,13 +922,28 @@ final class PaginationBarView: UIView {
             }
         }
 
-        let isNarrow = (superview?.frame.width ?? UIScreen.main.bounds.width) < 600
         pageStack.isHidden = false
-        infoLabel.isHidden = isNarrow
         compactInfoLabel.attributedText = str
-        compactInfoLabel.isHidden = !isNarrow
-        controlsTrailingConstraint?.isActive = !isNarrow
-        controlsCenterXConstraint?.isActive = isNarrow
+        applyResponsiveModeIfNeeded(force: true)
+    }
+
+    private func applyResponsiveModeIfNeeded(force: Bool = false) {
+        let isCompact = effectivePaginationWidth < 600
+        guard force || lastAppliedCompactMode != isCompact else { return }
+        lastAppliedCompactMode = isCompact
+
+        infoLabel.isHidden = isCompact
+        compactInfoLabel.attributedText = renderedInfoText
+        compactInfoLabel.isHidden = !isCompact
+        controlsTrailingConstraint?.isActive = !isCompact
+        controlsCenterXConstraint?.isActive = isCompact
+    }
+
+    private var effectivePaginationWidth: CGFloat {
+        if bounds.width > 1 { return bounds.width }
+        if let superview, superview.bounds.width > 1 { return superview.bounds.width }
+        if let window, window.bounds.width > 1 { return window.bounds.width }
+        return UIScreen.main.bounds.width
     }
 
     @objc private func prevTapped() {

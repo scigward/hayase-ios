@@ -396,6 +396,7 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     private let fitButton = UIButton(type: .system)
     private let expandButton = UIButton(type: .system)
     private let refreshButton = UIButton(type: .system)
+    private lazy var nodeTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(graphTapped(_:)))
 
     private var edgeLayers: [CAShapeLayer] = []
     private var edgeLabels: [UILabel] = []
@@ -407,6 +408,7 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     private var lastLayoutSize: CGSize = .zero
     private var nodeViews: [Int: RelationGraphNodeView] = [:]
     private var graphNodeBounds: CGRect = .null
+    private var lastNodeSelection: (id: Int, time: CFTimeInterval)?
 
     private let nodeWidth = RelationGraphNodeView.width
     private let rankSeparation: CGFloat = 120
@@ -447,9 +449,13 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         scrollView.layer.borderColor = UIColor.clear.cgColor
         scrollView.layer.borderWidth = 0
         scrollView.clipsToBounds = true
+        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(scrollView)
         scrollView.addSubview(content)
+        nodeTapRecognizer.cancelsTouchesInView = false
+        scrollView.addGestureRecognizer(nodeTapRecognizer)
 
         controlsStack.axis = .horizontal
         controlsStack.spacing = 0
@@ -952,8 +958,29 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     }
 
     @objc private func nodeTapped(_ sender: RelationGraphNodeView) {
-        guard sender.mediaID != currentID else { return }
-        onSelectMedia?(sender.mediaID)
+        selectMedia(sender.mediaID)
+    }
+
+    @objc private func graphTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        let point = recognizer.location(in: content)
+        let hitSlop: CGFloat = 8
+        let orderedNodes = nodeViews.values.sorted { $0.frame.minX < $1.frame.minX }
+        guard let node = orderedNodes.first(where: { $0.frame.insetBy(dx: -hitSlop, dy: -hitSlop).contains(point) }) else {
+            return
+        }
+        selectMedia(node.mediaID)
+    }
+
+    private func selectMedia(_ id: Int) {
+        let now = CACurrentMediaTime()
+        if let lastNodeSelection,
+           lastNodeSelection.id == id,
+           now - lastNodeSelection.time < 0.25 {
+            return
+        }
+        lastNodeSelection = (id, now)
+        onSelectMedia?(id)
     }
 }
 
