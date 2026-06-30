@@ -18,28 +18,55 @@ struct TorrentBatchResolver {
 
     // MARK: - Public types
 
-    struct ResolvedFile {
-        let entry: FileEntry
-        let episode: Int
-        let episodeEnd: Int?
-        let media: AnimeItem?
-        let failed: Bool
+    struct ParsedFilename {
+        let animeTitle: String
+        let animeSeason: Int?
+        let animeYear: Int?
+        let animeTypes: [String]
+        let episodeNumbers: [Int]
+    }
 
-        init(entry: FileEntry, episode: Int, episodeEnd: Int? = nil, media: AnimeItem? = nil, failed: Bool = false) {
+    struct ResolvedFile {
+        struct Metadata {
+            let episode: Int
+            let episodeEnd: Int?
+            let media: AnimeItem?
+            let failed: Bool
+            let parsedFilename: ParsedFilename?
+        }
+
+        let entry: FileEntry
+        let metadata: Metadata
+
+        var episode: Int { metadata.episode }
+        var episodeEnd: Int? { metadata.episodeEnd }
+        var media: AnimeItem? { metadata.media }
+        var failed: Bool { metadata.failed }
+        var parsedFilename: ParsedFilename? { metadata.parsedFilename }
+
+        init(entry: FileEntry,
+             episode: Int,
+             episodeEnd: Int? = nil,
+             media: AnimeItem? = nil,
+             failed: Bool = false,
+             parsedFilename: ParsedFilename? = nil) {
             self.entry = entry
-            self.episode = episode
-            self.episodeEnd = episodeEnd
-            self.media = media
-            self.failed = failed
+            self.metadata = Metadata(episode: episode,
+                                     episodeEnd: episodeEnd,
+                                     media: media,
+                                     failed: failed,
+                                     parsedFilename: parsedFilename)
         }
     }
 
-    struct ResolveResult {
+    struct BatchResolution {
         let target: ResolvedFile?
         let targetAnimeFiles: [ResolvedFile]
         let otherFiles: [FileEntry]
         let resolvedFiles: [ResolvedFile]
     }
+
+    typealias ResolveResult = BatchResolution
 
     // MARK: - Private types
 
@@ -50,6 +77,14 @@ struct TorrentBatchResolver {
         let animeYear: Int?
         let animeTypes: [String]
         let episodeNumbers: [Int]
+
+        var filename: ParsedFilename {
+            ParsedFilename(animeTitle: animeTitle,
+                           animeSeason: animeSeason,
+                           animeYear: animeYear,
+                           animeTypes: animeTypes,
+                           episodeNumbers: episodeNumbers)
+        }
     }
 
     private struct ResolvedCandidate {
@@ -61,7 +96,12 @@ struct TorrentBatchResolver {
         let parseObject: ParsedFile?
 
         var publicFile: ResolvedFile {
-            ResolvedFile(entry: entry, episode: episode, episodeEnd: episodeEnd, media: media, failed: failed)
+            ResolvedFile(entry: entry,
+                         episode: episode,
+                         episodeEnd: episodeEnd,
+                         media: media,
+                         failed: failed,
+                         parsedFilename: parseObject?.filename)
         }
     }
 
@@ -76,9 +116,11 @@ struct TorrentBatchResolver {
 
     // MARK: - Video / exclusion sets
 
+    // Keep this list in lockstep with interface/src/lib/utils.ts videoExtensions.
     private static let videoExtensions: Set<String> = [
-        "mkv", "mp4", "avi", "webm", "mov", "flv", "wmv", "m4v", "ts", "mpg", "mpeg",
-        "ogm", "3gp", "m2ts", "rmvb", "divx", "rm"
+        "3g2", "3gp", "asf", "avi", "dv", "flv", "gxf", "m2ts", "m4a", "m4b",
+        "m4p", "m4r", "m4v", "mkv", "mov", "mp4", "mpd", "mpeg", "mpg", "mxf",
+        "nut", "ogm", "ogv", "swf", "ts", "vob", "webm", "wmv", "wtv"
     ]
 
     /// Non-episode media types to exclude (OP, ED, previews, etc.).
