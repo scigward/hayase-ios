@@ -151,6 +151,14 @@ struct TorrentBatchResolver {
         let failed: Bool
     }
 
+    private struct FilenameChoice<Item> {
+        let item: Item
+        let episode: EpisodeReference
+        let season: Int
+        let parsedFilename: ParsedFilename?
+        let originalIndex: Int
+    }
+
     // MARK: - Video / exclusion sets
 
     // Keep this list in lockstep with interface/src/lib/utils.ts videoExtensions.
@@ -170,58 +178,53 @@ struct TorrentBatchResolver {
 
     // MARK: - Public API
 
-    /// Resolves the file in `files` that best matches `targetEpisode`.
+    /// Filename-only fallback for flows that do not have AniList media yet.
     ///
-    /// This method is intentionally synchronous and remains the fallback for
-    /// flows that do not have an AniList media object yet.
-    func resolve(files: [FileEntry], targetEpisode: Int) -> ResolvedFile? {
+    /// This keeps the same batch result shape as the AniList-backed resolver so
+    /// callers do not fall back to raw torrent-file indexing.
+    func resolveByFilename(files: [FileEntry], targetEpisode: Int) -> BatchResolution {
         let videoFiles = files.filter { Self.isVideoFile($0.name) }
-        guard !videoFiles.isEmpty else { return nil }
+        let otherFiles = files.filter { !Self.isVideoFile($0.name) }
+        let choices = Self.filenameChoices(from: videoFiles) { $0.name }
 
-        if videoFiles.count == 1 {
-            let ep = Self.extractEpisodeNumber(from: videoFiles[0].name) ?? targetEpisode
-            return ResolvedFile(entry: videoFiles[0], episode: ep)
+        if choices.count == 1, let choice = choices.first {
+            let file = ResolvedFile(entry: choice.item,
+                                    episode: .number(Double(targetEpisode)),
+                                    parsedFilename: choice.parsedFilename)
+            return BatchResolution(target: file,
+                                   targetAnimeFiles: [file],
+                                   otherFiles: otherFiles,
+                                   resolvedFiles: [file])
         }
 
-        var parsed: [ResolvedFile] = []
-        for entry in videoFiles {
-            guard !Self.isExcludedType(entry.name) else { continue }
-            if let ep = Self.extractEpisodeNumber(from: entry.name) {
-                parsed.append(ResolvedFile(entry: entry, episode: ep))
-            }
+        let resolvedFiles = choices.map { choice in
+            ResolvedFile(entry: choice.item,
+                         episode: choice.episode,
+                         parsedFilename: choice.parsedFilename)
+        }
+        let targetAnimeFiles = Self.sortedFilenameChoices(choices).map { choice in
+            ResolvedFile(entry: choice.item,
+                         episode: choice.episode,
+                         parsedFilename: choice.parsedFilename)
+        }
+        let target = Self.pickFilenameChoice(from: choices, targetEpisode: targetEpisode).map { choice in
+            ResolvedFile(entry: choice.item,
+                         episode: choice.episode,
+                         parsedFilename: choice.parsedFilename)
         }
 
-        if let match = parsed.first(where: { $0.episode == targetEpisode }) {
-            return match
-        }
+        return BatchResolution(target: target,
+                               targetAnimeFiles: targetAnimeFiles,
+                               otherFiles: otherFiles,
+                               resolvedFiles: resolvedFiles)
+    }
 
-        let sorted = parsed.sorted { $0.episode < $1.episode }
-        if let first = sorted.first, let last = sorted.last {
-            let minEp = first.episode
-            let maxEp = last.episode
-            let batchSize = sorted.count
-
-            if targetEpisode >= 1 && targetEpisode <= batchSize && minEp > batchSize {
-                let offsetIndex = targetEpisode - 1
-                if offsetIndex < sorted.count {
-                    return sorted[offsetIndex]
-                }
-            }
-
-            if targetEpisode >= minEp && targetEpisode <= maxEp {
-                return sorted.min(by: { abs($0.episode - targetEpisode) < abs($1.episode - targetEpisode) })
-            }
-        }
-
-        if parsed.isEmpty && targetEpisode >= 1 && targetEpisode <= videoFiles.count {
-            let sortedByName = videoFiles.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            let idx = targetEpisode - 1
-            if idx < sortedByName.count {
-                return ResolvedFile(entry: sortedByName[idx], episode: targetEpisode)
-            }
-        }
-
-        return nil
+    static func selectByFilename<Item>(from items: [Item],
+                                       targetEpisode: Int,
+                                       name: (Item) -> String?) -> Item? {
+        let choices = filenameChoices(from: items, name: name)
+        if choices.count == 1 { return choices[0].item }
+        return pickFilenameChoice(from: choices, targetEpisode: targetEpisode)?.item
     }
 
     /// AniList-backed resolver that mirrors the web interface resolver.
@@ -282,28 +285,6 @@ struct TorrentBatchResolver {
                                      targetAnimeFiles: targetAnimeFiles.map { $0.publicFile },
                                      otherFiles: otherFiles,
                                      resolvedFiles: candidates.map { $0.publicFile }))
-        }
-    }
-
-    /// Returns all video files with their parsed episode numbers, sorted by episode.
-    /// Useful for displaying a resolved file list.
-    func resolveAll(files: [FileEntry]) -> [ResolvedFile] {
-        let videoFiles = files.filter { Self.isVideoFile($0.name) }
-        var result: [ResolvedFile] = []
-        for entry in videoFiles {
-            guard !Self.isExcludedType(entry.name) else { continue }
-            let parsed = Self.parseFile(entry)
-            result.append(ResolvedFile(entry: entry,
-                                       episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
-                                       parsedFilename: parsed?.filename))
-        }
-        return result.sorted { lhs, rhs in
-            switch (lhs.episodeReference.numericValue, rhs.episodeReference.numericValue) {
-            case let (left?, right?) where left != right:
-                return left < right
-            default:
-                return lhs.entry.name.localizedStandardCompare(rhs.entry.name) == .orderedAscending
-            }
         }
     }
 
@@ -679,6 +660,50 @@ struct TorrentBatchResolver {
         let year = parseEpisodeInt(anitomy.get(.animeYear))
 
         return (title, season, year, anitomy.getAll(.animeType), episodeNumbers)
+    }
+
+    private static func filenameChoices<Item>(from items: [Item],
+                                              name: (Item) -> String?) -> [FilenameChoice<Item>] {
+        items.enumerated().compactMap { offset, item in
+            guard let filename = name(item), Self.isVideoFile(filename), !Self.isExcludedType(filename) else {
+                return nil
+            }
+            let parsed = parseFileName(filename)
+            let parsedFilename = parsed.map {
+                ParsedFilename(animeTitle: $0.animeTitle,
+                               animeSeason: $0.animeSeason,
+                               animeYear: $0.animeYear,
+                               animeTypes: $0.animeTypes,
+                               episodeNumbers: $0.episodeNumbers)
+            }
+            return FilenameChoice(item: item,
+                                  episode: episodeReference(from: parsed?.episodeNumbers.first),
+                                  season: parsed?.animeSeason ?? 1,
+                                  parsedFilename: parsedFilename,
+                                  originalIndex: offset)
+        }
+    }
+
+    private static func sortedFilenameChoices<Item>(_ choices: [FilenameChoice<Item>]) -> [FilenameChoice<Item>] {
+        choices.sorted { lhs, rhs in
+            if lhs.season != rhs.season {
+                return lhs.season > rhs.season
+            }
+            switch (lhs.episode.numericValue, rhs.episode.numericValue) {
+            case let (left?, right?) where left != right:
+                return left < right
+            default:
+                return lhs.originalIndex < rhs.originalIndex
+            }
+        }
+    }
+
+    private static func pickFilenameChoice<Item>(from choices: [FilenameChoice<Item>],
+                                                 targetEpisode: Int) -> FilenameChoice<Item>? {
+        let sorted = sortedFilenameChoices(choices)
+        return sorted.first { $0.episode.matches(targetEpisode) }
+            ?? sorted.first { $0.episode.matches(1) }
+            ?? sorted.first
     }
 
     private static func parseEpisodeInt(_ value: String) -> Int? {

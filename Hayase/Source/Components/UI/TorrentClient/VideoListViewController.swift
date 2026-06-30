@@ -355,8 +355,11 @@ class VideoListViewController: UIViewController {
                         guard let self, let match = result.target else { return }
                         self.selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
                     }
-                } else if let match = resolver.resolve(files: files, targetEpisode: ep) {
-                    selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: [])
+                } else {
+                    let result = resolver.resolveByFilename(files: files, targetEpisode: ep)
+                    if let match = result.target {
+                        selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
+                    }
                 }
             }
         }

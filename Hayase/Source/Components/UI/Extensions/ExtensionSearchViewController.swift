@@ -1218,13 +1218,23 @@ final class ExtensionSearchViewController: UIViewController {
                                              batchFiles: result.resolvedFiles)
                 }
                 return
-            } else if let match = resolver.resolve(files: files, targetEpisode: currentEpisode),
-                      let index = fileIndex(from: match.entry.index) {
-                targetIndex = index
-                targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
+            } else {
+                let result = resolver.resolveByFilename(files: files, targetEpisode: currentEpisode)
+                if let match = result.target,
+                   let index = fileIndex(from: match.entry.index) {
+                    targetIndex = index
+                    targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
+                    presentPendingVideo(vs: vs,
+                                        entity: entity,
+                                        targetVideo: targetVideo,
+                                        targetIndex: targetIndex,
+                                        videos: videos,
+                                        batchFiles: result.resolvedFiles)
+                    return
+                }
             }
         } else if TorrentBackendManager.shared.currentKind == .webtorrent {
-            targetVideo = resolveWebTorrentVideo(videos: videos)
+            targetVideo = TorrentBatchResolver.selectByFilename(from: videos, targetEpisode: currentEpisode) { $0.videoName }
             targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }
 
@@ -1234,48 +1244,6 @@ final class ExtensionSearchViewController: UIViewController {
                              targetIndex: targetIndex,
                              videos: videos,
                              batchFiles: [])
-    }
-
-    private func resolveWebTorrentVideo(videos: [Videos]) -> Videos? {
-        let playable = videos.filter { video in
-            guard let name = video.videoName else { return false }
-            return TorrentBatchResolver.isVideoFile(name) && !TorrentBatchResolver.isExcludedType(name)
-        }
-
-        if playable.count == 1 { return playable[0] }
-
-        let parsed = playable.compactMap { video -> (video: Videos, episode: Int)? in
-            guard let name = video.videoName,
-                  let episode = TorrentBatchResolver.extractEpisodeNumber(from: name) else { return nil }
-            return (video, episode)
-        }
-
-        if let exact = parsed.first(where: { $0.episode == currentEpisode })?.video {
-            return exact
-        }
-
-        let sorted = parsed.sorted { $0.episode < $1.episode }
-        if let first = sorted.first, let last = sorted.last {
-            let batchSize = sorted.count
-            if currentEpisode >= 1 && currentEpisode <= batchSize && first.episode > batchSize {
-                return sorted[currentEpisode - 1].video
-            }
-
-            if currentEpisode >= first.episode && currentEpisode <= last.episode {
-                return sorted.min { lhs, rhs in
-                    abs(lhs.episode - currentEpisode) < abs(rhs.episode - currentEpisode)
-                }?.video
-            }
-        }
-
-        if parsed.isEmpty && currentEpisode >= 1 && currentEpisode <= playable.count {
-            let sortedByName = playable.sorted { lhs, rhs in
-                (lhs.videoName ?? "").localizedStandardCompare(rhs.videoName ?? "") == .orderedAscending
-            }
-            return sortedByName[currentEpisode - 1]
-        }
-
-        return nil
     }
 
     private func presentPendingVideo(vs: VideoService,

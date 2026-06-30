@@ -999,8 +999,14 @@ extension W2GViewController {
         guard let snapshot else { return }
         let files = snapshot.files
         let resolver = TorrentBatchResolver()
-        let resolvedVideos = resolver.resolveAll(files: files)
-        let playableFiles = resolvedVideos.isEmpty ? files : resolvedVideos.map { $0.entry }
+        let filenameResolution = resolver.resolveByFilename(files: files, targetEpisode: episode)
+        let videoFiles = files.filter { TorrentBatchResolver.isVideoFile($0.name) }
+        let playableFiles: [FileEntry]
+        if filenameResolution.resolvedFiles.isEmpty {
+            playableFiles = videoFiles
+        } else {
+            playableFiles = filenameResolution.resolvedFiles.map { $0.entry }
+        }
         let playableFileIndices = Set(playableFiles.map { Int($0.index) })
         func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
             guard let value else { return nil }
@@ -1010,11 +1016,8 @@ extension W2GViewController {
         func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
             fileIndex(from: Optional(value))
         }
-        guard var targetIndex = fileIndex(from: playableFiles.first?.index) else { return }
-        if let match = resolver.resolve(files: files, targetEpisode: episode),
-           let index = fileIndex(from: match.entry.index) {
-            targetIndex = index
-        }
+        let initialFile = filenameResolution.target?.entry ?? playableFiles.first
+        guard var targetIndex = fileIndex(from: initialFile?.index) else { return }
 
         // Ensure Video CoreData entities exist for the torrent's files.
         // VideoService.UpdateLocalVideo populates these asynchronously, but for
@@ -1088,7 +1091,7 @@ extension W2GViewController {
                 presentResolved(resolvedIndex, result.resolvedFiles)
             }
         } else {
-            presentResolved(targetIndex, [])
+            presentResolved(targetIndex, filenameResolution.resolvedFiles)
         }
     }
 
