@@ -903,7 +903,7 @@ public final class AniListClient: NSObject {
 
                 var validIDs = Set<Int>()
                 for mediaObject in mediaObjects.compactMap({ $0 as? [String: Any] }) {
-                    guard let item = self.parseAnimeItem(from: mediaObject) else { continue }
+                    guard let item = self.parseFullAnimeItem(from: mediaObject) else { continue }
                     validIDs.insert(item.id)
                     self.storeFullMediaPayload(item)
                 }
@@ -950,11 +950,10 @@ public final class AniListClient: NSObject {
                     self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(.emptyData))
                     return
                 }
-                guard var item = self.parseAnimeItem(from: media) else {
+                guard let item = self.parseFullAnimeItem(from: media) else {
                     self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(.invalidJSON))
                     return
                 }
-                item.relations = self.parseRelations(from: media)
                 self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .success(item))
             case .failure(let error):
                 self.finishFullMediaFetch(id: id, cacheKey: storageKey, result: .failure(error))
@@ -1394,6 +1393,12 @@ public final class AniListClient: NSObject {
         item.airedSchedule = parseAiringSchedule(from: object["aired"] as? [String: Any])
         item.notYetAiredSchedule = parseAiringSchedule(from: object["notaired"] as? [String: Any])
 
+        return item
+    }
+
+    private func parseFullAnimeItem(from object: [String: Any]) -> AnimeItem? {
+        guard var item = parseAnimeItem(from: object) else { return nil }
+        item.relations = parseRelations(from: object)
         return item
     }
 
