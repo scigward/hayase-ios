@@ -1149,6 +1149,15 @@ final class ExtensionSearchViewController: UIViewController {
         }
     }
 
+    private func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
+        guard let value else { return nil }
+        return UInt(exactly: value)
+    }
+
+    private func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
+        fileIndex(from: Optional(value))
+    }
+
     /// Called when VideoService posts LocalVideosDidUpdateNotification.
     /// Auto-resolves the target episode and presents the player directly.
     private func handlePendingMetadata() {
