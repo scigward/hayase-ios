@@ -15,7 +15,6 @@ final class Globe: UIView {
     private let model: NativeGlobeModel
     private let hostingController: UIHostingController<NativeGlobeContentView>
     private var currentSize: CGFloat = NativeGlobeStyle.compactSize
-    private var currentDisplayScale: CGFloat = 1
     private var markerGeneration = 0
     private var displayLink: CADisplayLink?
     private let animationStartTime = CACurrentMediaTime()
@@ -60,29 +59,11 @@ final class Globe: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        updateDisplayScale()
         if window == nil {
             stopAnimating()
         } else {
             startAnimating()
         }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateDisplayScale()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateDisplayScale()
-    }
-
-    private func updateDisplayScale() {
-        let displayScale = window?.screen.scale ?? traitCollection.displayScale
-        guard currentDisplayScale != displayScale else { return }
-        currentDisplayScale = displayScale
-        model.setDisplayScale(displayScale)
     }
 
     private func startAnimating() {
@@ -177,11 +158,11 @@ private enum NativeGlobeStyle {
     static let seederColor = SIMD3<Float>(0.05, 1.0, 0.0)
     static let leecherColor = SIMD3<Float>(0.01, 0.37, 0.94)
 
-    static func offset(for size: CGFloat, displayScale: CGFloat) -> SIMD2<Float> {
-        let pixelSize = Float(size * displayScale)
+    static func offset(for size: CGFloat) -> SIMD2<Float> {
+        let size = Float(size)
         return SIMD2<Float>(
-            pixelSize * 0.8 / scale,
-            pixelSize * 0.4 / scale
+            size * 0.8 / scale,
+            -size * 0.4 / scale
         )
     }
 }
@@ -189,7 +170,6 @@ private enum NativeGlobeStyle {
 private final class NativeGlobeModel: ObservableObject {
     @Published private(set) var configuration: GlobeConfiguration
     private var size = NativeGlobeStyle.compactSize
-    private var displayScale: CGFloat = 1
 
     init() {
         var configuration = GlobeConfiguration()
@@ -204,7 +184,7 @@ private final class NativeGlobeModel: ObservableObject {
         configuration.markerColor = NativeGlobeStyle.markerColor
         configuration.glowColor = NativeGlobeStyle.glowColor
         configuration.scale = NativeGlobeStyle.scale
-        configuration.offset = NativeGlobeStyle.offset(for: size, displayScale: displayScale)
+        configuration.offset = NativeGlobeStyle.offset(for: size)
         configuration.dragEnabled = false
         configuration.autoRotateSpeed = 0
         self.configuration = configuration
@@ -222,13 +202,6 @@ private final class NativeGlobeModel: ObservableObject {
         updateOffset()
     }
 
-    func setDisplayScale(_ displayScale: CGFloat) {
-        let displayScale = max(displayScale, 1)
-        guard self.displayScale != displayScale else { return }
-        self.displayScale = displayScale
-        updateOffset()
-    }
-
     func setMarkers(_ markers: [CobeKit.GlobeMarker]) {
         updateConfiguration { configuration in
             configuration.markers = markers
@@ -237,7 +210,7 @@ private final class NativeGlobeModel: ObservableObject {
 
     private func updateOffset() {
         updateConfiguration { configuration in
-            configuration.offset = NativeGlobeStyle.offset(for: size, displayScale: displayScale)
+            configuration.offset = NativeGlobeStyle.offset(for: size)
         }
     }
 
