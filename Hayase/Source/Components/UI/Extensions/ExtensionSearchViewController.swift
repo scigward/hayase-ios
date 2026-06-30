@@ -1210,7 +1210,12 @@ final class ExtensionSearchViewController: UIViewController {
                         resolvedIndex = index
                         resolvedVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
                     }
-                    self.presentPendingVideo(vs: vs, entity: entity, targetVideo: resolvedVideo, targetIndex: resolvedIndex, videos: videos)
+                    self.presentPendingVideo(vs: vs,
+                                             entity: entity,
+                                             targetVideo: resolvedVideo,
+                                             targetIndex: resolvedIndex,
+                                             videos: videos,
+                                             batchFiles: result.resolvedFiles)
                 }
                 return
             } else if let match = resolver.resolve(files: files, targetEpisode: currentEpisode),
@@ -1223,7 +1228,12 @@ final class ExtensionSearchViewController: UIViewController {
             targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }
 
-        presentPendingVideo(vs: vs, entity: entity, targetVideo: targetVideo, targetIndex: targetIndex, videos: videos)
+        presentPendingVideo(vs: vs,
+                             entity: entity,
+                             targetVideo: targetVideo,
+                             targetIndex: targetIndex,
+                             videos: videos,
+                             batchFiles: [])
     }
 
     private func resolveWebTorrentVideo(videos: [Videos]) -> Videos? {
@@ -1268,7 +1278,12 @@ final class ExtensionSearchViewController: UIViewController {
         return nil
     }
 
-    private func presentPendingVideo(vs: VideoService, entity: Torrents, targetVideo: Videos?, targetIndex: UInt, videos: [Videos]) {
+    private func presentPendingVideo(vs: VideoService,
+                                     entity: Torrents,
+                                     targetVideo: Videos?,
+                                     targetIndex: UInt,
+                                     videos: [Videos],
+                                     batchFiles: [TorrentBatchResolver.ResolvedFile]) {
         var targetVideo = targetVideo
         var targetIndex = targetIndex
 
@@ -1296,20 +1311,25 @@ final class ExtensionSearchViewController: UIViewController {
             guard let self else { return }
             // Close any existing mini-player before starting a new one.
             MiniPlayerManager.shared.close()
+            let activeFile = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }
+            let activeMedia = activeFile?.media ?? self.animeItem
+            let activeEpisode = activeFile?.episodeReference.intValue ?? self.currentEpisode
+
             let player = VideoPlayerViewController()
             player.videoEntity       = video
             player.torrentHandle     = vs.torrentHandle
             player.videoService      = vs
             player.fileIndex         = targetIndex
-            player.anilistID         = Int(entity.animes?.animeAnilistId ?? 0)
-            player.episodeNumber     = self.currentEpisode
-            player.totalEpisodes     = self.animeItem?.episodes ?? 0
+            player.anilistID         = activeMedia?.id ?? Int(entity.animes?.animeAnilistId ?? 0)
+            player.episodeNumber     = activeEpisode
+            player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? self.animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+            player.batchFiles        = batchFiles
             // Hayase web mediahandler.svelte playEpisode(): when the target
             // episode is not in the current batch, initiate a new search.
-            player.onEpisodeChange   = { [weak self] episode in
-                self?.handleEpisodeChangeFromPlayer(episode)
+            player.onEpisodeChange   = { [weak self] episode, media in
+                self?.handleEpisodeChangeFromPlayer(episode, media: media)
             }
             Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
         }
@@ -1348,13 +1368,16 @@ final class ExtensionSearchViewController: UIViewController {
     /// current torrent batch. Dismisses the player, updates the episode, and
     /// triggers a new extension search — mirroring the Hayase web interface's
     /// `searchStore.set({ media, episode })` flow from mediahandler.svelte.
-    private func handleEpisodeChangeFromPlayer(_ episode: Int) {
+    private func handleEpisodeChangeFromPlayer(_ episode: Int, media: AnimeItem?) {
         // Close the mini-player if active (the old torrent's player).
         MiniPlayerManager.shared.close()
         // Dismiss the fullscreen player to return to this search screen.
         dismiss(animated: true) { [weak self] in
             guard let self else { return }
-            // Update episode and trigger a fresh search with auto-select.
+            // Update media/episode and trigger a fresh search with auto-select.
+            if let media {
+                self.animeItem = media
+            }
             self.currentEpisode = episode
             self.episodeField.text = "\(episode)"
             self.autoSelectAfterSearch = true

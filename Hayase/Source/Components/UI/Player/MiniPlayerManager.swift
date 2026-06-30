@@ -921,8 +921,8 @@ final class MiniPlayerManager {
         // out-of-batch episodes. Mirrors ExtensionSearchViewController's
         // handleEpisodeChangeFromPlayer(): close mini-player → navigate to
         // search screen → auto-select best torrent.
-        player.onEpisodeChange = { [weak self] episode in
-            self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
+        player.onEpisodeChange = { [weak self] episode, media in
+            self?.handleRestoredEpisodeChange(episode: episode, anilistID: media?.id ?? anilistID)
         }
 
         // Start the restored player paused so it does not auto-play on launch.
@@ -1046,8 +1046,8 @@ final class MiniPlayerManager {
         player.totalEpisodes = totalEpisodes
         player.allVideos = videos
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
-        player.onEpisodeChange = { [weak self] episode in
-            self?.handleRestoredEpisodeChange(episode: episode, anilistID: anilistID)
+        player.onEpisodeChange = { [weak self] episode, media in
+            self?.handleRestoredEpisodeChange(episode: episode, anilistID: media?.id ?? anilistID)
         }
         player.shouldStartPaused = true
         _ = player.view

@@ -148,6 +148,7 @@ class VideoListViewController: UIViewController {
     private var updateTimer: Timer?
     private var pendingAutoOpenIndexPath: IndexPath?
     private var didAutoResolve = false
+    private var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -352,10 +353,10 @@ class VideoListViewController: UIViewController {
                 if let targetMedia = resolverTargetMedia() {
                     resolver.resolve(files: files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
                         guard let self, let match = result.target else { return }
-                        self.selectAndOpenResolvedMatch(match, videoService: vs)
+                        self.selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
                     }
                 } else if let match = resolver.resolve(files: files, targetEpisode: ep) {
-                    selectAndOpenResolvedMatch(match, videoService: vs)
+                    selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: [])
                 }
             }
         }
@@ -371,8 +372,11 @@ class VideoListViewController: UIViewController {
         }
     }
 
-    private func selectAndOpenResolvedMatch(_ match: TorrentBatchResolver.ResolvedFile, videoService vs: VideoService) {
+    private func selectAndOpenResolvedMatch(_ match: TorrentBatchResolver.ResolvedFile,
+                                            videoService vs: VideoService,
+                                            batchFiles: [TorrentBatchResolver.ResolvedFile]) {
         guard let fileIdx = fileIndex(from: match.entry.index) else { return }
+        self.batchFiles = batchFiles
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -431,11 +435,16 @@ class VideoListViewController: UIViewController {
         player.videoEntity       = video
         player.torrentHandle     = vs.torrentHandle
         player.videoService      = vs
+        let activeFile = batchFiles.first { UInt(exactly: $0.entry.index) == Optional(fileIdx) }
+        let activeMedia = activeFile?.media
+
         player.fileIndex         = fileIdx
-        player.anilistID         = Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
-        player.episodeNumber     = Int(indexNum.intValue) + 1
+        player.anilistID         = activeMedia?.id ?? Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
+        player.episodeNumber     = activeFile?.episodeReference.intValue ?? Int(indexNum.intValue) + 1
+        player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? vs.torrentEntity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos         = allVids
         player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
+        player.batchFiles        = batchFiles
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 }

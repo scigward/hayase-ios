@@ -399,7 +399,7 @@ struct TorrentBatchResolver {
         let secondRaw = numbers.dropFirst().first
         let firstEpisode = firstRaw.flatMap(parseEpisodeInt)
         let secondEpisode = secondRaw.flatMap(parseEpisodeInt)
-        let maxEpisode = Self.knownEpisodeCount(for: media)
+        let maxEpisode = Self.episodeCount(for: media)
         let hasEpisodeCount = maxEpisode > 0
         let format = media.format
         let shouldResolve = format != "MOVIE" || hasEpisodeCount
@@ -515,7 +515,7 @@ struct TorrentBatchResolver {
         }
 
         let nextVisited = visited.union([media.id])
-        let rootHighest = Self.knownEpisodeCount(for: rootMedia)
+        let rootHighest = Self.episodeCount(for: rootMedia)
 
         func finishWithoutEdge(_ resolvedIncrement: Bool) {
             completion(SeasonResolveResult(media: media,
@@ -589,7 +589,7 @@ struct TorrentBatchResolver {
                 NSLog("[TorrentBatchResolver] Season edge media fetch failed: %@", error.description)
             }
             let nextMedia = (try? result.get()) ?? edge
-            let highest = Self.knownEpisodeCount(for: nextMedia)
+            let highest = Self.episodeCount(for: nextMedia)
             let diff = episode - (highest + offset)
             let nextOffset = offset + (increment ? rootHighest : highest)
             let nextRootMedia = increment ? nextMedia : rootMedia
@@ -831,7 +831,7 @@ struct TorrentBatchResolver {
         return best
     }
 
-    private static func knownEpisodeCount(for media: AnimeItem) -> Int {
+    static func episodeCount(for media: AnimeItem) -> Int {
         if let episodes = media.episodes, episodes != 0 { return episodes }
 
         let aired = media.airedSchedule.last?.episode ?? 0

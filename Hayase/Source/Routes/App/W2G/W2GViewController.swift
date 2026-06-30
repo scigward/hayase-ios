@@ -931,6 +931,7 @@ extension W2GViewController {
         player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
+        player.batchFiles        = []
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 
@@ -1042,18 +1043,20 @@ extension W2GViewController {
             try? context.save()
         }
 
-        let presentResolved: (UInt) -> Void = { [weak self] resolvedIndex in
+        let presentResolved: (UInt, [TorrentBatchResolver.ResolvedFile]) -> Void = { [weak self] resolvedIndex, batchFiles in
             guard let self else { return }
             var targetIndex = resolvedIndex
 
-            // Upstream W2G sends the playlist index, not the libtorrent file index.
-            // Translate it through the playable video list before selecting a file.
-            if let clientIndex = W2GLobby.shared.client?.index,
-               clientIndex > 0,
-               clientIndex < playableFiles.count {
-                guard let playableFile = playableFiles[safe: clientIndex],
-                      let index = fileIndex(from: playableFile.index) else { return }
-                targetIndex = index
+            // Upstream W2G sends the playlist index. The web maps that index
+            // through mediaInfo.resolvedFiles, not the raw torrent file array.
+            if let clientIndex = W2GLobby.shared.client?.index, clientIndex >= 0 {
+                if let batchFile = batchFiles[safe: clientIndex],
+                   let index = fileIndex(from: batchFile.entry.index) {
+                    targetIndex = index
+                } else if let playableFile = playableFiles[safe: clientIndex],
+                          let index = fileIndex(from: playableFile.index) {
+                    targetIndex = index
+                }
             }
 
             let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
@@ -1062,27 +1065,30 @@ extension W2GViewController {
             vs.selectFileForStreaming(targetIndex)
             _ = vs.UpdateFilePathForFileIndex(targetIndex)
 
+            let media = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.media
+
             MiniPlayerManager.shared.close()
             let player = VideoPlayerViewController()
             player.videoEntity       = video
             player.torrentHandle     = handle
             player.videoService      = vs
             player.fileIndex         = targetIndex
-            player.anilistID         = anilistID
-            player.episodeNumber     = episode
-            player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
+            player.anilistID         = media?.id ?? anilistID
+            player.episodeNumber     = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.episodeReference.intValue ?? episode
+            player.totalEpisodes     = media.map { TorrentBatchResolver.episodeCount(for: $0) } ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+            player.batchFiles        = batchFiles
             Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
             resolver.resolve(files: files, targetEpisode: episode, targetMedia: targetMedia) { result in
                 let resolvedIndex = result.target.flatMap { fileIndex(from: $0.entry.index) } ?? targetIndex
-                presentResolved(resolvedIndex)
+                presentResolved(resolvedIndex, result.resolvedFiles)
             }
         } else {
-            presentResolved(targetIndex)
+            presentResolved(targetIndex, [])
         }
     }
 
