@@ -12,9 +12,7 @@ final class HTabBar: UIView {
     var selectedIndex: Int = 0 { didSet { updateSelection() } }
     var accentColor: UIColor = UIColor(white: 0.98, alpha: 1) { didSet { updateSelection() } }
 
-    /// Switches between vertical (iPhone) and horizontal (iPad) layout.
-    /// iPhone: vertical stack, full-width buttons, flex-col gap-1
-    /// iPad: horizontal inline, h-9, items-center
+    /// Interface tabs are always horizontal and scroll when they exceed the viewport.
     var isVertical: Bool = true {
         didSet {
             guard oldValue != isVertical else { return }
@@ -24,8 +22,8 @@ final class HTabBar: UIView {
 
     private let stack: UIStackView = {
         let sv = UIStackView()
-        sv.axis = .vertical  // default = vertical (iPhone)
-        sv.spacing = 4       // gap-1 = 4pt
+        sv.axis = .horizontal
+        sv.spacing = 0
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
@@ -39,7 +37,7 @@ final class HTabBar: UIView {
     init(titles: [String]) {
         super.init(frame: .zero)
         // bg-muted = #27272a (neutral-800)
-        backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        backgroundColor = UIColor.HayaseTheme.secondary
         layer.cornerRadius = 8   // rounded-lg
         clipsToBounds = true
 
@@ -68,6 +66,7 @@ final class HTabBar: UIView {
             buttons.append(btn)
         }
         updateSelection()
+        isVertical = false
         applyOrientation()
     }
 
@@ -77,19 +76,9 @@ final class HTabBar: UIView {
     /// Vertical: width = widest button + 8pt insets, height = sum of button heights + spacing + 8pt
     /// Horizontal: width = sum of button widths + spacing + 8pt, height = noIntrinsicMetric (set by constraint)
     override var intrinsicContentSize: CGSize {
-        if isVertical {
-            let maxButtonWidth = buttons.reduce(CGFloat(0)) { max($0, $1.intrinsicContentSize.width) }
-            let totalButtonHeight = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.height }
-            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
-            let width = maxButtonWidth + 8     // 2 × 4pt p-1 insets
-            let height = totalButtonHeight + totalSpacing + 8
-            return CGSize(width: width, height: height)
-        } else {
-            let totalButtonWidth = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
-            let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
-            let width = totalButtonWidth + totalSpacing + 8
-            return CGSize(width: width, height: UIView.noIntrinsicMetric)
-        }
+        let totalButtonWidth = buttons.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
+        let totalSpacing = CGFloat(max(buttons.count - 1, 0)) * stack.spacing
+        return CGSize(width: totalButtonWidth + totalSpacing + 8, height: 36)
     }
 
     @objc private func tabTapped(_ sender: UIButton) {
@@ -119,22 +108,13 @@ final class HTabBar: UIView {
 
     /// Configures stack axis, spacing, and constraints for vertical/horizontal mode.
     private func applyOrientation() {
-        if isVertical {
-            // Web: flex-col gap-1 max-w-72 w-full
-            stack.axis = .vertical
-            stack.spacing = 4  // gap-1 = 4pt
-            horizontalHeightConstraint?.isActive = false
-            stackHeightConstraint?.isActive = false
-        } else {
-            // Web: h-9 items-center justify-center, inline-flex
-            stack.axis = .horizontal
-            stack.spacing = 0  // Horizontal mode: no explicit gap between tabs; p-1 container insets provide visual separation
-            // h-9 = 36pt total height (includes p-1 insets)
-            if horizontalHeightConstraint == nil {
-                horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
-            }
-            horizontalHeightConstraint?.isActive = true
+        stack.axis = .horizontal
+        stack.spacing = 0
+        stackHeightConstraint?.isActive = false
+        if horizontalHeightConstraint == nil {
+            horizontalHeightConstraint = heightAnchor.constraint(equalToConstant: 36)
         }
+        horizontalHeightConstraint?.isActive = true
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
@@ -393,17 +373,30 @@ extension AnimeDetailViewController {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
         cell.selectionStyle = .none
-        let label = UILabel()
-        label.text = loading ? "Loading…" : text
-        label.textColor = UIColor(white: loading ? 0.7 : 0.5, alpha: 1)
-        label.font = .nunito(ofSize: 14)
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        cell.contentView.addSubview(label)
+        let titleLabel = UILabel()
+        titleLabel.text = loading ? "Loading..." : "Ooops!"
+        titleLabel.textColor = .white
+        titleLabel.font = .nunito(ofSize: 36, weight: .bold)
+        titleLabel.textAlignment = .center
+        let messageLabel = UILabel()
+        messageLabel.text = loading ? "Loading..." : text
+        messageLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        messageLabel.font = .nunito(ofSize: 18)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        let arrangedSubviews: [UIView] = loading ? [messageLabel] : [titleLabel, messageLabel]
+        let stack = UIStackView(arrangedSubviews: arrangedSubviews)
+        stack.axis = .vertical
+        stack.spacing = 4
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
-            label.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 40),
-            label.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -40),
+            stack.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: cell.contentView.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.contentView.trailingAnchor, constant: -20),
+            cell.contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 320),
         ])
         return cell
     }

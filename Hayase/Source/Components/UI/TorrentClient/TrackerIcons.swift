@@ -46,8 +46,7 @@ final class AniListIconView: UIView {
         let h = bounds.height
         guard w > 0, h > 0 else { return }
 
-        // Original SVG viewBox: 0 0 41 30 (offset 0.957, 0.5)
-        // We scale to fit our bounds.
+        // Original SVG viewBox: 0 0 41 30.
         let scaleX = w / 41.0
         let scaleY = h / 30.0
         let s = min(scaleX, scaleY)
@@ -55,17 +54,28 @@ final class AniListIconView: UIView {
         let offsetY = (h - 30.0 * s) / 2
 
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: (x - 0.957) * s + offsetX, y: (y - 0.5) * s + offsetY)
+            CGPoint(x: x * s + offsetX, y: y * s + offsetY)
         }
 
-        // Blue "AL" mark path
+        // Exact blue path from Anilist.svelte.
         let bluePath = UIBezierPath()
-        bluePath.move(to: pt(28.782, 22.273))
-        bluePath.addLine(to: pt(28.782, 3.477))
-        bluePath.addCurve(to: pt(27.057, 1.805), controlPoint1: pt(28.782, 2.400), controlPoint2: pt(28.169, 1.805))
-        bluePath.addLine(to: pt(23.262, 1.805))
-        bluePath.addCurve(to: pt(21.537, 3.477), controlPoint1: pt(22.151, 1.805), controlPoint2: pt(21.537, 2.400))
-        bluePath.addLine(to: pt(21.537, 12.404))
+        bluePath.move(to: pt(27.825, 21.773))
+        bluePath.addLine(to: pt(27.825, 2.977))
+        bluePath.addCurve(to: pt(26.100, 1.305), controlPoint1: pt(27.825, 1.900), controlPoint2: pt(27.212, 1.305))
+        bluePath.addLine(to: pt(22.305, 1.305))
+        bluePath.addCurve(to: pt(20.580, 2.977), controlPoint1: pt(21.194, 1.305), controlPoint2: pt(20.580, 1.900))
+        bluePath.addLine(to: pt(20.580, 11.904))
+        bluePath.addCurve(to: pt(23.145, 13.569), controlPoint1: pt(20.580, 12.155), controlPoint2: pt(23.080, 13.322))
+        bluePath.addCurve(to: pt(21.753, 26.820), controlPoint1: pt(25.049, 20.779), controlPoint2: pt(23.559, 26.551))
+        bluePath.addCurve(to: pt(22.831, 27.398), controlPoint1: pt(24.705, 26.962), controlPoint2: pt(25.030, 28.337))
+        bluePath.addCurve(to: pt(28.253, 27.256), controlPoint1: pt(23.168, 23.550), controlPoint2: pt(24.481, 23.558))
+        bluePath.addCurve(to: pt(29.073, 28.795), controlPoint1: pt(28.285, 27.288), controlPoint2: pt(29.027, 28.795))
+        bluePath.addLine(to: pt(37.983, 28.795))
+        bluePath.addCurve(to: pt(39.709, 27.123), controlPoint1: pt(39.096, 28.795), controlPoint2: pt(39.709, 28.201))
+        bluePath.addLine(to: pt(39.709, 23.446))
+        bluePath.addCurve(to: pt(37.984, 21.774), controlPoint1: pt(39.709, 22.368), controlPoint2: pt(39.095, 21.774))
+        bluePath.addLine(to: pt(27.825, 21.774))
+        bluePath.close()
 
         let blueLayer = CAShapeLayer()
         blueLayer.path = bluePath.cgPath
@@ -74,14 +84,15 @@ final class AniListIconView: UIView {
 
         // White "A" path
         let whitePath = UIBezierPath()
-        whitePath.move(to: pt(13.027, 1.806))
-        whitePath.addLine(to: pt(3.061, 29.296))
-        whitePath.addLine(to: pt(10.804, 29.296))
-        whitePath.addLine(to: pt(12.491, 24.540))
-        whitePath.addLine(to: pt(20.924, 24.540))
-        whitePath.addLine(to: pt(22.573, 29.295))
-        whitePath.addLine(to: pt(30.278, 29.295))
-        whitePath.addLine(to: pt(20.349, 1.806))
+        whitePath.move(to: pt(12.070, 1.306))
+        whitePath.addLine(to: pt(2.104, 28.796))
+        whitePath.addLine(to: pt(9.847, 28.796))
+        whitePath.addLine(to: pt(11.534, 24.040))
+        whitePath.addLine(to: pt(19.967, 24.040))
+        whitePath.addLine(to: pt(21.616, 28.795))
+        whitePath.addLine(to: pt(29.321, 28.795))
+        whitePath.addLine(to: pt(19.392, 1.305))
+        whitePath.addLine(to: pt(12.070, 1.306))
         whitePath.close()
         // Inner cutout
         whitePath.move(to: pt(13.297, 17.948))

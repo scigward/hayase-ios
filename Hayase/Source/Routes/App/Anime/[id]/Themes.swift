@@ -139,7 +139,7 @@ extension AnimeDetailViewController {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
         let typeLabel = UILabel()
-        typeLabel.text = theme.slug?.uppercased() ?? theme.type?.uppercased() ?? ""
+        typeLabel.text = theme.type ?? theme.slug ?? ""
         typeLabel.font = .nunito(ofSize: 12, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false

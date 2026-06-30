@@ -22,6 +22,10 @@ extension UIColor {
         static let input = UIColor(white: 0.15, alpha: 1)
         /// interface theme-default: --accent hsl(0 0% 8%).
         static let accent = UIColor(white: 0.08, alpha: 1)
+        /// interface theme-default: --secondary hsl(240 3.7% 15.9%).
+        static let secondary = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        /// interface theme-default: --secondary-foreground hsl(0 0% 98%).
+        static let secondaryForeground = UIColor(white: 0.98, alpha: 1)
         /// interface theme-default: --primary hsl(0 0% 98%).
         static let primary = UIColor(white: 0.98, alpha: 1)
         /// interface theme-default: --primary-foreground hsl(0 0% 10%).

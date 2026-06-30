@@ -174,7 +174,7 @@ final class AnimeTagChipButton: UIButton {
         if dashedBorder {
             dashLayer.frame = bounds
             dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: layer.cornerRadius).cgPath
-            dashLayer.strokeColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1).cgColor
+            dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
             dashLayer.lineWidth = 2
         }
 
@@ -255,6 +255,7 @@ final class AnimeInfoHeaderView: UIView {
     var onBadgeTapped: ((_ filterType: String, _ value: String) -> Void)?
     var onOpenAniList: (() -> Void)?
     var onOpenMAL: (() -> Void)?
+    var onOpenCover: ((UIImage?) -> Void)?
 
     var anilistId: Int?
     var malId: Int?
@@ -318,8 +319,26 @@ final class AnimeInfoHeaderView: UIView {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
+        iv.isUserInteractionEnabled = true
         iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        return iv
+    }()
+
+    private let coverOverlayView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0)
+        v.isUserInteractionEnabled = false
+        v.alpha = 0
+        return v
+    }()
+
+    private let coverOverlayIcon: UIImageView = {
+        let iv = UIImageView(image: UIImage.hayaseIcon("maximize-2", withConfiguration: UIImage.SymbolConfiguration(pointSize: 40, weight: .regular)))
+        iv.tintColor = UIColor.HayaseTheme.foreground
+        iv.contentMode = .scaleAspectFit
+        iv.alpha = 0
+        iv.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
         return iv
     }()
 
@@ -405,7 +424,7 @@ final class AnimeInfoHeaderView: UIView {
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         return b
@@ -416,7 +435,7 @@ final class AnimeInfoHeaderView: UIView {
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         return b
@@ -427,7 +446,7 @@ final class AnimeInfoHeaderView: UIView {
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("share-2")?.withConfiguration(iconCfg), for: .normal)
         b.tintColor = .white
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         return b
@@ -445,7 +464,7 @@ final class AnimeInfoHeaderView: UIView {
         let img = UIImage.hayaseIcon(lucideId, withConfiguration: iconCfg)?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
         b.setImage(img, for: .normal)
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         b.isHidden = true
@@ -454,7 +473,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let anilistButton: UIButton = {
         let b = UIButton(type: .custom)
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         b.isHidden = true
@@ -473,7 +492,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let malButton: UIButton = {
         let b = UIButton(type: .custom)
-        b.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
         b.isHidden = true
@@ -563,6 +582,27 @@ final class AnimeInfoHeaderView: UIView {
         coverAndTextColumn.axis = .vertical
         coverAndTextColumn.spacing = 16
         coverAndTextColumn.alignment = .center
+
+        coverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        coverOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
+        coverImageView.addSubview(coverOverlayView)
+        coverOverlayView.addSubview(coverOverlayIcon)
+        NSLayoutConstraint.activate([
+            coverOverlayView.topAnchor.constraint(equalTo: coverImageView.topAnchor),
+            coverOverlayView.leadingAnchor.constraint(equalTo: coverImageView.leadingAnchor),
+            coverOverlayView.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor),
+            coverOverlayView.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor),
+            coverOverlayIcon.centerXAnchor.constraint(equalTo: coverOverlayView.centerXAnchor),
+            coverOverlayIcon.centerYAnchor.constraint(equalTo: coverOverlayView.centerYAnchor),
+            coverOverlayIcon.widthAnchor.constraint(equalToConstant: 40),
+            coverOverlayIcon.heightAnchor.constraint(equalToConstant: 40),
+        ])
+        let coverTap = UITapGestureRecognizer(target: self, action: #selector(coverTapped))
+        coverImageView.addGestureRecognizer(coverTap)
+        let coverPress = UILongPressGestureRecognizer(target: self, action: #selector(coverPressChanged(_:)))
+        coverPress.minimumPressDuration = 0
+        coverPress.cancelsTouchesInView = false
+        coverImageView.addGestureRecognizer(coverPress)
 
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         trailerButton.addTarget(self, action: #selector(trailerTapped), for: .touchUpInside)
@@ -918,6 +958,17 @@ final class AnimeInfoHeaderView: UIView {
     @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
     @objc private func anilistTapped()     { animateTap(anilistButton);     onOpenAniList?() }
     @objc private func malTapped()         { animateTap(malButton);         onOpenMAL?() }
+    @objc private func coverTapped()       { onOpenCover?(coverImageView.image) }
+
+    @objc private func coverPressChanged(_ gesture: UILongPressGestureRecognizer) {
+        let pressed = gesture.state == .began || gesture.state == .changed
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.coverOverlayView.alpha = pressed ? 1 : 0
+            self.coverOverlayView.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(pressed ? 0.5 : 0)
+            self.coverOverlayIcon.alpha = pressed ? 1 : 0
+            self.coverOverlayIcon.transform = pressed ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
+        }
+    }
 
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
@@ -1286,7 +1337,7 @@ final class AnimeInfoHeaderView: UIView {
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
         btn.setTitleColor(isTag ? UIColor.HayaseTheme.mutedForeground : .white, for: .normal)
         btn.setTitleColor(storedAccentColor, for: .highlighted)
-        btn.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: isTag ? 0.4 : 1)
+        btn.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(isTag ? 0.4 : 1)
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6
         btn.layer.masksToBounds = true
@@ -1405,30 +1456,33 @@ class AnimeDetailViewController: UIViewController {
         return bar
     }()
 
-    var tabBarCenterXConstraint: NSLayoutConstraint?
-    var tabBarLeadingConstraint: NSLayoutConstraint?
-    var tabBarMaxWidthConstraint: NSLayoutConstraint?
-    var tabBarWidthFillConstraint: NSLayoutConstraint?
-    var tabBarTrailingConstraint: NSLayoutConstraint?
+    var tabBarScrollView: UIScrollView?
 
     lazy var tabBarContainer: UIView = {
         let v = UIView()
         v.backgroundColor = hayasePageBackground
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        tabBarScrollView = scrollView
         tabBar.translatesAutoresizingMaskIntoConstraints = false
-        v.addSubview(tabBar)
+        v.addSubview(scrollView)
+        scrollView.addSubview(tabBar)
 
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
-            tabBar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+            scrollView.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
+            scrollView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
+
+            tabBar.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            tabBar.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            tabBar.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            tabBar.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
-
-        tabBarCenterXConstraint = tabBar.centerXAnchor.constraint(equalTo: v.centerXAnchor)
-        tabBarMaxWidthConstraint = tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 288)
-        tabBarWidthFillConstraint = tabBar.widthAnchor.constraint(equalTo: v.widthAnchor, constant: -32)
-        tabBarWidthFillConstraint?.priority = .defaultHigh
-
-        tabBarLeadingConstraint = tabBar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 56)
-        tabBarTrailingConstraint = tabBar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -56)
 
         return v
     }()
@@ -1436,21 +1490,10 @@ class AnimeDetailViewController: UIViewController {
     func applyTabBarLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
 
-        tabBar.isVertical = !isRegular
-
-        if isRegular {
-            tabBarCenterXConstraint?.isActive = false
-            tabBarMaxWidthConstraint?.isActive = false
-            tabBarWidthFillConstraint?.isActive = false
-            tabBarLeadingConstraint?.isActive = true
-            tabBarTrailingConstraint?.isActive = true
-        } else {
-            tabBarLeadingConstraint?.isActive = false
-            tabBarTrailingConstraint?.isActive = false
-            tabBarCenterXConstraint?.isActive = true
-            tabBarMaxWidthConstraint?.isActive = true
-            tabBarWidthFillConstraint?.isActive = true
-        }
+        tabBar.isVertical = false
+        let sideInset: CGFloat = isRegular ? 56 : 12
+        tabBarScrollView?.contentInset = UIEdgeInsets(top: 0, left: sideInset, bottom: 0, right: sideInset)
+        tabBarScrollView?.scrollIndicatorInsets = tabBarScrollView?.contentInset ?? .zero
     }
 
     enum Section: Int, CaseIterable {
@@ -1695,6 +1738,10 @@ class AnimeDetailViewController: UIViewController {
             self.present(safari, animated: true)
         }
 
+        headerView.onOpenCover = { [weak self] image in
+            self?.presentCoverDialog(image: image)
+        }
+
         headerView.onGenreTapped = { [weak self] genre in
             self?.navigateToSearchTab(genre: genre)
         }
@@ -1702,6 +1749,36 @@ class AnimeDetailViewController: UIViewController {
         headerView.onBadgeTapped = { [weak self] filterType, value in
             self?.navigateToSearchTab(filterType: filterType, value: value)
         }
+    }
+
+    private func presentCoverDialog(image: UIImage?) {
+        guard let image else { return }
+        let dialog = UIViewController()
+        dialog.modalPresentationStyle = .overFullScreen
+        dialog.modalTransitionStyle = .crossDissolve
+        dialog.view.backgroundColor = UIColor.black.withAlphaComponent(0.82)
+
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        dialog.view.addSubview(imageView)
+
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
+            imageView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor),
+            imageView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor),
+            imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: image.size.width / max(image.size.height, 1)),
+        ])
+
+        let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
+        dialog.view.addGestureRecognizer(closeTap)
+        present(dialog, animated: true)
+    }
+
+    @objc private func dismissPresentedCoverDialog() {
+        presentedViewController?.dismiss(animated: true)
     }
 
     // MARK: - AniList Entry Editor

@@ -163,7 +163,7 @@ extension AnimeDetailViewController {
 
     func makeRecommendationCell(for indexPath: IndexPath) -> UITableViewCell {
         guard !recommendations.isEmpty else {
-            return makeEmptyStateCell(text: animePageErrorDescription ?? "Ooops! Looks like there's nothing here yet!", loading: false)
+            return makeEmptyStateCell(text: animePageErrorDescription ?? "Looks like there's nothing here yet!", loading: false)
         }
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: RecommendationGridCell.reuseID,

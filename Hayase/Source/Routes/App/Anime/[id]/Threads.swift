@@ -127,7 +127,7 @@ final class ThreadCardView: UIView {
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 10
+        iv.layer.cornerRadius = 8
         iv.isHidden = true
         return iv
     }()
@@ -169,7 +169,7 @@ final class ThreadCardView: UIView {
         footerLeadingToCard?.isActive = true
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(lessThanOrEqualToConstant: 112),
+            heightAnchor.constraint(equalToConstant: 75),
 
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
@@ -179,12 +179,12 @@ final class ThreadCardView: UIView {
             statsView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
 
             avatarImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            avatarImageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 20),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 20),
+            avatarImageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 16),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 16),
 
             footerLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 6),
-            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
             footerLabel.trailingAnchor.constraint(lessThanOrEqualTo: badgeStack.leadingAnchor, constant: -8),
 
             badgeStack.centerYAnchor.constraint(equalTo: footerLabel.centerYAnchor),
@@ -204,9 +204,7 @@ final class ThreadCardView: UIView {
         titleLabel.text = thread.title
         statsView.configure(likes: thread.likeCount, views: thread.viewCount, replies: thread.replyCount, locked: thread.isLocked)
 
-        var footerParts = [thread.sinceString]
-        if let name = thread.userName { footerParts.append("by \(name)") }
-        footerLabel.text = footerParts.joined(separator: " · ")
+        footerLabel.text = thread.sinceString
         configureAvatar(urlString: thread.avatarURL)
 
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -397,7 +395,7 @@ extension AnimeDetailViewController {
 
         if threadsLoading || threads.isEmpty {
             return makeEmptyStateCell(
-                text: animePageErrorDescription ?? "Ooops! Looks like there's nothing here yet!",
+                text: animePageErrorDescription ?? "Looks like there's nothing here yet!",
                 loading: threadsLoading)
         }
         guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }
@@ -430,7 +428,6 @@ extension AnimeDetailViewController {
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
-            card.heightAnchor.constraint(lessThanOrEqualToConstant: 112),
         ])
         return cell
     }
