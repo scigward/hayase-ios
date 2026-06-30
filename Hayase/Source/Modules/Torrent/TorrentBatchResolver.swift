@@ -472,15 +472,10 @@ struct TorrentBatchResolver {
                                        targetMedia: AnimeItem,
                                        parsedFiles: [ParsedFile],
                                        completion: @escaping (AnimeItem) -> Void) {
-        guard media.id == targetMedia.id else {
-            completion(media)
-            return
-        }
-
-        let fileEpisodes = Set(parsedFiles.compactMap { $0.episodeNumbers.first.flatMap(parseEpisodeInt) })
-        let mediaEpisodeCount = Self.episodeCount(for: media)
-        guard mediaEpisodeCount > 0,
-              fileEpisodes.contains(where: { $0 > mediaEpisodeCount }) else {
+        let fileEpisodes = Set(parsedFiles.flatMap { parsed in
+            parsed.episodeNumbers.compactMap(parseEpisodeInt)
+        })
+        guard !fileEpisodes.isEmpty else {
             completion(media)
             return
         }
@@ -497,19 +492,31 @@ struct TorrentBatchResolver {
                 case .success(let fetched):
                     fullPrequel = fetched
                 case .failure(let error):
-                    NSLog("[TorrentBatchResolver] Batch base prequel fetch failed: %@", error.description)
+                    NSLog("[TorrentBatchResolver] Batch prequel fetch failed: %@", error.description)
                     fullPrequel = prequel
                 }
 
-                let prequelEpisodeCount = Self.episodeCount(for: fullPrequel)
-                let absoluteTargetEpisode = prequelEpisodeCount + targetEpisode
-                guard prequelEpisodeCount > 0,
+                let prequelEpisodes = Self.episodeCount(for: fullPrequel)
+                let absoluteTargetEpisode = prequelEpisodes + targetEpisode
+                guard prequelEpisodes > 0,
                       fileEpisodes.contains(absoluteTargetEpisode) else {
                     completion(media)
                     return
                 }
 
-                completion(fullPrequel)
+                resolveSeason(media: fullPrequel,
+                              episode: absoluteTargetEpisode,
+                              increment: true,
+                              offset: 0,
+                              rootMedia: fullPrequel,
+                              force: false) { result in
+                    guard result.rootMedia.id == targetMedia.id,
+                          result.episode == targetEpisode else {
+                        completion(media)
+                        return
+                    }
+                    completion(fullPrequel)
+                }
             }
         }
     }
