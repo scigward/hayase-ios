@@ -38,8 +38,6 @@ final class Globe: UIView {
     private func setup() {
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        alpha = NativeGlobeStyle.alpha
-
         let hostedView = hostingController.view!
         hostedView.backgroundColor = .clear
         hostedView.isOpaque = false
@@ -144,11 +142,12 @@ private enum NativeGlobeStyle {
     static let expandedSize: CGFloat = 600
     static let maxMarkers = 64
 
-    static let alpha: CGFloat = 0.8
     static let theta: Float = 0.1
+    static let dark: Float = 1
     static let diffuse: Float = 1.4
     static let mapSamples: Float = 19_000
     static let mapBrightness: Float = 6
+    static let mapBaseBrightness: Float = 0
     static let opacity: Float = 0.8
     static let scale: Float = 1.5
     static let rotationSpeed: Float = 0.2
@@ -175,9 +174,11 @@ private final class NativeGlobeModel: ObservableObject {
     init() {
         var configuration = GlobeConfiguration()
         configuration.theta = NativeGlobeStyle.theta
+        configuration.dark = NativeGlobeStyle.dark
         configuration.diffuse = NativeGlobeStyle.diffuse
         configuration.mapSamples = NativeGlobeStyle.mapSamples
         configuration.mapBrightness = NativeGlobeStyle.mapBrightness
+        configuration.mapBaseBrightness = NativeGlobeStyle.mapBaseBrightness
         configuration.opacity = NativeGlobeStyle.opacity
         configuration.baseColor = NativeGlobeStyle.baseColor
         configuration.markerColor = NativeGlobeStyle.markerColor
@@ -224,6 +225,7 @@ private struct NativeGlobeContentView: View {
             get: { model.configuration },
             set: { _ in }
         ))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .background(Color.clear)
     }

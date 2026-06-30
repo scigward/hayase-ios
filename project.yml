@@ -34,7 +34,7 @@ packages:
     from: "4.0.8"
   CobeKit:
     url: https://github.com/ohwhen/CobeKit.git
-    branch: main
+    from: "1.0.0"
 
 targets:
   Hayase:
