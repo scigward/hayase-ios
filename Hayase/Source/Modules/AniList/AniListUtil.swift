@@ -173,6 +173,178 @@ enum AniListUtil {
         }
     }
 
+    private static func jsonValue(_ value: Any?) -> Any {
+        value ?? NSNull()
+    }
+
+    /// Exact media object shape used by the interface extension pipeline.
+    /// Mirrors the FullMedia fragment in interface/src/lib/modules/anilist/queries.ts.
+    static func extensionMediaJSON(from media: AniListMedia) -> [String: Any] {
+        [
+            "id": jsonValue(media.id),
+            "idMal": jsonValue(media.idMal),
+            "title": titleJSON(media.title, includeAllFields: true),
+            "description": jsonValue(media.description),
+            "season": jsonValue(media.season),
+            "seasonYear": jsonValue(media.seasonYear),
+            "format": jsonValue(media.format),
+            "status": jsonValue(media.status),
+            "episodes": jsonValue(media.episodes),
+            "duration": jsonValue(media.duration),
+            "averageScore": jsonValue(media.averageScore.map { Int($0.rounded()) }),
+            "genres": jsonValue(media.genres),
+            "isFavourite": jsonValue(media.isFavourite),
+            "coverImage": coverImageJSON(media.coverImage, fields: [.extraLarge, .medium, .color]),
+            "source": jsonValue(media.source),
+            "countryOfOrigin": jsonValue(media.countryOfOrigin),
+            "isAdult": jsonValue(media.isAdult),
+            "bannerImage": jsonValue(media.bannerImage),
+            "synonyms": jsonValue(media.synonyms),
+            "nextAiringEpisode": nextAiringEpisodeJSON(media.nextAiringEpisode),
+            "startDate": fuzzyDateJSON(media.startDate),
+            "trailer": trailerJSON(media.trailer),
+            "mediaListEntry": mediaListEntryJSON(media.mediaListEntry),
+            "studios": studiosJSON(media.studios),
+            "notaired": airingConnectionJSON(media.notaired),
+            "aired": airingConnectionJSON(media.aired),
+            "relations": relationConnectionJSON(media.relations, includeNestedNodeDetails: true)
+        ]
+    }
+
+    private enum CoverImageField {
+        case extraLarge
+        case medium
+        case color
+    }
+
+    private static func titleJSON(_ title: AniListMedia.Title?, includeAllFields: Bool) -> Any {
+        guard let title else { return NSNull() }
+        if includeAllFields {
+            return [
+                "romaji": jsonValue(title.romaji),
+                "english": jsonValue(title.english),
+                "native": jsonValue(title.native),
+                "userPreferred": jsonValue(title.userPreferred)
+            ]
+        }
+        return ["userPreferred": jsonValue(title.userPreferred)]
+    }
+
+    private static func coverImageJSON(_ cover: AniListMedia.CoverImage?, fields: [CoverImageField]) -> Any {
+        guard let cover else { return NSNull() }
+        var result: [String: Any] = [:]
+        for field in fields {
+            switch field {
+            case .extraLarge:
+                result["extraLarge"] = jsonValue(cover.extraLarge)
+            case .medium:
+                result["medium"] = jsonValue(cover.medium)
+            case .color:
+                result["color"] = jsonValue(cover.color)
+            }
+        }
+        return result
+    }
+
+    private static func fuzzyDateJSON(_ date: AniListMedia.StartDate?) -> Any {
+        guard let date else { return NSNull() }
+        return [
+            "year": jsonValue(date.year),
+            "month": jsonValue(date.month),
+            "day": jsonValue(date.day)
+        ]
+    }
+
+    private static func trailerJSON(_ trailer: AniListMedia.Trailer?) -> Any {
+        guard let trailer else { return NSNull() }
+        return [
+            "id": jsonValue(trailer.id),
+            "site": jsonValue(trailer.site)
+        ]
+    }
+
+    private static func nextAiringEpisodeJSON(_ airing: AniListMedia.NextAiringEpisode?) -> Any {
+        guard let airing else { return NSNull() }
+        return [
+            "id": jsonValue(airing.id),
+            "timeUntilAiring": jsonValue(airing.timeUntilAiring),
+            "episode": jsonValue(airing.episode)
+        ]
+    }
+
+    private static func mediaListEntryJSON(_ entry: AniListMedia.MediaListEntry?) -> Any {
+        guard let entry else { return NSNull() }
+        return [
+            "id": jsonValue(entry.id),
+            "status": jsonValue(entry.status),
+            "progress": jsonValue(entry.progress),
+            "repeat": jsonValue(entry.repeatCount),
+            "score": jsonValue(entry.score),
+            "customLists": jsonValue(mediaListCustomLists(from: entry.customLists))
+        ]
+    }
+
+    private static func studiosJSON(_ studios: AniListMedia.StudioConnection?) -> Any {
+        guard let studios else { return NSNull() }
+        return [
+            "nodes": jsonValue(studios.nodes?.map { studio in
+                [
+                    "id": jsonValue(studio.id),
+                    "name": jsonValue(studio.name)
+                ]
+            })
+        ]
+    }
+
+    private static func airingConnectionJSON(_ connection: AniListMedia.AiringConnection?) -> Any {
+        guard let connection else { return NSNull() }
+        return [
+            "n": jsonValue(connection.n?.map { node in
+                [
+                    "a": jsonValue(node.a),
+                    "e": jsonValue(node.e)
+                ]
+            })
+        ]
+    }
+
+    private static func relationConnectionJSON(_ connection: AniListMedia.RelationConnection?,
+                                               includeNestedNodeDetails: Bool) -> Any {
+        guard let connection else { return NSNull() }
+        return [
+            "edges": jsonValue(connection.edges?.map { edge in
+                [
+                    "relationType": jsonValue(edge.relationType),
+                    "node": relationNodeJSON(edge.node, includeNestedRelations: includeNestedNodeDetails)
+                ]
+            })
+        ]
+    }
+
+    private static func relationNodeJSON(_ node: AniListMedia.RelationNode?, includeNestedRelations: Bool) -> Any {
+        guard let node else { return NSNull() }
+        var result: [String: Any] = [
+            "id": jsonValue(node.id),
+            "status": jsonValue(node.status),
+            "format": jsonValue(node.format),
+            "episodes": jsonValue(node.episodes),
+            "title": titleJSON(node.title, includeAllFields: false),
+            "coverImage": coverImageJSON(node.coverImage, fields: [.extraLarge]),
+            "type": jsonValue(node.type)
+        ]
+
+        if includeNestedRelations {
+            result["synonyms"] = jsonValue(node.synonyms)
+            result["season"] = jsonValue(node.season)
+            result["seasonYear"] = jsonValue(node.seasonYear)
+            result["relations"] = relationConnectionJSON(node.relations, includeNestedNodeDetails: false)
+            result["startDate"] = fuzzyDateJSON(node.startDate)
+            result["endDate"] = fuzzyDateJSON(node.endDate)
+        }
+
+        return result
+    }
+
     /// Convert an AniListMedia Codable object to an AnimeItem value type.
     static func animeItem(from media: AniListMedia) -> AnimeItem? {
         guard let id = media.id else { return nil }
@@ -207,6 +379,7 @@ enum AniListUtil {
             source: media.source,
             countryOfOrigin: media.countryOfOrigin,
             studioNames: (media.studios?.nodes ?? []).compactMap { $0.name })
+        item.extensionMediaJSON = extensionMediaJSON(from: media)
         if let mle = media.mediaListEntry, let s = mle.status {
             item.mediaListEntry = AnimeItem.MediaListEntry(
                 listID: mle.id ?? 0,

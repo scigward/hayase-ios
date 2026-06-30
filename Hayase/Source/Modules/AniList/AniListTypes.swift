@@ -40,6 +40,9 @@ struct AnimeItem {
     var source: String? = nil
     var countryOfOrigin: String? = nil
     var studioNames: [String] = []
+    /// Exact AniList FullMedia-shaped object passed to torrent extensions.
+    /// Keep this private to extension calls; UI should continue using typed fields above.
+    var extensionMediaJSON: [String: Any]? = nil
 
     struct MediaListEntry {
         let listID: Int
@@ -343,6 +346,12 @@ struct AniListMedia: Codable {
     }
     let studios: StudioConnection?
     let relations: RelationConnection?
+    let aired: AiringConnection?
+    let notaired: AiringConnection?
+    struct AiringConnection: Codable {
+        let n: [AiringNode]?
+        struct AiringNode: Codable { let a: Int?; let e: Int? }
+    }
     struct RelationConnection: Codable { let edges: [RelationEdge]? }
     struct RelationEdge: Codable {
         let relationType: String?
@@ -359,6 +368,10 @@ struct AniListMedia: Codable {
         let seasonYear: Int?
         let season: String?
         let format: String?
+        let synonyms: [String]?
+        let relations: RelationConnection?
+        let startDate: StartDate?
+        let endDate: StartDate?
     }
     struct Title: Codable {
         let english: String?
@@ -373,6 +386,7 @@ struct AniListMedia: Codable {
         let color: String?
     }
     struct NextAiringEpisode: Codable {
+        let id: Int?
         let episode: Int?
         let timeUntilAiring: Int?
     }
@@ -501,6 +515,7 @@ struct AniListResolverMediaResponse: Codable {
         let seasonYear: Int?
         let season: String?
         let format: String?
+        let synonyms: [String]?
     }
 }
 

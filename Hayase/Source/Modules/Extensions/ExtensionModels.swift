@@ -201,21 +201,7 @@ struct TorrentQuery {
 
     /// Build from an AnimeItem + episode context (mirrors Extensions.createTitles)
     static func make(from item: AnimeItem, episode: Int, resolution: String) -> TorrentQuery {
-        var titleDict: [String: Any] = [:]
-        if let eng = item.titleEnglish { titleDict["english"] = eng }
-        if let rom = item.titleRomaji  { titleDict["romaji"]  = rom }
-        if let native = item.titleNative { titleDict["native"] = native }
-        titleDict["userPreferred"] = item.titleUserPreferred ?? item.titleEnglish ?? item.titleRomaji ?? item.titleNative ?? ""
-
-        var mediaJSON: [String: Any] = [
-            "id":       item.id,
-            "title":    titleDict,
-            "synonyms": item.synonyms,
-            "format":   item.format ?? "TV",
-            "status":   item.status ?? "RELEASING"
-        ]
-        if let ep = item.episodes   { mediaJSON["episodes"] = ep }
-        if let d  = item.duration   { mediaJSON["duration"] = d }
+        let mediaJSON = item.extensionMediaJSON ?? fallbackMediaJSON(from: item)
 
         // Build titles list — mirrors Extensions.createTitles exactly:
         //   const grouped = [...new Set(
@@ -277,6 +263,114 @@ struct TorrentQuery {
             exclusions: [],
             subDub: nil
         )
+    }
+
+    private static func jsonValue(_ value: Any?) -> Any {
+        value ?? NSNull()
+    }
+
+    private static func fallbackMediaJSON(from item: AnimeItem) -> [String: Any] {
+        let title: [String: Any] = [
+            "romaji": jsonValue(item.titleRomaji),
+            "english": jsonValue(item.titleEnglish),
+            "native": jsonValue(item.titleNative),
+            "userPreferred": jsonValue(item.titleUserPreferred ?? item.titleEnglish ?? item.titleRomaji ?? item.titleNative)
+        ]
+
+        return [
+            "id": item.id,
+            "idMal": jsonValue(item.malId),
+            "title": title,
+            "description": jsonValue(item.description),
+            "season": jsonValue(item.season),
+            "seasonYear": jsonValue(item.year),
+            "format": jsonValue(item.format),
+            "status": jsonValue(item.status),
+            "episodes": jsonValue(item.episodes),
+            "duration": jsonValue(item.duration),
+            "averageScore": jsonValue(item.score.map { Int($0.rounded()) }),
+            "genres": item.genres,
+            "isFavourite": jsonValue(item.isFavourite),
+            "coverImage": coverImageJSON(url: item.coverURL, color: item.coverColor),
+            "source": jsonValue(item.source),
+            "countryOfOrigin": jsonValue(item.countryOfOrigin),
+            "isAdult": jsonValue(item.isAdult),
+            "bannerImage": jsonValue(item.bannerURL),
+            "synonyms": item.synonyms,
+            "nextAiringEpisode": NSNull(),
+            "startDate": fuzzyYearJSON(item.startYear),
+            "trailer": trailerJSON(item.trailerYouTubeID),
+            "mediaListEntry": mediaListEntryJSON(item.mediaListEntry),
+            "studios": NSNull(),
+            "notaired": NSNull(),
+            "aired": NSNull(),
+            "relations": relationConnectionJSON(item.relations)
+        ]
+    }
+
+    private static func coverImageJSON(url: String?, color: String?) -> Any {
+        guard url != nil || color != nil else { return NSNull() }
+        return [
+            "extraLarge": jsonValue(url),
+            "medium": jsonValue(url),
+            "color": jsonValue(color)
+        ]
+    }
+
+    private static func fuzzyYearJSON(_ year: Int?) -> Any {
+        guard let year else { return NSNull() }
+        return [
+            "year": year,
+            "month": NSNull(),
+            "day": NSNull()
+        ]
+    }
+
+    private static func trailerJSON(_ youtubeID: String?) -> Any {
+        guard let youtubeID else { return NSNull() }
+        return ["id": youtubeID, "site": "youtube"]
+    }
+
+    private static func mediaListEntryJSON(_ entry: AnimeItem.MediaListEntry?) -> Any {
+        guard let entry else { return NSNull() }
+        return [
+            "id": entry.listID,
+            "status": jsonValue(entry.status),
+            "progress": entry.progress,
+            "repeat": entry.repeatCount,
+            "score": entry.score,
+            "customLists": entry.customLists
+        ]
+    }
+
+    private static func relationConnectionJSON(_ relations: [AnimeRelation]) -> Any {
+        guard !relations.isEmpty else { return NSNull() }
+        return [
+            "edges": relations.map { relation in
+                [
+                    "relationType": relation.relationType,
+                    "node": relationNodeJSON(relation.media)
+                ]
+            }
+        ]
+    }
+
+    private static func relationNodeJSON(_ item: AnimeItem) -> [String: Any] {
+        [
+            "id": item.id,
+            "status": jsonValue(item.status),
+            "format": jsonValue(item.format),
+            "episodes": jsonValue(item.episodes),
+            "title": ["userPreferred": jsonValue(item.titleUserPreferred ?? item.titleEnglish ?? item.titleRomaji ?? item.titleNative)],
+            "coverImage": item.coverURL.map { ["extraLarge": $0] } ?? NSNull(),
+            "type": NSNull(),
+            "synonyms": item.synonyms,
+            "season": jsonValue(item.season),
+            "seasonYear": jsonValue(item.year),
+            "relations": NSNull(),
+            "startDate": fuzzyYearJSON(item.startYear),
+            "endDate": NSNull()
+        ]
     }
 
     /// Serialise for passing to the JS extension worker
