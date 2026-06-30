@@ -297,6 +297,8 @@ enum AniListQueries {
         isAdult
         studios(isMain: true) { nodes { id name } }
         mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
+        notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) { n: nodes { a: airingAt e: episode } }
+        aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt e: episode } }
         relations {
           edges {
             relationType(version: 2)

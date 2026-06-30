@@ -807,15 +807,10 @@ public final class AniListClient: NSObject {
         var resultIDs: [String: Int] = [:]
         var firstError: AniListRequestError?
         var chunks: [[(key: String, title: String, year: Int?, isAdult: Bool)]] = []
-        var currentChunk: [(key: String, title: String, year: Int?, isAdult: Bool)] = []
-        for object in flattened {
-            if currentChunk.count >= 24 && !object.isAdult {
-                chunks.append(currentChunk)
-                currentChunk = []
-            }
-            currentChunk.append(object)
+        for index in stride(from: 0, to: flattened.count, by: 60) {
+            let endIndex = min(index + 60, flattened.count)
+            chunks.append(Array(flattened[index..<endIndex]))
         }
-        if !currentChunk.isEmpty { chunks.append(currentChunk) }
 
         func runChunk(at chunkIndex: Int) {
             guard chunkIndex < chunks.count else {
@@ -1361,7 +1356,18 @@ public final class AniListClient: NSObject {
                 customLists: parseCustomLists(entry["customLists"]))
         }
 
+        item.airedSchedule = parseAiringSchedule(from: object["aired"] as? [String: Any])
+        item.notYetAiredSchedule = parseAiringSchedule(from: object["notaired"] as? [String: Any])
+
         return item
+    }
+
+    private func parseAiringSchedule(from object: [String: Any]?) -> [AnimeItem.AiringEpisode] {
+        let nodes = object?["n"] as? [[String: Any]] ?? []
+        return nodes.compactMap { node in
+            guard let episode = intValue(node["e"]) else { return nil }
+            return AnimeItem.AiringEpisode(airingAt: intValue(node["a"]), episode: episode)
+        }
     }
 
     private func parseTags(from rawTags: [[String: Any]]?) -> [AnimeTag] {

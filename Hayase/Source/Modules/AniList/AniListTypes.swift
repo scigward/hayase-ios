@@ -40,6 +40,13 @@ struct AnimeItem {
     var source: String? = nil
     var countryOfOrigin: String? = nil
     var studioNames: [String] = []
+    var airedSchedule: [AiringEpisode] = []
+    var notYetAiredSchedule: [AiringEpisode] = []
+
+    struct AiringEpisode {
+        let airingAt: Int?
+        let episode: Int
+    }
     /// Exact AniList FullMedia-shaped object passed to torrent extensions.
     /// Keep this private to extension calls; UI should continue using typed fields above.
     var extensionMediaJSON: [String: Any]? = nil
@@ -73,6 +80,8 @@ extension AnimeItem {
         if merged.relations.isEmpty { merged.relations = relations }
         if merged.tags.isEmpty { merged.tags = tags }
         if merged.mediaListEntry == nil { merged.mediaListEntry = mediaListEntry }
+        if merged.airedSchedule.isEmpty { merged.airedSchedule = airedSchedule }
+        if merged.notYetAiredSchedule.isEmpty { merged.notYetAiredSchedule = notYetAiredSchedule }
         if merged.isFavourite == nil { merged.isFavourite = isFavourite }
         if merged.trailerYouTubeID == nil { merged.trailerYouTubeID = trailerYouTubeID }
         if merged.malId == nil { merged.malId = malId }
