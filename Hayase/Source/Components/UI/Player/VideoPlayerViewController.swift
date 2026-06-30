@@ -378,6 +378,7 @@ final class VideoPlayerViewController: UIViewController {
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
     var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
+    private var currentResolvedFile: TorrentBatchResolver.ResolvedFile?
 
     /// Callback fired when the user taps next/prev and the target episode is
     /// NOT in the current torrent batch. The presenting view controller should
@@ -984,13 +985,8 @@ final class VideoPlayerViewController: UIViewController {
         // rather than just allVideos array bounds so buttons are correct even
         // before MPV starts (important for mini-player restore where viewDidLoad
         // runs immediately via `_ = player.view`).
-        prevButton.isEnabled  = episodeNumber > 1
-        let limit = currentEpisodeLimit
-        if limit > 0 {
-            nextButton.isEnabled = episodeNumber < limit
-        } else {
-            nextButton.isEnabled = true
-        }
+        prevButton.isEnabled  = canNavigateToPreviousEpisode
+        nextButton.isEnabled  = canNavigateToNextEpisode
         mobilePrevButton.isEnabled = prevButton.isEnabled
         mobileNextButton.isEnabled = nextButton.isEnabled
 
@@ -1345,14 +1341,8 @@ final class VideoPlayerViewController: UIViewController {
         // Hayase mediahandler.svelte: hasPrev = episode > 1; hasNext = episode < totalEps.
         // Enable buttons based on episode bounds, not just allVideos array bounds.
         // When onEpisodeChange is set, out-of-batch navigation triggers a new search.
-        let canGoPrev = episodeNumber > 1
-        let canGoNext: Bool
-        let limit = currentEpisodeLimit
-        if limit > 0 {
-            canGoNext = episodeNumber < limit
-        } else {
-            canGoNext = true
-        }
+        let canGoPrev = canNavigateToPreviousEpisode
+        let canGoNext = canNavigateToNextEpisode
         prevButton.isEnabled = canGoPrev
         nextButton.isEnabled = canGoNext
         mobilePrevButton.isEnabled = canGoPrev
@@ -1858,14 +1848,17 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func prevTapped() {
-        let targetEpisode = episodeNumber - 1
+        guard let currentEpisode = currentEpisodeForNavigation else { return }
+        let targetEpisode = currentEpisode - 1
         guard targetEpisode >= 1 else { return }
         saveProgress()
 
         // Hayase web mediahandler.svelte playEpisode(): first check if the
         // target episode exists in the current torrent batch (resolvedFiles).
-        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
-            switchToVideo((video: batchVideo.video, index: batchVideo.index), episode: targetEpisode, media: batchVideo.media)
+        if let file = batchFile(forEpisode: targetEpisode) {
+            switchToBatchFile(file)
+        } else if let fallback = fallbackVideo(forEpisode: targetEpisode, from: currentEpisode) {
+            switchToVideo(fallback, episode: targetEpisode)
         } else {
             // Episode not in batch → trigger new extension search.
             // Mirrors web's `searchStore.set({ media, episode })`.
@@ -1874,15 +1867,18 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func nextTapped() {
-        let targetEpisode = episodeNumber + 1
+        guard let currentEpisode = currentEpisodeForNavigation else { return }
+        let targetEpisode = currentEpisode + 1
         let maxEp = currentEpisodeLimit > 0 ? currentEpisodeLimit : Int.max
         guard targetEpisode <= maxEp else { return }
         saveProgress()
 
         // Hayase web mediahandler.svelte playEpisode(): first check if the
         // target episode exists in the current torrent batch (resolvedFiles).
-        if let batchVideo = findVideoInBatch(forEpisode: targetEpisode) {
-            switchToVideo((video: batchVideo.video, index: batchVideo.index), episode: targetEpisode, media: batchVideo.media)
+        if let file = batchFile(forEpisode: targetEpisode) {
+            switchToBatchFile(file)
+        } else if let fallback = fallbackVideo(forEpisode: targetEpisode, from: currentEpisode) {
+            switchToVideo(fallback, episode: targetEpisode)
         } else {
             // Episode not in batch → trigger new extension search.
             requestEpisodeChange(targetEpisode)
@@ -1890,27 +1886,50 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     /// Finds a file in the current torrent batch the same way the web
-    /// media handler uses `mediaInfo.resolvedFiles`.
-    private func findVideoInBatch(forEpisode targetEp: Int) -> (video: Videos, index: Int, media: AnimeItem?)? {
-        if let file = batchFiles.first(where: { resolvedFile in
+    /// media handler uses `mediaInfo.resolvedFiles.find(...)`.
+    private func batchFile(forEpisode targetEp: Int) -> TorrentBatchResolver.ResolvedFile? {
+        batchFiles.first { resolvedFile in
             resolvedFile.episodeReference.matches(targetEp)
-                && (resolvedFile.media?.id ?? anilistID) == currentMediaID
-        }), let match = videoMatch(for: file) {
-            return (match.video, match.index, file.media)
+                && resolvedFile.media?.id == currentMediaID
+                && videoMatch(for: resolvedFile) != nil
         }
+    }
 
-        let delta = targetEp - episodeNumber
+    private func fallbackVideo(forEpisode targetEp: Int,
+                               from currentEpisode: Int) -> (video: Videos, index: Int)? {
+        let delta = targetEp - currentEpisode
         let targetIndex = currentVideoIndex + delta
         guard batchFiles.isEmpty, targetIndex >= 0, targetIndex < allVideos.count else { return nil }
-        return (allVideos[targetIndex], targetIndex, nil)
+        return (video: allVideos[targetIndex], index: targetIndex)
     }
 
     private var currentBatchFile: TorrentBatchResolver.ResolvedFile? {
-        batchFiles.first { matchesFileIndex($0, fileIndex) }
+        if let currentResolvedFile, matchesFileIndex(currentResolvedFile, fileIndex) {
+            return currentResolvedFile
+        }
+        return batchFiles.first { matchesFileIndex($0, fileIndex) }
     }
 
     private var currentMediaID: Int {
         currentBatchFile?.media?.id ?? anilistID
+    }
+
+    private var currentEpisodeForNavigation: Int? {
+        if let file = currentBatchFile {
+            return file.episodeReference.intValue
+        }
+        return episodeNumber
+    }
+
+    private var canNavigateToPreviousEpisode: Bool {
+        guard let episode = currentEpisodeForNavigation else { return false }
+        return episode > 1
+    }
+
+    private var canNavigateToNextEpisode: Bool {
+        guard let episode = currentEpisodeForNavigation else { return false }
+        let limit = currentEpisodeLimit
+        return limit > 0 ? episode < limit : true
     }
 
     private var playlistIndex: Int {
@@ -1953,11 +1972,15 @@ final class VideoPlayerViewController: UIViewController {
 
     private func switchToBatchFile(_ file: TorrentBatchResolver.ResolvedFile) {
         guard let match = videoMatch(for: file) else { return }
+        currentResolvedFile = file
         switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
     }
 
     /// Switches to a different video file within the same torrent batch.
     private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int, media: AnimeItem? = nil) {
+        if media == nil {
+            currentResolvedFile = nil
+        }
         streamServer?.stop()
         streamServer = nil
         streamer?.stop()
@@ -2314,8 +2337,9 @@ final class VideoPlayerViewController: UIViewController {
     private func handleFileEnded() {
         // Use the same logic as nextTapped — tries in-batch first, then
         // falls back to onEpisodeChange for a new extension search.
+        guard let currentEpisode = currentEpisodeForNavigation else { return }
         let maxEp = currentEpisodeLimit > 0 ? currentEpisodeLimit : Int.max
-        guard episodeNumber + 1 <= maxEp else { return }
+        guard currentEpisode + 1 <= maxEp else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
     }
 }
