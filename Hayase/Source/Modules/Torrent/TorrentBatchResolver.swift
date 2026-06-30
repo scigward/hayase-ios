@@ -42,6 +42,8 @@ struct TorrentBatchResolver {
         let animeTitle: String
         let animeSeason: Int?
         let animeYear: Int?
+        let animeSeasonValues: [String]
+        let animeYearValues: [String]
         let animeTypes: [String]
         let episodeNumbers: [String]
     }
@@ -108,15 +110,20 @@ struct TorrentBatchResolver {
     private struct ParsedFile {
         let entry: FileEntry
         let animeTitle: String
-        let animeSeason: Int?
-        let animeYear: Int?
+        let animeSeasonValues: [String]
+        let animeYearValues: [String]
         let animeTypes: [String]
         let episodeNumbers: [String]
+
+        var animeSeason: Int? { animeSeasonValues.first.flatMap(parseEpisodeInt) }
+        var animeYear: Int? { animeYearValues.first.flatMap(parseEpisodeInt) }
 
         var filename: ParsedFilename {
             ParsedFilename(animeTitle: animeTitle,
                            animeSeason: animeSeason,
                            animeYear: animeYear,
+                           animeSeasonValues: animeSeasonValues,
+                           animeYearValues: animeYearValues,
                            animeTypes: animeTypes,
                            episodeNumbers: episodeNumbers)
         }
@@ -296,13 +303,13 @@ struct TorrentBatchResolver {
             return
         }
 
-        let keys = Self.orderedUnique(parsedFiles.map { Self.cacheKey(for: $0) }.filter { !$0.isEmpty })
+        let keys = Self.orderedUnique(parsedFiles.map { Self.cacheKey(for: $0) })
         var titleIDs = Self.cachedTitleIDs(for: keys)
 
-        let titleGroups: [(key: String, titles: [String], year: Int?)] = keys.compactMap { key in
+        let titleGroups: [(key: String, titles: [String], year: String?)] = keys.compactMap { key in
             guard titleIDs[key] == nil,
                   let parsed = parsedFiles.first(where: { Self.cacheKey(for: $0) == key }) else { return nil }
-            return (key: key, titles: Self.alternativeTitles(for: parsed), year: parsed.animeYear)
+            return (key: key, titles: Self.alternativeTitles(for: parsed), year: parsed.animeYearValues.first)
         }
 
         func fetchResolvedMedia() {
@@ -620,13 +627,13 @@ struct TorrentBatchResolver {
     // MARK: - Helpers
 
     static func isVideoFile(_ name: String) -> Bool {
-        let ext = (name as NSString).pathExtension.lowercased()
-        return videoExtensions.contains(ext)
+        let pattern = #".("# + videoExtensions.sorted().joined(separator: "|") + #")$"#
+        return name.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// Extracts the most likely episode number from an anime filename using Anitomy.
     static func extractEpisodeNumber(from filename: String) -> Int? {
-        let name = (filename as NSString).lastPathComponent
+        let name = fixedAnitomyFilename((filename as NSString).lastPathComponent)
         let anitomy = Anitomy()
         anitomy.parse(name)
 
@@ -643,23 +650,25 @@ struct TorrentBatchResolver {
         guard let parsed = parseFileName(entry.name) else { return nil }
         return ParsedFile(entry: entry,
                           animeTitle: parsed.animeTitle,
-                          animeSeason: parsed.animeSeason,
-                          animeYear: parsed.animeYear,
+                          animeSeasonValues: parsed.animeSeasonValues,
+                          animeYearValues: parsed.animeYearValues,
                           animeTypes: parsed.animeTypes,
                           episodeNumbers: parsed.episodeNumbers)
     }
 
-    private static func parseFileName(_ filename: String) -> (animeTitle: String, animeSeason: Int?, animeYear: Int?, animeTypes: [String], episodeNumbers: [String])? {
-        let name = (filename as NSString).lastPathComponent
+    private static func parseFileName(_ filename: String) -> (animeTitle: String, animeSeason: Int?, animeYear: Int?, animeSeasonValues: [String], animeYearValues: [String], animeTypes: [String], episodeNumbers: [String])? {
+        let name = fixedAnitomyFilename((filename as NSString).lastPathComponent)
         let anitomy = Anitomy()
         anitomy.parse(name)
 
+        let seasonValues = anitomy.getAll(.animeSeason)
+        let yearValues = anitomy.getAll(.animeYear)
         let episodeNumbers = anitomy.getAll(.episodeNumber)
-        let title = anitomy.get(.animeTitle).trimmingCharacters(in: .whitespacesAndNewlines)
-        let season = parseEpisodeInt(anitomy.get(.animeSeason))
-        let year = parseEpisodeInt(anitomy.get(.animeYear))
+        let title = anitomy.get(.animeTitle)
+        let season = seasonValues.first.flatMap(parseEpisodeInt)
+        let year = yearValues.first.flatMap(parseEpisodeInt)
 
-        return (title, season, year, anitomy.getAll(.animeType), episodeNumbers)
+        return (title, season, year, seasonValues, yearValues, anitomy.getAll(.animeType), episodeNumbers)
     }
 
     private static func filenameChoices<Item>(from items: [Item],
@@ -673,6 +682,8 @@ struct TorrentBatchResolver {
                 ParsedFilename(animeTitle: $0.animeTitle,
                                animeSeason: $0.animeSeason,
                                animeYear: $0.animeYear,
+                               animeSeasonValues: $0.animeSeasonValues,
+                               animeYearValues: $0.animeYearValues,
                                animeTypes: $0.animeTypes,
                                episodeNumbers: $0.episodeNumbers)
             }
@@ -704,6 +715,13 @@ struct TorrentBatchResolver {
         return sorted.first { $0.episode.matches(targetEpisode) }
             ?? sorted.first { $0.episode.matches(1) }
             ?? sorted.first
+    }
+
+    private static func fixedAnitomyFilename(_ name: String) -> String {
+        guard !name.contains(" ") else { return name }
+        return name.replacingOccurrences(of: #"s(\d{2})e(\d{2})\.([A-z])\."#,
+                                          with: "S$1E$2 $3 ",
+                                          options: [.regularExpression, .caseInsensitive])
     }
 
     private static func parseEpisodeInt(_ value: String) -> Int? {
@@ -787,10 +805,10 @@ struct TorrentBatchResolver {
 
     private static func cacheKey(for parseObject: ParsedFile) -> String {
         var key = parseObject.animeTitle
-        if let year = parseObject.animeYear {
-            key += "\(year)"
+        if let year = parseObject.animeYearValues.first {
+            key += year
         }
-        if let season = parseObject.animeSeason {
+        if let season = parseObject.animeSeasonValues.first {
             key += "S\(season)"
         }
         return key
@@ -798,7 +816,6 @@ struct TorrentBatchResolver {
 
     private static func alternativeTitles(for parseObject: ParsedFile) -> [String] {
         let title = parseObject.animeTitle
-        guard !title.isEmpty else { return [] }
 
         var titles: [String] = []
         var modified = title
@@ -822,7 +839,7 @@ struct TorrentBatchResolver {
         }
 
         if let yearMatch = firstMatch(in: modified, pattern: #"\D(\d{4})$"#),
-           parseObject.animeYear == nil || yearMatch == "\(parseObject.animeYear ?? 0)" {
+           parseObject.animeYearValues.isEmpty || yearMatch == parseObject.animeYearValues.first {
             modified = replaceFirst(in: modified, pattern: #"\D(\d{4})$"#, with: "")
             appendUnique(modified, to: &titles)
         }

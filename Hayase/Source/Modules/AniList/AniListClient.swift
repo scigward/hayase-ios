@@ -786,14 +786,10 @@ public final class AniListClient: NSObject {
 
     // MARK: - Resolver search/fetch (player resolver.ts parity)
 
-    func searchResolverAnimeIDsResult(titleGroups: [(key: String, titles: [String], year: Int?)],
+    func searchResolverAnimeIDsResult(titleGroups: [(key: String, titles: [String], year: String?)],
                                       completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
-        let flattened = titleGroups.flatMap { group -> [(key: String, title: String, year: Int?, isAdult: Bool)] in
-            let titles = group.titles
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            guard !titles.isEmpty else { return [] }
-            var objects = titles.map { (key: group.key, title: $0, year: group.year, isAdult: false) }
+        let flattened = titleGroups.flatMap { group -> [(key: String, title: String, year: String?, isAdult: Bool)] in
+            var objects = group.titles.map { (key: group.key, title: $0, year: group.year, isAdult: false) }
             if let last = objects.last {
                 objects.append((key: last.key, title: last.title, year: last.year, isAdult: true))
             }
@@ -806,9 +802,9 @@ public final class AniListClient: NSObject {
 
         var resultIDs: [String: Int] = [:]
         var firstError: AniListRequestError?
-        var chunks: [[(key: String, title: String, year: Int?, isAdult: Bool)]] = []
-        for index in stride(from: 0, to: flattened.count, by: 60) {
-            let endIndex = min(index + 60, flattened.count)
+        var chunks: [[(key: String, title: String, year: String?, isAdult: Bool)]] = []
+        for index in stride(from: 0, to: flattened.count, by: 24) {
+            let endIndex = min(index + 24, flattened.count)
             chunks.append(Array(flattened[index..<endIndex]))
         }
 
@@ -818,7 +814,7 @@ public final class AniListClient: NSObject {
                     if let firstError {
                         completion(.failure(firstError))
                     } else {
-                        completion(.success(resultIDs))
+                        self.filterResolverSearchIDs(resultIDs, completion: completion)
                     }
                 }
                 return
@@ -866,9 +862,9 @@ public final class AniListClient: NSObject {
                     }
                     for (index, titleObject) in chunk.enumerated() {
                         if resultIDs[titleObject.key] != nil { continue }
-                        guard let page = dataObject["v\(index)"] as? [String: Any],
-                              let mediaList = page["media"] as? [[String: Any]],
-                              !mediaList.isEmpty,
+                        guard let page = dataObject["v\(index)"] as? [String: Any] else { continue }
+                        let mediaList = self.objectArray(page["media"])
+                        guard !mediaList.isEmpty,
                               let best = self.bestResolverSearchMedia(in: mediaList, title: titleObject.title),
                               let id = best["id"] as? Int else { continue }
                         resultIDs[titleObject.key] = id
@@ -881,6 +877,43 @@ public final class AniListClient: NSObject {
         }
 
         runChunk(at: 0)
+    }
+
+    private func filterResolverSearchIDs(_ resultIDs: [String: Int],
+                                         completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
+        let ids = Array(Set(resultIDs.values)).sorted()
+        guard !ids.isEmpty else {
+            DispatchQueue.main.async { completion(.success([:])) }
+            return
+        }
+
+        let variables: [String: Any] = ["ids": ids, "perPage": 50]
+        requestExecutor.execute(query: AniListQueries.search,
+                                variables: variables,
+                                authorized: true,
+                                dedupeKey: cacheKey(prefix: "resolverSearchMedia", variables: variables)) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let graphQLResult):
+                guard let page = (graphQLResult.json["data"] as? [String: Any])?["Page"] as? [String: Any],
+                      let mediaObjects = page["media"] as? [Any] else {
+                    DispatchQueue.main.async { completion(.failure(.emptyData)) }
+                    return
+                }
+
+                var validIDs = Set<Int>()
+                for mediaObject in mediaObjects.compactMap({ $0 as? [String: Any] }) {
+                    guard let item = self.parseAnimeItem(from: mediaObject) else { continue }
+                    validIDs.insert(item.id)
+                    self.storeFullMediaPayload(item)
+                }
+
+                let filtered = resultIDs.filter { validIDs.contains($0.value) }
+                DispatchQueue.main.async { completion(.success(filtered)) }
+            case .failure(let error):
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
     }
 
     func fetchResolverMediaByIdResult(_ id: Int,
@@ -1098,7 +1131,7 @@ public final class AniListClient: NSObject {
         let titleDistances = titleObject.values.compactMap { $0 as? String }
             .filter { !$0.isEmpty }
             .map { Self.levenshtein($0.lowercased(), target) }
-        let synonymDistances = (media["synonyms"] as? [String] ?? [])
+        let synonymDistances = stringArray(media["synonyms"])
             .filter { !$0.isEmpty }
             .map { Self.levenshtein($0.lowercased(), target) + 2 }
         return (titleDistances + synonymDistances).min() ?? Int.max
@@ -1329,9 +1362,9 @@ public final class AniListClient: NSObject {
             status: object["status"] as? String,
             episodes: intValue(object["episodes"]),
             bannerURL: object["bannerImage"] as? String,
-            genres: object["genres"] as? [String] ?? [],
+            genres: stringArray(object["genres"]),
             description: (object["description"] as? String).map { AniListUtil.stripHTML($0) },
-            synonyms: object["synonyms"] as? [String] ?? [],
+            synonyms: stringArray(object["synonyms"]),
             year: intValue(object["seasonYear"]),
             startYear: intValue(startDate?["year"]),
             season: object["season"] as? String,
@@ -1342,14 +1375,16 @@ public final class AniListClient: NSObject {
             coverColor: cover?["color"] as? String,
             malId: intValue(object["idMal"]),
             isFavourite: object["isFavourite"] as? Bool,
-            tags: parseTags(from: object["tags"] as? [[String: Any]]),
-            isAdult: object["isAdult"] as? Bool)
+            tags: parseTags(from: objectArray(object["tags"])),
+            isAdult: object["isAdult"] as? Bool,
+            source: object["source"] as? String,
+            countryOfOrigin: object["countryOfOrigin"] as? String,
+            studioNames: studioNames(from: object["studios"]))
 
-        if let entry = object["mediaListEntry"] as? [String: Any],
-           let status = entry["status"] as? String {
+        if let entry = object["mediaListEntry"] as? [String: Any] {
             item.mediaListEntry = AnimeItem.MediaListEntry(
                 listID: intValue(entry["id"]) ?? 0,
-                status: status,
+                status: entry["status"] as? String,
                 progress: intValue(entry["progress"]) ?? 0,
                 score: intValue(entry["score"]) ?? 0,
                 repeatCount: intValue(entry["repeat"]) ?? 0,
@@ -1363,15 +1398,14 @@ public final class AniListClient: NSObject {
     }
 
     private func parseAiringSchedule(from object: [String: Any]?) -> [AnimeItem.AiringEpisode] {
-        let nodes = object?["n"] as? [[String: Any]] ?? []
-        return nodes.compactMap { node in
+        objectArray(object?["n"]).compactMap { node in
             guard let episode = intValue(node["e"]) else { return nil }
             return AnimeItem.AiringEpisode(airingAt: intValue(node["a"]), episode: episode)
         }
     }
 
-    private func parseTags(from rawTags: [[String: Any]]?) -> [AnimeTag] {
-        (rawTags ?? []).compactMap { tag in
+    private func parseTags(from rawTags: [[String: Any]]) -> [AnimeTag] {
+        rawTags.compactMap { tag in
             guard let id = intValue(tag["id"]),
                   let name = tag["name"] as? String,
                   !name.isEmpty else { return nil }
@@ -1383,6 +1417,21 @@ public final class AniListClient: NSObject {
                 rank: intValue(tag["rank"]) ?? 0,
                 isAdult: tag["isAdult"] as? Bool ?? false)
         }
+    }
+
+    private func stringArray(_ value: Any?) -> [String] {
+        if let values = value as? [String] { return values }
+        return (value as? [Any])?.compactMap { $0 as? String } ?? []
+    }
+
+    private func objectArray(_ value: Any?) -> [[String: Any]] {
+        if let values = value as? [[String: Any]] { return values }
+        return (value as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+    }
+
+    private func studioNames(from value: Any?) -> [String] {
+        guard let studios = value as? [String: Any] else { return [] }
+        return objectArray(studios["nodes"]).compactMap { $0["name"] as? String }
     }
 
     private func intValue(_ value: Any?) -> Int? {
@@ -1401,10 +1450,10 @@ public final class AniListClient: NSObject {
     }
 
     private func parseRecommendations(from mediaObject: [String: Any]?) -> [AnimeItem] {
-        guard let nodes = (mediaObject?["recommendations"] as? [String: Any])?["nodes"] as? [[String: Any]] else {
+        guard let nodesValue = (mediaObject?["recommendations"] as? [String: Any])?["nodes"] else {
             return []
         }
-        return nodes.compactMap { node in
+        return objectArray(nodesValue).compactMap { node in
             guard let media = node["mediaRecommendation"] as? [String: Any] else { return nil }
             return parseAnimeItem(from: media)
         }
@@ -1562,7 +1611,7 @@ public final class AniListClient: NSObject {
     }
 
     private func parseRelations(from mediaObject: [String: Any]?) -> [AnimeRelation] {
-        let edges = ((mediaObject?["relations"] as? [String: Any])?["edges"] as? [[String: Any]]) ?? []
+        let edges = objectArray((mediaObject?["relations"] as? [String: Any])?["edges"])
         return edges.compactMap { edge in
             guard let type = edge["relationType"] as? String,
                   let node = edge["node"] as? [String: Any],

@@ -380,10 +380,10 @@ enum AniListUtil {
             countryOfOrigin: media.countryOfOrigin,
             studioNames: (media.studios?.nodes ?? []).compactMap { $0.name })
         item.extensionMediaJSON = extensionMediaJSON(from: media)
-        if let mle = media.mediaListEntry, let s = mle.status {
+        if let mle = media.mediaListEntry {
             item.mediaListEntry = AnimeItem.MediaListEntry(
                 listID: mle.id ?? 0,
-                status: s,
+                status: mle.status,
                 progress: mle.progress ?? 0,
                 score: Int(mle.score ?? 0),
                 repeatCount: mle.repeatCount ?? 0,

@@ -272,50 +272,7 @@ enum AniListQueries {
     static let resolverMediaById = """
     query ($id: Int) {
       Media(id: $id, type: ANIME) {
-        id
-        idMal
-        title { english romaji native userPreferred }
-        coverImage { extraLarge large medium color }
-        bannerImage
-        averageScore
-        genres
-        isFavourite
-        tags { id name isMediaSpoiler isGeneralSpoiler rank isAdult }
-        episodes
-        duration
-        status
-        seasonYear
-        season
-        format
-        startDate { year }
-        favourites
-        trailer { id site }
-        description(asHtml: false)
-        synonyms
-        source
-        countryOfOrigin
-        isAdult
-        studios(isMain: true) { nodes { id name } }
-        mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
-        notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) { n: nodes { a: airingAt e: episode } }
-        aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt e: episode } }
-        relations {
-          edges {
-            relationType(version: 2)
-            node {
-              id
-              title { english romaji native userPreferred }
-              coverImage { extraLarge large medium color }
-              type
-              averageScore
-              episodes
-              status
-              seasonYear
-              season
-              format
-            }
-          }
-        }
+        \(fullMediaFields)
       }
     }
     """
