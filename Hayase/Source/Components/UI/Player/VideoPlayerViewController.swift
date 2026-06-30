@@ -470,6 +470,7 @@ final class VideoPlayerViewController: UIViewController {
     /// Matches Hayase player.svelte: prevents duplicate tracking calls.
     private var trackingCompleted = false
     private var isSeeking = false
+    private var pendingSeekDisplayTime: Double?
     private var tracks: [MPVTrack] = []
     private var chapters: [MPVChapter] = [] // Note: Streamyfin's renderer doesn't fetch chapters by default
     private var playbackRate: Double = 1.0
@@ -1154,33 +1155,45 @@ final class VideoPlayerViewController: UIViewController {
         updateInterfaceOverlayVisibility(animated: false)
 
         let seekAmount = seekDurationSeconds
+        let newTime: Double
         if forward {
-            let newTime = min(duration, currentTime + seekAmount)
+            newTime = min(duration, currentTime + seekAmount)
             let fraction = duration > 0 ? newTime / duration : 0
             streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: seekAmount)
-            currentTime = newTime
             lastSeekTime = Date()
             showPlayerAnimation(icon: "fast-forward")
         } else {
-            let newTime = max(0, currentTime - seekAmount)
+            newTime = max(0, currentTime - seekAmount)
             let fraction = duration > 0 ? newTime / duration : 0
             streamer?.seekTo(fraction: fraction)
             surface.mpv.seek(by: -seekAmount)
-            currentTime = newTime
             lastSeekTime = Date()
             showPlayerAnimation(icon: "rewind")
         }
-        updateTimeUI()
+        pendingSeekDisplayTime = newTime
+        renderSeekTargetUI(time: newTime)
 
         let restoreWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.doubleTapSeekRestoreWork = nil
             self.isSeeking = false
+            self.pendingSeekDisplayTime = nil
+            self.updateTimeUI()
             self.updateInterfaceOverlayVisibility(animated: true)
         }
         doubleTapSeekRestoreWork = restoreWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: restoreWork)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
+    }
+
+    private func renderSeekTargetUI(time: Double) {
+        seekBar.value = duration > 0 ? CGFloat(time / duration) : 0
+        if showRemainingTime {
+            timeLabel.text = "-\(fmtTime(max(0, duration - time))) / \(fmtTime(duration))"
+        } else {
+            timeLabel.text = "\(fmtTime(time)) / \(fmtTime(duration))"
+        }
+        chapterLabel.text = chapterTitle(at: time)
     }
 
     private func showPlayerAnimation(icon: String) {
@@ -1811,12 +1824,24 @@ final class VideoPlayerViewController: UIViewController {
         streamer?.seekTo(fraction: fraction)
         surface.mpv.seek(to: targetTime)
         lastSeekTime = Date()
-        currentTime = targetTime
+        isSeeking = true
+        pendingSeekDisplayTime = targetTime
         currentSkippableChapter = nil
         skipChapterButton.stopProgress()
-        updateTimeUI()
+        renderSeekTargetUI(time: targetTime)
         updateInterfaceOverlayVisibility(animated: true)
         scheduleHide()
+
+        doubleTapSeekRestoreWork?.cancel()
+        let restoreWork = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.doubleTapSeekRestoreWork = nil
+            self.isSeeking = false
+            self.pendingSeekDisplayTime = nil
+            self.updateTimeUI()
+        }
+        doubleTapSeekRestoreWork = restoreWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
     }
 
     // MARK: - Actions
@@ -1989,16 +2014,28 @@ final class VideoPlayerViewController: UIViewController {
 
     @objc private func seekEnded() {
         let seekFraction = Double(seekBar.value)
-        isSeeking = false
+        let targetTime = seekFraction * duration
+        pendingSeekDisplayTime = targetTime
         lastSeekTime = Date()
 
         // Tell the streamer to prioritize pieces at the new position.
         // The HTTP server will block MPV's byte-range requests until
         // the required pieces are downloaded, so we can seek immediately.
         streamer?.seekTo(fraction: seekFraction)
-        surface.mpv.seek(to: seekFraction * duration)
+        surface.mpv.seek(to: targetTime)
         updateInterfaceOverlayVisibility(animated: true)
         scheduleHide()
+
+        doubleTapSeekRestoreWork?.cancel()
+        let restoreWork = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.doubleTapSeekRestoreWork = nil
+            self.isSeeking = false
+            self.pendingSeekDisplayTime = nil
+            self.updateTimeUI()
+        }
+        doubleTapSeekRestoreWork = restoreWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: restoreWork)
     }
 
     @objc private func optionsTapped() {
@@ -2288,8 +2325,10 @@ final class VideoPlayerViewController: UIViewController {
 extension VideoPlayerViewController: MPVWrapperDelegate {
 
     func renderer(_ renderer: MPVWrapper, didUpdatePosition position: Double, duration: Double, cacheSeconds: Double) {
-        self.currentTime = position
-        self.duration    = duration
+        self.duration = duration
+        if !isSeeking {
+            self.currentTime = position
+        }
         updateTimeUI()
         if duration > 0, position > 0 {
             updateBuffering(false)
@@ -2415,6 +2454,18 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
         // Torrent is never paused, so no safety-valve resume is needed.
         updateBuffering(isLoading)
+
+        // isLoading=false fires at MPV_EVENT_PLAYBACK_RESTART — mpv has a
+        // decoded frame ready at the new position. Clear isSeeking so
+        // didUpdatePosition can commit the real confirmed position and
+        // updateTimeUI() can update the clock/scrubber normally again.
+        if !isLoading, isSeeking {
+            doubleTapSeekRestoreWork?.cancel()
+            doubleTapSeekRestoreWork = nil
+            isSeeking = false
+            pendingSeekDisplayTime = nil
+            updateInterfaceOverlayVisibility(animated: true)
+        }
     }
 
     func renderer(_ renderer: MPVWrapper, didBecomeReadyToSeek: Bool) {
