@@ -23,12 +23,18 @@ require_command() {
 }
 
 run_pnpm() {
-  COREPACK_ENABLE_PROJECT_SPEC=0 corepack "pnpm@${PNPM_VERSION}" "$@"
+  if command -v corepack >/dev/null 2>&1; then
+    COREPACK_ENABLE_PROJECT_SPEC=0 corepack "pnpm@${PNPM_VERSION}" "$@"
+  else
+    npm exec --yes "pnpm@${PNPM_VERSION}" -- "$@"
+  fi
 }
 
 require_command git
 require_command node
-require_command corepack
+if ! command -v corepack >/dev/null 2>&1; then
+  require_command npm
+fi
 require_command rsync
 
 rm -rf "${SOURCE_DIR}"
