@@ -1109,7 +1109,7 @@ public final class AniListClient: NSObject {
               let year = startDate["year"] as? Int else { return nil }
         var components = DateComponents()
         components.year = year
-        components.month = startDate["month"] as? Int ?? 1
+        components.month = (startDate["month"] as? Int ?? 1) + 1
         components.day = startDate["day"] as? Int ?? 1
         return Calendar(identifier: .gregorian).date(from: components)
     }

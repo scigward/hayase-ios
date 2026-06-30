@@ -165,6 +165,9 @@ struct TorrentBatchResolver {
         "ED", "ENDING", "NCED", "NCOP", "OP", "OPENING", "PREVIEW", "PV"
     ]
 
+    private static let titleIDCacheQueue = DispatchQueue(label: "app.hayase.torrent-resolver.title-cache")
+    private static var titleIDCache: [String: Int] = [:]
+
     // MARK: - Public API
 
     /// Resolves the file in `files` that best matches `targetEpisode`.
@@ -313,15 +316,16 @@ struct TorrentBatchResolver {
         }
 
         let keys = Self.orderedUnique(parsedFiles.map { Self.cacheKey(for: $0) }.filter { !$0.isEmpty })
-        var titleIDs: [String: Int] = [:]
+        var titleIDs = Self.cachedTitleIDs(for: keys)
 
         let titleGroups: [(key: String, titles: [String], year: Int?)] = keys.compactMap { key in
-            guard let parsed = parsedFiles.first(where: { Self.cacheKey(for: $0) == key }) else { return nil }
+            guard titleIDs[key] == nil,
+                  let parsed = parsedFiles.first(where: { Self.cacheKey(for: $0) == key }) else { return nil }
             return (key: key, titles: Self.alternativeTitles(for: parsed), year: parsed.animeYear)
         }
 
         func fetchResolvedMedia() {
-            let ids = Array(Set(titleIDs.values))
+            let ids = Self.orderedUnique(keys.compactMap { titleIDs[$0] })
             var mediaByID: [Int: AnimeItem] = [:]
 
             func fetchID(at index: Int) {
@@ -378,10 +382,10 @@ struct TorrentBatchResolver {
         AniListClient.shared.searchResolverAnimeIDsResult(titleGroups: titleGroups) { result in
             switch result {
             case .success(let ids):
-                titleIDs = ids
+                Self.storeTitleIDs(ids)
+                titleIDs.merge(ids) { cached, _ in cached }
             case .failure(let error):
                 NSLog("[TorrentBatchResolver] AniList resolver search failed: %@", error.description)
-                titleIDs = [:]
             }
             fetchResolvedMedia()
         }
@@ -509,15 +513,28 @@ struct TorrentBatchResolver {
                                            failed: true))
             return
         }
+
         let nextVisited = visited.union([media.id])
         let rootHighest = Self.knownEpisodeCount(for: rootMedia)
 
-        let resolveWithPrequel: (AnimeItem?) -> Void = { prequel in
-            if let prequel, increment != true {
+        func finishWithoutEdge(_ resolvedIncrement: Bool) {
+            completion(SeasonResolveResult(media: media,
+                                           episode: episode - offset,
+                                           offset: offset,
+                                           increment: resolvedIncrement,
+                                           rootMedia: rootMedia,
+                                           failed: true))
+        }
+
+        func resolveUsing(prequel: AnimeItem?) {
+            let shouldFindSequel = prequel == nil && (increment == true || increment == nil)
+            let resolvedIncrement = (increment == true) || prequel == nil
+
+            if let prequel {
                 continueSeasonResolve(edge: prequel,
                                       media: media,
                                       episode: episode,
-                                      increment: false,
+                                      increment: resolvedIncrement,
                                       offset: offset,
                                       rootMedia: rootMedia,
                                       rootHighest: rootHighest,
@@ -527,42 +544,33 @@ struct TorrentBatchResolver {
                 return
             }
 
-            if increment == true || increment == nil {
-                findEdge(media: media, type: "SEQUEL") { sequel in
-                    guard let sequel else {
-                        completion(SeasonResolveResult(media: media,
-                                                       episode: episode - offset,
-                                                       offset: offset,
-                                                       increment: increment ?? true,
-                                                       rootMedia: rootMedia,
-                                                       failed: true))
-                        return
-                    }
-                    continueSeasonResolve(edge: sequel,
-                                          media: media,
-                                          episode: episode,
-                                          increment: true,
-                                          offset: offset,
-                                          rootMedia: rootMedia,
-                                          rootHighest: rootHighest,
-                                          force: force,
-                                          visited: nextVisited,
-                                          completion: completion)
+            guard shouldFindSequel else {
+                finishWithoutEdge(resolvedIncrement)
+                return
+            }
+
+            findEdge(media: media, type: "SEQUEL") { sequel in
+                guard let sequel else {
+                    finishWithoutEdge(resolvedIncrement)
+                    return
                 }
-            } else {
-                completion(SeasonResolveResult(media: media,
-                                               episode: episode - offset,
-                                               offset: offset,
-                                               increment: false,
-                                               rootMedia: rootMedia,
-                                               failed: true))
+                continueSeasonResolve(edge: sequel,
+                                      media: media,
+                                      episode: episode,
+                                      increment: resolvedIncrement,
+                                      offset: offset,
+                                      rootMedia: rootMedia,
+                                      rootHighest: rootHighest,
+                                      force: force,
+                                      visited: nextVisited,
+                                      completion: completion)
             }
         }
 
         if increment != true {
-            findEdge(media: media, type: "PREQUEL", completion: resolveWithPrequel)
+            findEdge(media: media, type: "PREQUEL", completion: resolveUsing(prequel:))
         } else {
-            resolveWithPrequel(nil)
+            resolveUsing(prequel: nil)
         }
     }
 
@@ -613,8 +621,8 @@ struct TorrentBatchResolver {
                                  skip: Bool = false,
                                  completion: @escaping (AnimeItem?) -> Void) {
         if let relation = media.relations.first(where: { relation in
-            relation.relationType.uppercased() == type
-                && formats.contains(relation.media.format?.uppercased() ?? "")
+            relation.relationType == type
+                && formats.contains(relation.media.format ?? "")
         }) {
             completion(relation.media)
             return
@@ -833,9 +841,40 @@ struct TorrentBatchResolver {
         return max(aired, notYetAired, progress)
     }
 
+    private static func cachedTitleIDs(for keys: [String]) -> [String: Int] {
+        titleIDCacheQueue.sync {
+            var result: [String: Int] = [:]
+            for key in keys {
+                if let id = titleIDCache[key] {
+                    result[key] = id
+                }
+            }
+            return result
+        }
+    }
+
+    private static func storeTitleIDs(_ ids: [String: Int]) {
+        guard !ids.isEmpty else { return }
+        titleIDCacheQueue.sync {
+            for (key, id) in ids where titleIDCache[key] == nil {
+                titleIDCache[key] = id
+            }
+        }
+    }
+
     private static func orderedUnique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
+        for value in values where !seen.contains(value) {
+            seen.insert(value)
+            result.append(value)
+        }
+        return result
+    }
+
+    private static func orderedUnique(_ values: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        var result: [Int] = []
         for value in values where !seen.contains(value) {
             seen.insert(value)
             result.append(value)
