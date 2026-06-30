@@ -14,6 +14,15 @@
 import UIKit
 import CoreData
 
+private func torrentFileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
+    guard let value else { return nil }
+    return UInt(exactly: value)
+}
+
+private func torrentFileIndex<T: BinaryInteger>(from value: T) -> UInt? {
+    torrentFileIndex(from: Optional(value))
+}
+
 // MARK: - TitleExtraction helpers (mirrors getGroup / simplifyFilename / sanitiseTerms)
 
 private enum TitleUtils {
@@ -1149,14 +1158,6 @@ final class ExtensionSearchViewController: UIViewController {
         }
     }
 
-    private func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
-        guard let value else { return nil }
-        return UInt(exactly: value)
-    }
-
-    private func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
-        fileIndex(from: Optional(value))
-    }
 
     /// Called when VideoService posts LocalVideosDidUpdateNotification.
     /// Auto-resolves the target episode and presents the player directly.
@@ -1185,14 +1186,6 @@ final class ExtensionSearchViewController: UIViewController {
         let videos = (try? context.fetch(req)) ?? []
         guard !videos.isEmpty else { return } // Still waiting for metadata; will be called again.
 
-        func fileIndex<T: BinaryInteger>(from value: T?) -> UInt? {
-            guard let value else { return nil }
-            return UInt(exactly: value)
-        }
-
-        func fileIndex<T: BinaryInteger>(from value: T) -> UInt? {
-            fileIndex(from: Optional(value))
-        }
 
         // Auto-resolve the target file.
         var targetVideo: Videos?
@@ -1200,7 +1193,7 @@ final class ExtensionSearchViewController: UIViewController {
 
         if videos.count == 1 {
             targetVideo = videos[0]
-            targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
+            targetIndex = torrentFileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         } else if let handle = vs.torrentHandle,
                   let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                       activeHandle.snapshot
@@ -1215,7 +1208,7 @@ final class ExtensionSearchViewController: UIViewController {
                     var resolvedVideo: Videos?
                     var resolvedIndex: UInt = 0
                     if let match = result.target,
-                       let index = fileIndex(from: match.entry.index) {
+                       let index = torrentFileIndex(from: match.entry.index) {
                         resolvedIndex = index
                         resolvedVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
                     }
@@ -1230,7 +1223,7 @@ final class ExtensionSearchViewController: UIViewController {
             } else {
                 let result = resolver.resolveByFilename(files: files, targetEpisode: currentEpisode)
                 if let match = result.target,
-                   let index = fileIndex(from: match.entry.index) {
+                   let index = torrentFileIndex(from: match.entry.index) {
                     targetIndex = index
                     targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(match.entry.index) }
                     presentPendingVideo(vs: vs,
@@ -1244,7 +1237,7 @@ final class ExtensionSearchViewController: UIViewController {
             }
         } else if TorrentBackendManager.shared.currentKind == .webtorrent {
             targetVideo = TorrentBatchResolver.selectByFilename(from: videos, targetEpisode: currentEpisode) { $0.videoName }
-            targetIndex = fileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
+            targetIndex = torrentFileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }
 
         presentPendingVideo(vs: vs,
@@ -1288,7 +1281,7 @@ final class ExtensionSearchViewController: UIViewController {
             guard let self else { return }
             // Close any existing mini-player before starting a new one.
             MiniPlayerManager.shared.close()
-            let activeFile = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }
+            let activeFile = batchFiles.first { torrentFileIndex(from: $0.entry.index) == Optional(targetIndex) }
             let activeMedia = activeFile?.media ?? self.animeItem
             let activeEpisode = activeFile?.episodeReference.intValue ?? self.currentEpisode
 
