@@ -18,17 +18,37 @@ struct TorrentBatchResolver {
 
     // MARK: - Public types
 
+    enum EpisodeReference: Equatable {
+        case number(Double)
+        case range(String)
+        case missing
+
+        var numericValue: Double? {
+            guard case .number(let value) = self, value.isFinite else { return nil }
+            return value
+        }
+
+        var intValue: Int? {
+            numericValue.map { Int($0.rounded(.towardZero)) }
+        }
+
+        func matches(_ episode: Int) -> Bool {
+            guard let value = numericValue else { return false }
+            return value == Double(episode)
+        }
+    }
+
     struct ParsedFilename {
         let animeTitle: String
         let animeSeason: Int?
         let animeYear: Int?
         let animeTypes: [String]
-        let episodeNumbers: [Int]
+        let episodeNumbers: [String]
     }
 
     struct ResolvedFile {
         struct Metadata {
-            let episode: Int
+            let episode: EpisodeReference
             let episodeEnd: Int?
             let media: AnimeItem?
             let failed: Bool
@@ -38,7 +58,8 @@ struct TorrentBatchResolver {
         let entry: FileEntry
         let metadata: Metadata
 
-        var episode: Int { metadata.episode }
+        var episode: Int { metadata.episode.intValue ?? 0 }
+        var episodeReference: EpisodeReference { metadata.episode }
         var episodeEnd: Int? { metadata.episodeEnd }
         var media: AnimeItem? { metadata.media }
         var failed: Bool { metadata.failed }
@@ -46,6 +67,20 @@ struct TorrentBatchResolver {
 
         init(entry: FileEntry,
              episode: Int,
+             episodeEnd: Int? = nil,
+             media: AnimeItem? = nil,
+             failed: Bool = false,
+             parsedFilename: ParsedFilename? = nil) {
+            self.init(entry: entry,
+                      episode: .number(Double(episode)),
+                      episodeEnd: episodeEnd,
+                      media: media,
+                      failed: failed,
+                      parsedFilename: parsedFilename)
+        }
+
+        init(entry: FileEntry,
+             episode: EpisodeReference,
              episodeEnd: Int? = nil,
              media: AnimeItem? = nil,
              failed: Bool = false,
@@ -76,7 +111,7 @@ struct TorrentBatchResolver {
         let animeSeason: Int?
         let animeYear: Int?
         let animeTypes: [String]
-        let episodeNumbers: [Int]
+        let episodeNumbers: [String]
 
         var filename: ParsedFilename {
             ParsedFilename(animeTitle: animeTitle,
@@ -89,11 +124,13 @@ struct TorrentBatchResolver {
 
     private struct ResolvedCandidate {
         let entry: FileEntry
-        let episode: Int
+        let episode: EpisodeReference
         let episodeEnd: Int?
         let media: AnimeItem?
         let failed: Bool
         let parseObject: ParsedFile?
+
+        var episodeNumber: Int { episode.intValue ?? 0 }
 
         var publicFile: ResolvedFile {
             ResolvedFile(entry: entry,
@@ -219,24 +256,22 @@ struct TorrentBatchResolver {
                     }
                     targetAnimeFiles = candidates.filter { ($0.parseObject?.animeTitle ?? "") == commonTitle }
                 } else {
-                    candidates = videoFiles.map {
-                        Self.toCandidate($0, parseObject: Self.parseFile($0), media: targetMedia, episode: targetEpisode, failed: false)
+                    candidates = videoFiles.map { file in
+                        let parsed = Self.parseFile(file)
+                        return Self.toCandidate(file,
+                                                parseObject: parsed,
+                                                media: targetMedia,
+                                                episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
+                                                failed: false)
                     }
                     targetAnimeFiles = candidates
                 }
             }
 
-            targetAnimeFiles.sort { lhs, rhs in
-                let leftSeason = lhs.parseObject?.animeSeason ?? 1
-                let rightSeason = rhs.parseObject?.animeSeason ?? 1
-                if leftSeason != rightSeason {
-                    return leftSeason > rightSeason
-                }
-                return lhs.episode < rhs.episode
-            }
+            targetAnimeFiles = Self.sortedCandidates(targetAnimeFiles)
 
-            let target = targetAnimeFiles.first { $0.episode == targetEpisode }
-                ?? targetAnimeFiles.first { $0.episode == 1 }
+            let target = targetAnimeFiles.first { $0.episode.matches(targetEpisode) }
+                ?? targetAnimeFiles.first { $0.episode.matches(1) }
                 ?? targetAnimeFiles.first
                 ?? candidates.first
 
@@ -254,10 +289,19 @@ struct TorrentBatchResolver {
         var result: [ResolvedFile] = []
         for entry in videoFiles {
             guard !Self.isExcludedType(entry.name) else { continue }
-            let ep = Self.extractEpisodeNumber(from: entry.name) ?? 0
-            result.append(ResolvedFile(entry: entry, episode: ep))
+            let parsed = Self.parseFile(entry)
+            result.append(ResolvedFile(entry: entry,
+                                       episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
+                                       parsedFilename: parsed?.filename))
         }
-        return result.sorted { $0.episode < $1.episode }
+        return result.sorted { lhs, rhs in
+            switch (lhs.episodeReference.numericValue, rhs.episodeReference.numericValue) {
+            case let (left?, right?) where left != right:
+                return left < right
+            default:
+                return lhs.entry.name.localizedStandardCompare(rhs.entry.name) == .orderedAscending
+            }
+        }
     }
 
     // MARK: - Interface resolver parity
@@ -345,23 +389,25 @@ struct TorrentBatchResolver {
 
     private static func resolveEpisode(parseObject: ParsedFile,
                                        media: AnimeItem,
-                                       completion: @escaping (AnimeItem, Int, Int?, Bool) -> Void) {
+                                       completion: @escaping (AnimeItem, EpisodeReference, Int?, Bool) -> Void) {
         let numbers = parseObject.episodeNumbers
-        let firstEpisode = numbers.first ?? 0
+        let firstRaw = numbers.first
+        let secondRaw = numbers.dropFirst().first
+        let firstEpisode = firstRaw.flatMap(parseEpisodeInt)
+        let secondEpisode = secondRaw.flatMap(parseEpisodeInt)
         let maxEpisode = media.episodes
         let format = media.format?.uppercased()
-        let shouldResolve = format != "MOVIE" || (maxEpisode != nil && firstEpisode > 0)
+        let shouldResolve = format != "MOVIE" || maxEpisode != nil
 
-        guard shouldResolve, firstEpisode > 0 else {
-            completion(media, firstEpisode, nil, false)
+        guard shouldResolve, firstRaw != nil else {
+            completion(media, episodeReference(from: firstRaw), nil, false)
             return
         }
 
-        if numbers.count > 1 {
-            let secondEpisode = numbers[1]
+        if let secondRaw {
             if firstEpisode == 1 {
-                completion(media, firstEpisode, secondEpisode, false)
-            } else if let maxEpisode, secondEpisode > maxEpisode {
+                completion(media, .range("\(firstRaw ?? "") ~ \(secondRaw)"), secondEpisode, false)
+            } else if let maxEpisode, let secondEpisode, secondEpisode > maxEpisode {
                 overflowRootMedia(for: media, parseObject: parseObject) { root in
                     resolveSeason(media: root ?? media,
                                   episode: secondEpisode,
@@ -369,17 +415,22 @@ struct TorrentBatchResolver {
                                   offset: 0,
                                   rootMedia: root ?? media,
                                   force: false) { result in
-                        let diff = secondEpisode - result.episode
-                        completion(result.rootMedia, firstEpisode - diff, result.episode, result.failed)
+                        let secondValue = parseEpisodeDouble(secondRaw) ?? Double(secondEpisode)
+                        let diff = secondValue - Double(result.episode)
+                        let firstValue = parseEpisodeDouble(firstRaw ?? "")
+                        let firstPart = firstValue.map { formatEpisodeNumber($0 - diff) } ?? "NaN"
+                        let episode = "\(firstPart) ~ \(result.episode)"
+                        completion(result.rootMedia, .range(episode), result.episode, result.failed)
                     }
                 }
             } else {
-                completion(media, firstEpisode, secondEpisode, false)
+                let episode = "\(numberString(firstRaw)) ~ \(numberString(secondRaw))"
+                completion(media, .range(episode), secondEpisode, false)
             }
             return
         }
 
-        if let maxEpisode, firstEpisode > maxEpisode {
+        if let maxEpisode, let firstEpisode, firstEpisode > maxEpisode {
             overflowRootMedia(for: media, parseObject: parseObject) { root in
                 resolveSeason(media: root ?? media,
                               episode: firstEpisode,
@@ -387,11 +438,11 @@ struct TorrentBatchResolver {
                               offset: 0,
                               rootMedia: root ?? media,
                               force: false) { result in
-                    completion(result.rootMedia, result.episode, nil, result.failed)
+                    completion(result.rootMedia, .number(Double(result.episode)), nil, result.failed)
                 }
             }
         } else {
-            completion(media, firstEpisode, nil, false)
+            completion(media, episodeReference(from: firstRaw), nil, false)
         }
     }
 
@@ -589,7 +640,7 @@ struct TorrentBatchResolver {
         let anitomy = Anitomy()
         anitomy.parse(name)
 
-        return parseEpisodeNumber(anitomy.get(.episodeNumber))
+        return parseEpisodeInt(anitomy.get(.episodeNumber))
     }
 
     /// Returns true if the filename looks like an OP, ED, preview, or other non-episode content.
@@ -608,33 +659,49 @@ struct TorrentBatchResolver {
                           episodeNumbers: parsed.episodeNumbers)
     }
 
-    private static func parseFileName(_ filename: String) -> (animeTitle: String, animeSeason: Int?, animeYear: Int?, animeTypes: [String], episodeNumbers: [Int])? {
+    private static func parseFileName(_ filename: String) -> (animeTitle: String, animeSeason: Int?, animeYear: Int?, animeTypes: [String], episodeNumbers: [String])? {
         let name = (filename as NSString).lastPathComponent
         let anitomy = Anitomy()
         anitomy.parse(name)
 
-        let episodeNumbers = anitomy.getAll(.episodeNumber).compactMap { parseEpisodeNumber($0) }
+        let episodeNumbers = anitomy.getAll(.episodeNumber)
         let title = anitomy.get(.animeTitle).trimmingCharacters(in: .whitespacesAndNewlines)
-        let season = parseEpisodeNumber(anitomy.get(.animeSeason))
-        let year = parseEpisodeNumber(anitomy.get(.animeYear))
+        let season = parseEpisodeInt(anitomy.get(.animeSeason))
+        let year = parseEpisodeInt(anitomy.get(.animeYear))
 
         return (title, season, year, anitomy.getAll(.animeType), episodeNumbers)
     }
 
-    private static func parseEpisodeNumber(_ value: String) -> Int? {
+    private static func parseEpisodeInt(_ value: String) -> Int? {
         guard !value.isEmpty else { return nil }
-
-        if value.contains("."),
-           let dotIdx = value.firstIndex(of: ".") {
-            let intPart = String(value[value.startIndex..<dotIdx])
-            if let num = Int(intPart), num > 0 { return num }
-        }
-
         let digits = value.prefix(while: { $0.isNumber })
-        if let num = Int(digits), num > 0 { return num }
+        guard !digits.isEmpty else { return nil }
+        return Int(digits)
+    }
 
-        if let num = Int(value), num > 0 { return num }
-        return nil
+    private static func parseEpisodeDouble(_ value: String) -> Double? {
+        guard !value.isEmpty else { return nil }
+        return Double(value)
+    }
+
+    private static func episodeReference(from value: String?) -> EpisodeReference {
+        guard let value else { return .missing }
+        guard let number = parseEpisodeDouble(value), number.isFinite else { return .missing }
+        return .number(number)
+    }
+
+    private static func numberString(_ value: String?) -> String {
+        guard let value else { return "NaN" }
+        guard let number = parseEpisodeDouble(value), number.isFinite else { return "NaN" }
+        return formatEpisodeNumber(number)
+    }
+
+    private static func formatEpisodeNumber(_ value: Double) -> String {
+        guard value.isFinite else { return "NaN" }
+        if value.rounded(.towardZero) == value {
+            return String(Int(value))
+        }
+        return String(value)
     }
 
     private static func toCandidate(_ entry: FileEntry,
@@ -643,12 +710,45 @@ struct TorrentBatchResolver {
                                     episode: Int,
                                     episodeEnd: Int? = nil,
                                     failed: Bool) -> ResolvedCandidate {
+        toCandidate(entry,
+                    parseObject: parseObject,
+                    media: media,
+                    episode: .number(Double(episode)),
+                    episodeEnd: episodeEnd,
+                    failed: failed)
+    }
+
+    private static func toCandidate(_ entry: FileEntry,
+                                    parseObject: ParsedFile?,
+                                    media: AnimeItem?,
+                                    episode: EpisodeReference,
+                                    episodeEnd: Int? = nil,
+                                    failed: Bool) -> ResolvedCandidate {
         ResolvedCandidate(entry: entry,
                           episode: episode,
                           episodeEnd: episodeEnd,
                           media: media,
                           failed: failed,
                           parseObject: parseObject)
+    }
+
+    private static func sortedCandidates(_ candidates: [ResolvedCandidate]) -> [ResolvedCandidate] {
+        candidates.enumerated().sorted { lhs, rhs in
+            let left = lhs.element
+            let right = rhs.element
+            let leftSeason = left.parseObject?.animeSeason ?? 1
+            let rightSeason = right.parseObject?.animeSeason ?? 1
+            if leftSeason != rightSeason {
+                return leftSeason > rightSeason
+            }
+
+            switch (left.episode.numericValue, right.episode.numericValue) {
+            case let (leftEpisode?, rightEpisode?) where leftEpisode != rightEpisode:
+                return leftEpisode < rightEpisode
+            default:
+                return lhs.offset < rhs.offset
+            }
+        }.map { $0.element }
     }
 
     private static func cacheKey(for parseObject: ParsedFile) -> String {
