@@ -35,12 +35,12 @@ workflows:
           chmod +x ./scripts/build_webtorrent_backend.sh
           ./scripts/build_webtorrent_backend.sh
 
-      - name: Build torrent client globe
+      - name: Build torrent client GeoIP resources
         script: |
           set -euo pipefail
 
-          chmod +x ./scripts/build_torrent_client_globe.sh
-          ./scripts/build_torrent_client_globe.sh
+          chmod +x ./scripts/build_torrent_client_geoip.sh
+          ./scripts/build_torrent_client_geoip.sh
 
       - name: Generate Xcode project
         script: |

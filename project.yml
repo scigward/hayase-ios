@@ -2,7 +2,7 @@ name: Hayase
 
 options:
   deploymentTarget:
-    iOS: "14.0"
+    iOS: "16.0"
 
 settings:
   base:
@@ -32,6 +32,9 @@ packages:
   Starscream:
     url: https://github.com/daltoniam/Starscream.git
     from: "4.0.8"
+  CobeKit:
+    url: https://github.com/ohwhen/CobeKit.git
+    branch: main
 
 targets:
   Hayase:
@@ -45,7 +48,6 @@ targets:
         excludes:
           - Info.plist
           - WebTorrentBackend/**
-          - TorrentClientGlobe/**
           - TorrentClientGeoIP/**
     settings:
       base:
@@ -73,6 +75,7 @@ targets:
       - package: NodeMobile
       - package: LucideIcons
       - package: Starscream
+      - package: CobeKit
 
     postBuildScripts:
       - name: Embed WebTorrent backend resources
@@ -90,31 +93,12 @@ targets:
           fi
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/WebTorrentBackend/webtorrent-bridge.js
-      - name: Embed torrent client globe resources
-        script: |
-          SRC="${PROJECT_DIR}/Hayase/Resources/TorrentClientGlobe"
-          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/TorrentClientGlobe"
-          if [ ! -f "${SRC}/globe.html" ]; then
-            echo "error: missing ${SRC}/globe.html" >&2
-            exit 1
-          fi
-          if [ ! -f "${SRC}/globe.js" ]; then
-            echo "error: missing ${SRC}/globe.js; run scripts/build_torrent_client_globe.sh before building" >&2
-            exit 1
-          fi
-          mkdir -p "${DEST}"
-          rsync -av --delete \
-            --exclude=".DS_Store" \
-            "${SRC}/" "${DEST}/"
-        outputFiles:
-          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TorrentClientGlobe/globe.html
-          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/TorrentClientGlobe/globe.js
       - name: Embed torrent client GeoIP resources
         script: |
           SRC="${PROJECT_DIR}/Hayase/Resources/TorrentClientGeoIP"
           DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/TorrentClientGeoIP"
           if [ ! -d "${SRC}" ]; then
-            echo "error: missing ${SRC}; run scripts/build_torrent_client_globe.sh before building" >&2
+            echo "error: missing ${SRC}; run scripts/build_torrent_client_geoip.sh before building" >&2
             exit 1
           fi
           mkdir -p "${DEST}"

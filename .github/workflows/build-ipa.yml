@@ -40,8 +40,8 @@ jobs:
       - name: Build WebTorrent backend
         run: bash ./scripts/build_webtorrent_backend.sh
 
-      - name: Build torrent client globe
-        run: bash ./scripts/build_torrent_client_globe.sh
+      - name: Build torrent client GeoIP resources
+        run: bash ./scripts/build_torrent_client_geoip.sh
 
       - name: Generate Xcode project
         run: ./scripts/generate_project.sh
