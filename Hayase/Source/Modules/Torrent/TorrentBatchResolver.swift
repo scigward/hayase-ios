@@ -258,7 +258,7 @@ struct TorrentBatchResolver {
             return
         }
 
-        resolveFileAnime(parsedFiles) { resolvedCandidates in
+        resolveFileAnime(parsedFiles, targetEpisode: targetEpisode, targetMedia: targetMedia) { resolvedCandidates in
             var candidates = resolvedCandidates
             var targetAnimeFiles = candidates.filter { $0.media?.id == targetMedia.id }
 
@@ -297,7 +297,10 @@ struct TorrentBatchResolver {
 
     // MARK: - Interface resolver parity
 
-    private func resolveFileAnime(_ parsedFiles: [ParsedFile], completion: @escaping ([ResolvedCandidate]) -> Void) {
+    private func resolveFileAnime(_ parsedFiles: [ParsedFile],
+                                  targetEpisode: Int,
+                                  targetMedia: AnimeItem,
+                                  completion: @escaping ([ResolvedCandidate]) -> Void) {
         guard !parsedFiles.isEmpty else {
             completion([])
             return
@@ -338,6 +341,31 @@ struct TorrentBatchResolver {
         }
 
         func buildCandidates(mediaByID: [Int: AnimeItem]) {
+            let parsedFilesByKey = Dictionary(grouping: parsedFiles, by: Self.cacheKey(for:))
+            var mediaByKey: [String: AnimeItem] = [:]
+
+            func prepareMedia(at index: Int) {
+                guard index < keys.count else {
+                    build(at: 0)
+                    return
+                }
+
+                let key = keys[index]
+                guard let id = titleIDs[key], let media = mediaByID[id] else {
+                    prepareMedia(at: index + 1)
+                    return
+                }
+
+                let group = parsedFilesByKey[key] ?? []
+                Self.batchBaseMedia(for: media,
+                                    targetEpisode: targetEpisode,
+                                    targetMedia: targetMedia,
+                                    parsedFiles: group) { baseMedia in
+                    mediaByKey[key] = baseMedia
+                    prepareMedia(at: index + 1)
+                }
+            }
+
             var candidates: [ResolvedCandidate] = []
 
             func build(at index: Int) {
@@ -348,7 +376,7 @@ struct TorrentBatchResolver {
 
                 let parsed = parsedFiles[index]
                 let key = Self.cacheKey(for: parsed)
-                guard let id = titleIDs[key], let media = mediaByID[id] else {
+                guard let id = titleIDs[key], let media = mediaByKey[key] ?? mediaByID[id] else {
                     build(at: index + 1)
                     return
                 }
@@ -364,7 +392,7 @@ struct TorrentBatchResolver {
                 }
             }
 
-            build(at: 0)
+            prepareMedia(at: 0)
         }
 
         AniListClient.shared.searchResolverAnimeIDsResult(titleGroups: titleGroups) { result in
@@ -436,6 +464,53 @@ struct TorrentBatchResolver {
             }
         } else {
             completion(media, episodeReference(from: firstRaw), nil, false)
+        }
+    }
+
+    private static func batchBaseMedia(for media: AnimeItem,
+                                       targetEpisode: Int,
+                                       targetMedia: AnimeItem,
+                                       parsedFiles: [ParsedFile],
+                                       completion: @escaping (AnimeItem) -> Void) {
+        guard media.id == targetMedia.id else {
+            completion(media)
+            return
+        }
+
+        let fileEpisodes = Set(parsedFiles.compactMap { $0.episodeNumbers.first.flatMap(parseEpisodeInt) })
+        let mediaEpisodeCount = Self.episodeCount(for: media)
+        guard mediaEpisodeCount > 0,
+              fileEpisodes.contains(where: { $0 > mediaEpisodeCount }) else {
+            completion(media)
+            return
+        }
+
+        findEdge(media: media, type: "PREQUEL") { prequel in
+            guard let prequel else {
+                completion(media)
+                return
+            }
+
+            AniListClient.shared.fetchResolverMediaByIdResult(prequel.id) { result in
+                let fullPrequel: AnimeItem
+                switch result {
+                case .success(let fetched):
+                    fullPrequel = fetched
+                case .failure(let error):
+                    NSLog("[TorrentBatchResolver] Batch base prequel fetch failed: %@", error.description)
+                    fullPrequel = prequel
+                }
+
+                let prequelEpisodeCount = Self.episodeCount(for: fullPrequel)
+                let absoluteTargetEpisode = prequelEpisodeCount + targetEpisode
+                guard prequelEpisodeCount > 0,
+                      fileEpisodes.contains(absoluteTargetEpisode) else {
+                    completion(media)
+                    return
+                }
+
+                completion(fullPrequel)
+            }
         }
     }
 
