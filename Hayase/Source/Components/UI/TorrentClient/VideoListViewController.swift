@@ -149,6 +149,7 @@ class VideoListViewController: UIViewController {
     private var pendingAutoOpenIndexPath: IndexPath?
     private var didAutoResolve = false
     private var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
+    private var resolvedVideoFiles: [VideoPlayerViewController.ResolvedVideoFile] = []
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -364,12 +365,14 @@ class VideoListViewController: UIViewController {
                       let targetMedia = resolverTargetMedia(),
                       let videos = videoResultsController?.fetchedObjects {
                 didAutoResolve = true
-                resolver.selectByAnime(from: videos,
-                                       targetEpisode: ep,
-                                       targetMedia: targetMedia,
-                                       name: { $0.videoName }) { [weak self] video in
-                    guard let self, let video else { return }
-                    self.selectAndOpenVideo(video, videoService: vs)
+                resolver.resolveItemsByAnime(from: videos,
+                                             targetEpisode: ep,
+                                             targetMedia: targetMedia,
+                                             name: { $0.videoName }) { [weak self] result in
+                    guard let self, let video = result.target?.item else { return }
+                    self.selectAndOpenVideo(video,
+                                            videoService: vs,
+                                            resolvedVideoFiles: self.resolvedVideoFiles(from: result))
                 }
             }
         }
@@ -390,6 +393,7 @@ class VideoListViewController: UIViewController {
                                             batchFiles: [TorrentBatchResolver.ResolvedFile]) {
         guard let fileIdx = fileIndex(from: match.entry.index) else { return }
         self.batchFiles = batchFiles
+        self.resolvedVideoFiles = []
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -409,10 +413,13 @@ class VideoListViewController: UIViewController {
         }
     }
 
-    private func selectAndOpenVideo(_ video: Videos, videoService vs: VideoService) {
+    private func selectAndOpenVideo(_ video: Videos,
+                                    videoService vs: VideoService,
+                                    resolvedVideoFiles: [VideoPlayerViewController.ResolvedVideoFile] = []) {
         guard let index = video.videoIndex?.intValue,
               let fileIdx = fileIndex(from: index) else { return }
         batchFiles = []
+        self.resolvedVideoFiles = resolvedVideoFiles
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -434,6 +441,16 @@ class VideoListViewController: UIViewController {
               let id = anime.animeAnilistId?.intValue,
               id > 0 else { return nil }
         return AniListUtil.animeItem(from: anime)
+    }
+
+
+    private func resolvedVideoFiles(from result: TorrentBatchResolver.ItemResolution<Videos>) -> [VideoPlayerViewController.ResolvedVideoFile] {
+        result.resolvedItems.compactMap { file in
+            guard let index = fileIndex(from: file.item.videoIndex?.intValue) else { return nil }
+            return VideoPlayerViewController.ResolvedVideoFile(videoIndex: index,
+                                                              episode: file.episodeReference,
+                                                              media: file.media)
+        }
     }
 
     private func showErrorAlert(_ error: Error) {
@@ -478,6 +495,7 @@ class VideoListViewController: UIViewController {
         player.allVideos         = allVids
         player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
         player.batchFiles        = batchFiles
+        player.resolvedVideoFiles = resolvedVideoFiles
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 }
