@@ -1236,6 +1236,26 @@ final class ExtensionSearchViewController: UIViewController {
                 }
             }
         } else if TorrentBackendManager.shared.currentKind == .webtorrent {
+            let resolver = TorrentBatchResolver()
+            if let animeItem {
+                isResolvingPendingMetadata = true
+                resolver.selectByAnime(from: videos,
+                                       targetEpisode: currentEpisode,
+                                       targetMedia: animeItem,
+                                       name: { $0.videoName }) { [weak self] resolvedVideo in
+                    guard let self else { return }
+                    self.isResolvingPendingMetadata = false
+                    let resolvedIndex = torrentFileIndex(from: resolvedVideo?.videoIndex?.intValue) ?? 0
+                    self.presentPendingVideo(vs: vs,
+                                             entity: entity,
+                                             targetVideo: resolvedVideo,
+                                             targetIndex: resolvedIndex,
+                                             videos: videos,
+                                             batchFiles: [])
+                }
+                return
+            }
+
             targetVideo = TorrentBatchResolver.selectByFilename(from: videos, targetEpisode: currentEpisode) { $0.videoName }
             targetIndex = torrentFileIndex(from: targetVideo?.videoIndex?.intValue) ?? 0
         }

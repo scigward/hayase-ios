@@ -340,15 +340,14 @@ class VideoListViewController: UIViewController {
         // Auto-resolve: when files arrive for the first time and we have a target
         // episode, use TorrentBatchResolver to pick the correct file and start
         // streaming it immediately (skip the manual file-selection step).
-        if !didAutoResolve, count > 1, let ep = targetEpisode {
-            if let vs = videoService,
-               let handle = vs.torrentHandle,
+        if !didAutoResolve, count > 1, let ep = targetEpisode, let vs = videoService {
+            let resolver = TorrentBatchResolver()
+            if let handle = vs.torrentHandle,
                let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
                    activeHandle.snapshot
                }),
                snap.hasMetadata {
                 didAutoResolve = true
-                let resolver = TorrentBatchResolver()
                 let files = snap.files
                 if let targetMedia = resolverTargetMedia() {
                     resolver.resolve(files: files, targetEpisode: ep, targetMedia: targetMedia) { [weak self] result in
@@ -360,6 +359,17 @@ class VideoListViewController: UIViewController {
                     if let match = result.target {
                         selectAndOpenResolvedMatch(match, videoService: vs, batchFiles: result.resolvedFiles)
                     }
+                }
+            } else if TorrentBackendManager.shared.currentKind == .webtorrent,
+                      let targetMedia = resolverTargetMedia(),
+                      let videos = videoResultsController?.fetchedObjects {
+                didAutoResolve = true
+                resolver.selectByAnime(from: videos,
+                                       targetEpisode: ep,
+                                       targetMedia: targetMedia,
+                                       name: { $0.videoName }) { [weak self] video in
+                    guard let self, let video else { return }
+                    self.selectAndOpenVideo(video, videoService: vs)
                 }
             }
         }
@@ -395,6 +405,26 @@ class VideoListViewController: UIViewController {
                     }
                     break
                 }
+            }
+        }
+    }
+
+    private func selectAndOpenVideo(_ video: Videos, videoService vs: VideoService) {
+        guard let index = video.videoIndex?.intValue,
+              let fileIdx = fileIndex(from: index) else { return }
+        batchFiles = []
+        vs.selectFileForStreaming(fileIdx)
+        tableView.reloadData()
+
+        if let allVids = videoResultsController?.fetchedObjects {
+            for (row, vid) in allVids.enumerated() where vid.objectID == video.objectID {
+                let ip = IndexPath(row: row, section: 0)
+                if vs.downloadedBytesForFileIndex(fileIdx) > 0 {
+                    presentPlayer(at: ip)
+                } else {
+                    pendingAutoOpenIndexPath = ip
+                }
+                break
             }
         }
     }
