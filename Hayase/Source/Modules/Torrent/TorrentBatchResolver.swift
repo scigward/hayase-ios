@@ -258,48 +258,59 @@ struct TorrentBatchResolver {
             return
         }
 
-        resolveFileAnime(parsedFiles) { resolvedCandidates in
-            var candidates = resolvedCandidates
-            var targetAnimeFiles = candidates.filter { $0.media?.id == targetMedia.id }
+        Self.splitCourBaseMedia(targetMedia: targetMedia,
+                                 targetEpisode: targetEpisode,
+                                 parsedFiles: parsedFiles) { baseMedia in
+            resolveFileAnime(parsedFiles, baseMedia: baseMedia) { resolvedCandidates in
+                var candidates = resolvedCandidates
+                var targetAnimeFiles = candidates.filter { $0.media?.id == targetMedia.id }
 
-            if targetAnimeFiles.isEmpty {
-                if !candidates.isEmpty {
-                    let commonTitle = Self.highestOccurence(candidates) { candidate in
-                        candidate.parseObject?.animeTitle ?? ""
+                if targetAnimeFiles.isEmpty {
+                    if !candidates.isEmpty {
+                        let commonTitle = Self.highestOccurence(candidates) { candidate in
+                            candidate.parseObject?.animeTitle ?? ""
+                        }
+                        targetAnimeFiles = candidates.filter { ($0.parseObject?.animeTitle ?? "") == commonTitle }
+                    } else {
+                        candidates = videoFiles.map { file in
+                            let parsed = Self.parseFile(file)
+                            return Self.toCandidate(file,
+                                                    parseObject: parsed,
+                                                    media: targetMedia,
+                                                    episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
+                                                    failed: false)
+                        }
+                        targetAnimeFiles = candidates
                     }
-                    targetAnimeFiles = candidates.filter { ($0.parseObject?.animeTitle ?? "") == commonTitle }
-                } else {
-                    candidates = videoFiles.map { file in
-                        let parsed = Self.parseFile(file)
-                        return Self.toCandidate(file,
-                                                parseObject: parsed,
-                                                media: targetMedia,
-                                                episode: Self.episodeReference(from: parsed?.episodeNumbers.first),
-                                                failed: false)
-                    }
-                    targetAnimeFiles = candidates
                 }
+
+                targetAnimeFiles = Self.sortedCandidates(targetAnimeFiles)
+
+                let target = targetAnimeFiles.first { $0.episode.matches(targetEpisode) }
+                    ?? targetAnimeFiles.first { $0.episode.matches(1) }
+                    ?? targetAnimeFiles.first
+                    ?? candidates.first
+
+                completion(ResolveResult(target: target?.publicFile,
+                                         targetAnimeFiles: targetAnimeFiles.map { $0.publicFile },
+                                         otherFiles: otherFiles,
+                                         resolvedFiles: candidates.map { $0.publicFile }))
             }
-
-            targetAnimeFiles = Self.sortedCandidates(targetAnimeFiles)
-
-            let target = targetAnimeFiles.first { $0.episode.matches(targetEpisode) }
-                ?? targetAnimeFiles.first { $0.episode.matches(1) }
-                ?? targetAnimeFiles.first
-                ?? candidates.first
-
-            completion(ResolveResult(target: target?.publicFile,
-                                     targetAnimeFiles: targetAnimeFiles.map { $0.publicFile },
-                                     otherFiles: otherFiles,
-                                     resolvedFiles: candidates.map { $0.publicFile }))
         }
     }
 
     // MARK: - Interface resolver parity
 
-    private func resolveFileAnime(_ parsedFiles: [ParsedFile], completion: @escaping ([ResolvedCandidate]) -> Void) {
+    private func resolveFileAnime(_ parsedFiles: [ParsedFile],
+                                  baseMedia: AnimeItem? = nil,
+                                  completion: @escaping ([ResolvedCandidate]) -> Void) {
         guard !parsedFiles.isEmpty else {
             completion([])
+            return
+        }
+
+        if let baseMedia {
+            Self.resolveFiles(parsedFiles, from: baseMedia, completion: completion)
             return
         }
 
@@ -377,6 +388,96 @@ struct TorrentBatchResolver {
             }
             fetchResolvedMedia()
         }
+    }
+
+    private static func splitCourBaseMedia(targetMedia: AnimeItem,
+                                           targetEpisode: Int,
+                                           parsedFiles: [ParsedFile],
+                                           completion: @escaping (AnimeItem?) -> Void) {
+        let fileEpisodes = Set(parsedFiles.flatMap { parsed in
+            parsed.episodeNumbers.compactMap(parseEpisodeInt)
+        })
+        guard !fileEpisodes.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        AniListClient.shared.fetchResolverMediaByIdResult(targetMedia.id) { targetResult in
+            let fullTarget: AnimeItem
+            switch targetResult {
+            case .success(let fetched):
+                fullTarget = fetched
+            case .failure(let error):
+                NSLog("[TorrentBatchResolver] Target media fetch failed: %@", error.description)
+                fullTarget = targetMedia
+            }
+
+            findEdge(media: fullTarget, type: "PREQUEL") { prequel in
+                guard let prequel else {
+                    completion(nil)
+                    return
+                }
+
+                AniListClient.shared.fetchResolverMediaByIdResult(prequel.id) { prequelResult in
+                    let fullPrequel: AnimeItem
+                    switch prequelResult {
+                    case .success(let fetched):
+                        fullPrequel = fetched
+                    case .failure(let error):
+                        NSLog("[TorrentBatchResolver] Split-cour prequel fetch failed: %@", error.description)
+                        fullPrequel = prequel
+                    }
+
+                    let prequelEpisodes = Self.episodeCount(for: fullPrequel)
+                    let absoluteEpisode = prequelEpisodes + targetEpisode
+                    guard prequelEpisodes > 0,
+                          fileEpisodes.contains(absoluteEpisode) else {
+                        completion(nil)
+                        return
+                    }
+
+                    resolveSeason(media: fullPrequel,
+                                  episode: absoluteEpisode,
+                                  increment: true,
+                                  offset: 0,
+                                  rootMedia: fullPrequel,
+                                  force: false) { result in
+                        guard result.episode == targetEpisode,
+                              result.media.id == fullTarget.id || result.rootMedia.id == fullTarget.id else {
+                            completion(nil)
+                            return
+                        }
+                        completion(fullPrequel)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func resolveFiles(_ parsedFiles: [ParsedFile],
+                                     from baseMedia: AnimeItem,
+                                     completion: @escaping ([ResolvedCandidate]) -> Void) {
+        var candidates: [ResolvedCandidate] = []
+
+        func build(at index: Int) {
+            guard index < parsedFiles.count else {
+                completion(candidates)
+                return
+            }
+
+            let parsed = parsedFiles[index]
+            resolveEpisode(parseObject: parsed, media: baseMedia) { media, episode, episodeEnd, failed in
+                candidates.append(toCandidate(parsed.entry,
+                                              parseObject: parsed,
+                                              media: media,
+                                              episode: episode,
+                                              episodeEnd: episodeEnd,
+                                              failed: failed))
+                build(at: index + 1)
+            }
+        }
+
+        build(at: 0)
     }
 
     private static func resolveEpisode(parseObject: ParsedFile,
