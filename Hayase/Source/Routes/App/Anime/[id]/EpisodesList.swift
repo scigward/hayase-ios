@@ -97,8 +97,9 @@ final class FollowerAvatarStackView: UIStackView {
 
 private final class EpisodeRatingBadgeView: UIView {
     private let iconView: UIImageView = {
+        // interface EpisodesList.svelte: Star class='text-yellow-400' = Tailwind #facc15 = rgb(250,204,21)
         let image = UIImage.hayaseFilledIcon("star", pointSize: 10)?
-            .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal)
+            .withTintColor(UIColor(red: 250/255, green: 204/255, blue: 21/255, alpha: 1), renderingMode: .alwaysOriginal)
         let view = UIImageView(image: image)
         view.contentMode = .scaleAspectFit
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -128,9 +129,10 @@ private final class EpisodeRatingBadgeView: UIView {
         layer.cornerRadius = 4
         clipsToBounds = true
 
+        // interface: Star mr-1 = 4pt gap between star and rating text
         let stack = UIStackView(arrangedSubviews: [iconView, label])
         stack.axis = .horizontal
-        stack.spacing = 2
+        stack.spacing = 4
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)

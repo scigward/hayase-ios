@@ -239,9 +239,13 @@ final class MALIconView: UIView {
         let h = bounds.height
         guard w > 0, h > 0 else { return }
 
-        // The Hayase MAL icon SVG path data, viewBox="0 0 24 24"
-        let scale = min(w / 24.0, h / 24.0)
-        let offsetX = (w - 24.0 * scale) / 2
+        // interface MyAnimeList.svelte: the Icon component applies `px-[2px]` to the
+        // SVG element — 2px horizontal padding each side — so the path renders in a
+        // narrower effective area than the full icon width. Match this by insetting 2pt.
+        let hInset: CGFloat = 2
+        let drawableW = w - 2 * hInset
+        let scale = min(drawableW / 24.0, h / 24.0)
+        let offsetX = hInset + (drawableW - 24.0 * scale) / 2
         let offsetY = (h - 24.0 * scale) / 2
 
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {

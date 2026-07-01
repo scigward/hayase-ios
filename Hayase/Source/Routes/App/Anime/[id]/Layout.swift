@@ -451,7 +451,7 @@ final class AnimeInfoHeaderView: UIView {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.isUserInteractionEnabled = true
-        iv.layer.cornerRadius = 4   // rounded = 0.25rem = 4pt (default Tailwind)
+        iv.layer.cornerRadius = 4   // interface Dialog.Trigger: rounded = Tailwind 0.25rem = 4pt
         iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
         return iv
     }()
@@ -497,6 +497,7 @@ final class AnimeInfoHeaderView: UIView {
         l.font = .nunito(ofSize: 30, weight: .black)
         l.textColor = .white
         l.numberOfLines = 2
+        l.lineBreakMode = .byWordWrapping
         l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         return l
     }()
@@ -523,6 +524,8 @@ final class AnimeInfoHeaderView: UIView {
         l.font = .nunito(ofSize: 14, weight: .light)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 4
+        // interface: whitespace-pre-wrap preserves \n, word-wrap for soft wrapping
+        l.lineBreakMode = .byWordWrapping
         return l
     }()
 
@@ -672,6 +675,7 @@ final class AnimeInfoHeaderView: UIView {
     private var displayedCoverURL: String?
     private var bannerHidden = false
     private var hasTrailer = false
+    private var rawDescription: String?
 
     // MARK: - Init
 
@@ -876,6 +880,10 @@ final class AnimeInfoHeaderView: UIView {
         romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
         titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
         descriptionLabel.font = isRegular ? .nunito(ofSize: 16, weight: .light) : .nunito(ofSize: 14, weight: .light)
+        // Rebuild attributed text so paragraph style picks up the new font size
+        if let raw = rawDescription {
+            setDescriptionText(raw)
+        }
 
         badgesScrollView.isHidden = !isRegular
         descriptionLabel.isHidden = !isRegular
@@ -1147,8 +1155,7 @@ final class AnimeInfoHeaderView: UIView {
 
         genresContainer.isHidden = true
 
-        let desc = anime.animeDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
+        setDescriptionText(anime.animeDescription)
 
         trailerButton.isHidden = true
 
@@ -1210,8 +1217,7 @@ final class AnimeInfoHeaderView: UIView {
 
         setGenres(item.genres.map { String($0) }, tags: item.tags)
 
-        let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
+        setDescriptionText(item.description)
 
         updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
 
@@ -1385,6 +1391,31 @@ final class AnimeInfoHeaderView: UIView {
         onBadgeTapped?(sender.filterType, sender.filterValue)
     }
 
+    // MARK: - Description
+
+    private func setDescriptionText(_ raw: String?) {
+        rawDescription = raw
+        // interface: whitespace-pre-wrap (word-wrap, \n preserved) + leading-2 tight spacing.
+        // Apply a paragraph style so line-height matches the web rendering.
+        let text = (raw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            ? "No description available."
+            : (raw ?? "No description available.")
+        applyDescriptionAttributedText(text)
+    }
+
+    private func applyDescriptionAttributedText(_ text: String) {
+        let para = NSMutableParagraphStyle()
+        para.lineHeightMultiple = 1.35
+        para.lineBreakMode = .byWordWrapping
+        let font = descriptionLabel.font ?? .nunito(ofSize: 14, weight: .light)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor(white: 0.649, alpha: 1.0),
+            .paragraphStyle: para,
+        ]
+        descriptionLabel.attributedText = NSAttributedString(string: text, attributes: attrs)
+    }
+
     // MARK: - Genres
 
     private func setGenres(_ genres: [String], tags: [AnimeTag] = []) {
@@ -1419,9 +1450,7 @@ final class AnimeInfoHeaderView: UIView {
         titleLabel.text = AniListUtil.title(for: item)
         romajiLabel.text = AniListUtil.alternateTitle(for: item)
         romajiLabel.isHidden = romajiLabel.text == nil
-        descriptionLabel.text = (item.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            ? "No description available."
-            : item.description
+        setDescriptionText(item.description)
         setGenres(item.genres, tags: item.tags)
         updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
         updateMALButtonVisibility()
@@ -1920,12 +1949,40 @@ class AnimeDetailViewController: UIViewController {
         let dialog = UIViewController()
         dialog.modalPresentationStyle = .overFullScreen
         dialog.modalTransitionStyle = .crossDissolve
-        dialog.view.backgroundColor = UIColor.black.withAlphaComponent(0.82)
 
+        // interface dialog-overlay: `custom-bg absolute inset-0 z-50 backdrop-blur-sm`
+        // custom-bg = bg-background/80 = theme background at 80% opacity with blur
+        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Solid tint on top of blur to match `bg-background/80`
+        let overlayTint = UIView()
+        overlayTint.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.8)
+        overlayTint.translatesAutoresizingMaskIntoConstraints = false
+
+        dialog.view.addSubview(blurView)
+        dialog.view.addSubview(overlayTint)
+
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: dialog.view.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
+            overlayTint.topAnchor.constraint(equalTo: dialog.view.topAnchor),
+            overlayTint.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
+            overlayTint.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
+            overlayTint.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
+        ])
+
+        // interface Dialog.Content for cover: `flex justify-center p-0 overflow-clip`
+        // + default dialog-content sm:rounded-lg = 8pt corner radius
         let imageView = UIImageView(image: image)
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
         imageView.backgroundColor = UIColor.HayaseTheme.muted
+        imageView.layer.cornerRadius = 8  // sm:rounded-lg
+        imageView.layer.masksToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
         dialog.view.addSubview(imageView)
 
@@ -1939,13 +1996,30 @@ class AnimeDetailViewController: UIViewController {
         NSLayoutConstraint.activate([
             imageView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
             imageView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
-            imageView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor),
-            imageView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor),
+            imageView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, constant: -48),
+            imageView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, constant: -48),
             imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: aspectRatio),
         ])
 
+        // interface: DialogPrimitive.Close — absolute right-4 top-4, Cross2 icon
+        let closeButton = UIButton(type: .system)
+        let closeCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        closeButton.setImage(UIImage.hayaseIcon("x")?.withConfiguration(closeCfg), for: .normal)
+        closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.addTarget(self, action: #selector(dismissPresentedCoverDialog), for: .touchUpInside)
+        dialog.view.addSubview(closeButton)
+        NSLayoutConstraint.activate([
+            closeButton.topAnchor.constraint(equalTo: dialog.view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+        ])
+
+        // Tap outside image to dismiss
         let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
         dialog.view.addGestureRecognizer(closeTap)
+
         loadCoverDialogImageIfNeeded(urlString: urlString, imageView: imageView)
         present(dialog, animated: true)
     }
