@@ -93,6 +93,64 @@ final class FollowerAvatarStackView: UIStackView {
     }
 }
 
+// MARK: - EpisodeRatingBadgeView
+
+private final class EpisodeRatingBadgeView: UIView {
+    private let iconView: UIImageView = {
+        let image = UIImage.hayaseFilledIcon("star", pointSize: 10)?
+            .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal)
+        let view = UIImageView(image: image)
+        view.contentMode = .scaleAspectFit
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let label: UILabel = {
+        let label = UILabel()
+        label.font = .nunito(ofSize: 9.6)
+        label.textColor = UIColor.HayaseTheme.secondaryForeground
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = UIColor.HayaseTheme.accent.withAlphaComponent(0.8)
+        layer.cornerRadius = 4
+        clipsToBounds = true
+
+        let stack = UIStackView(arrangedSubviews: [iconView, label])
+        stack.axis = .horizontal
+        stack.spacing = 2
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 10),
+            iconView.heightAnchor.constraint(equalToConstant: 10),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
+    }
+
+    func configure(rating: Double) {
+        label.text = String(format: "%.2f", rating)
+        isHidden = false
+    }
+}
+
 // MARK: - EpisodeCardView
 
 final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
@@ -122,17 +180,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         return l
     }()
 
-    private let ratingBadge: PaddedLabel = {
-        let l = PaddedLabel()
-        l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.98, alpha: 1)
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
-        l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
-        l.layer.cornerRadius = 4
-        l.clipsToBounds = true
-        l.isHidden = true
-        return l
-    }()
+    private let ratingBadge = EpisodeRatingBadgeView()
 
     private let fillerBadge: PaddedLabel = {
         let l = PaddedLabel()
@@ -188,7 +236,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     private let playOverlayView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        v.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.5)
         v.alpha = 0
         v.isUserInteractionEnabled = false
         v.layer.cornerRadius = 6
@@ -201,7 +249,20 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let iv = UIImageView(image: UIImage.hayaseFilledIcon("play", pointSize: 22))
         iv.tintColor = .white
         iv.contentMode = .scaleAspectFit
+        iv.alpha = 0
+        iv.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
         return iv
+    }()
+
+    private let spoilerBlurView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        view.alpha = 0.72
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        view.layer.cornerRadius = 6
+        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        view.clipsToBounds = true
+        return view
     }()
 
     private var currentImageURL: String?
@@ -231,7 +292,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         layer.shadowOpacity = 0
         layer.shadowOffset = CGSize(width: 0, height: 0)
 
-        [thumbImageView, playOverlayView, runtimeBadge, ratingBadge].forEach {
+        [thumbImageView, spoilerBlurView, playOverlayView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -285,6 +346,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             thumbImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             thumbWidthPreferred,
             thumbMaxWidth,
+
+            spoilerBlurView.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
+            spoilerBlurView.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor),
+            spoilerBlurView.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor),
+            spoilerBlurView.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor),
 
             playOverlayView.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
             playOverlayView.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor),
@@ -347,6 +413,8 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let changes = {
             self.transform = pressed ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
             self.playOverlayView.alpha = pressed ? 1 : 0
+            self.playOverlayIcon.alpha = pressed ? 1 : 0
+            self.playOverlayIcon.transform = pressed ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
             self.layer.shadowRadius = pressed ? 18 : 0
             self.layer.shadowOpacity = pressed ? 0.45 : 0
             self.layer.shadowOffset = pressed ? CGSize(width: 0, height: 8) : .zero
@@ -360,6 +428,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
                    accentColor: UIColor = .white, isListCompleted: Bool = false,
+                   isRepeating: Bool = false, hideSpoilers: Bool = false,
                    followers: [AniListUserSummary] = []) {
         episodeNumber = episode.number
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
@@ -368,7 +437,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         followerStack.configure(users: followers)
 
         let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
+        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
+        let isSpoiler = hideSpoilers && !isWatchedOnAniList && !isListCompleted && !isRepeating && !isTarget
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
+        spoilerBlurView.isHidden = !isSpoiler
+        overviewLabel.alpha = isSpoiler ? 0.35 : 1
         alpha = 1.0
 
         progressFill.backgroundColor = accentColor
@@ -406,25 +479,12 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
 
         if let rating = episode.rating {
-            let ratingStr = String(format: "%.2f", rating)
-            let starAttachment = NSTextAttachment()
-            if let starImg = UIImage.hayaseFilledIcon("star", pointSize: 10)?
-                .withTintColor(UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1), renderingMode: .alwaysOriginal) {
-                starAttachment.image = starImg
-                starAttachment.bounds = CGRect(x: 0, y: -1.5, width: 10, height: 10)
-            }
-            let padded = NSMutableAttributedString(attachment: starAttachment)
-            padded.append(NSAttributedString(string: " \(ratingStr)", attributes: [
-                .foregroundColor: UIColor(white: 0.98, alpha: 1),
-                .font: UIFont.nunito(ofSize: 9.6)
-            ]))
-            ratingBadge.attributedText = padded
+            ratingBadge.configure(rating: isSpoiler ? 5.00 : rating)
             ratingBadge.isHidden = false
         } else {
             ratingBadge.isHidden = true
         }
 
-        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
         if episode.isFiller {
             layer.borderWidth = 1
             layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor
@@ -447,6 +507,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
         thumbImageView.isHidden = !hasImage
         playOverlayView.isHidden = !hasImage
+        spoilerBlurView.isHidden = !hasImage || !isSpoiler
         runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
         ratingBadge.isHidden = !hasImage || episode.rating == nil
         thumbWidthPreferred.isActive = hasImage
@@ -494,6 +555,10 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         fillerBadge.isHidden = true
         playOverlayView.isHidden = false
         playOverlayView.alpha = 0
+        playOverlayIcon.alpha = 0
+        playOverlayIcon.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
+        spoilerBlurView.isHidden = true
+        overviewLabel.alpha = 1
         followerStack.reset()
         setPressed(false, animated: false)
         layer.borderWidth = 0
@@ -550,9 +615,11 @@ final class EpisodeCell: UITableViewCell {
 
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
                    accentColor: UIColor = .white, isListCompleted: Bool = false,
+                   isRepeating: Bool = false, hideSpoilers: Bool = false,
                    followers: [AniListUserSummary] = []) {
         cardView.configure(with: episode, anilistID: anilistID, anilistProgress: anilistProgress,
                            accentColor: accentColor, isListCompleted: isListCompleted,
+                           isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followers)
     }
 
@@ -640,9 +707,11 @@ final class EpisodePairCell: UITableViewCell {
 
     func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
                    accentColor: UIColor, isListCompleted: Bool,
+                   isRepeating: Bool = false, hideSpoilers: Bool = false,
                    followersByEpisode: [Int: [AniListUserSummary]] = [:]) {
         leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
                            accentColor: accentColor, isListCompleted: isListCompleted,
+                           isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followersByEpisode[left.number] ?? [])
         applyTargetPadding(toLeftCard: true, isTarget: !isListCompleted && left.number == anilistProgress + 1)
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
@@ -650,6 +719,7 @@ final class EpisodePairCell: UITableViewCell {
         if let right = right {
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
                                 accentColor: accentColor, isListCompleted: isListCompleted,
+                                isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                                 followers: followersByEpisode[right.number] ?? [])
             applyTargetPadding(toLeftCard: false, isTarget: !isListCompleted && right.number == anilistProgress + 1)
             rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
@@ -928,7 +998,7 @@ final class PaginationBarView: UIView {
     }
 
     private func applyResponsiveModeIfNeeded(force: Bool = false) {
-        let isCompact = effectivePaginationWidth < 600
+        let isCompact = effectivePaginationWidth < 768
         guard force || lastAppliedCompactMode != isCompact else { return }
         lastAppliedCompactMode = isCompact
 
@@ -940,9 +1010,9 @@ final class PaginationBarView: UIView {
     }
 
     private var effectivePaginationWidth: CGFloat {
+        if let window, window.bounds.width > 1 { return window.bounds.width }
         if bounds.width > 1 { return bounds.width }
         if let superview, superview.bounds.width > 1 { return superview.bounds.width }
-        if let window, window.bounds.width > 1 { return window.bounds.width }
         return UIScreen.main.bounds.width
     }
 
@@ -971,6 +1041,8 @@ extension AnimeDetailViewController {
         let cols = episodeColumnCount
         let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
         let isCompleted = currentListStatus == "COMPLETED"
+        let isRepeating = currentListStatus == "REPEATING"
+        let hideSpoilers = UserDefaults.standard.bool(forKey: "pref_hideSpoilers")
         if cols >= 2 {
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: EpisodePairCell.reuseID, for: indexPath) as? EpisodePairCell else {
@@ -983,6 +1055,7 @@ extension AnimeDetailViewController {
             cell.configure(left: leftEp, right: rightEp, anilistID: currentAnilistID,
                            anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
                            isListCompleted: isCompleted,
+                           isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followersByEpisode: followingEntriesByEpisode)
             cell.onTapEpisode = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
@@ -996,6 +1069,7 @@ extension AnimeDetailViewController {
             guard let ep = paginatedEpisodes[safe: indexPath.row] else { return cell }
             cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
                            accentColor: currentAnimeAccent, isListCompleted: isCompleted,
+                           isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followingEntriesByEpisode[ep.number] ?? [])
             cell.cardView.onTap = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)

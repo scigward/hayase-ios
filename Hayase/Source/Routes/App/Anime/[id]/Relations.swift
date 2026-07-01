@@ -463,11 +463,11 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(controlsStack)
 
-        configureControlButton(zoomInButton, systemName: "plus", fallback: "+")
-        configureControlButton(zoomOutButton, systemName: "minus", fallback: "−")
-        configureControlButton(fitButton, systemName: "viewfinder", fallback: "⌖")
-        configureControlButton(expandButton, systemName: "arrow.up.left.and.arrow.down.right", fallback: "⛶")
-        configureControlButton(refreshButton, systemName: "arrow.clockwise", fallback: "↻")
+        configureControlButton(zoomInButton, lucideName: "plus", fallback: "+")
+        configureControlButton(zoomOutButton, lucideName: "minus", fallback: "−")
+        configureControlButton(fitButton, lucideName: "scan", fallback: "⌖")
+        configureControlButton(expandButton, lucideName: "maximize-2", fallback: "⛶")
+        configureControlButton(refreshButton, lucideName: "refresh-cw", fallback: "↻")
 
         zoomInButton.addTarget(self, action: #selector(zoomInTapped), for: .touchUpInside)
         zoomOutButton.addTarget(self, action: #selector(zoomOutTapped), for: .touchUpInside)
@@ -492,11 +492,13 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         ])
     }
 
-    private func configureControlButton(_ button: UIButton, systemName: String, fallback: String) {
-        if let image = UIImage(systemName: systemName) {
-            let config = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-            button.setImage(image.withConfiguration(config), for: .normal)
+    private func configureControlButton(_ button: UIButton, lucideName: String, fallback: String) {
+        let config = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        if let image = UIImage.hayaseIcon(lucideName, withConfiguration: config) {
+            button.setImage(image, for: .normal)
+            button.setTitle(nil, for: .normal)
         } else {
+            button.setImage(nil, for: .normal)
             button.setTitle(fallback, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         }
@@ -943,8 +945,8 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     }
 
     private func updateExpandIcon() {
-        let name = isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
-        if let image = UIImage(systemName: name)?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)) {
+        let name = isExpanded ? "minimize-2" : "maximize-2"
+        if let image = UIImage.hayaseIcon(name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)) {
             expandButton.setImage(image, for: .normal)
             expandButton.setTitle(nil, for: .normal)
         } else {

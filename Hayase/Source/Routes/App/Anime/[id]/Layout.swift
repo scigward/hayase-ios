@@ -7,6 +7,7 @@ import UIKit
 import SafariServices
 import ObjectiveC
 import CoreImage
+import WebKit
 
 // MARK: - Color constants
 
@@ -21,6 +22,166 @@ private let hayaseAnimeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseAnimeBannerBackdropHeightKey = "height"
 private let hayaseAnimeBannerBackdropRouteKey = "route"
 private let hayaseAnimeBannerBackdropAnimeRoute = "anime"
+
+// MARK: - AnimeDetailBannerBackdropView
+
+private final class AnimeDetailBannerBackdropView: UIView {
+    private final class GradientView: UIView {
+        private var centerX: CGFloat = 0.5918
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isOpaque = false
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            backgroundColor = .clear
+            isOpaque = false
+        }
+
+        func setCompact(_ compact: Bool) {
+            let nextCenterX: CGFloat = compact ? 0.50 : 0.5918
+            guard abs(nextCenterX - centerX) > 0.0001 else { return }
+            centerX = nextCenterX
+            setNeedsDisplay()
+        }
+
+        override func draw(_ rect: CGRect) {
+            guard bounds.width > 0, bounds.height > 0,
+                  let context = UIGraphicsGetCurrentContext(),
+                  let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                            colors: [
+                                                UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+                                                UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
+                                                UIColor.HayaseTheme.background.cgColor,
+                                            ] as CFArray,
+                                            locations: [0.0, 0.3056, 1.0]) else { return }
+
+            let center = CGPoint(x: bounds.width * centerX, y: bounds.height * 0.3497)
+            context.saveGState()
+            context.clip(to: bounds)
+            context.translateBy(x: center.x, y: center.y)
+            context.scaleBy(x: bounds.width * 0.75, y: bounds.height * 0.65)
+            context.drawRadialGradient(gradient,
+                                       startCenter: .zero,
+                                       startRadius: 0,
+                                       endCenter: .zero,
+                                       endRadius: 1,
+                                       options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            context.restoreGState()
+        }
+    }
+
+    private let imageView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        view.backgroundColor = .clear
+        return view
+    }()
+    private let gradientView = GradientView()
+    private var currentURLString: String?
+    private var imageTask: URLSessionDataTask?
+    private var heightConstraint: NSLayoutConstraint?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    deinit {
+        imageTask?.cancel()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+
+        [imageView, gradientView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        let height = heightAnchor.constraint(equalToConstant: 368)
+        heightConstraint = height
+        NSLayoutConstraint.activate([
+            height,
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gradientView.topAnchor.constraint(equalTo: imageView.topAnchor),
+            gradientView.leadingAnchor.constraint(equalTo: imageView.leadingAnchor),
+            gradientView.trailingAnchor.constraint(equalTo: imageView.trailingAnchor),
+            gradientView.bottomAnchor.constraint(equalTo: imageView.bottomAnchor),
+        ])
+    }
+
+    func configure(height: CGFloat, compact: Bool) {
+        heightConstraint?.constant = height
+        gradientView.setCompact(compact)
+    }
+
+    func applyScrollOffset(_ _: CGFloat) {
+        transform = .identity
+    }
+
+    func applyAlpha(_ alpha: CGFloat, animated: Bool) {
+        let clamped = min(max(alpha, 0), 1)
+        let changes = { self.alpha = clamped }
+        if animated {
+            UIView.animate(withDuration: 0.5, animations: changes)
+        } else {
+            changes()
+        }
+    }
+
+    func setImage(urlString: String?) {
+        guard let urlString else {
+            currentURLString = nil
+            imageTask?.cancel()
+            imageTask = nil
+            imageView.image = nil
+            return
+        }
+
+        guard currentURLString != urlString else { return }
+        currentURLString = urlString
+        imageTask?.cancel()
+        imageTask = nil
+
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            imageView.image = cached
+            return
+        }
+
+        guard let url = URL(string: urlString) else {
+            imageView.image = nil
+            return
+        }
+
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+            DispatchQueue.main.async {
+                guard self?.currentURLString == urlString else { return }
+                UIView.transition(with: self?.imageView ?? UIImageView(),
+                                  duration: 0.3,
+                                  options: .transitionCrossDissolve,
+                                  animations: { self?.imageView.image = image })
+            }
+        }
+        imageTask?.resume()
+    }
+}
 
 // MARK: - PaddedLabel
 
@@ -281,37 +442,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private var contentTopConstraint: NSLayoutConstraint?
     private var contentMaxWidthConstraint: NSLayoutConstraint?
-    private var bannerImageLeadingConstraint: NSLayoutConstraint?
-
-    // MARK: - Banner
-
-    private let bannerImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(white: 0.08, alpha: 1)
-        return iv
-    }()
-
-    private let bannerGradientView: UIView = {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        let gradient = CAGradientLayer()
-        gradient.type = .axial
-        gradient.startPoint = CGPoint(x: 0.5, y: 0.0)
-        gradient.endPoint = CGPoint(x: 0.5, y: 1.0)
-        let bgColor = hayasePageBackground
-        gradient.colors = [
-            UIColor.black.withAlphaComponent(0.40).cgColor,
-            UIColor.black.withAlphaComponent(0.16).cgColor,
-            UIColor.black.withAlphaComponent(0.16).cgColor,
-            UIColor.black.withAlphaComponent(0.50).cgColor,
-            bgColor.cgColor,
-        ]
-        gradient.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
-        v.layer.addSublayer(gradient)
-        return v
-    }()
+    private var playComboWidthConstraint: NSLayoutConstraint?
 
     // MARK: - Cover
 
@@ -530,9 +661,9 @@ final class AnimeInfoHeaderView: UIView {
     private var genresContainerHeightConstraint: NSLayoutConstraint?
     private var chipWrapBottomConstraint: NSLayoutConstraint?
 
-    private var bannerImageTask: URLSessionDataTask?
     private var coverImageTask: URLSessionDataTask?
     private var bannerHidden = false
+    private var hasTrailer = false
 
     // MARK: - Init
 
@@ -549,7 +680,7 @@ final class AnimeInfoHeaderView: UIView {
     // MARK: - Setup
 
     private func setup() {
-        backgroundColor = hayasePageBackground
+        backgroundColor = .clear
 
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
         genresStack.translatesAutoresizingMaskIntoConstraints = false
@@ -649,24 +780,12 @@ final class AnimeInfoHeaderView: UIView {
         contentStack.isLayoutMarginsRelativeArrangement = true
         contentStack.layoutMargins = UIEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
 
-        [bannerImageView, bannerGradientView, contentStack].forEach {
+        [contentStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
 
-        bannerImageLeadingConstraint = bannerImageView.leadingAnchor.constraint(equalTo: leadingAnchor)
-
         NSLayoutConstraint.activate([
-            bannerImageView.topAnchor.constraint(equalTo: topAnchor),
-            bannerImageLeadingConstraint!,
-            bannerImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bannerImageView.heightAnchor.constraint(equalToConstant: AnimeInfoHeaderView.bannerHeight),
-
-            bannerGradientView.topAnchor.constraint(equalTo: bannerImageView.topAnchor),
-            bannerGradientView.leadingAnchor.constraint(equalTo: bannerImageView.leadingAnchor),
-            bannerGradientView.trailingAnchor.constraint(equalTo: bannerImageView.trailingAnchor),
-            bannerGradientView.bottomAnchor.constraint(equalTo: bannerImageView.bottomAnchor),
-
             coverImageView.widthAnchor.constraint(equalToConstant: 180),
             coverImageView.heightAnchor.constraint(equalToConstant: 256),
 
@@ -679,12 +798,13 @@ final class AnimeInfoHeaderView: UIView {
             anilistButton.widthAnchor.constraint(equalToConstant: 36),
             malButton.widthAnchor.constraint(equalToConstant: 36),
 
-            playCombo.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
-
             badgesScrollView.heightAnchor.constraint(equalToConstant: 24),
         ])
+        playComboWidthConstraint = playCombo.widthAnchor.constraint(equalToConstant: 180)
+        playComboWidthConstraint?.priority = UILayoutPriority(999)
+        playComboWidthConstraint?.isActive = true
 
-        contentTopConstraint = contentStack.topAnchor.constraint(equalTo: bannerImageView.bottomAnchor, constant: -200)
+        contentTopConstraint = contentStack.topAnchor.constraint(equalTo: topAnchor, constant: 64)
         contentTopConstraint?.isActive = true
         contentMaxWidthConstraint = contentStack.widthAnchor.constraint(lessThanOrEqualToConstant: 1600)
         contentMaxWidthConstraint?.isActive = true
@@ -709,7 +829,7 @@ final class AnimeInfoHeaderView: UIView {
     private func applyLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
 
-        contentTopConstraint?.constant = isRegular ? -260 : -200
+        contentTopConstraint?.constant = isRegular ? 176 : 64
 
         genresScrollView.isHidden = false
         chipWrapView.isHidden = true
@@ -753,10 +873,6 @@ final class AnimeInfoHeaderView: UIView {
 
         let hPad: CGFloat = isRegular ? 56 : 12
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
-        // Web anime pages use -ml-14/pl-14 around the scroll area. The
-        // background banner begins at the app's left edge, not after the
-        // sidebar, so shift the native header image left by the same 56pt.
-        bannerImageLeadingConstraint?.constant = isRegular ? -56 : 0
 
         actionsTrailingSpacer.removeFromSuperview()
         for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
@@ -787,33 +903,7 @@ final class AnimeInfoHeaderView: UIView {
             malButton.isHidden = true
             headerFollowerStack.isHidden = true
         }
-
-        if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
-            let bgColor = hayasePageBackground
-            if isRegular {
-                gradientLayer.type = .radial
-                gradientLayer.startPoint = CGPoint(x: 0.59, y: 0.35)
-                gradientLayer.endPoint = CGPoint(x: 1.35, y: 1.0)
-                gradientLayer.colors = [
-                    UIColor.black.withAlphaComponent(0.16).cgColor,
-                    UIColor.black.withAlphaComponent(0.16).cgColor,
-                    bgColor.cgColor,
-                ]
-                gradientLayer.locations = [0.0, 0.31, 1.0]
-            } else {
-                gradientLayer.type = .axial
-                gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
-                gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
-                gradientLayer.colors = [
-                    UIColor.black.withAlphaComponent(0.40).cgColor,
-                    UIColor.black.withAlphaComponent(0.16).cgColor,
-                    UIColor.black.withAlphaComponent(0.16).cgColor,
-                    UIColor.black.withAlphaComponent(0.50).cgColor,
-                    bgColor.cgColor,
-                ]
-                gradientLayer.locations = [0.0, 0.25, 0.40, 0.65, 1.0]
-            }
-        }
+        updateActionVisibilityForCurrentWidth()
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -846,10 +936,7 @@ final class AnimeInfoHeaderView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if let gradientLayer = bannerGradientView.layer.sublayers?.first as? CAGradientLayer {
-            gradientLayer.frame = bannerGradientView.bounds
-        }
-
+        updateActionVisibilityForCurrentWidth()
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let hPad: CGFloat = isRegular ? 56 : 12
         let effectiveWidth = isRegular ? min(bounds.width, 1600) : bounds.width
@@ -883,6 +970,29 @@ final class AnimeInfoHeaderView: UIView {
         titleLabel.invalidateIntrinsicContentSize()
         romajiLabel.invalidateIntrinsicContentSize()
         descriptionLabel.invalidateIntrinsicContentSize()
+    }
+
+    private func updateActionVisibilityForCurrentWidth() {
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let measuredWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
+        let hPad: CGFloat = isRegular ? 56 : 12
+        let contentWidth = max(0, effectiveWidth - 2 * hPad)
+        let isNarrow = contentWidth < 380
+
+        if isNarrow {
+            playComboWidthConstraint?.priority = .required
+            playComboWidthConstraint?.constant = contentWidth
+        } else {
+            playComboWidthConstraint?.priority = UILayoutPriority(999)
+            playComboWidthConstraint?.constant = 180
+        }
+
+        shareButton.isHidden = isNarrow
+        trailerButton.isHidden = isNarrow || !hasTrailer
+        anilistButton.isHidden = !isRegular
+        malButton.isHidden = !isRegular || malId == nil
+        headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
     }
 
     // MARK: - Sidebar banner bridge
@@ -921,11 +1031,7 @@ final class AnimeInfoHeaderView: UIView {
         let shouldHide = scrollOffset > 100
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
         postSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
-        guard shouldHide != bannerHidden else { return }
         bannerHidden = shouldHide
-        UIView.animate(withDuration: 0.5) {
-            self.bannerImageView.alpha = targetAlpha
-        }
     }
 
     // MARK: - Actions
@@ -990,8 +1096,7 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func applyOverscrollZoom(_ overscroll: CGFloat) {
-        bannerImageView.transform = .identity
-        bannerGradientView.transform = .identity
+        // BannerImage is route-owned, matching interface +layout.svelte.
     }
 
     // MARK: - Configure (Animes CoreData entity)
@@ -1022,8 +1127,6 @@ final class AnimeInfoHeaderView: UIView {
         postSidebarBackdrop(urlString: displayedBannerURL,
                             scrollOffset: 0,
                             alpha: bannerHidden ? 0.05 : 1.0)
-        loadImage(from: displayedBannerURL,
-                  into: bannerImageView, task: &bannerImageTask)
         loadImage(from: anime.animeImgL ?? anime.animeImgM,
                   into: coverImageView, task: &coverImageTask)
     }
@@ -1079,7 +1182,7 @@ final class AnimeInfoHeaderView: UIView {
         let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         descriptionLabel.text = (desc?.isEmpty ?? true) ? "No description available." : desc
 
-        trailerButton.isHidden = item.trailerYouTubeID == nil
+        updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
 
         let bannerFallback = item.bannerURL ?? item.coverURL
         AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
@@ -1089,24 +1192,6 @@ final class AnimeInfoHeaderView: UIView {
             self.postSidebarBackdrop(urlString: urlStr,
                                      scrollOffset: 0,
                                      alpha: self.bannerHidden ? 0.05 : 1.0)
-            self.bannerImageTask?.cancel()
-            self.bannerImageTask = nil
-            guard let urlStr, let url = URL(string: urlStr) else { return }
-            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                self.bannerImageView.image = cached
-                return
-            }
-            let biv = self.bannerImageView
-            self.bannerImageTask = URLSession.shared.dataTask(with: url) { [weak biv] data, _, _ in
-                guard let data, let img = UIImage(data: data) else { return }
-                SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
-                DispatchQueue.main.async {
-                    UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
-                                      options: .transitionCrossDissolve,
-                                      animations: { biv?.image = img })
-                }
-            }
-            self.bannerImageTask?.resume()
         }
         loadImage(from: item.coverURL, into: coverImageView, task: &coverImageTask)
     }
@@ -1116,7 +1201,6 @@ final class AnimeInfoHeaderView: UIView {
         postSidebarBackdrop(urlString: urlString,
                             scrollOffset: 0,
                             alpha: bannerHidden ? 0.05 : 1.0)
-        loadImage(from: urlString, into: bannerImageView, task: &bannerImageTask)
     }
 
     // MARK: - Badges
@@ -1311,20 +1395,17 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func updateTrailerButton(trailerYouTubeID: String?) {
-        trailerButton.isHidden = trailerYouTubeID == nil
+        hasTrailer = trailerYouTubeID != nil
+        updateActionVisibilityForCurrentWidth()
     }
 
     func updateMALButtonVisibility() {
-        if traitCollection.horizontalSizeClass == .regular {
-            malButton.isHidden = (malId == nil)
-        } else {
-            malButton.isHidden = true
-        }
+        updateActionVisibilityForCurrentWidth()
     }
 
     func updateFollowingAvatars(users: [AniListUserSummary]) {
         headerFollowerStack.configure(users: users)
-        headerFollowerStack.isHidden = traitCollection.horizontalSizeClass != .regular || headerFollowerStack.arrangedSubviews.isEmpty
+        updateActionVisibilityForCurrentWidth()
     }
 
     func clearFollowingAvatars() {
@@ -1391,6 +1472,7 @@ class AnimeDetailViewController: UIViewController {
     var routeAnimeID: Int? { animeItem?.id ?? animeEntity?.animeAnilistId?.intValue }
 
     var tableView: UITableView!
+    private let animeBackdropView = AnimeDetailBannerBackdropView()
     var headerView: AnimeInfoHeaderView!
     var isFavorite = false
     var isOnList = false
@@ -1563,14 +1645,20 @@ class AnimeDetailViewController: UIViewController {
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = hayasePageBackground
 
+        setupAnimeBackdropView()
         setupTableView()
         setupHeaderView()
+        observeAnimeBackdrop()
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         fetchAnimePageData()
         fetchEpisodes()
         applyViewerStateFromRouteMedia()
         headerView?.publishSidebarBackdrop()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1594,6 +1682,7 @@ class AnimeDetailViewController: UIViewController {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+            configureAnimeBackdropForCurrentSize()
             applyTabBarLayoutForSizeClass()
             tableView.reloadData()
         }
@@ -1602,11 +1691,52 @@ class AnimeDetailViewController: UIViewController {
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         coordinator.animate(alongsideTransition: { _ in
+            self.configureAnimeBackdropForCurrentSize(width: size.width)
             self.tableView.reloadData()
         })
     }
 
     // MARK: - Setup
+
+    private func setupAnimeBackdropView() {
+        animeBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(animeBackdropView)
+        NSLayoutConstraint.activate([
+            animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
+            animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        configureAnimeBackdropForCurrentSize()
+    }
+
+    private func configureAnimeBackdropForCurrentSize(width: CGFloat? = nil) {
+        let resolvedWidth = width ?? view.bounds.width
+        animeBackdropView.configure(height: 368, compact: resolvedWidth < 768)
+    }
+
+    private func observeAnimeBackdrop() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(animeBackdropDidChange(_:)),
+                                               name: hayaseAnimeBannerBackdropDidChange,
+                                               object: nil)
+    }
+
+    @objc private func animeBackdropDidChange(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              info[hayaseAnimeBannerBackdropRouteKey] as? String == hayaseAnimeBannerBackdropAnimeRoute else { return }
+        if let height = info[hayaseAnimeBannerBackdropHeightKey] as? CGFloat {
+            animeBackdropView.configure(height: height, compact: view.bounds.width < 768)
+        }
+        if let urlString = info[hayaseAnimeBannerBackdropURLKey] as? String {
+            animeBackdropView.setImage(urlString: urlString)
+        }
+        if let scrollOffset = info[hayaseAnimeBannerBackdropScrollOffsetKey] as? CGFloat {
+            animeBackdropView.applyScrollOffset(scrollOffset)
+        }
+        if let alpha = info[hayaseAnimeBannerBackdropAlphaKey] as? CGFloat {
+            animeBackdropView.applyAlpha(alpha, animated: true)
+        }
+    }
 
     func setupTableView() {
         tableView = UITableView(frame: view.bounds, style: .plain)
@@ -1626,7 +1756,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 100
         tableView.separatorStyle = .none
-        tableView.backgroundColor = hayasePageBackground
+        tableView.backgroundColor = .clear
         if #available(iOS 15.0, *) {
             tableView.sectionHeaderTopPadding = 0
         }
@@ -1712,10 +1842,8 @@ class AnimeDetailViewController: UIViewController {
         }
         headerView.onPlayTrailer = { [weak self] in
             guard let self = self,
-                  let trailerID = self.animeItem?.trailerYouTubeID,
-                  let url = URL(string: "https://www.youtube.com/watch?v=\(trailerID)") else { return }
-            let safari = SFSafariViewController(url: url)
-            self.present(safari, animated: true)
+                  let trailerID = self.animeItem?.trailerYouTubeID else { return }
+            self.presentTrailerDialog(trailerID: trailerID)
         }
         headerView.onWatch = { [weak self] in
             self?.openExtensionSearch(episode: 1)
@@ -1779,6 +1907,47 @@ class AnimeDetailViewController: UIViewController {
 
     @objc private func dismissPresentedCoverDialog() {
         presentedViewController?.dismiss(animated: true)
+    }
+
+    private func presentTrailerDialog(trailerID: String) {
+        guard let url = URL(string: "https://www.youtube-nocookie.com/embed/\(trailerID)?autoplay=1&rel=0&cc_lang_pref=ja") else { return }
+
+        let dialog = UIViewController()
+        dialog.modalPresentationStyle = .overFullScreen
+        dialog.modalTransitionStyle = .crossDissolve
+        dialog.view.backgroundColor = UIColor.black.withAlphaComponent(0.82)
+
+        let webConfiguration = WKWebViewConfiguration()
+        webConfiguration.allowsInlineMediaPlayback = true
+        if #available(iOS 10.0, *) {
+            webConfiguration.mediaTypesRequiringUserActionForPlayback = []
+        }
+
+        let webView = WKWebView(frame: .zero, configuration: webConfiguration)
+        webView.scrollView.isScrollEnabled = false
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.layer.cornerRadius = 8
+        webView.layer.masksToBounds = true
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        dialog.view.addSubview(webView)
+
+        let maxHeight = webView.heightAnchor.constraint(lessThanOrEqualToConstant: UIScreen.main.bounds.height * 0.8)
+        maxHeight.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            webView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
+            webView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
+            webView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, constant: -32),
+            webView.heightAnchor.constraint(equalTo: webView.widthAnchor, multiplier: 9.0 / 16.0),
+            webView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, multiplier: 0.8),
+            maxHeight,
+        ])
+
+        let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
+        closeTap.cancelsTouchesInView = false
+        dialog.view.addGestureRecognizer(closeTap)
+        webView.load(URLRequest(url: url))
+        present(dialog, animated: true)
     }
 
     // MARK: - AniList Entry Editor
