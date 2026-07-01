@@ -191,23 +191,6 @@ struct TorrentBatchResolver {
         var episodeNumber: Int { episode.intValue ?? 0 }
     }
 
-    struct ResolvedItem<Item> {
-        let item: Item
-        let episode: EpisodeReference
-        let episodeEnd: Int?
-        let media: AnimeItem?
-        let failed: Bool
-        let parsedFilename: ParsedFilename?
-
-        var episodeReference: EpisodeReference { episode }
-    }
-
-    struct ItemResolution<Item> {
-        let target: ResolvedItem<Item>?
-        let targetAnimeItems: [ResolvedItem<Item>]
-        let resolvedItems: [ResolvedItem<Item>]
-    }
-
     // MARK: - Video / exclusion sets
 
     // Keep this list in lockstep with interface/src/lib/utils.ts videoExtensions.
@@ -285,47 +268,14 @@ struct TorrentBatchResolver {
                              targetMedia: AnimeItem,
                              name: @escaping (Item) -> String?,
                              completion: @escaping (Item?) -> Void) {
-        resolveItemsByAnime(from: items,
-                            targetEpisode: targetEpisode,
-                            targetMedia: targetMedia,
-                            name: name) { result in
-            completion(result.target?.item)
-        }
-    }
-
-    /// AniList-backed resolver for non-libtorrent item lists. Use this when the
-    /// caller still needs interface-style `resolvedFiles` metadata for in-player
-    /// next/previous navigation.
-    func resolveItemsByAnime<Item>(from items: [Item],
-                                   targetEpisode: Int,
-                                   targetMedia: AnimeItem,
-                                   name: @escaping (Item) -> String?,
-                                   completion: @escaping (ItemResolution<Item>) -> Void) {
         let parsedItems = Self.parsedItems(from: items, name: name)
         guard !parsedItems.isEmpty else {
-            completion(ItemResolution(target: nil, targetAnimeItems: [], resolvedItems: []))
+            completion(nil)
             return
         }
 
-        func publicItem(_ candidate: ResolvedItemCandidate<Item>) -> ResolvedItem<Item> {
-            ResolvedItem(item: candidate.item,
-                         episode: candidate.episode,
-                         episodeEnd: candidate.episodeEnd,
-                         media: candidate.media,
-                         failed: candidate.failed,
-                         parsedFilename: candidate.parseObject.filename)
-        }
-
         if parsedItems.count == 1 {
-            let parsed = parsedItems[0]
-            let candidate = ResolvedItemCandidate(item: parsed.item,
-                                                  episode: .number(Double(targetEpisode)),
-                                                  episodeEnd: nil,
-                                                  media: targetMedia,
-                                                  failed: false,
-                                                  parseObject: parsed)
-            let file = publicItem(candidate)
-            completion(ItemResolution(target: file, targetAnimeItems: [file], resolvedItems: [file]))
+            completion(parsedItems[0].item)
             return
         }
 
@@ -358,9 +308,7 @@ struct TorrentBatchResolver {
                 ?? targetAnimeFiles.first
                 ?? candidates.first
 
-            completion(ItemResolution(target: target.map(publicItem),
-                                      targetAnimeItems: targetAnimeFiles.map(publicItem),
-                                      resolvedItems: candidates.map(publicItem)))
+            completion(target?.item)
         }
     }
 

@@ -378,17 +378,7 @@ final class VideoPlayerViewController: UIViewController {
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
     var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
-    var resolvedVideoFiles: [ResolvedVideoFile] = []
     private var currentResolvedFile: TorrentBatchResolver.ResolvedFile?
-    private var currentResolvedVideoFile: ResolvedVideoFile?
-
-    struct ResolvedVideoFile {
-        let videoIndex: UInt
-        let episode: TorrentBatchResolver.EpisodeReference
-        let media: AnimeItem?
-
-        var episodeReference: TorrentBatchResolver.EpisodeReference { episode }
-    }
 
     /// Callback fired when the user taps next/prev and the target episode is
     /// NOT in the current torrent batch. The presenting view controller should
@@ -1279,13 +1269,6 @@ final class VideoPlayerViewController: UIViewController {
             return
         }
 
-        if !resolvedVideoFiles.isEmpty {
-            guard let file = resolvedVideoFiles[safe: newIndex],
-                  file.videoIndex != fileIndex else { return }
-            switchToResolvedVideoFile(file)
-            return
-        }
-
         guard newIndex >= 0, newIndex < allVideos.count else { return }
         let video = allVideos[newIndex]
         guard video.videoIndex?.uintValue != fileIndex else { return }
@@ -1887,8 +1870,6 @@ final class VideoPlayerViewController: UIViewController {
         let mediaID = media?.id ?? currentMediaID
         if let file = batchFile(forEpisode: episode, mediaID: mediaID) {
             switchToBatchFile(file)
-        } else if let file = resolvedVideoFile(forEpisode: episode, mediaID: mediaID) {
-            switchToResolvedVideoFile(file)
         } else {
             requestEpisodeChange(episode, media: media)
         }
@@ -1903,15 +1884,6 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
-    private func resolvedVideoFile(forEpisode targetEp: Int,
-                                   mediaID: Int) -> ResolvedVideoFile? {
-        resolvedVideoFiles.first { resolvedFile in
-            resolvedFile.episodeReference.matches(targetEp)
-                && resolvedFile.media?.id == mediaID
-                && videoMatch(for: resolvedFile) != nil
-        }
-    }
-
     private var currentBatchFile: TorrentBatchResolver.ResolvedFile? {
         if let currentResolvedFile, matchesFileIndex(currentResolvedFile, fileIndex) {
             return currentResolvedFile
@@ -1919,22 +1891,12 @@ final class VideoPlayerViewController: UIViewController {
         return batchFiles.first { matchesFileIndex($0, fileIndex) }
     }
 
-    private var currentResolvedVideo: ResolvedVideoFile? {
-        if let currentResolvedVideoFile, currentResolvedVideoFile.videoIndex == fileIndex {
-            return currentResolvedVideoFile
-        }
-        return resolvedVideoFiles.first { $0.videoIndex == fileIndex }
-    }
-
     private var currentMediaID: Int {
-        currentBatchFile?.media?.id ?? currentResolvedVideo?.media?.id ?? anilistID
+        currentBatchFile?.media?.id ?? anilistID
     }
 
     private var currentEpisodeForNavigation: Int? {
         if let file = currentBatchFile {
-            return file.episodeReference.intValue
-        }
-        if let file = currentResolvedVideo {
             return file.episodeReference.intValue
         }
         return episodeNumber
@@ -1955,8 +1917,7 @@ final class VideoPlayerViewController: UIViewController {
         let limit = currentEpisodeLimit
         guard limit <= 0 || episode <= limit else { return false }
 
-        if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil
-            || resolvedVideoFile(forEpisode: episode, mediaID: currentMediaID) != nil {
+        if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil {
             return true
         }
         return onEpisodeChange != nil
@@ -1966,27 +1927,19 @@ final class VideoPlayerViewController: UIViewController {
         if let index = batchFiles.firstIndex(where: { matchesFileIndex($0, fileIndex) }) {
             return index
         }
-        if let index = resolvedVideoFiles.firstIndex(where: { $0.videoIndex == fileIndex }) {
-            return index
-        }
         return currentVideoIndex
     }
 
     private var currentEpisodeLimit: Int {
-        if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
+        if let media = currentBatchFile?.media {
             return TorrentBatchResolver.episodeCount(for: media)
         }
         return totalEpisodes
     }
 
     private var playlistVideos: [Videos] {
-        if !batchFiles.isEmpty {
-            return batchFiles.compactMap { videoMatch(for: $0)?.video }
-        }
-        if !resolvedVideoFiles.isEmpty {
-            return resolvedVideoFiles.compactMap { videoMatch(for: $0)?.video }
-        }
-        return allVideos
+        guard !batchFiles.isEmpty else { return allVideos }
+        return batchFiles.compactMap { videoMatch(for: $0)?.video }
     }
 
     private func fileIndex(for file: TorrentBatchResolver.ResolvedFile) -> UInt? {
@@ -1999,15 +1952,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func videoMatch(for file: TorrentBatchResolver.ResolvedFile) -> (video: Videos, index: Int)? {
         guard let index = fileIndex(for: file) else { return nil }
-        return videoMatch(forVideoIndex: index)
-    }
-
-    private func videoMatch(for file: ResolvedVideoFile) -> (video: Videos, index: Int)? {
-        videoMatch(forVideoIndex: file.videoIndex)
-    }
-
-    private func videoMatch(forVideoIndex index: UInt) -> (video: Videos, index: Int)? {
-        allVideos.enumerated().first { _, video in
+        return allVideos.enumerated().first { _, video in
             video.videoIndex?.uintValue == index
         }.map { ($0.element, $0.offset) }
     }
@@ -2016,21 +1961,9 @@ final class VideoPlayerViewController: UIViewController {
         file.episodeReference.intValue ?? episodeNumber
     }
 
-    private func episodeNumber(for file: ResolvedVideoFile) -> Int {
-        file.episodeReference.intValue ?? episodeNumber
-    }
-
     private func switchToBatchFile(_ file: TorrentBatchResolver.ResolvedFile) {
         guard let match = videoMatch(for: file) else { return }
         currentResolvedFile = file
-        currentResolvedVideoFile = nil
-        switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
-    }
-
-    private func switchToResolvedVideoFile(_ file: ResolvedVideoFile) {
-        guard let match = videoMatch(for: file) else { return }
-        currentResolvedFile = nil
-        currentResolvedVideoFile = file
         switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
     }
 
@@ -2038,7 +1971,6 @@ final class VideoPlayerViewController: UIViewController {
     private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int, media: AnimeItem? = nil) {
         if media == nil {
             currentResolvedFile = nil
-            currentResolvedVideoFile = nil
         }
         streamServer?.stop()
         streamServer = nil
@@ -2236,15 +2168,10 @@ final class VideoPlayerViewController: UIViewController {
 
         optionsVC.onSwitchVideo = { [weak self] video in
             guard let self else { return }
-            if let fileIndex = video.videoIndex?.uintValue {
-                if let file = self.batchFiles.first(where: { self.matchesFileIndex($0, fileIndex) }) {
-                    self.switchToBatchFile(file)
-                    return
-                }
-                if let file = self.resolvedVideoFiles.first(where: { $0.videoIndex == fileIndex }) {
-                    self.switchToResolvedVideoFile(file)
-                    return
-                }
+            if let fileIndex = video.videoIndex?.uintValue,
+               let file = self.batchFiles.first(where: { self.matchesFileIndex($0, fileIndex) }) {
+                self.switchToBatchFile(file)
+                return
             }
 
             if let idx = self.allVideos.firstIndex(of: video), idx != self.currentVideoIndex {
