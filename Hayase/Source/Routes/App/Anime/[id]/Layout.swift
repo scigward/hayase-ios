@@ -873,6 +873,8 @@ final class AnimeInfoHeaderView: UIView {
 
     private func applyLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
+        let measuredWidth = measuredContentWidth()
+        let hPad = interfaceHorizontalPadding(for: measuredWidth)
 
         contentTopConstraint?.constant = isRegular ? 128 : 48
         contentWidthConstraint?.constant = isRegular ? 56 : 0
@@ -922,7 +924,6 @@ final class AnimeInfoHeaderView: UIView {
 
         textColumnWidthConstraint?.isActive = !isRegular
 
-        let hPad: CGFloat = isRegular ? 56 : 12
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
 
         actionsTrailingSpacer.removeFromSuperview()
@@ -989,8 +990,9 @@ final class AnimeInfoHeaderView: UIView {
         super.layoutSubviews()
         updateActionVisibilityForCurrentWidth()
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let hPad: CGFloat = isRegular ? 56 : 12
-        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : bounds.width + (isRegular ? 56 : 0)
+        let measuredWidth = measuredContentWidth()
+        let hPad = interfaceHorizontalPadding(for: measuredWidth)
+        contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
         if isRegular {
@@ -1007,8 +1009,8 @@ final class AnimeInfoHeaderView: UIView {
 
     func updateLabelWidths(forContainerWidth width: CGFloat) {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let hPad: CGFloat = isRegular ? 56 : 12
-        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : width + (isRegular ? 56 : 0)
+        let measuredWidth = measuredContentWidth(fallbackWidth: width)
+        let hPad = interfaceHorizontalPadding(for: measuredWidth)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
         if isRegular {
@@ -1027,9 +1029,9 @@ final class AnimeInfoHeaderView: UIView {
 
     private func updateActionVisibilityForCurrentWidth() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : (bounds.width > 0 ? bounds.width + (isRegular ? 56 : 0) : UIScreen.main.bounds.width)
+        let measuredWidth = measuredContentWidth()
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
-        let hPad: CGFloat = isRegular ? 56 : 12
+        let hPad = interfaceHorizontalPadding(for: measuredWidth)
         let contentWidth = max(0, effectiveWidth - 2 * hPad)
         let isNarrow = contentWidth < 380
 
@@ -1046,6 +1048,18 @@ final class AnimeInfoHeaderView: UIView {
         anilistButton.isHidden = !isRegular
         malButton.isHidden = !isRegular || malId == nil
         headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
+    }
+
+    private func measuredContentWidth(fallbackWidth: CGFloat? = nil) -> CGFloat {
+        if contentStack.bounds.width > 0 { return contentStack.bounds.width }
+        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let baseWidth = fallbackWidth ?? (bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width)
+        return baseWidth + (isRegular ? 56 : 0)
+    }
+
+    private func interfaceHorizontalPadding(for measuredWidth: CGFloat) -> CGFloat {
+        // +layout.svelte: 2xs:px-3 xl:px-14. iPads use 12pt; 56pt starts at xl.
+        measuredWidth >= 1280 ? 56 : 12
     }
 
     // MARK: - Sidebar banner bridge
@@ -1623,7 +1637,6 @@ class AnimeDetailViewController: UIViewController {
     var themesLoading = false
     var animePageRequestID = UUID()
     var animePageErrorDescription: String?
-    private var coverDialogImageTask: URLSessionDataTask?
 
     var activeSection: Section = .episodes
 
@@ -1668,10 +1681,8 @@ class AnimeDetailViewController: UIViewController {
     }()
 
     func applyTabBarLayoutForSizeClass() {
-        let isRegular = traitCollection.horizontalSizeClass == .regular
-
         tabBar.isVertical = false
-        let sideInset: CGFloat = isRegular ? 56 : 12
+        let sideInset = Self.interfacePageSideInset(for: view.bounds.width)
         tabBarScrollView?.contentInset = UIEdgeInsets(top: 0, left: sideInset, bottom: 0, right: sideInset)
         tabBarScrollView?.scrollIndicatorInsets = tabBarScrollView?.contentInset ?? .zero
     }
@@ -1680,13 +1691,18 @@ class AnimeDetailViewController: UIViewController {
         case header = 0, episodes, episodePagination, relations, threads, themes, recommendations
     }
 
-    static let gridOuterPad: CGFloat = 56
     static let gridMinColWidth: CGFloat = 500
     static let episodeGap: CGFloat = 16
     static let threadGap: CGFloat = 40
 
+    static func interfacePageSideInset(for width: CGFloat) -> CGFloat {
+        // Interface inner wrapper: 2xs:px-3 xl:px-14.
+        width >= 1280 ? 56 : 12
+    }
+
     var episodeColumnCount: Int {
-        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        let sideInset = Self.interfacePageSideInset(for: tableView.frame.width)
+        let gridWidth = tableView.frame.width - 2 * sideInset
         if traitCollection.horizontalSizeClass == .regular
             && gridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap {
             return 2
@@ -1695,7 +1711,8 @@ class AnimeDetailViewController: UIViewController {
     }
 
     var threadColumnCount: Int {
-        let gridWidth = tableView.frame.width - 2 * Self.gridOuterPad
+        let sideInset = Self.interfacePageSideInset(for: tableView.frame.width)
+        let gridWidth = tableView.frame.width - 2 * sideInset
         if traitCollection.horizontalSizeClass == .regular
             && gridWidth >= 2 * Self.gridMinColWidth + Self.threadGap {
             return 2

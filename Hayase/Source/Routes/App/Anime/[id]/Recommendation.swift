@@ -63,7 +63,9 @@ final class RecommendationGridCell: UITableViewCell {
     }
 
     func configure(itemCount: Int, availableWidth: CGFloat, isRegular: Bool) {
-        let sidePad: CGFloat = isRegular ? AnimeDetailViewController.gridOuterPad : 16
+        let sidePad = isRegular
+            ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
+            : CGFloat(16)
         let topPad: CGFloat = 12
         let bottomPad: CGFloat = 16
         let gap: CGFloat = 16

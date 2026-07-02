@@ -277,6 +277,8 @@ final class ThreadPairCell: UITableViewCell {
 
     private let stack = UIStackView()
     private let rightContainer = UIView()
+    private var stackLeadingConstraint: NSLayoutConstraint?
+    private var stackTrailingConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -305,16 +307,29 @@ final class ThreadPairCell: UITableViewCell {
         stack.addArrangedSubview(rightContainer)
         contentView.addSubview(stack)
 
+        let leading = stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        let trailing = stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+        stackLeadingConstraint = leading
+        stackTrailingConstraint = trailing
+
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            leading,
+            trailing,
             rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
             rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
             rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor),
             rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
         ])
+    }
+
+    func applyPaddingForSizeClass(isRegular: Bool, availableWidth: CGFloat) {
+        let sidePad = isRegular
+            ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
+            : CGFloat(16)
+        stackLeadingConstraint?.constant = sidePad
+        stackTrailingConstraint?.constant = -sidePad
     }
 
     func configure(left: AniListThread, right: AniListThread?, accentColor: UIColor) {
@@ -379,6 +394,9 @@ extension AnimeDetailViewController {
             guard let leftThread = threads[safe: leftIdx] else { return UITableViewCell() }
             let rightThread = threads[safe: rightIdx]
             cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
+            cell.applyPaddingForSizeClass(
+                isRegular: traitCollection.horizontalSizeClass == .regular,
+                availableWidth: tableView.frame.width)
             cell.onTapThread = { [weak self] threadID in
                 guard let self = self else { return }
                 guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
@@ -421,7 +439,9 @@ extension AnimeDetailViewController {
         card.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(card)
 
-        let sidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+        let sidePad = traitCollection.horizontalSizeClass == .regular
+            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
+            : CGFloat(16)
 
         NSLayoutConstraint.activate([
             card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),

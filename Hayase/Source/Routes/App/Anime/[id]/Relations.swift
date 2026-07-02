@@ -39,7 +39,10 @@ final class HorizontalCardsCell: UITableViewCell {
 
     func applyPaddingForSizeClass(isRegular: Bool) {
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
-            let sidePad: CGFloat = isRegular ? 56 : 16
+            let width = collectionView.superview?.bounds.width ?? collectionView.bounds.width
+            let sidePad = isRegular
+                ? AnimeDetailViewController.interfacePageSideInset(for: width)
+                : CGFloat(16)
             layout.sectionInset = UIEdgeInsets(top: 0, left: sidePad, bottom: 0, right: sidePad)
         }
     }
@@ -54,7 +57,7 @@ final class RelationCardCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
+        iv.backgroundColor = UIColor.HayaseTheme.muted
         iv.layer.cornerRadius = 6
         return iv
     }()
@@ -62,7 +65,7 @@ final class RelationCardCell: UICollectionViewCell {
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9, weight: .semibold)
-        l.textColor = .label
+        l.textColor = UIColor.HayaseTheme.foreground
         l.numberOfLines = 2
         return l
     }()
@@ -71,7 +74,7 @@ final class RelationCardCell: UICollectionViewCell {
         let l = UILabel()
         l.font = .nunito(ofSize: 8, weight: .medium)
         l.textColor = .white
-        l.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.85)
+        l.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(0.85)
         l.layer.cornerRadius = 3
         l.clipsToBounds = true
         return l
@@ -148,7 +151,7 @@ final class StaffCardCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = .systemGray5
+        iv.backgroundColor = UIColor.HayaseTheme.muted
         iv.layer.cornerRadius = 6
         return iv
     }()
@@ -156,7 +159,7 @@ final class StaffCardCell: UICollectionViewCell {
     private let nameLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9, weight: .semibold)
-        l.textColor = .label
+        l.textColor = UIColor.HayaseTheme.foreground
         l.numberOfLines = 2
         return l
     }()
@@ -164,7 +167,7 @@ final class StaffCardCell: UICollectionViewCell {
     private let roleLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 8)
-        l.textColor = .secondaryLabel
+        l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 1
         return l
     }()
@@ -1014,13 +1017,13 @@ final class ScoreBarChartView: UIView {
             let col = UIView()
             let bar = UIView()
             let alpha = 0.4 + 0.6 * CGFloat(point.score) / 100.0
-            bar.backgroundColor = UIColor.systemIndigo.withAlphaComponent(alpha)
+            bar.backgroundColor = UIColor.HayaseTheme.foreground.withAlphaComponent(alpha)
             bar.layer.cornerRadius = 2
             bar.translatesAutoresizingMaskIntoConstraints = false
             let lbl = UILabel()
             lbl.text = "\(point.score)"
             lbl.font = .nunito(ofSize: 7)
-            lbl.textColor = .tertiaryLabel
+            lbl.textColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.7)
             lbl.textAlignment = .center
             lbl.translatesAutoresizingMaskIntoConstraints = false
             col.addSubview(bar)
@@ -1057,7 +1060,7 @@ final class StatsCell: UITableViewCell {
         let l = UILabel()
         l.text = text
         l.font = .nunito(ofSize: 14, weight: .semibold)
-        l.textColor = .label
+        l.textColor = UIColor.HayaseTheme.foreground
         return l
     }
 
@@ -1094,16 +1097,16 @@ final class StatsCell: UITableViewCell {
             let nameLabel = UILabel()
             nameLabel.text = name
             nameLabel.font = .nunito(ofSize: 11)
-            nameLabel.textColor = .label
+            nameLabel.textColor = UIColor.HayaseTheme.foreground
             nameLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
             let progress = UIProgressView(progressViewStyle: .default)
             progress.setProgress(fraction, animated: false)
             progress.progressTintColor = Self.statusColor(for: status.status)
-            progress.trackTintColor = .systemGray5
+            progress.trackTintColor = UIColor.HayaseTheme.muted
             let countLabel = UILabel()
             countLabel.text = "\(status.amount)"
             countLabel.font = .nunito(ofSize: 11)
-            countLabel.textColor = .secondaryLabel
+            countLabel.textColor = UIColor.HayaseTheme.mutedForeground
             countLabel.textAlignment = .right
             countLabel.widthAnchor.constraint(equalToConstant: 52).isActive = true
             let row = UIStackView(arrangedSubviews: [nameLabel, progress, countLabel])

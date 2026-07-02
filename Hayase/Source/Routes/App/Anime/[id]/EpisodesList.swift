@@ -867,7 +867,10 @@ final class PaginationBarView: UIView {
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
-        let sidePad: CGFloat = isRegular ? 56 : 16
+        let width = superview?.bounds.width ?? bounds.width
+        let sidePad = isRegular
+            ? AnimeDetailViewController.interfacePageSideInset(for: width)
+            : CGFloat(16)
         infoLeadingConstraint?.constant = sidePad
         controlsTrailingConstraint?.constant = -sidePad
         applyResponsiveModeIfNeeded()
