@@ -183,6 +183,32 @@ private final class AnimeDetailBannerBackdropView: UIView {
     }
 }
 
+// MARK: - AnimeDialogBackdropView
+
+private final class AnimeDialogBackdropView: UIView {
+    private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = UIColor.black.withAlphaComponent(0.82)
+        layer.addSublayer(stripeLayer)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        stripeLayer.frame = bounds
+    }
+}
+
 // MARK: - PaddedLabel
 
 final class PaddedLabel: UILabel {
@@ -442,6 +468,8 @@ final class AnimeInfoHeaderView: UIView {
 
     private var contentTopConstraint: NSLayoutConstraint?
     private var contentMaxWidthConstraint: NSLayoutConstraint?
+    private var contentWidthConstraint: NSLayoutConstraint?
+    private var contentCenterXConstraint: NSLayoutConstraint?
     private var playComboWidthConstraint: NSLayoutConstraint?
 
     // MARK: - Cover
@@ -477,6 +505,7 @@ final class AnimeInfoHeaderView: UIView {
         let button = UIButton(type: .custom)
         button.backgroundColor = .clear
         button.accessibilityLabel = "Open cover"
+        button.adjustsImageWhenHighlighted = false
         return button
     }()
 
@@ -823,11 +852,12 @@ final class AnimeInfoHeaderView: UIView {
         contentTopConstraint?.isActive = true
         contentMaxWidthConstraint = contentStack.widthAnchor.constraint(lessThanOrEqualToConstant: 1600)
         contentMaxWidthConstraint?.isActive = true
-        let fullWidth = contentStack.widthAnchor.constraint(equalTo: widthAnchor)
-        fullWidth.priority = .defaultHigh
-        fullWidth.isActive = true
+        contentWidthConstraint = contentStack.widthAnchor.constraint(equalTo: widthAnchor)
+        contentWidthConstraint?.priority = .defaultHigh
+        contentWidthConstraint?.isActive = true
+        contentCenterXConstraint = contentStack.centerXAnchor.constraint(equalTo: centerXAnchor)
+        contentCenterXConstraint?.isActive = true
         NSLayoutConstraint.activate([
-            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
@@ -845,6 +875,8 @@ final class AnimeInfoHeaderView: UIView {
         let isRegular = traitCollection.horizontalSizeClass == .regular
 
         contentTopConstraint?.constant = isRegular ? 128 : 48
+        contentWidthConstraint?.constant = isRegular ? 56 : 0
+        contentCenterXConstraint?.constant = isRegular ? -28 : 0
 
         genresScrollView.isHidden = false
         chipWrapView.isHidden = true
@@ -958,7 +990,8 @@ final class AnimeInfoHeaderView: UIView {
         updateActionVisibilityForCurrentWidth()
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let hPad: CGFloat = isRegular ? 56 : 12
-        let effectiveWidth = isRegular ? min(bounds.width, 1600) : bounds.width
+        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : bounds.width + (isRegular ? 56 : 0)
+        let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
         if isRegular {
             maxW = effectiveWidth - 2 * hPad - 180 - 20
@@ -975,7 +1008,8 @@ final class AnimeInfoHeaderView: UIView {
     func updateLabelWidths(forContainerWidth width: CGFloat) {
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let hPad: CGFloat = isRegular ? 56 : 12
-        let effectiveWidth = isRegular ? min(width, 1600) : width
+        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : width + (isRegular ? 56 : 0)
+        let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
         if isRegular {
             maxW = effectiveWidth - 2 * hPad - 180 - 20
@@ -993,7 +1027,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private func updateActionVisibilityForCurrentWidth() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
-        let measuredWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let measuredWidth = contentStack.bounds.width > 0 ? contentStack.bounds.width : (bounds.width > 0 ? bounds.width + (isRegular ? 56 : 0) : UIScreen.main.bounds.width)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let hPad: CGFloat = isRegular ? 56 : 12
         let contentWidth = max(0, effectiveWidth - 2 * hPad)
@@ -1589,6 +1623,7 @@ class AnimeDetailViewController: UIViewController {
     var themesLoading = false
     var animePageRequestID = UUID()
     var animePageErrorDescription: String?
+    private var coverDialogImageTask: URLSessionDataTask?
 
     var activeSection: Section = .episodes
 
@@ -1949,77 +1984,76 @@ class AnimeDetailViewController: UIViewController {
         let dialog = UIViewController()
         dialog.modalPresentationStyle = .overFullScreen
         dialog.modalTransitionStyle = .crossDissolve
+        dialog.view.backgroundColor = .clear
 
-        // interface dialog-overlay: `custom-bg absolute inset-0 z-50 backdrop-blur-sm`
-        // custom-bg = bg-background/80 = theme background at 80% opacity with blur
-        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
-        let blurView = UIVisualEffectView(effect: blurEffect)
-        blurView.translatesAutoresizingMaskIntoConstraints = false
+        let backdropView = AnimeDialogBackdropView()
+        backdropView.translatesAutoresizingMaskIntoConstraints = false
+        dialog.view.addSubview(backdropView)
 
-        // Solid tint on top of blur to match `bg-background/80`
-        let overlayTint = UIView()
-        overlayTint.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.8)
-        overlayTint.translatesAutoresizingMaskIntoConstraints = false
-
-        dialog.view.addSubview(blurView)
-        dialog.view.addSubview(overlayTint)
-
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: dialog.view.topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
-            overlayTint.topAnchor.constraint(equalTo: dialog.view.topAnchor),
-            overlayTint.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
-            overlayTint.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
-            overlayTint.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
-        ])
+        let imageContainer = UIView()
+        imageContainer.backgroundColor = UIColor.HayaseTheme.muted
+        imageContainer.layer.cornerRadius = 8
+        imageContainer.layer.masksToBounds = true
+        imageContainer.translatesAutoresizingMaskIntoConstraints = false
+        dialog.view.addSubview(imageContainer)
 
         // interface Dialog.Content for cover: `flex justify-center p-0 overflow-clip`
         // + default dialog-content sm:rounded-lg = 8pt corner radius
         let imageView = UIImageView(image: image)
-        imageView.contentMode = .scaleAspectFit
+        imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.backgroundColor = UIColor.HayaseTheme.muted
         imageView.layer.cornerRadius = 8  // sm:rounded-lg
         imageView.layer.masksToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        dialog.view.addSubview(imageView)
+        imageContainer.addSubview(imageView)
 
-        let aspectRatio: CGFloat
-        if let image {
-            aspectRatio = image.size.width / max(image.size.height, 1)
-        } else {
-            aspectRatio = 180.0 / 256.0
-        }
-
-        NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
-            imageView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, constant: -48),
-            imageView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, constant: -48),
-            imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: aspectRatio),
-        ])
-
-        // interface: DialogPrimitive.Close — absolute right-4 top-4, Cross2 icon
         let closeButton = UIButton(type: .system)
-        let closeCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        closeButton.setImage(UIImage.hayaseIcon("x")?.withConfiguration(closeCfg), for: .normal)
-        closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
+        closeButton.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(0.92)
+        closeButton.tintColor = UIColor.HayaseTheme.foreground
+        closeButton.layer.cornerRadius = 8
+        closeButton.layer.masksToBounds = true
+        closeButton.setImage(UIImage.hayaseIcon("x", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)), for: .normal)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(dismissPresentedCoverDialog), for: .touchUpInside)
         dialog.view.addSubview(closeButton)
+
+        let imageSize = image?.size ?? CGSize(width: 180, height: 256)
+        let aspect = imageSize.width / max(imageSize.height, 1)
+        let widthLimit = imageContainer.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, multiplier: 0.92)
+        let heightLimit = imageContainer.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, multiplier: 0.84)
+        let preferredHeight = imageContainer.heightAnchor.constraint(equalTo: dialog.view.heightAnchor, multiplier: 0.84)
+        widthLimit.priority = .required
+        heightLimit.priority = .required
+        preferredHeight.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: dialog.view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor, constant: -16),
+            backdropView.topAnchor.constraint(equalTo: dialog.view.topAnchor),
+            backdropView.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
+            backdropView.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
+            backdropView.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
+
+            imageContainer.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
+            imageContainer.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
+            widthLimit,
+            heightLimit,
+            preferredHeight,
+            imageContainer.widthAnchor.constraint(equalTo: imageContainer.heightAnchor, multiplier: aspect),
+
+            imageView.topAnchor.constraint(equalTo: imageContainer.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: imageContainer.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: imageContainer.bottomAnchor),
+
+            closeButton.topAnchor.constraint(equalTo: imageContainer.topAnchor, constant: 8),
+            closeButton.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor, constant: -8),
             closeButton.widthAnchor.constraint(equalToConstant: 32),
             closeButton.heightAnchor.constraint(equalToConstant: 32),
         ])
 
         // Tap outside image to dismiss
         let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
-        dialog.view.addGestureRecognizer(closeTap)
-
+        backdropView.addGestureRecognizer(closeTap)
         loadCoverDialogImageIfNeeded(urlString: urlString, imageView: imageView)
         present(dialog, animated: true)
     }

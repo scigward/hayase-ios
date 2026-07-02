@@ -58,7 +58,7 @@ enum HayaseIcon {
                 }
             }
             star.close()
-            star.fill()
+            filledPath(star, strokeWidth: 2)
         case "folder":
             let folder = UIBezierPath()
             folder.move(to: CGPoint(x: 2, y: 6))

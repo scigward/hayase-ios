@@ -367,7 +367,9 @@ final class HayaseSidebarController: UIViewController {
             sidebarBackdropHeightConstraint?.constant = height
         }
 
-        if let scrollOffset = userInfo[Self.homeBannerBackdropScrollOffsetKey] as? CGFloat {
+        if route == Self.homeBannerBackdropAnimeRoute {
+            applySidebarBackdropScrollOffset(0)
+        } else if let scrollOffset = userInfo[Self.homeBannerBackdropScrollOffsetKey] as? CGFloat {
             applySidebarBackdropScrollOffset(scrollOffset)
         } else if route == Self.homeBannerBackdropHomeRoute {
             applySidebarBackdropScrollOffset(0)

@@ -626,9 +626,8 @@ final class EpisodeCell: UITableViewCell {
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
-        let sidePad: CGFloat = isRegular ? 68 : 12
-        cardLeadingConstraint?.constant = sidePad
-        cardTrailingConstraint?.constant = -sidePad
+        cardLeadingConstraint?.constant = 12
+        cardTrailingConstraint?.constant = -12
     }
 
     override func prepareForReuse() {
@@ -694,8 +693,8 @@ final class EpisodePairCell: UITableViewCell {
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 56),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -56),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
             leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
             leftCardLeadingConstraint!,
