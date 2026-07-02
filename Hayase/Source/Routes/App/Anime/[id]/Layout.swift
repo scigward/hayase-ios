@@ -915,7 +915,7 @@ final class AnimeInfoHeaderView: UIView {
 
         romajiLabel.font = isRegular ? .nunito(ofSize: 18, weight: .light) : .nunito(ofSize: 16, weight: .light)
         titleLabel.font = isRegular ? .nunito(ofSize: 36, weight: .black) : .nunito(ofSize: 30, weight: .black)
-        descriptionLabel.font = isRegular ? .nunito(ofSize: 16, weight: .light) : .nunito(ofSize: 14, weight: .light)
+        descriptionLabel.font = .nunito(ofSize: 14, weight: .light)
         // Rebuild attributed text so paragraph style picks up the new font size
         if let raw = rawDescription {
             setDescriptionText(raw)
@@ -944,6 +944,7 @@ final class AnimeInfoHeaderView: UIView {
             actionsRow.setCustomSpacing(20, after: playCombo)
             anilistButton.isHidden = false
             malButton.isHidden = (malId == nil)
+            updateFollowerProfileSpacing(isRegular: true)
             headerFollowerStack.isHidden = headerFollowerStack.arrangedSubviews.isEmpty
         } else {
             actionsRow.addArrangedSubview(bookmarkButton)
@@ -1052,6 +1053,14 @@ final class AnimeInfoHeaderView: UIView {
         anilistButton.isHidden = !isRegular
         malButton.isHidden = !isRegular || malId == nil
         headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
+        updateFollowerProfileSpacing(isRegular: isRegular)
+    }
+
+    private func updateFollowerProfileSpacing(isRegular: Bool) {
+        guard isRegular else { return }
+        actionsRow.setCustomSpacing(8, after: anilistButton)
+        actionsRow.setCustomSpacing(8, after: malButton)
+        actionsRow.setCustomSpacing(20, after: malButton.isHidden ? anilistButton : malButton)
     }
 
     private func measuredContentWidth(fallbackWidth: CGFloat? = nil) -> CGFloat {

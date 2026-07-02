@@ -119,16 +119,19 @@ private final class ProfileAvatarView: UIView {
     private let imageView = UIImageView()
     private let fallbackLabel = UILabel()
     private let skeletonView = UIView()
+    private let ringLayer = CAShapeLayer()
+    private let ringWidth: CGFloat
+    private let ringColor: UIColor
 
     init(user: AniListUserSummary,
          avatarSize: CGFloat,
          ringWidth: CGFloat,
          ringColor: UIColor) {
         self.user = user
+        self.ringWidth = ringWidth
+        self.ringColor = ringColor
         super.init(frame: .zero)
         layer.cornerRadius = avatarSize / 2
-        layer.borderWidth = ringWidth
-        layer.borderColor = ringColor.cgColor
         setup()
         loadAvatar()
     }
@@ -139,14 +142,23 @@ private final class ProfileAvatarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = bounds.height / 2
-        imageView.layer.cornerRadius = bounds.height / 2
-        skeletonView.layer.cornerRadius = bounds.height / 2
+        let radius = bounds.height / 2
+        layer.cornerRadius = radius
+        imageView.layer.cornerRadius = radius
+        skeletonView.layer.cornerRadius = radius
+
+        ringLayer.isHidden = ringWidth <= 0
+        ringLayer.fillColor = ringColor.cgColor
+        ringLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: -ringWidth, dy: -ringWidth)).cgPath
     }
 
     private func setup() {
-        backgroundColor = UIColor.HayaseTheme.background
-        clipsToBounds = true
+        backgroundColor = .clear
+        clipsToBounds = false
+        layer.masksToBounds = false
+
+        ringLayer.fillColor = ringColor.cgColor
+        layer.insertSublayer(ringLayer, at: 0)
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
@@ -347,7 +359,7 @@ private final class ProfileCardViewController: UIViewController {
         let detailLabel = UILabel()
         detailLabel.attributedText = detailText
         detailLabel.font = .nunito(ofSize: 11, weight: .regular)
-        detailLabel.textColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
+        detailLabel.textColor = Self.detailTextColor
         detailLabel.numberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
 
@@ -380,7 +392,7 @@ private final class ProfileCardViewController: UIViewController {
         let statsLabel = UILabel()
         statsLabel.attributedText = statsText
         statsLabel.font = .nunito(ofSize: 11, weight: .regular)
-        statsLabel.textColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
+        statsLabel.textColor = Self.detailTextColor
         statsLabel.numberOfLines = 1
         statsLabel.lineBreakMode = .byTruncatingTail
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -412,17 +424,17 @@ private final class ProfileCardViewController: UIViewController {
 
             textStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
             textStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12),
-            textStack.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: -2),
+            textStack.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
 
             aboutScroll.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 8),
             aboutScroll.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
             aboutScroll.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
             aboutScroll.heightAnchor.constraint(equalToConstant: aboutHeight),
 
-            aboutLabel.topAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.topAnchor),
+            aboutLabel.topAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.topAnchor, constant: 8),
             aboutLabel.leadingAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.leadingAnchor),
             aboutLabel.trailingAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.trailingAnchor),
-            aboutLabel.bottomAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.bottomAnchor),
+            aboutLabel.bottomAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.bottomAnchor, constant: -8),
             aboutLabel.widthAnchor.constraint(equalTo: aboutScroll.frameLayoutGuide.widthAnchor),
 
             statsLabel.topAnchor.constraint(equalTo: aboutScroll.bottomAnchor, constant: 8),
@@ -486,6 +498,9 @@ private final class ProfileCardViewController: UIViewController {
         ])
         return bubbleView
     }
+
+    private static let detailTextColor = UIColor(red: 229/255, green: 229/255, blue: 229/255, alpha: 1)
+    private static let separatorTextColor = UIColor(red: 115/255, green: 115/255, blue: 115/255, alpha: 1)
 
     private static func preferredSize(for user: AniListUserSummary) -> CGSize {
         let about = sanitizedDescription(user.about) ?? "No user description"
@@ -577,14 +592,14 @@ private final class ProfileCardViewController: UIViewController {
         for (index, part) in parts.enumerated() {
             if index > 0 {
                 result.append(NSAttributedString(string: " • ", attributes: [
-                    .font: UIFont.nunito(ofSize: 7, weight: .regular),
-                    .foregroundColor: UIColor(white: 0.45, alpha: 1),
+                    .font: UIFont.nunito(ofSize: 6.4, weight: .regular),
+                    .foregroundColor: Self.separatorTextColor,
                     .baselineOffset: 1
                 ]))
             }
             result.append(NSAttributedString(string: part, attributes: [
                 .font: font,
-                .foregroundColor: UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
+                .foregroundColor: Self.detailTextColor
             ]))
         }
         return result
