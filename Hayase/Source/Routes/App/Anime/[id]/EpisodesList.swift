@@ -174,8 +174,12 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
-        l.numberOfLines = 3
+        l.numberOfLines = 0
         l.lineBreakMode = .byClipping
+        l.clipsToBounds = true
+        // Interface uses an overflow-hidden text block, not a fixed line clamp.
+        // Let Auto Layout clip it to the space left above the mt-auto metadata row.
+        l.setContentHuggingPriority(.defaultHigh, for: .vertical)
         l.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return l
     }()
@@ -306,8 +310,9 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
         let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, bottomRow])
         textStack.axis = .vertical
-        textStack.spacing = 4
+        textStack.spacing = 0
         textStack.setCustomSpacing(8, after: numberLabel)
+        textStack.setCustomSpacing(8, after: progressBar)
         textStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textStack)
 
@@ -401,6 +406,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             self.layer.shadowRadius = pressed ? 18 : 0
             self.layer.shadowOpacity = pressed ? 0.45 : 0
             self.layer.shadowOffset = pressed ? CGSize(width: 0, height: 8) : .zero
+            self.layer.zPosition = pressed ? 2 : (self.ringLayer.isHidden ? 0 : 1)
         }
         if animated {
             UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
@@ -414,9 +420,9 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
                    isRepeating: Bool = false, hideSpoilers: Bool = false,
                    followers: [AniListUserSummary] = []) {
         episodeNumber = episode.number
-        numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
+        numberLabel.text = "\(episode.number). \(episode.title)"
         overviewLabel.text = episode.overview
-        overviewLabel.isHidden = episode.overview.isEmpty
+        overviewLabel.isHidden = false
         followerStack.configure(users: followers,
                                 avatarSize: 16,
                                 ringWidth: 2,
@@ -484,6 +490,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             ringLayer.isHidden = true
             fillerBadge.isHidden = true
         }
+        layer.zPosition = ringLayer.isHidden ? 0 : 1
 
         currentImageURL = episode.imageURL
         thumbImageView.image = nil
@@ -552,6 +559,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         setPressed(false, animated: false)
         ringLayer.isHidden = true
         ringLayer.strokeColor = nil
+        layer.zPosition = 0
         alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
@@ -563,9 +571,25 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     }
 }
 
+// MARK: - Episode overflow support
+
+private protocol EpisodeOverflowRendering: AnyObject {}
+
+extension EpisodeOverflowRendering where Self: UITableViewCell {
+    func allowEpisodeOverflowRendering() {
+        var current: UIView? = self
+        while let view = current {
+            view.clipsToBounds = false
+            view.layer.masksToBounds = false
+            if view is UITableView { break }
+            current = view.superview
+        }
+    }
+}
+
 // MARK: - EpisodeCell
 
-final class EpisodeCell: UITableViewCell {
+final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     static let reuseID = "AniDetailEpCell"
 
     let cardView = EpisodeCardView()
@@ -624,6 +648,16 @@ final class EpisodeCell: UITableViewCell {
         _ = isRegular
     }
 
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        allowEpisodeOverflowRendering()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        allowEpisodeOverflowRendering()
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         cardView.reset()
@@ -633,7 +667,7 @@ final class EpisodeCell: UITableViewCell {
 
 // MARK: - EpisodePairCell
 
-final class EpisodePairCell: UITableViewCell {
+final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     static let reuseID = "EpisodePairCell"
 
     let leftCard = EpisodeCardView()
@@ -736,6 +770,16 @@ final class EpisodePairCell: UITableViewCell {
             rightCardLeadingConstraint?.constant = inset
             rightCardTrailingConstraint?.constant = -inset
         }
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        allowEpisodeOverflowRendering()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        allowEpisodeOverflowRendering()
     }
 
     override func prepareForReuse() {
