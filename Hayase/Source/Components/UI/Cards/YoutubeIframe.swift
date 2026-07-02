@@ -8,7 +8,7 @@
 import UIKit
 import WebKit
 
-final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDelegate {
+final class YoutubeIframe: UIView, WKScriptMessageHandler {
     var onHide: ((Bool) -> Void)?
 
     private var webView: WKWebView?
@@ -48,11 +48,6 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDe
             muteButton.heightAnchor.constraint(equalToConstant: 24),
         ])
         muteButton.addTarget(self, action: #selector(toggleMute), for: .touchUpInside)
-
-        let trailerTap = UITapGestureRecognizer(target: self, action: #selector(togglePlayback))
-        trailerTap.cancelsTouchesInView = false
-        trailerTap.delegate = self
-        addGestureRecognizer(trailerTap)
 
         updateMuteButton()
     }
@@ -133,30 +128,6 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler, UIGestureRecognizerDe
         }
         muted.toggle()
         updateMuteButton()
-    }
-
-    @objc private func togglePlayback() {
-        if isPlaying {
-            callPlayer("pauseVideo")
-            isPlaying = false
-        } else {
-            callPlayer("playVideo")
-            isPlaying = true
-        }
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        var view = touch.view
-        while let current = view, current !== self {
-            if current is UIControl { return false }
-            view = current.superview
-        }
-        return true
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        true
     }
 
     private func callPlayer(_ action: String, args: String = "null") {

@@ -2204,15 +2204,15 @@ class AnimeDetailViewController: UIViewController {
         webView.translatesAutoresizingMaskIntoConstraints = false
         dialog.view.addSubview(webView)
 
-        let maxHeight = webView.heightAnchor.constraint(lessThanOrEqualToConstant: UIScreen.main.bounds.height * 0.8)
-        maxHeight.priority = .defaultHigh
+        let width = webView.widthAnchor.constraint(equalTo: dialog.view.widthAnchor, constant: -32)
+        width.priority = .defaultHigh
         NSLayoutConstraint.activate([
             webView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
             webView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
             webView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, constant: -32),
-            webView.heightAnchor.constraint(equalTo: webView.widthAnchor, multiplier: 9.0 / 16.0),
             webView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, multiplier: 0.8),
-            maxHeight,
+            webView.heightAnchor.constraint(equalTo: webView.widthAnchor, multiplier: 9.0 / 16.0),
+            width,
         ])
 
         let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
