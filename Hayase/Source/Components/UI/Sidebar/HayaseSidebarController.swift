@@ -420,10 +420,10 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func applySidebarBackdropScrollOffset(_ scrollOffset: CGFloat) {
-        let y = -max(scrollOffset, 0)
-        let transform = CGAffineTransform(translationX: 0, y: y)
-        sidebarBackdropImageView.transform = transform
-        sidebarBackdropGradientView.transform = transform
+        // Interface mounts the sidebar BannerImage at absolute top-left too.
+        // The 56pt rail clips the full-width image; it never scroll-translates.
+        sidebarBackdropImageView.transform = .identity
+        sidebarBackdropGradientView.transform = .identity
     }
 
     private func clearSidebarBackdrop() {
@@ -803,9 +803,9 @@ private final class SidebarBackdropGradientView: UIView {
               let context = UIGraphicsGetCurrentContext(),
               let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                         colors: [
-                                            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-                                            UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-                                            UIColor.HayaseTheme.background.cgColor,
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.withAlphaComponent(0.16).cgColor,
+                                            UIColor.black.cgColor,
                                         ] as CFArray,
                                         locations: [0.0, 0.3056, 1.0]) else { return }
 

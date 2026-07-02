@@ -1919,11 +1919,24 @@ class BrowseAnimeViewController: UIViewController {
 
     private func updateHomeBackdropLayout(for height: CGFloat? = nil) {
         let viewHeight = height ?? (view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height)
-        let isRegular = traitCollection.horizontalSizeClass == .regular
-        homeBackdropLeadingConstraint?.constant = isRegular ? -56 : 0
+        let viewportSize = view.window?.bounds.size ?? view.bounds.size
+        let hasSidebar = Self.usesDesktopSidebar(viewportSize: viewportSize,
+                                                 traits: traitCollection)
+        let usesWideBanner = viewportSize.width >= 768
+        homeBackdropLeadingConstraint?.constant = hasSidebar ? -56 : 0
         homeBackdropTrailingConstraint?.constant = 0
-        homeBackdropView.configureForLayout(isRegular: isRegular,
+        homeBackdropView.configureForLayout(isRegular: usesWideBanner,
                                             viewHeight: viewHeight)
+    }
+
+    private static func usesDesktopSidebar(viewportSize: CGSize,
+                                           traits: UITraitCollection) -> Bool {
+        let isPhoneLandscape = traits.userInterfaceIdiom == .phone
+            && viewportSize.width > viewportSize.height
+            && viewportSize.width >= 568
+        return viewportSize.width >= 768
+            || traits.horizontalSizeClass == .regular
+            || isPhoneLandscape
     }
 
     private func applyHomeCarouselOverflowBehavior() {

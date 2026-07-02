@@ -53,9 +53,9 @@ private final class AnimeDetailBannerBackdropView: UIView {
                   let context = UIGraphicsGetCurrentContext(),
                   let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                             colors: [
-                                                UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-                                                UIColor.HayaseTheme.background.withAlphaComponent(0.16).cgColor,
-                                                UIColor.HayaseTheme.background.cgColor,
+                                                UIColor.black.withAlphaComponent(0.16).cgColor,
+                                                UIColor.black.withAlphaComponent(0.16).cgColor,
+                                                UIColor.black.cgColor,
                                             ] as CFArray,
                                             locations: [0.0, 0.3056, 1.0]) else { return }
 
@@ -1628,6 +1628,8 @@ class AnimeDetailViewController: UIViewController {
 
     var tableView: UITableView!
     private let animeBackdropView = AnimeDetailBannerBackdropView()
+    private var animeBackdropLeadingConstraint: NSLayoutConstraint?
+    private var animeBackdropTrailingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
     private var coverDialogImageTask: URLSessionDataTask?
     var isFavorite = false
@@ -1861,17 +1863,38 @@ class AnimeDetailViewController: UIViewController {
     private func setupAnimeBackdropView() {
         animeBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(animeBackdropView)
+        animeBackdropLeadingConstraint = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        animeBackdropTrailingConstraint = animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
             animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            animeBackdropLeadingConstraint!,
+            animeBackdropTrailingConstraint!,
         ])
         configureAnimeBackdropForCurrentSize()
     }
 
     private func configureAnimeBackdropForCurrentSize(width: CGFloat? = nil) {
-        let resolvedWidth = width ?? view.bounds.width
-        animeBackdropView.configure(height: 368, compact: resolvedWidth < 768)
+        let viewportSize: CGSize
+        if let width {
+            viewportSize = CGSize(width: width, height: view.window?.bounds.height ?? view.bounds.height)
+        } else {
+            viewportSize = view.window?.bounds.size ?? view.bounds.size
+        }
+        let hasSidebar = Self.usesDesktopSidebar(viewportSize: viewportSize,
+                                                 traits: traitCollection)
+        animeBackdropLeadingConstraint?.constant = hasSidebar ? -56 : 0
+        animeBackdropTrailingConstraint?.constant = 0
+        animeBackdropView.configure(height: 368, compact: viewportSize.width < 768)
+    }
+
+    private static func usesDesktopSidebar(viewportSize: CGSize,
+                                           traits: UITraitCollection) -> Bool {
+        let isPhoneLandscape = traits.userInterfaceIdiom == .phone
+            && viewportSize.width > viewportSize.height
+            && viewportSize.width >= 568
+        return viewportSize.width >= 768
+            || traits.horizontalSizeClass == .regular
+            || isPhoneLandscape
     }
 
     private func observeAnimeBackdrop() {

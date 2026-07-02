@@ -103,18 +103,14 @@ private final class ProfileButton: UIControl {
 
     @objc private func showProfile() {
         guard let presenter = nearestViewController else { return }
-        let card = ProfileCardViewController(user: user)
-        card.modalPresentationStyle = .popover
-        card.preferredContentSize = CGSize(width: 308, height: 328)
-        if let popover = card.popoverPresentationController {
-            popover.sourceView = self
-            popover.sourceRect = bounds
-            popover.permittedArrowDirections = [.up, .down, .left, .right]
-            popover.backgroundColor = .clear
-            popover.delegate = card
+        let card = ProfileCardViewController(user: user, sourceView: self)
+        card.modalPresentationStyle = .overFullScreen
+        card.modalTransitionStyle = .crossDissolve
+        presenter.present(card, animated: false) {
+            card.animateIn()
         }
-        presenter.present(card, animated: true)
     }
+
 }
 
 private final class ProfileAvatarView: UIView {
@@ -242,8 +238,17 @@ private final class ProfileAvatarView: UIView {
     }
 }
 
-private final class ProfileCardViewController: UIViewController, UIPopoverPresentationControllerDelegate {
+private final class ProfileCardViewController: UIViewController {
+    private static let contentWidth: CGFloat = 300
+    private static let outerPadding: CGFloat = 4
+    private static let screenMargin: CGFloat = 12
+    private static let sideOffset: CGFloat = 16
+
+    private weak var sourceView: UIView?
     private let user: AniListUserSummary
+    private let dismissControl = UIControl()
+    private let cardShadowView = UIView()
+    private let cardContentView = UIView()
     private let rootGradient = CAGradientLayer()
     private let coreView = UIView()
     private let headerView = UIView()
@@ -251,8 +256,9 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
     private let avatarView: ProfileAvatarView
     private var bannerTask: URLSessionDataTask?
 
-    init(user: AniListUserSummary) {
+    init(user: AniListUserSummary, sourceView: UIView) {
         self.user = user
+        self.sourceView = sourceView
         self.avatarView = ProfileAvatarView(user: user,
                                             avatarSize: 80,
                                             ringWidth: 0,
@@ -276,29 +282,47 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        rootGradient.frame = view.bounds
-        coreView.layer.cornerRadius = 6
-        headerView.layer.cornerRadius = 6
-        bannerImageView.layer.cornerRadius = 6
+        dismissControl.frame = view.bounds
+        layoutCard()
+        rootGradient.frame = cardContentView.bounds
+        coreView.layer.cornerRadius = 4
+        headerView.layer.cornerRadius = 4
+        bannerImageView.layer.cornerRadius = 4
         bannerImageView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     }
 
     private func setupView() {
         view.backgroundColor = .clear
+        view.isOpaque = false
+
+        dismissControl.backgroundColor = .clear
+        dismissControl.addTarget(self, action: #selector(dismissPopover), for: .touchUpInside)
+        view.addSubview(dismissControl)
+
+        cardShadowView.backgroundColor = .clear
+        cardShadowView.layer.shadowColor = UIColor.black.cgColor
+        cardShadowView.layer.shadowOpacity = 0.35
+        cardShadowView.layer.shadowRadius = 12
+        cardShadowView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        view.addSubview(cardShadowView)
+
+        cardContentView.backgroundColor = .clear
+        cardContentView.clipsToBounds = true
+        cardContentView.layer.cornerRadius = 6
+        cardShadowView.addSubview(cardContentView)
+
         rootGradient.colors = [
             profileBaseColor.cgColor,
             UIColor(red: 34/255, green: 33/255, blue: 30/255, alpha: 1).cgColor,
         ]
         rootGradient.startPoint = CGPoint(x: 0.5, y: 0)
         rootGradient.endPoint = CGPoint(x: 0.5, y: 1)
-        view.layer.insertSublayer(rootGradient, at: 0)
-        view.layer.cornerRadius = 6
-        view.clipsToBounds = true
+        cardContentView.layer.insertSublayer(rootGradient, at: 0)
 
         coreView.backgroundColor = mixedCoreColor
         coreView.clipsToBounds = true
         coreView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(coreView)
+        cardContentView.addSubview(coreView)
 
         headerView.backgroundColor = user.bannerURL == nil ? UIColor.HayaseTheme.primary.withAlphaComponent(0.1) : .clear
         headerView.translatesAutoresizingMaskIntoConstraints = false
@@ -321,7 +345,7 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
         nameLabel.lineBreakMode = .byTruncatingTail
 
         let detailLabel = UILabel()
-        detailLabel.text = detailText
+        detailLabel.attributedText = detailText
         detailLabel.font = .nunito(ofSize: 11, weight: .regular)
         detailLabel.textColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
         detailLabel.numberOfLines = 1
@@ -340,20 +364,21 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
         }
 
         let aboutLabel = UILabel()
-        aboutLabel.text = sanitizedHTML(user.about) ?? "No user description"
+        aboutLabel.text = Self.sanitizedDescription(user.about) ?? "No user description"
         aboutLabel.font = .nunito(ofSize: 14, weight: .regular)
         aboutLabel.textColor = UIColor.HayaseTheme.foreground
         aboutLabel.numberOfLines = 0
         aboutLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let aboutScroll = UIScrollView()
-        aboutScroll.showsVerticalScrollIndicator = true
+        aboutScroll.showsVerticalScrollIndicator = false
+        aboutScroll.alwaysBounceVertical = false
         aboutScroll.translatesAutoresizingMaskIntoConstraints = false
         aboutScroll.addSubview(aboutLabel)
         coreView.addSubview(aboutScroll)
 
         let statsLabel = UILabel()
-        statsLabel.text = statsText
+        statsLabel.attributedText = statsText
         statsLabel.font = .nunito(ofSize: 11, weight: .regular)
         statsLabel.textColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
         statsLabel.numberOfLines = 1
@@ -361,11 +386,14 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
         coreView.addSubview(statsLabel)
 
+        let aboutHeight = Self.aboutBlockHeight(for: aboutLabel.text ?? "")
+        let statsHeight = ceil(statsLabel.font.lineHeight)
+
         NSLayoutConstraint.activate([
-            coreView.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
-            coreView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
-            coreView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
-            coreView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
+            coreView.topAnchor.constraint(equalTo: cardContentView.topAnchor, constant: Self.outerPadding),
+            coreView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor, constant: Self.outerPadding),
+            coreView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor, constant: -Self.outerPadding),
+            coreView.bottomAnchor.constraint(equalTo: cardContentView.bottomAnchor, constant: -Self.outerPadding),
 
             headerView.topAnchor.constraint(equalTo: coreView.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: coreView.leadingAnchor),
@@ -389,7 +417,7 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
             aboutScroll.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 8),
             aboutScroll.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
             aboutScroll.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
-            aboutScroll.heightAnchor.constraint(lessThanOrEqualToConstant: 200),
+            aboutScroll.heightAnchor.constraint(equalToConstant: aboutHeight),
 
             aboutLabel.topAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.topAnchor),
             aboutLabel.leadingAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.leadingAnchor),
@@ -400,6 +428,7 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
             statsLabel.topAnchor.constraint(equalTo: aboutScroll.bottomAnchor, constant: 8),
             statsLabel.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
             statsLabel.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
+            statsLabel.heightAnchor.constraint(equalToConstant: statsHeight),
             statsLabel.bottomAnchor.constraint(equalTo: coreView.bottomAnchor, constant: -8),
         ])
 
@@ -458,26 +487,107 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
         return bubbleView
     }
 
+    private static func preferredSize(for user: AniListUserSummary) -> CGSize {
+        let about = sanitizedDescription(user.about) ?? "No user description"
+        let aboutHeight = aboutBlockHeight(for: about)
+        let statsHeight = ceil(UIFont.nunito(ofSize: 11, weight: .regular).lineHeight)
+        let height = outerPadding * 2 + 105 + 8 + aboutHeight + 8 + statsHeight + 8
+        return CGSize(width: contentWidth + outerPadding * 2, height: ceil(height))
+    }
+
+    private static func aboutBlockHeight(for text: String) -> CGFloat {
+        let font = UIFont.nunito(ofSize: 14, weight: .regular)
+        let width = contentWidth - 32
+        let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                                   options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                                   attributes: [.font: font],
+                                                   context: nil)
+        return min(max(ceil(rect.height), ceil(font.lineHeight)) + 16, 200)
+    }
+
+    private func layoutCard() {
+        let size = Self.preferredSize(for: user)
+        let bounds = view.bounds
+        let fallback = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
+        let sourceRect: CGRect
+        if let sourceView {
+            sourceRect = sourceView.convert(sourceView.bounds, to: view)
+        } else {
+            sourceRect = fallback
+        }
+        let minX = Self.screenMargin
+        let maxX = max(minX, bounds.width - size.width - Self.screenMargin)
+        let targetX = min(max(sourceRect.midX - size.width / 2, minX), maxX)
+        let belowY = sourceRect.maxY + Self.sideOffset
+        let aboveY = sourceRect.minY - size.height - Self.sideOffset
+        let targetY = belowY + size.height <= bounds.height - Self.screenMargin
+            ? belowY
+            : max(Self.screenMargin, aboveY)
+
+        cardShadowView.frame = CGRect(origin: CGPoint(x: targetX, y: targetY), size: size)
+        cardContentView.frame = cardShadowView.bounds
+        cardShadowView.layer.shadowPath = UIBezierPath(roundedRect: cardShadowView.bounds, cornerRadius: 6).cgPath
+    }
+
+    func animateIn() {
+        cardShadowView.alpha = 0
+        cardShadowView.transform = CGAffineTransform(translationX: 0, y: -8).scaledBy(x: 0.95, y: 0.95)
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
+            self.cardShadowView.alpha = 1
+            self.cardShadowView.transform = .identity
+        }
+    }
+
+    @objc private func dismissPopover() {
+        UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn]) {
+            self.cardShadowView.alpha = 0
+            self.cardShadowView.transform = CGAffineTransform(translationX: 0, y: -4).scaledBy(x: 0.98, y: 0.98)
+        } completion: { _ in
+            self.dismiss(animated: false)
+        }
+    }
+
     private var profileBaseColor: UIColor {
-        UIColor(hexString: user.profileColor) ?? .black
+        UIColor(cssColor: user.profileColor) ?? .black
     }
 
     private var mixedCoreColor: UIColor {
-        blend(UIColor(red: 20/255, green: 20/255, blue: 20/255, alpha: 1), profileBaseColor, amount: 0.7)
+        blend(UIColor(red: 20/255, green: 20/255, blue: 20/255, alpha: 1), profileBaseColor, amount: 0.77)
     }
 
-    private var detailText: String {
+    private var detailText: NSAttributedString {
         var parts: [String] = []
         if user.isFollower { parts.append("Follows you") }
         let joined = AniListUtil.since(Date(timeIntervalSince1970: user.createdAt))
         parts.append("Joined \(joined)")
-        return parts.joined(separator: "  ")
+        return Self.detailsString(parts, font: .nunito(ofSize: 11, weight: .regular))
     }
 
-    private var statsText: String {
+    private var statsText: NSAttributedString {
         let watched = AniListUtil.since(Date(timeIntervalSinceNow: -Double(user.minutesWatched) * 60))
             .replacingOccurrences(of: "ago", with: "watched")
-        return "\(user.animeCount) anime  \(user.episodesWatched) episodes  \(watched)"
+        return Self.detailsString(["\(user.animeCount) anime",
+                                   "\(user.episodesWatched) episodes",
+                                   watched],
+                                  font: .nunito(ofSize: 11, weight: .regular))
+    }
+
+    private static func detailsString(_ parts: [String], font: UIFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        for (index, part) in parts.enumerated() {
+            if index > 0 {
+                result.append(NSAttributedString(string: " • ", attributes: [
+                    .font: UIFont.nunito(ofSize: 7, weight: .regular),
+                    .foregroundColor: UIColor(white: 0.45, alpha: 1),
+                    .baselineOffset: 1
+                ]))
+            }
+            result.append(NSAttributedString(string: part, attributes: [
+                .font: font,
+                .foregroundColor: UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
+            ]))
+        }
+        return result
     }
 
     private func loadBanner() {
@@ -499,7 +609,7 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
         bannerTask?.resume()
     }
 
-    private func sanitizedHTML(_ html: String?) -> String? {
+    private static func sanitizedDescription(_ html: String?) -> String? {
         guard let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let stripped = html
             .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
@@ -530,9 +640,6 @@ private final class ProfileCardViewController: UIViewController, UIPopoverPresen
                        alpha: a1 * (1 - amount) + a2 * amount)
     }
 
-    func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
-        .none
-    }
 }
 
 private extension UIResponder {
@@ -547,9 +654,22 @@ private extension UIResponder {
 }
 
 private extension UIColor {
-    convenience init?(hexString: String?) {
-        guard let hex = hexString?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-        var cleanHex = hex
+    convenience init?(cssColor: String?) {
+        guard let raw = cssColor?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let named: [String: String] = [
+            "black": "#000000",
+            "blue": "#0000ff",
+            "gray": "#808080",
+            "green": "#008000",
+            "grey": "#808080",
+            "orange": "#ffa500",
+            "pink": "#ffc0cb",
+            "purple": "#800080",
+            "red": "#ff0000",
+            "white": "#ffffff",
+            "yellow": "#ffff00"
+        ]
+        var cleanHex = named[raw.lowercased()] ?? raw
         if cleanHex.hasPrefix("#") { cleanHex = String(cleanHex.dropFirst()) }
         guard cleanHex.count == 6, let rgb = UInt64(cleanHex, radix: 16) else { return nil }
         self.init(red: CGFloat((rgb >> 16) & 0xFF) / 255,
