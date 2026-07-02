@@ -212,6 +212,44 @@ struct AniListUserSummary {
     let id: Int
     let name: String
     let avatarURL: String?
+    let bannerURL: String?
+    let about: String?
+    let isFollowing: Bool
+    let isFollower: Bool
+    let donatorBadge: String?
+    let profileColor: String?
+    let createdAt: TimeInterval
+    let animeCount: Int
+    let episodesWatched: Int
+    let minutesWatched: Int
+
+    init(id: Int,
+         name: String,
+         avatarURL: String?,
+         bannerURL: String? = nil,
+         about: String? = nil,
+         isFollowing: Bool = false,
+         isFollower: Bool = false,
+         donatorBadge: String? = nil,
+         profileColor: String? = nil,
+         createdAt: TimeInterval = 0,
+         animeCount: Int = 0,
+         episodesWatched: Int = 0,
+         minutesWatched: Int = 0) {
+        self.id = id
+        self.name = name
+        self.avatarURL = avatarURL
+        self.bannerURL = bannerURL
+        self.about = about
+        self.isFollowing = isFollowing
+        self.isFollower = isFollower
+        self.donatorBadge = donatorBadge
+        self.profileColor = profileColor
+        self.createdAt = createdAt
+        self.animeCount = animeCount
+        self.episodesWatched = episodesWatched
+        self.minutesWatched = minutesWatched
+    }
 }
 
 struct AniListFollowingEntry {

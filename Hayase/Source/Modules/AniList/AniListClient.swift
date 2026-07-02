@@ -542,17 +542,58 @@ public final class AniListClient: NSObject {
             guard let media = entry["media"] as? [String: Any],
                   let mediaID = media["id"] as? Int,
                   let user = entry["user"] as? [String: Any],
-                  let userID = user["id"] as? Int,
-                  userID != viewerID,
-                  let name = user["name"] as? String else { continue }
-            let pairKey = "\(mediaID):\(userID)"
+                  let summary = parseUserSummary(user),
+                  summary.id != viewerID else { continue }
+            let pairKey = "\(mediaID):\(summary.id)"
             guard seenPairs.insert(pairKey).inserted else { continue }
-            let avatar = (user["avatar"] as? [String: Any])?["large"] as? String
-            usersByMediaID[mediaID, default: []].append(AniListUserSummary(id: userID,
-                                                                           name: name,
-                                                                           avatarURL: avatar))
+            usersByMediaID[mediaID, default: []].append(summary)
         }
         return .success(usersByMediaID)
+    }
+
+    private func parseUserSummary(_ user: [String: Any]) -> AniListUserSummary? {
+        guard let userID = user["id"] as? Int,
+              let name = user["name"] as? String else { return nil }
+        let avatar = (user["avatar"] as? [String: Any])?["large"] as? String
+        let options = user["options"] as? [String: Any]
+        let statistics = (user["statistics"] as? [String: Any])?["anime"] as? [String: Any]
+        return AniListUserSummary(
+            id: userID,
+            name: name,
+            avatarURL: avatar,
+            bannerURL: user["bannerImage"] as? String,
+            about: user["about"] as? String,
+            isFollowing: boolValue(user["isFollowing"]),
+            isFollower: boolValue(user["isFollower"]),
+            donatorBadge: user["donatorBadge"] as? String,
+            profileColor: options?["profileColor"] as? String,
+            createdAt: userTimeIntervalValue(user["createdAt"]),
+            animeCount: userIntegerValue(statistics?["count"]),
+            episodesWatched: userIntegerValue(statistics?["episodesWatched"]),
+            minutesWatched: userIntegerValue(statistics?["minutesWatched"]))
+    }
+
+    private func userIntegerValue(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) ?? 0 }
+        return 0
+    }
+
+    private func userTimeIntervalValue(_ value: Any?) -> TimeInterval {
+        if let value = value as? TimeInterval { return value }
+        if let value = value as? Int { return TimeInterval(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        if let value = value as? String, let parsed = TimeInterval(value) { return parsed }
+        return 0
+    }
+
+    private func boolValue(_ value: Any?) -> Bool {
+        if let value = value as? Bool { return value }
+        if let value = value as? Int { return value != 0 }
+        if let value = value as? String { return value == "true" || value == "1" }
+        return false
     }
 
     @discardableResult
@@ -1470,11 +1511,9 @@ public final class AniListClient: NSObject {
         return entries.compactMap { entry in
             guard let progress = entry["progress"] as? Int,
                   let user = entry["user"] as? [String: Any],
-                  let userID = user["id"] as? Int,
-                  userID != viewerID,
-                  let name = user["name"] as? String else { return nil }
-            let avatar = (user["avatar"] as? [String: Any])?["large"] as? String
-            return AniListFollowingEntry(user: AniListUserSummary(id: userID, name: name, avatarURL: avatar),
+                  let summary = parseUserSummary(user),
+                  summary.id != viewerID else { return nil }
+            return AniListFollowingEntry(user: summary,
                                          progress: progress)
         }
     }

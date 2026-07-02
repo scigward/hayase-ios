@@ -30,69 +30,6 @@ struct FilteredEpisode {
     let anidbEid: Int?
 }
 
-// MARK: - FollowerAvatarStackView
-
-final class FollowerAvatarStackView: UIStackView {
-    private var imageTasks: [URLSessionDataTask] = []
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        axis = .horizontal
-        spacing = -6
-        alignment = .center
-        isHidden = true
-    }
-
-    required init(coder: NSCoder) {
-        super.init(coder: coder)
-        axis = .horizontal
-        spacing = -6
-        alignment = .center
-        isHidden = true
-    }
-
-    func configure(users: [AniListUserSummary]) {
-        reset()
-        let visibleUsers = Array(users.filter { ($0.avatarURL?.isEmpty == false) }.prefix(4))
-        isHidden = visibleUsers.isEmpty
-        for user in visibleUsers {
-            let avatar = UIImageView()
-            avatar.backgroundColor = UIColor(white: 0.18, alpha: 1)
-            avatar.contentMode = .scaleAspectFill
-            avatar.clipsToBounds = true
-            avatar.layer.cornerRadius = 8
-            avatar.layer.borderWidth = 1
-            avatar.layer.borderColor = UIColor.black.cgColor
-            avatar.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                avatar.widthAnchor.constraint(equalToConstant: 16),
-                avatar.heightAnchor.constraint(equalToConstant: 16),
-            ])
-            addArrangedSubview(avatar)
-
-            guard let urlString = user.avatarURL, let url = URL(string: urlString) else { continue }
-            let task = URLSession.shared.dataTask(with: url) { [weak avatar] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
-                DispatchQueue.main.async {
-                    avatar?.image = image
-                }
-            }
-            imageTasks.append(task)
-            task.resume()
-        }
-    }
-
-    func reset() {
-        imageTasks.forEach { $0.cancel() }
-        imageTasks.removeAll()
-        arrangedSubviews.forEach { view in
-            removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        isHidden = true
-    }
-}
-
 // MARK: - EpisodeRatingBadgeView
 
 private final class EpisodeRatingBadgeView: UIView {
@@ -436,7 +373,10 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         numberLabel.text = "\(episode.number). \(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)"
         overviewLabel.text = episode.overview
         overviewLabel.isHidden = episode.overview.isEmpty
-        followerStack.configure(users: followers)
+        followerStack.configure(users: followers,
+                                avatarSize: 16,
+                                ringWidth: 2,
+                                ringColor: UIColor.HayaseTheme.muted)
 
         let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
         let isTarget = !isListCompleted && episode.number == anilistProgress + 1

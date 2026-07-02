@@ -132,7 +132,7 @@ extension AnimeDetailViewController {
                 self.threads = payload.threads
                 self.threadTotalCount = payload.threadTotal
                 self.followingEntriesByEpisode = Dictionary(grouping: payload.followingEntries, by: \.progress)
-                    .mapValues { entries in Array(entries.prefix(4)).map(\.user) }
+                    .mapValues { entries in entries.map(\.user) }
                 self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
 
                 self.reloadAnimePagePayloadSections()

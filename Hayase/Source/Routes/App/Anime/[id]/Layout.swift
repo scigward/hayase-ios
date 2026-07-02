@@ -1471,22 +1471,35 @@ final class AnimeInfoHeaderView: UIView {
 
     private func setDescriptionText(_ raw: String?) {
         rawDescription = raw
-        // interface: whitespace-pre-wrap (word-wrap, \n preserved) + leading-2 tight spacing.
-        // Apply a paragraph style so line-height matches the web rendering.
-        let text = (raw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            ? "No description available."
-            : (raw ?? "No description available.")
-        applyDescriptionAttributedText(text)
+        applyDescriptionAttributedText(interfaceDescription(from: raw))
+    }
+
+    private func interfaceDescription(from raw: String?) -> String {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "No description available."
+        }
+        let text = raw
+            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\n+", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "\n?\\(?Source: [^)]+\\)?\n?", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\n?Notes?:[ |\n][^\n]+\n?", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#039;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "No description available." : text
     }
 
     private func applyDescriptionAttributedText(_ text: String) {
         let para = NSMutableParagraphStyle()
-        para.lineHeightMultiple = 1.35
         para.lineBreakMode = .byWordWrapping
         let font = descriptionLabel.font ?? .nunito(ofSize: 14, weight: .light)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: UIColor(white: 0.649, alpha: 1.0),
+            .foregroundColor: UIColor.HayaseTheme.mutedForeground,
             .paragraphStyle: para,
         ]
         descriptionLabel.attributedText = NSAttributedString(string: text, attributes: attrs)
@@ -1543,7 +1556,10 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func updateFollowingAvatars(users: [AniListUserSummary]) {
-        headerFollowerStack.configure(users: users)
+        headerFollowerStack.configure(users: users,
+                                      avatarSize: 32,
+                                      ringWidth: 4,
+                                      ringColor: UIColor.HayaseTheme.background)
         updateActionVisibilityForCurrentWidth()
     }
 
@@ -2055,11 +2071,12 @@ class AnimeDetailViewController: UIViewController {
         imageContainer.addSubview(imageView)
 
         let closeButton = UIButton(type: .system)
-        closeButton.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(0.92)
-        closeButton.tintColor = UIColor.HayaseTheme.foreground
-        closeButton.layer.cornerRadius = 8
+        closeButton.backgroundColor = .clear
+        closeButton.tintColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.7)
+        closeButton.layer.cornerRadius = 2
         closeButton.layer.masksToBounds = true
-        closeButton.setImage(UIImage.hayaseIcon("x", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)), for: .normal)
+        closeButton.setImage(UIImage.hayaseIcon("x", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)), for: .normal)
+        closeButton.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(dismissPresentedCoverDialog), for: .touchUpInside)
         dialog.view.addSubview(closeButton)
@@ -2091,10 +2108,10 @@ class AnimeDetailViewController: UIViewController {
             imageView.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: imageContainer.bottomAnchor),
 
-            closeButton.topAnchor.constraint(equalTo: imageContainer.topAnchor, constant: 8),
-            closeButton.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor, constant: -8),
-            closeButton.widthAnchor.constraint(equalToConstant: 32),
-            closeButton.heightAnchor.constraint(equalToConstant: 32),
+            closeButton.topAnchor.constraint(equalTo: imageContainer.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 24),
+            closeButton.heightAnchor.constraint(equalToConstant: 24),
         ])
 
         // Tap outside image to dismiss
