@@ -880,6 +880,7 @@ final class AnimeInfoHeaderView: UIView {
         contentWidthConstraint?.constant = isRegular ? 56 : 0
         contentCenterXConstraint?.constant = isRegular ? -28 : 0
 
+        updateGenresScrollInset(isRegular: isRegular)
         genresScrollView.isHidden = false
         chipWrapView.isHidden = true
         genresContainerHeightConstraint?.isActive = true
@@ -993,6 +994,7 @@ final class AnimeInfoHeaderView: UIView {
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
+        updateGenresScrollInset(isRegular: isRegular)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
         if isRegular {
@@ -1060,6 +1062,24 @@ final class AnimeInfoHeaderView: UIView {
     private func interfaceHorizontalPadding(for measuredWidth: CGFloat) -> CGFloat {
         // +layout.svelte: 2xs:px-3 xl:px-14. iPads use 12pt; 56pt starts at xl.
         measuredWidth >= 1280 ? 56 : 12
+    }
+
+    private func updateGenresScrollInset(isRegular: Bool) {
+        // The header container extends left by 56pt to mirror the route shell.
+        // Keep the first genre chip after that rail instead of underneath it.
+        let leftInset: CGFloat = isRegular ? 56 : 0
+        guard abs(genresScrollView.contentInset.left - leftInset) > 0.5 else { return }
+        genresScrollView.contentInset = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
+        genresScrollView.scrollIndicatorInsets = genresScrollView.contentInset
+        if genresScrollView.contentOffset.x >= -0.5 {
+            resetGenresScrollPosition()
+        }
+    }
+
+    private func resetGenresScrollPosition() {
+        genresScrollView.setContentOffset(
+            CGPoint(x: -genresScrollView.contentInset.left, y: 0),
+            animated: false)
     }
 
     // MARK: - Sidebar banner bridge
@@ -1485,7 +1505,7 @@ final class AnimeInfoHeaderView: UIView {
                                  isSpoiler: button.isSpoilerChip)
         })
         genresContainer.isHidden = chips.isEmpty
-        genresScrollView.setContentOffset(.zero, animated: false)
+        resetGenresScrollPosition()
     }
 
     func updateGenresAndTrailer(genres: [String], tags: [AnimeTag] = [], trailerYouTubeID: String?) {
@@ -1584,7 +1604,6 @@ class AnimeDetailViewController: UIViewController {
 
     var tableView: UITableView!
     private let animeBackdropView = AnimeDetailBannerBackdropView()
-    private var animeBackdropLeadingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
     private var coverDialogImageTask: URLSessionDataTask?
     var isFavorite = false
@@ -1818,11 +1837,9 @@ class AnimeDetailViewController: UIViewController {
     private func setupAnimeBackdropView() {
         animeBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(animeBackdropView)
-        let leading = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        animeBackdropLeadingConstraint = leading
         NSLayoutConstraint.activate([
             animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            leading,
+            animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         configureAnimeBackdropForCurrentSize()
@@ -1830,7 +1847,6 @@ class AnimeDetailViewController: UIViewController {
 
     private func configureAnimeBackdropForCurrentSize(width: CGFloat? = nil) {
         let resolvedWidth = width ?? view.bounds.width
-        animeBackdropLeadingConstraint?.constant = resolvedWidth >= 768 ? -56 : 0
         animeBackdropView.configure(height: 368, compact: resolvedWidth < 768)
     }
 
@@ -1887,7 +1903,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
         tableView.scrollIndicatorInsets = tableView.contentInset
         tableView.clipsToBounds = false
-        view.clipsToBounds = false
+        view.clipsToBounds = true
         view.addSubview(tableView)
     }
 

@@ -690,16 +690,14 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateSidebarBackground() {
-        let visibleRoute = visibleBannerBackdropRoute()
-        let isBannerRoute = visibleRoute != nil
+        let isBannerRoute = visibleBannerBackdropRoute() != nil
         let hasBackdrop = sidebarBackdropImageView.image != nil || sidebarBackdropURL != nil
-        let animeBackdropIsRouteOwned = visibleRoute == Self.homeBannerBackdropAnimeRoute
-        let showsBannerBackdrop = isBannerRoute && hasBackdrop && !animeBackdropIsRouteOwned
+        let showsBannerBackdrop = isBannerRoute && hasBackdrop
 
         // app/+layout.svelte and sidebarlist.svelte both render BannerImage at
-        // absolute top-left. Anime detail extends its route backdrop under the
-        // rail, so avoid drawing a second differently-cropped sidebar copy.
-        sidebarContainer.backgroundColor = isBannerRoute ? .clear : UIColor.HayaseTheme.background
+        // absolute top-left. Keep the rail transparent on banner routes so the
+        // clipped w-14 sidebar slice stays attached to the page banner.
+        sidebarContainer.backgroundColor = showsBannerBackdrop ? .clear : UIColor.HayaseTheme.background
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.setCompact(view.bounds.width < 768)
