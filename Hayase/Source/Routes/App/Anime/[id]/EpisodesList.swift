@@ -36,11 +36,12 @@ private enum EpisodeCardStyle {
     static let cardRadius: CGFloat = 6
     static let cardHeight: CGFloat = 112
     static let thumbnailMaxWidth: CGFloat = 208
-    static let thumbnailBadgeBackground = UIColor(white: 0.09, alpha: 0.8)
-    static let selectedBackground = UIColor(white: 0.09, alpha: 1)
-    static let trackBackground = UIColor(white: 0.149, alpha: 1)
+    static let thumbnailBadgeBackground = UIColor(white: 23/255, alpha: 0.8)
+    static let selectedBackground = UIColor(white: 23/255, alpha: 1)
+    static let trackBackground = UIColor(white: 38/255, alpha: 1)
     static let fillerBackground = UIColor(red: 250/255, green: 204/255, blue: 21/255, alpha: 1)
-    static let followerRing = UIColor(white: 0.04, alpha: 1)
+    static let followerRing = UIColor(white: 10/255, alpha: 1)
+    static let cardBackground = UIColor(white: 10/255, alpha: 1)
 }
 
 // MARK: - EpisodeRatingBadgeView
@@ -174,6 +175,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 3
+        l.lineBreakMode = .byClipping
         return l
     }()
 
@@ -185,10 +187,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     }()
 
     private let followerStack = FollowerAvatarStackView()
+    private let ringLayer = CAShapeLayer()
 
     private let playOverlayView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.5)
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         v.alpha = 0
         v.isUserInteractionEnabled = false
         v.layer.cornerRadius = EpisodeCardStyle.cardRadius
@@ -236,13 +239,19 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func setup() {
-        backgroundColor = hayaseCardBackground
+        backgroundColor = EpisodeCardStyle.cardBackground
         layer.cornerRadius = EpisodeCardStyle.cardRadius
         clipsToBounds = false
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowRadius = 0
         layer.shadowOpacity = 0
         layer.shadowOffset = CGSize(width: 0, height: 0)
+
+        ringLayer.fillColor = UIColor.clear.cgColor
+        ringLayer.lineWidth = 1
+        ringLayer.zPosition = 10
+        ringLayer.isHidden = true
+        layer.addSublayer(ringLayer)
 
         [thumbImageView, spoilerBlurView, playOverlayView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -383,7 +392,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private func setPressed(_ pressed: Bool, animated: Bool) {
         let changes = {
             self.transform = pressed ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
-            self.backgroundColor = pressed ? EpisodeCardStyle.selectedBackground : hayaseCardBackground
+            self.backgroundColor = pressed ? EpisodeCardStyle.selectedBackground : EpisodeCardStyle.cardBackground
             self.playOverlayView.alpha = pressed ? 1 : 0
             self.playOverlayIcon.alpha = pressed ? 1 : 0
             self.playOverlayIcon.transform = pressed ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
@@ -392,7 +401,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             self.layer.shadowOffset = pressed ? CGSize(width: 0, height: 8) : .zero
         }
         if animated {
-            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
         } else {
             changes()
         }
@@ -429,11 +438,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             savedProgressFraction = 1.0
             setNeedsLayout()
         } else if anilistID > 0,
-           let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
-           saved.isInProgress {
+                  let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number) {
             progressBar.backgroundColor = EpisodeCardStyle.trackBackground
             progressBar.isHidden = false
-            savedProgressFraction = saved.fraction
+            let progressPercent = ceil(saved.fraction * 100) / 100
+            savedProgressFraction = min(max(progressPercent, 0), 1)
             setNeedsLayout()
         } else {
             progressBar.isHidden = true
@@ -462,16 +471,15 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
 
         if episode.isFiller {
-            layer.borderWidth = 1
-            layer.borderColor = EpisodeCardStyle.fillerBackground.cgColor
+            ringLayer.strokeColor = EpisodeCardStyle.fillerBackground.cgColor
+            ringLayer.isHidden = false
             fillerBadge.isHidden = false
         } else if isTarget {
-            layer.borderWidth = 1
-            layer.borderColor = accentColor.cgColor
+            ringLayer.strokeColor = accentColor.cgColor
+            ringLayer.isHidden = false
             fillerBadge.isHidden = true
         } else {
-            layer.borderWidth = 0
-            layer.borderColor = UIColor.clear.cgColor
+            ringLayer.isHidden = true
             fillerBadge.isHidden = true
         }
 
@@ -509,6 +517,9 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        let ringRect = bounds.insetBy(dx: -0.5, dy: -0.5)
+        ringLayer.path = UIBezierPath(roundedRect: ringRect, cornerRadius: EpisodeCardStyle.cardRadius + 0.5).cgPath
+
         guard !progressBar.isHidden, progressBar.bounds.width > 0 else { return }
         progressFillWidthConstraint?.constant = progressBar.bounds.width * CGFloat(savedProgressFraction)
     }
@@ -537,8 +548,8 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         overviewLabel.alpha = 1
         followerStack.reset()
         setPressed(false, animated: false)
-        layer.borderWidth = 0
-        layer.borderColor = UIColor.clear.cgColor
+        ringLayer.isHidden = true
+        ringLayer.strokeColor = nil
         alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
@@ -1271,8 +1282,21 @@ extension AnimeDetailViewController {
         guard !closest.isEmpty else { return filtered["\(episode)"] }
 
         return closest.min(by: {
-            abs(Int($0.key) ?? 0 - episode) < abs(Int($1.key) ?? 0 - episode)
+            abs((Int($0.key) ?? 0) - episode) < abs((Int($1.key) ?? 0) - episode)
         })
+    }
+
+    private static func sanitizedEpisodeNotes(_ text: String) -> String {
+        var result = text
+        result = result.replacingOccurrences(
+            of: #"\n?\(?Source: [^)]+\)?\n?"#,
+            with: "",
+            options: .regularExpression)
+        result = result.replacingOccurrences(
+            of: #"\n?Notes?:[ |\n][^\n]+\n?"#,
+            with: "",
+            options: .regularExpression)
+        return result
     }
 
     private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
@@ -1346,8 +1370,8 @@ extension AnimeDetailViewController {
             }
 
             let ep = resolvedEntry?.entry
-            let title = ep?.title?["en"] ?? ""
-            let overview = ep?.summary ?? ep?.overview ?? ""
+            let title = ep?.title?["en"] ?? "Episode \(episode)"
+            let overview = Self.sanitizedEpisodeNotes(ep?.summary ?? ep?.overview ?? "")
             let imageURL = ep?.image
             let airDateRaw = ep?.airdate
             let airDate: Date? = {
@@ -1367,7 +1391,7 @@ extension AnimeDetailViewController {
 
             parsed.append(AniZipEpisode(
                 number: episode,
-                title: title.isEmpty ? "Episode \(episode)" : title,
+                title: title,
                 overview: overview, imageURL: imageURL, airDate: airDate,
                 runtime: runtime, rating: rating, isFiller: false))
         }
