@@ -879,8 +879,6 @@ final class AnimeInfoHeaderView: UIView {
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
 
         contentTopConstraint?.constant = isRegular ? 128 : 48
-        contentWidthConstraint?.constant = isRegular ? 56 : 0
-        contentCenterXConstraint?.constant = isRegular ? -28 : 0
 
         updateHeaderRowInsets(isRegular: isRegular)
         updateGenresScrollInset(isRegular: isRegular)
@@ -1058,9 +1056,8 @@ final class AnimeInfoHeaderView: UIView {
 
     private func measuredContentWidth(fallbackWidth: CGFloat? = nil) -> CGFloat {
         if contentStack.bounds.width > 0 { return contentStack.bounds.width }
-        let isRegular = traitCollection.horizontalSizeClass == .regular
         let baseWidth = fallbackWidth ?? (bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width)
-        return baseWidth + (isRegular ? 56 : 0)
+        return baseWidth
     }
 
     private func interfaceHorizontalPadding(for measuredWidth: CGFloat) -> CGFloat {
@@ -1069,12 +1066,12 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     private func updateGenresScrollInset(isRegular: Bool) {
-        // The header container extends left by 56pt to mirror the route shell.
-        // Keep the first genre chip after that rail instead of underneath it.
-        let leftInset: CGFloat = isRegular ? 56 : 0
+        // No content inset needed — contentStack.layoutMargins already
+        // provides the correct horizontal padding from the view edges.
+        let leftInset: CGFloat = 0
         guard abs(genresScrollView.contentInset.left - leftInset) > 0.5 else { return }
-        genresScrollView.contentInset = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
-        genresScrollView.scrollIndicatorInsets = genresScrollView.contentInset
+        genresScrollView.contentInset = .zero
+        genresScrollView.scrollIndicatorInsets = .zero
         if genresScrollView.contentOffset.x >= -0.5 {
             resetGenresScrollPosition()
         }
@@ -1087,12 +1084,10 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     private func updateHeaderRowInsets(isRegular: Bool) {
-        // Interface inner wrapper applies 2xs:px-3 to the header rows.
-        // The Swift route shell extends left for the sidebar, so keep the
-        // visible row contents aligned with the corrected genre/tag row.
-        let leftInset: CGFloat = isRegular ? 12 : 0
-        coverAndTextColumn.layoutMargins = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
-        actionsRow.layoutMargins = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
+        // contentStack.layoutMargins handles all horizontal padding.
+        // No additional per-row insets needed.
+        coverAndTextColumn.layoutMargins = .zero
+        actionsRow.layoutMargins = .zero
     }
 
     // MARK: - Sidebar banner bridge
