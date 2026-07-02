@@ -1485,6 +1485,7 @@ final class AnimeInfoHeaderView: UIView {
                                  isSpoiler: button.isSpoilerChip)
         })
         genresContainer.isHidden = chips.isEmpty
+        genresScrollView.setContentOffset(.zero, animated: false)
     }
 
     func updateGenresAndTrailer(genres: [String], tags: [AnimeTag] = [], trailerYouTubeID: String?) {
@@ -1583,6 +1584,7 @@ class AnimeDetailViewController: UIViewController {
 
     var tableView: UITableView!
     private let animeBackdropView = AnimeDetailBannerBackdropView()
+    private var animeBackdropLeadingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
     private var coverDialogImageTask: URLSessionDataTask?
     var isFavorite = false
@@ -1816,9 +1818,11 @@ class AnimeDetailViewController: UIViewController {
     private func setupAnimeBackdropView() {
         animeBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(animeBackdropView)
+        let leading = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        animeBackdropLeadingConstraint = leading
         NSLayoutConstraint.activate([
             animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            leading,
             animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         configureAnimeBackdropForCurrentSize()
@@ -1826,6 +1830,7 @@ class AnimeDetailViewController: UIViewController {
 
     private func configureAnimeBackdropForCurrentSize(width: CGFloat? = nil) {
         let resolvedWidth = width ?? view.bounds.width
+        animeBackdropLeadingConstraint?.constant = resolvedWidth >= 768 ? -56 : 0
         animeBackdropView.configure(height: 368, compact: resolvedWidth < 768)
     }
 
@@ -1882,7 +1887,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
         tableView.scrollIndicatorInsets = tableView.contentInset
         tableView.clipsToBounds = false
-        view.clipsToBounds = true
+        view.clipsToBounds = false
         view.addSubview(tableView)
     }
 
