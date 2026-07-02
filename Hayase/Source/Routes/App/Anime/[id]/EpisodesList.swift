@@ -30,6 +30,18 @@ struct FilteredEpisode {
     let anidbEid: Int?
 }
 
+// MARK: - Episode card style
+
+private enum EpisodeCardStyle {
+    static let cardRadius: CGFloat = 6
+    static let cardHeight: CGFloat = 112
+    static let thumbnailMaxWidth: CGFloat = 208
+    static let thumbnailBadgeBackground = UIColor(white: 0.09, alpha: 0.8)
+    static let selectedBackground = UIColor(white: 0.09, alpha: 1)
+    static let trackBackground = UIColor(white: 0.149, alpha: 1)
+    static let fillerBackground = UIColor(red: 250/255, green: 204/255, blue: 21/255, alpha: 1)
+}
+
 // MARK: - EpisodeRatingBadgeView
 
 private final class EpisodeRatingBadgeView: UIView {
@@ -62,7 +74,7 @@ private final class EpisodeRatingBadgeView: UIView {
     }
 
     private func setup() {
-        backgroundColor = UIColor.HayaseTheme.accent.withAlphaComponent(0.8)
+        backgroundColor = EpisodeCardStyle.thumbnailBadgeBackground
         layer.cornerRadius = 4
         clipsToBounds = true
 
@@ -102,7 +114,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.backgroundColor = UIColor(white: 0.10, alpha: 1)
-        iv.layer.cornerRadius = 6
+        iv.layer.cornerRadius = EpisodeCardStyle.cardRadius
         iv.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         return iv
     }()
@@ -111,7 +123,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let l = PaddedLabel()
         l.font = .nunito(ofSize: 9.6)
         l.textColor = UIColor(white: 0.98, alpha: 1)
-        l.backgroundColor = UIColor(white: 0.09, alpha: 0.8)
+        l.backgroundColor = EpisodeCardStyle.thumbnailBadgeBackground
         l.contentInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
         l.layer.cornerRadius = 4
         l.clipsToBounds = true
@@ -125,8 +137,8 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let l = PaddedLabel()
         l.text = "Filler"
         l.font = .nunito(ofSize: 9.6, weight: .bold)
-        l.textColor = UIColor(white: 0.04, alpha: 1)
-        l.backgroundColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1)
+        l.textColor = UIColor.HayaseTheme.primaryForeground
+        l.backgroundColor = EpisodeCardStyle.fillerBackground
         l.contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         l.layer.cornerRadius = 4
         l.layer.maskedCorners = [.layerMinXMinYCorner]
@@ -138,14 +150,14 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private let numberLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 12.8, weight: .bold)
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.secondaryForeground
         l.numberOfLines = 1
         return l
     }()
 
     private let progressBar: UIView = {
         let outer = UIView()
-        outer.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        outer.backgroundColor = EpisodeCardStyle.trackBackground
         return outer
     }()
     private let progressFill: UIView = {
@@ -167,7 +179,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private let metaLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.secondaryForeground
         return l
     }()
 
@@ -178,7 +190,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         v.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.5)
         v.alpha = 0
         v.isUserInteractionEnabled = false
-        v.layer.cornerRadius = 6
+        v.layer.cornerRadius = EpisodeCardStyle.cardRadius
         v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         v.clipsToBounds = true
         return v
@@ -198,7 +210,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         view.alpha = 0.72
         view.isHidden = true
         view.isUserInteractionEnabled = false
-        view.layer.cornerRadius = 6
+        view.layer.cornerRadius = EpisodeCardStyle.cardRadius
         view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         view.clipsToBounds = true
         return view
@@ -224,7 +236,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     private func setup() {
         backgroundColor = hayaseCardBackground
-        layer.cornerRadius = 6
+        layer.cornerRadius = EpisodeCardStyle.cardRadius
         clipsToBounds = false
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowRadius = 0
@@ -269,8 +281,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
         thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
         thumbWidthPreferred.priority = UILayoutPriority(999)
-        let episodeThumbnailMaxWidth: CGFloat = 208
-        thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: episodeThumbnailMaxWidth)
+        thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.thumbnailMaxWidth)
 
         textLeadingToThumb = textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16)
         textLeadingToCard = textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
@@ -278,7 +289,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         textLeadingToCard.isActive = false
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 112),
+            heightAnchor.constraint(equalToConstant: EpisodeCardStyle.cardHeight),
 
             thumbImageView.topAnchor.constraint(equalTo: topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -351,6 +362,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private func setPressed(_ pressed: Bool, animated: Bool) {
         let changes = {
             self.transform = pressed ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
+            self.backgroundColor = pressed ? EpisodeCardStyle.selectedBackground : hayaseCardBackground
             self.playOverlayView.alpha = pressed ? 1 : 0
             self.playOverlayIcon.alpha = pressed ? 1 : 0
             self.playOverlayIcon.transform = pressed ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
@@ -397,7 +409,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         } else if anilistID > 0,
            let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number),
            saved.isInProgress {
-            progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
+            progressBar.backgroundColor = EpisodeCardStyle.trackBackground
             progressBar.isHidden = false
             savedProgressFraction = saved.fraction
             setNeedsLayout()
@@ -429,7 +441,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
         if episode.isFiller {
             layer.borderWidth = 1
-            layer.borderColor = UIColor(red: 0.97, green: 0.81, blue: 0.00, alpha: 1).cgColor
+            layer.borderColor = EpisodeCardStyle.fillerBackground.cgColor
             fillerBadge.isHidden = false
         } else if isTarget {
             layer.borderWidth = 1
@@ -508,7 +520,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
-        progressBar.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        progressBar.backgroundColor = EpisodeCardStyle.trackBackground
         savedProgressFraction = 0
         progressFillWidthConstraint?.constant = 0
         episodeNumber = 0
@@ -563,16 +575,24 @@ final class EpisodeCell: UITableViewCell {
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followers)
+        applyTargetPadding(isTarget: !isListCompleted && episode.number == anilistProgress + 1)
+    }
+
+    private func applyTargetPadding(isTarget: Bool) {
+        let inset: CGFloat = isTarget ? 0 : 12
+        cardLeadingConstraint?.constant = inset
+        cardTrailingConstraint?.constant = -inset
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
-        cardLeadingConstraint?.constant = 12
-        cardTrailingConstraint?.constant = -12
+        // Interface applies px-3 only around non-target episode cards.
+        _ = isRegular
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         cardView.reset()
+        applyTargetPadding(isTarget: false)
     }
 }
 
