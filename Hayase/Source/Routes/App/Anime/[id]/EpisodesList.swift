@@ -17,7 +17,7 @@ struct AniZipEpisode {
     let imageURL: String?
     let airDate: Date?
     let runtime: Int
-    let rating: Double?
+    let rating: String?
     let isFiller: Bool
 }
 
@@ -40,6 +40,7 @@ private enum EpisodeCardStyle {
     static let selectedBackground = UIColor(white: 0.09, alpha: 1)
     static let trackBackground = UIColor(white: 0.149, alpha: 1)
     static let fillerBackground = UIColor(red: 250/255, green: 204/255, blue: 21/255, alpha: 1)
+    static let followerRing = UIColor(white: 0.04, alpha: 1)
 }
 
 // MARK: - EpisodeRatingBadgeView
@@ -96,8 +97,8 @@ private final class EpisodeRatingBadgeView: UIView {
         ])
     }
 
-    func configure(rating: Double) {
-        label.text = String(format: "%.2f", rating)
+    func configure(ratingText: String) {
+        label.text = ratingText
         isHidden = false
     }
 }
@@ -197,7 +198,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     }()
 
     private let playOverlayIcon: UIImageView = {
-        let iv = UIImageView(image: UIImage.hayaseFilledIcon("play", pointSize: 22))
+        let iv = UIImageView(image: UIImage.hayaseFilledIcon("play", pointSize: 24))
         iv.tintColor = .white
         iv.contentMode = .scaleAspectFit
         iv.alpha = 0
@@ -267,10 +268,30 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
         spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
 
-        let bottomRow = UIStackView(arrangedSubviews: [metaLabel, UIView(), followerStack])
+        let metaContainer = UIView()
+        metaLabel.translatesAutoresizingMaskIntoConstraints = false
+        metaContainer.addSubview(metaLabel)
+        NSLayoutConstraint.activate([
+            metaLabel.topAnchor.constraint(equalTo: metaContainer.topAnchor, constant: 8),
+            metaLabel.leadingAnchor.constraint(equalTo: metaContainer.leadingAnchor),
+            metaLabel.trailingAnchor.constraint(equalTo: metaContainer.trailingAnchor),
+            metaLabel.bottomAnchor.constraint(equalTo: metaContainer.bottomAnchor),
+        ])
+
+        let followersContainer = UIView()
+        followerStack.translatesAutoresizingMaskIntoConstraints = false
+        followersContainer.addSubview(followerStack)
+        NSLayoutConstraint.activate([
+            followerStack.topAnchor.constraint(equalTo: followersContainer.topAnchor, constant: 4),
+            followerStack.leadingAnchor.constraint(greaterThanOrEqualTo: followersContainer.leadingAnchor),
+            followerStack.trailingAnchor.constraint(equalTo: followersContainer.trailingAnchor, constant: -2),
+            followerStack.bottomAnchor.constraint(equalTo: followersContainer.bottomAnchor),
+        ])
+
+        let bottomRow = UIStackView(arrangedSubviews: [metaContainer, UIView(), followersContainer])
         bottomRow.axis = .horizontal
         bottomRow.spacing = 8
-        bottomRow.alignment = .center
+        bottomRow.alignment = .top
 
         let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, bottomRow])
         textStack.axis = .vertical
@@ -308,8 +329,8 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             playOverlayView.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor),
             playOverlayIcon.centerXAnchor.constraint(equalTo: playOverlayView.centerXAnchor),
             playOverlayIcon.centerYAnchor.constraint(equalTo: playOverlayView.centerYAnchor),
-            playOverlayIcon.widthAnchor.constraint(equalToConstant: 28),
-            playOverlayIcon.heightAnchor.constraint(equalToConstant: 28),
+            playOverlayIcon.widthAnchor.constraint(equalToConstant: 24),
+            playOverlayIcon.heightAnchor.constraint(equalToConstant: 24),
 
             runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
             runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
@@ -388,11 +409,12 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         followerStack.configure(users: followers,
                                 avatarSize: 16,
                                 ringWidth: 2,
-                                ringColor: UIColor.HayaseTheme.muted)
+                                ringColor: EpisodeCardStyle.followerRing)
 
-        let isWatchedOnAniList = anilistProgress > 0 && episode.number <= anilistProgress && !isListCompleted
-        let isTarget = !isListCompleted && episode.number == anilistProgress + 1
-        let isSpoiler = hideSpoilers && !isWatchedOnAniList && !isListCompleted && !isRepeating && !isTarget
+        let effectiveProgress = isListCompleted ? 0 : anilistProgress
+        let isWatchedOnAniList = effectiveProgress > 0 && episode.number <= effectiveProgress && !isListCompleted
+        let isTarget = episode.number == effectiveProgress + 1
+        let isSpoiler = hideSpoilers && !isWatchedOnAniList && !isTarget
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
         spoilerBlurView.isHidden = !isSpoiler
         overviewLabel.alpha = isSpoiler ? 0.35 : 1
@@ -433,7 +455,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
 
         if let rating = episode.rating {
-            ratingBadge.configure(rating: isSpoiler ? 5.00 : rating)
+            ratingBadge.configure(ratingText: isSpoiler ? "5.00" : rating)
             ratingBadge.isHidden = false
         } else {
             ratingBadge.isHidden = true
@@ -575,7 +597,7 @@ final class EpisodeCell: UITableViewCell {
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followers)
-        applyTargetPadding(isTarget: !isListCompleted && episode.number == anilistProgress + 1)
+        applyTargetPadding(isTarget: episode.number == (isListCompleted ? 0 : anilistProgress) + 1)
     }
 
     private func applyTargetPadding(isTarget: Bool) {
@@ -674,7 +696,7 @@ final class EpisodePairCell: UITableViewCell {
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followersByEpisode[left.number] ?? [])
-        applyTargetPadding(toLeftCard: true, isTarget: !isListCompleted && left.number == anilistProgress + 1)
+        applyTargetPadding(toLeftCard: true, isTarget: left.number == (isListCompleted ? 0 : anilistProgress) + 1)
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
         if let right = right {
@@ -682,7 +704,7 @@ final class EpisodePairCell: UITableViewCell {
                                 accentColor: accentColor, isListCompleted: isListCompleted,
                                 isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                                 followers: followersByEpisode[right.number] ?? [])
-            applyTargetPadding(toLeftCard: false, isTarget: !isListCompleted && right.number == anilistProgress + 1)
+            applyTargetPadding(toLeftCard: false, isTarget: right.number == (isListCompleted ? 0 : anilistProgress) + 1)
             rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
             rightContainer.isHidden = false
         } else {
@@ -1263,7 +1285,7 @@ extension AnimeDetailViewController {
 
         var filtered: [String: FilteredEpisode] = [:]
         for (key, ep) in episodesDict {
-            let airdate = ep.airdate ?? ep.airDate
+            let airdate = ep.airdate
             var airdatems: Double? = nil
             if let airdate = airdate {
                 if let d = ISO8601DateFormatter().date(from: airdate) {
@@ -1324,12 +1346,10 @@ extension AnimeDetailViewController {
             }
 
             let ep = resolvedEntry?.entry
-            let titles = ep?.title ?? [:]
-            let title = titles["en"] ?? titles["x-jat"] ?? titles["ja"] ?? ""
-            let overview = (ep?.overview ?? ep?.summary ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = ep?.title?["en"] ?? ""
+            let overview = ep?.summary ?? ep?.overview ?? ""
             let imageURL = ep?.image
-            let airDateRaw = ep?.airdate ?? ep?.airDate
+            let airDateRaw = ep?.airdate
             let airDate: Date? = {
                 // First try anizip's airdate
                 if let raw = airDateRaw {
@@ -1342,8 +1362,8 @@ extension AnimeDetailViewController {
                 // Fallback to AniList airing schedule date (matches web's airingAt ?? airdate)
                 return alSchedule?[episode]
             }()
-            let runtime = ep?.length ?? ep?.runtime ?? 0
-            let rating: Double? = ep?.rating.flatMap(Double.init)
+            let runtime = ep?.length ?? ep?.runtime ?? animeItem?.duration ?? 0
+            let rating = ep?.rating
 
             parsed.append(AniZipEpisode(
                 number: episode,
