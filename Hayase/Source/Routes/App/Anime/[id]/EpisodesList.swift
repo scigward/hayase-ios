@@ -176,6 +176,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         l.textColor = UIColor(white: 0.649, alpha: 1.0)
         l.numberOfLines = 3
         l.lineBreakMode = .byClipping
+        l.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return l
     }()
 
@@ -301,6 +302,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         bottomRow.axis = .horizontal
         bottomRow.spacing = 8
         bottomRow.alignment = .top
+        bottomRow.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, bottomRow])
         textStack.axis = .vertical
@@ -350,7 +352,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             textLeadingToThumb,
             textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             textStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+            textStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
 
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 

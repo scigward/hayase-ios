@@ -1982,7 +1982,9 @@ class AnimeDetailViewController: UIViewController {
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
         tableView.scrollIndicatorInsets = tableView.contentInset
         tableView.clipsToBounds = false
-        view.clipsToBounds = true
+        // app/anime/[id]/+layout.svelte expands the scroll viewport left with -ml-14,
+        // so selected episode cards can scale/ring without being clipped at the route edge.
+        view.clipsToBounds = false
         view.addSubview(tableView)
     }
 
