@@ -1818,6 +1818,14 @@ class BrowseAnimeViewController: UIViewController {
     private var visibleHomeSectionIDs = Set<String>()
 
     private let homeBackdropView = HomeBannerBackdropView()
+    private let homeBackdropCoverView: UIView = {
+        let view = UIView()
+        view.backgroundColor = hayasePageBackground
+        view.alpha = 0
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+    private var isHomeBackdropCovered = false
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
     private var homeBackdropTrailingConstraint: NSLayoutConstraint?
 
@@ -1978,7 +1986,9 @@ class BrowseAnimeViewController: UIViewController {
     private func setupHomeBackdropView() {
         view.backgroundColor = hayasePageBackground
         homeBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        homeBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(homeBackdropView)
+        view.addSubview(homeBackdropCoverView)
         homeBackdropLeadingConstraint = homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
         homeBackdropTrailingConstraint = homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
@@ -1986,6 +1996,11 @@ class BrowseAnimeViewController: UIViewController {
             homeBackdropLeadingConstraint!,
             homeBackdropTrailingConstraint!,
             homeBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            homeBackdropCoverView.topAnchor.constraint(equalTo: view.topAnchor),
+            homeBackdropCoverView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            homeBackdropCoverView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            homeBackdropCoverView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         updateHomeBackdropLayout()
     }
@@ -2803,21 +2818,32 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
     ///   hideBanner.value = scrollTop > 100  // in every scroll event
     private func syncBannerToCurrentScrollPosition() {
         let offsetY = collectionView.contentOffset.y
-        let bannerIndexPath = IndexPath(item: 0, section: 0)
-        guard let bannerCell = collectionView.cellForItem(at: bannerIndexPath) as? FeaturedBannerCell else { return }
+        let bannerCell = collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell
 
         if offsetY < 0 {
-            // User is pulling down past the top → zoom the banner image
+            // User is pulling down past the top → keep the route backdrop visible.
             homeBackdropView.applyOverscrollZoom(-offsetY)
             homeBackdropView.applyScrollFade(0)
-            bannerCell.applyOverscrollZoom(-offsetY)
-            bannerCell.applyScrollFade(0)  // fully visible when at top
+            setHomeBackdropCovered(false)
+            bannerCell?.applyOverscrollZoom(-offsetY)
+            bannerCell?.applyScrollFade(0)
         } else {
-            // User scrolling down → reset zoom and apply fade
+            // Interface fades BannerImage after scrollTop > 100. UIKit still
+            // has a transparent scroll viewport, so cover the page backdrop
+            // behind scrolled rows once it is faded to prevent image bleed.
             homeBackdropView.applyOverscrollZoom(0)
             homeBackdropView.applyScrollFade(offsetY)
-            bannerCell.applyOverscrollZoom(0)
-            bannerCell.applyScrollFade(offsetY)
+            setHomeBackdropCovered(offsetY > 100)
+            bannerCell?.applyOverscrollZoom(0)
+            bannerCell?.applyScrollFade(offsetY)
+        }
+    }
+
+    private func setHomeBackdropCovered(_ covered: Bool) {
+        guard covered != isHomeBackdropCovered else { return }
+        isHomeBackdropCovered = covered
+        UIView.animate(withDuration: 0.5, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.homeBackdropCoverView.alpha = covered ? 1 : 0
         }
     }
 

@@ -1637,6 +1637,14 @@ class AnimeDetailViewController: UIViewController {
 
     var tableView: UITableView!
     private let animeBackdropView = AnimeDetailBannerBackdropView()
+    private let animeBackdropCoverView: UIView = {
+        let view = UIView()
+        view.backgroundColor = hayasePageBackground
+        view.alpha = 0
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+    private var isAnimeBackdropCovered = false
     private var animeBackdropLeadingConstraint: NSLayoutConstraint?
     private var animeBackdropTrailingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
@@ -1871,13 +1879,20 @@ class AnimeDetailViewController: UIViewController {
 
     private func setupAnimeBackdropView() {
         animeBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        animeBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(animeBackdropView)
+        view.addSubview(animeBackdropCoverView)
         animeBackdropLeadingConstraint = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
         animeBackdropTrailingConstraint = animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
             animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
             animeBackdropLeadingConstraint!,
             animeBackdropTrailingConstraint!,
+
+            animeBackdropCoverView.topAnchor.constraint(equalTo: view.topAnchor),
+            animeBackdropCoverView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            animeBackdropCoverView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            animeBackdropCoverView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         configureAnimeBackdropForCurrentSize()
     }
@@ -1911,6 +1926,14 @@ class AnimeDetailViewController: UIViewController {
                                                selector: #selector(animeBackdropDidChange(_:)),
                                                name: hayaseAnimeBannerBackdropDidChange,
                                                object: nil)
+    }
+
+    func setAnimeBackdropCovered(_ covered: Bool) {
+        guard covered != isAnimeBackdropCovered else { return }
+        isAnimeBackdropCovered = covered
+        UIView.animate(withDuration: 0.5, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.animeBackdropCoverView.alpha = covered ? 1 : 0
+        }
     }
 
     @objc private func animeBackdropDidChange(_ notification: Notification) {

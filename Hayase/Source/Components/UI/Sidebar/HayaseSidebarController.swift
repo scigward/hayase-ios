@@ -33,6 +33,7 @@ final class HayaseSidebarController: UIViewController {
     private let sidebarContainer = UIView()
     private let sidebarBackdropImageView = UIImageView()
     private let sidebarBackdropGradientView = SidebarBackdropGradientView()
+    private let sidebarBackdropCoverView = UIView()
     private var sidebarBackdropTask: URLSessionDataTask?
     private var sidebarBackdropURL: String?
     private var sidebarBackdropAlpha: CGFloat = 0
@@ -248,11 +249,17 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropGradientView.translatesAutoresizingMaskIntoConstraints = false
         sidebarBackdropGradientView.alpha = 0
 
+        sidebarBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
+        sidebarBackdropCoverView.backgroundColor = UIColor.HayaseTheme.background
+        sidebarBackdropCoverView.alpha = 0
+        sidebarBackdropCoverView.isUserInteractionEnabled = false
+
         sidebarContainer.translatesAutoresizingMaskIntoConstraints = false
         sidebarContainer.backgroundColor = .clear
         sidebarContainer.clipsToBounds = true
         sidebarContainer.addSubview(sidebarBackdropImageView)
         sidebarContainer.addSubview(sidebarBackdropGradientView)
+        sidebarContainer.addSubview(sidebarBackdropCoverView)
         sidebarContainer.addSubview(sidebarList)
         view.addSubview(sidebarContainer)
 
@@ -278,6 +285,11 @@ final class HayaseSidebarController: UIViewController {
             sidebarBackdropGradientView.leadingAnchor.constraint(equalTo: sidebarBackdropImageView.leadingAnchor),
             sidebarBackdropGradientView.widthAnchor.constraint(equalTo: sidebarBackdropImageView.widthAnchor),
             sidebarBackdropGradientView.heightAnchor.constraint(equalTo: sidebarBackdropImageView.heightAnchor),
+
+            sidebarBackdropCoverView.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
+            sidebarBackdropCoverView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
+            sidebarBackdropCoverView.trailingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
+            sidebarBackdropCoverView.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor),
 
             // sidebar.svelte: w-14 p-2 md:pl-0. The web rail starts at
             // the viewport edge, not the safe-area edge, because the app owns
@@ -382,10 +394,12 @@ final class HayaseSidebarController: UIViewController {
                 UIView.animate(withDuration: 0.5) {
                     self.sidebarBackdropImageView.alpha = clampedAlpha
                     self.sidebarBackdropGradientView.alpha = clampedAlpha
+                    self.sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
                 }
             } else {
                 sidebarBackdropImageView.alpha = clampedAlpha
                 sidebarBackdropGradientView.alpha = clampedAlpha
+                sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
             }
         }
 
@@ -436,6 +450,7 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropImageView.transform = .identity
         sidebarBackdropGradientView.alpha = 0
         sidebarBackdropGradientView.transform = .identity
+        sidebarBackdropCoverView.alpha = 0
         updateSidebarBackground()
     }
 
@@ -700,6 +715,7 @@ final class HayaseSidebarController: UIViewController {
         sidebarContainer.backgroundColor = showsBannerBackdrop ? .clear : UIColor.HayaseTheme.background
         sidebarBackdropImageView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.isHidden = !showsBannerBackdrop
+        sidebarBackdropCoverView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.setCompact(view.bounds.width < 768)
         sidebarList.backgroundColor = .clear
     }
