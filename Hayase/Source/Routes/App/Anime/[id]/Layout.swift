@@ -754,6 +754,7 @@ final class AnimeInfoHeaderView: UIView {
         coverAndTextColumn.axis = .vertical
         coverAndTextColumn.spacing = 16
         coverAndTextColumn.alignment = .center
+        coverAndTextColumn.isLayoutMarginsRelativeArrangement = true
 
         coverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         coverOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -799,6 +800,7 @@ final class AnimeInfoHeaderView: UIView {
         actionsRow.axis = .horizontal
         actionsRow.spacing = 8
         actionsRow.alignment = .fill
+        actionsRow.isLayoutMarginsRelativeArrangement = true
 
         headerFollowerStack.setContentHuggingPriority(.required, for: .horizontal)
         headerFollowerStack.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -880,6 +882,7 @@ final class AnimeInfoHeaderView: UIView {
         contentWidthConstraint?.constant = isRegular ? 56 : 0
         contentCenterXConstraint?.constant = isRegular ? -28 : 0
 
+        updateHeaderRowInsets(isRegular: isRegular)
         updateGenresScrollInset(isRegular: isRegular)
         genresScrollView.isHidden = false
         chipWrapView.isHidden = true
@@ -994,6 +997,7 @@ final class AnimeInfoHeaderView: UIView {
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
+        updateHeaderRowInsets(isRegular: isRegular)
         updateGenresScrollInset(isRegular: isRegular)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let maxW: CGFloat
@@ -1080,6 +1084,15 @@ final class AnimeInfoHeaderView: UIView {
         genresScrollView.setContentOffset(
             CGPoint(x: -genresScrollView.contentInset.left, y: 0),
             animated: false)
+    }
+
+    private func updateHeaderRowInsets(isRegular: Bool) {
+        // Interface inner wrapper applies 2xs:px-3 to the header rows.
+        // The Swift route shell extends left for the sidebar, so keep the
+        // visible row contents aligned with the corrected genre/tag row.
+        let leftInset: CGFloat = isRegular ? 12 : 0
+        coverAndTextColumn.layoutMargins = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
+        actionsRow.layoutMargins = UIEdgeInsets(top: 0, left: leftInset, bottom: 0, right: 0)
     }
 
     // MARK: - Sidebar banner bridge
