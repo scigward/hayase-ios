@@ -236,9 +236,11 @@ extension AnimeDetailViewController: UITableViewDelegate {
         if offsetY < 0 {
             headerView.applyOverscrollZoom(-offsetY)
             headerView.applyScrollFade(0)
+            setAnimeBackdropCovered(false)
         } else {
             headerView.applyOverscrollZoom(0)
             headerView.applyScrollFade(offsetY)
+            setAnimeBackdropCovered(offsetY > 100)
         }
     }
 
