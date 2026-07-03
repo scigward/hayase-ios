@@ -42,6 +42,14 @@ private enum EpisodeCardStyle {
     static let fillerBackground = UIColor(red: 250/255, green: 204/255, blue: 21/255, alpha: 1)
     static let followerRing = UIColor(white: 10/255, alpha: 1)
     static let cardBackground = UIColor(white: 10/255, alpha: 1)
+
+    // EpisodesList.svelte expands the scroll viewport with -ml-14/pl-14
+    // and -mr-3/pr-3. Keep the card's visual start unchanged while
+    // giving selected scale/ring/shadow enough in-bounds space to draw.
+    static let overflowLeadingSlack: CGFloat = 56
+    static let overflowTrailingSlack: CGFloat = 12
+    static let cardHorizontalPadding: CGFloat = 12
+    static let rowVerticalPadding: CGFloat = 14
 }
 
 // MARK: - EpisodeRatingBadgeView
@@ -593,6 +601,7 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     static let reuseID = "AniDetailEpCell"
 
     let cardView = EpisodeCardView()
+    private let overflowViewport = UIView()
     private var cardLeadingConstraint: NSLayoutConstraint?
     private var cardTrailingConstraint: NSLayoutConstraint?
 
@@ -612,15 +621,36 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
         contentView.clipsToBounds = false
         selectionStyle = .none
 
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(cardView)
+        overflowViewport.clipsToBounds = false
+        overflowViewport.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(overflowViewport)
 
-        cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
-        cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        overflowViewport.addSubview(cardView)
+
+        cardLeadingConstraint = cardView.leadingAnchor.constraint(
+            equalTo: overflowViewport.leadingAnchor,
+            constant: EpisodeCardStyle.overflowLeadingSlack + EpisodeCardStyle.cardHorizontalPadding)
+        cardTrailingConstraint = cardView.trailingAnchor.constraint(
+            equalTo: overflowViewport.trailingAnchor,
+            constant: -(EpisodeCardStyle.overflowTrailingSlack + EpisodeCardStyle.cardHorizontalPadding))
 
         NSLayoutConstraint.activate([
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            overflowViewport.topAnchor.constraint(equalTo: contentView.topAnchor),
+            overflowViewport.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            overflowViewport.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: -EpisodeCardStyle.overflowLeadingSlack),
+            overflowViewport.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: EpisodeCardStyle.overflowTrailingSlack),
+
+            cardView.topAnchor.constraint(
+                equalTo: overflowViewport.topAnchor,
+                constant: EpisodeCardStyle.rowVerticalPadding),
+            cardView.bottomAnchor.constraint(
+                equalTo: overflowViewport.bottomAnchor,
+                constant: -EpisodeCardStyle.rowVerticalPadding),
             cardLeadingConstraint!,
             cardTrailingConstraint!,
         ])
@@ -638,9 +668,9 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     }
 
     private func applyTargetPadding(isTarget: Bool) {
-        let inset: CGFloat = isTarget ? 0 : 12
-        cardLeadingConstraint?.constant = inset
-        cardTrailingConstraint?.constant = -inset
+        let inset = isTarget ? CGFloat(0) : EpisodeCardStyle.cardHorizontalPadding
+        cardLeadingConstraint?.constant = EpisodeCardStyle.overflowLeadingSlack + inset
+        cardTrailingConstraint?.constant = -(EpisodeCardStyle.overflowTrailingSlack + inset)
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
@@ -674,6 +704,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     let rightCard = EpisodeCardView()
     var onTapEpisode: ((Int) -> Void)?
 
+    private let overflowViewport = UIView()
     private let stack = UIStackView()
     private let leftContainer = UIView()
     private let rightContainer = UIView()
@@ -696,6 +727,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         backgroundColor = .clear
         clipsToBounds = false
         contentView.clipsToBounds = false
+        overflowViewport.clipsToBounds = false
         leftContainer.clipsToBounds = false
         rightContainer.clipsToBounds = false
         selectionStyle = .none
@@ -708,11 +740,13 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         leftCard.translatesAutoresizingMaskIntoConstraints = false
         rightCard.translatesAutoresizingMaskIntoConstraints = false
 
+        overflowViewport.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(overflowViewport)
         leftContainer.addSubview(leftCard)
         rightContainer.addSubview(rightCard)
         stack.addArrangedSubview(leftContainer)
         stack.addArrangedSubview(rightContainer)
-        contentView.addSubview(stack)
+        overflowViewport.addSubview(stack)
 
         leftCardLeadingConstraint = leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12)
         leftCardTrailingConstraint = leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12)
@@ -720,10 +754,28 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         rightCardTrailingConstraint = rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            overflowViewport.topAnchor.constraint(equalTo: contentView.topAnchor),
+            overflowViewport.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            overflowViewport.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: -EpisodeCardStyle.overflowLeadingSlack),
+            overflowViewport.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: EpisodeCardStyle.overflowTrailingSlack),
+
+            stack.topAnchor.constraint(
+                equalTo: overflowViewport.topAnchor,
+                constant: EpisodeCardStyle.rowVerticalPadding),
+            stack.bottomAnchor.constraint(
+                equalTo: overflowViewport.bottomAnchor,
+                constant: -EpisodeCardStyle.rowVerticalPadding),
+            stack.leadingAnchor.constraint(
+                equalTo: overflowViewport.leadingAnchor,
+                constant: EpisodeCardStyle.overflowLeadingSlack),
+            stack.trailingAnchor.constraint(
+                equalTo: overflowViewport.trailingAnchor,
+                constant: -EpisodeCardStyle.overflowTrailingSlack),
+
             leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
             leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
             leftCardLeadingConstraint!,
@@ -764,7 +816,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     }
 
     private func applyTargetPadding(toLeftCard: Bool, isTarget: Bool) {
-        let inset: CGFloat = isTarget ? 0 : 12
+        let inset = isTarget ? CGFloat(0) : EpisodeCardStyle.cardHorizontalPadding
         if toLeftCard {
             leftCardLeadingConstraint?.constant = inset
             leftCardTrailingConstraint?.constant = -inset
