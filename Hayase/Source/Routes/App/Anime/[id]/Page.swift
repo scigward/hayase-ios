@@ -132,7 +132,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
         case .header:    return 1
         case .episodes:
             if activeSection != .episodes { return 0 }
-            let cols = episodeColumnCount
+            let cols = usesSingleEpisodeGridTrack ? 1 : episodeColumnCount
             return (paginatedEpisodes.count + cols - 1) / cols
         case .episodePagination:
             return (activeSection == .episodes && !episodes.isEmpty) ? 1 : 0

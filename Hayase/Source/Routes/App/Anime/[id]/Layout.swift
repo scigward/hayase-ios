@@ -1670,6 +1670,14 @@ class AnimeDetailViewController: UIViewController {
         guard start < episodes.count else { return [] }
         return Array(episodes[start..<end])
     }
+
+    var usesSingleEpisodeGridTrack: Bool {
+        // CSS repeat(auto-fit,minmax(500px,1fr)) collapses empty tracks only
+        // when the rendered page has one item. Odd rows on multi-card pages keep
+        // their second grid track; one-card pages, including movies, stretch.
+        episodeColumnCount >= 2 && paginatedEpisodes.count == 1
+    }
+
     var totalEpisodePages: Int {
         max(1, Int(ceil(Double(episodes.count) / Double(episodesPerPage))))
     }

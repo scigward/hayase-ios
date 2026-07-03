@@ -334,7 +334,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         textLeadingToCard.isActive = false
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: EpisodeCardStyle.cardHeight),
+            heightAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.cardHeight),
 
             thumbImageView.topAnchor.constraint(equalTo: topAnchor),
             thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -585,11 +585,18 @@ private protocol EpisodeOverflowRendering: AnyObject {}
 
 extension EpisodeOverflowRendering where Self: UITableViewCell {
     func allowEpisodeOverflowRendering() {
-        var current: UIView? = self
+        [self, contentView].forEach { view in
+            view.clipsToBounds = false
+            view.layer.masksToBounds = false
+        }
+
+        // UITableView uses private wrapper views around visible cells. Those
+        // wrappers can be recreated during reuse, so clear clipping on every
+        // layout pass instead of relying on only the cell/contentView flags.
+        var current = superview
         while let view = current {
             view.clipsToBounds = false
             view.layer.masksToBounds = false
-            if view is UITableView { break }
             current = view.superview
         }
     }
@@ -604,6 +611,8 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     private let overflowViewport = UIView()
     private var cardLeadingConstraint: NSLayoutConstraint?
     private var cardTrailingConstraint: NSLayoutConstraint?
+    private var pageSideInset: CGFloat = 0
+    private var cardIsTarget = false
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -664,17 +673,23 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
                            followers: followers)
-        applyTargetPadding(isTarget: episode.number == (isListCompleted ? 0 : anilistProgress) + 1)
+        cardIsTarget = episode.number == (isListCompleted ? 0 : anilistProgress) + 1
+        updateCardInsets()
     }
 
-    private func applyTargetPadding(isTarget: Bool) {
-        let inset = isTarget ? CGFloat(0) : EpisodeCardStyle.cardHorizontalPadding
-        cardLeadingConstraint?.constant = EpisodeCardStyle.overflowLeadingSlack + inset
-        cardTrailingConstraint?.constant = -(EpisodeCardStyle.overflowTrailingSlack + inset)
+    private func updateCardInsets() {
+        let inset = cardIsTarget ? CGFloat(0) : EpisodeCardStyle.cardHorizontalPadding
+        cardLeadingConstraint?.constant = EpisodeCardStyle.overflowLeadingSlack + pageSideInset + inset
+        cardTrailingConstraint?.constant = -(EpisodeCardStyle.overflowTrailingSlack + pageSideInset + inset)
+    }
+
+    func applyPageSideInset(_ inset: CGFloat) {
+        pageSideInset = inset
+        updateCardInsets()
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
-        // Interface applies px-3 only around non-target episode cards.
+        // Kept for old call sites; current layout uses applyPageSideInset(_:).
         _ = isRegular
     }
 
@@ -691,7 +706,8 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     override func prepareForReuse() {
         super.prepareForReuse()
         cardView.reset()
-        applyTargetPadding(isTarget: false)
+        cardIsTarget = false
+        updateCardInsets()
     }
 }
 
@@ -708,10 +724,13 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     private let stack = UIStackView()
     private let leftContainer = UIView()
     private let rightContainer = UIView()
+    private var stackLeadingConstraint: NSLayoutConstraint?
+    private var stackTrailingConstraint: NSLayoutConstraint?
     private var leftCardLeadingConstraint: NSLayoutConstraint?
     private var leftCardTrailingConstraint: NSLayoutConstraint?
     private var rightCardLeadingConstraint: NSLayoutConstraint?
     private var rightCardTrailingConstraint: NSLayoutConstraint?
+    private var pageSideInset: CGFloat = 0
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -748,6 +767,12 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         stack.addArrangedSubview(rightContainer)
         overflowViewport.addSubview(stack)
 
+        stackLeadingConstraint = stack.leadingAnchor.constraint(
+            equalTo: overflowViewport.leadingAnchor,
+            constant: EpisodeCardStyle.overflowLeadingSlack)
+        stackTrailingConstraint = stack.trailingAnchor.constraint(
+            equalTo: overflowViewport.trailingAnchor,
+            constant: -EpisodeCardStyle.overflowTrailingSlack)
         leftCardLeadingConstraint = leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12)
         leftCardTrailingConstraint = leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12)
         rightCardLeadingConstraint = rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12)
@@ -769,12 +794,8 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             stack.bottomAnchor.constraint(
                 equalTo: overflowViewport.bottomAnchor,
                 constant: -EpisodeCardStyle.rowVerticalPadding),
-            stack.leadingAnchor.constraint(
-                equalTo: overflowViewport.leadingAnchor,
-                constant: EpisodeCardStyle.overflowLeadingSlack),
-            stack.trailingAnchor.constraint(
-                equalTo: overflowViewport.trailingAnchor,
-                constant: -EpisodeCardStyle.overflowTrailingSlack),
+            stackLeadingConstraint!,
+            stackTrailingConstraint!,
 
             leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
             leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
@@ -824,6 +845,12 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             rightCardLeadingConstraint?.constant = inset
             rightCardTrailingConstraint?.constant = -inset
         }
+    }
+
+    func applyPageSideInset(_ inset: CGFloat) {
+        pageSideInset = inset
+        stackLeadingConstraint?.constant = EpisodeCardStyle.overflowLeadingSlack + pageSideInset
+        stackTrailingConstraint?.constant = -(EpisodeCardStyle.overflowTrailingSlack + pageSideInset)
     }
 
     override func didMoveToSuperview() {
@@ -1138,7 +1165,8 @@ final class PaginationBarView: UIView {
 extension AnimeDetailViewController {
 
     func makeEpisodeCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cols = episodeColumnCount
+        let cols = usesSingleEpisodeGridTrack ? 1 : episodeColumnCount
+        let pageSideInset = AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
         let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
         let isCompleted = currentListStatus == "COMPLETED"
         let isRepeating = currentListStatus == "REPEATING"
@@ -1160,6 +1188,7 @@ extension AnimeDetailViewController {
             cell.onTapEpisode = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }
+            cell.applyPageSideInset(pageSideInset)
             return cell
         } else {
             guard let cell = tableView.dequeueReusableCell(
@@ -1174,7 +1203,7 @@ extension AnimeDetailViewController {
             cell.cardView.onTap = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }
-            cell.applyPaddingForSizeClass(isRegular: traitCollection.horizontalSizeClass == .regular)
+            cell.applyPageSideInset(pageSideInset)
             return cell
         }
     }
