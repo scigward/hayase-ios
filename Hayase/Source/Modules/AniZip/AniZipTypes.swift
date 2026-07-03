@@ -30,6 +30,36 @@ struct AniZipMappings: Codable {
     let thetvdb_id: Int?
     let imdb_id: String?
     let themoviedb_id: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        animeplanet_id = Self.decodeString(from: c, forKey: .animeplanet_id)
+        kitsu_id       = Self.decodeInt(from: c, forKey: .kitsu_id)
+        mal_id         = Self.decodeInt(from: c, forKey: .mal_id)
+        type           = Self.decodeString(from: c, forKey: .type)
+        anilist_id     = Self.decodeInt(from: c, forKey: .anilist_id)
+        anisearch_id   = Self.decodeInt(from: c, forKey: .anisearch_id)
+        anidb_id       = Self.decodeInt(from: c, forKey: .anidb_id)
+        notifymoe_id   = Self.decodeString(from: c, forKey: .notifymoe_id)
+        livechart_id   = Self.decodeInt(from: c, forKey: .livechart_id)
+        thetvdb_id     = Self.decodeInt(from: c, forKey: .thetvdb_id)
+        imdb_id        = Self.decodeString(from: c, forKey: .imdb_id)
+        themoviedb_id  = Self.decodeString(from: c, forKey: .themoviedb_id)
+    }
+
+    private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        return nil
+    }
+
+    private static func decodeString<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> String? {
+        if let s = try? c.decodeIfPresent(String.self, forKey: key), !s.isEmpty { return s }
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return String(n) }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return String(d) }
+        return nil
+    }
 }
 
 // MARK: - Episode
@@ -61,37 +91,24 @@ struct AniZipEpisodeEntry: Codable {
     // matching the original [String:Any] raw-JSON parsing that accepted both types.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        tvdbShowId            = try c.decodeIfPresent(Int.self,            forKey: .tvdbShowId)
-        tvdbId                = try c.decodeIfPresent(Int.self,            forKey: .tvdbId)
-        seasonNumber          = try c.decodeIfPresent(Int.self,            forKey: .seasonNumber)
-        episodeNumber         = try c.decodeIfPresent(Int.self,            forKey: .episodeNumber)
-        absoluteEpisodeNumber = try c.decodeIfPresent(Int.self,            forKey: .absoluteEpisodeNumber)
-        title                 = try c.decodeIfPresent([String: String].self, forKey: .title)
+        tvdbShowId            = Self.decodeInt(from: c, forKey: .tvdbShowId)
+        tvdbId                = Self.decodeInt(from: c, forKey: .tvdbId)
+        seasonNumber          = Self.decodeInt(from: c, forKey: .seasonNumber)
+        episodeNumber         = Self.decodeInt(from: c, forKey: .episodeNumber)
+        absoluteEpisodeNumber = Self.decodeInt(from: c, forKey: .absoluteEpisodeNumber)
+        title                 = Self.decodeStringMap(from: c, forKey: .title)
         airDate               = try c.decodeIfPresent(String.self,         forKey: .airDate)
         airDateUtc            = try c.decodeIfPresent(String.self,         forKey: .airDateUtc)
         overview              = try c.decodeIfPresent(String.self,         forKey: .overview)
         image                 = try c.decodeIfPresent(String.self,         forKey: .image)
-        anidbEid              = try c.decodeIfPresent(Int.self,            forKey: .anidbEid)
+        anidbEid              = Self.decodeInt(from: c, forKey: .anidbEid)
         airdate               = try c.decodeIfPresent(String.self,         forKey: .airdate)
         summary               = try c.decodeIfPresent(String.self,         forKey: .summary)
         finaleType            = try c.decodeIfPresent(String.self,         forKey: .finaleType)
 
-        // `runtime` and `length`: spec says number but may come as float (e.g. 23.5).
-        // Mirrors original `(info["runtime"] as? NSNumber)?.intValue` which handles both.
-        if let n = try? c.decodeIfPresent(Int.self, forKey: .runtime) {
-            runtime = n
-        } else if let d = try? c.decodeIfPresent(Double.self, forKey: .runtime) {
-            runtime = Int(d)
-        } else {
-            runtime = nil
-        }
-        if let n = try? c.decodeIfPresent(Int.self, forKey: .length) {
-            length = n
-        } else if let d = try? c.decodeIfPresent(Double.self, forKey: .length) {
-            length = Int(d)
-        } else {
-            length = nil
-        }
+        // `runtime` and `length`: spec says number, but the API can return float/string values.
+        runtime = Self.decodeInt(from: c, forKey: .runtime)
+        length  = Self.decodeInt(from: c, forKey: .length)
 
         // `episode` field: string in the spec but sometimes returned as a number.
         if let s = try? c.decodeIfPresent(String.self, forKey: .episode) {
@@ -114,6 +131,28 @@ struct AniZipEpisodeEntry: Codable {
         } else {
             rating = nil
         }
+    }
+
+    private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        return nil
+    }
+
+    private static func decodeStringMap<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> [String: String]? {
+        guard let nested = try? c.nestedContainer(keyedBy: AniZipDynamicKey.self, forKey: key) else { return nil }
+        var result: [String: String] = [:]
+        for nestedKey in nested.allKeys {
+            if let value = try? nested.decodeIfPresent(String.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = value
+            } else if let value = try? nested.decodeIfPresent(Int.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = String(value)
+            } else if let value = try? nested.decodeIfPresent(Double.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = String(value)
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 }
 
@@ -145,9 +184,9 @@ struct AniZipEpisodesResponse: Codable {
     // episode never wipes out the entire episodes dict.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        titles       = try c.decodeIfPresent([String: String].self, forKey: .titles)
-        episodeCount = try c.decodeIfPresent(Int.self,              forKey: .episodeCount)
-        specialCount = try c.decodeIfPresent(Int.self,              forKey: .specialCount)
+        titles       = Self.decodeStringMap(from: c, forKey: .titles)
+        episodeCount = Self.decodeInt(from: c, forKey: .episodeCount)
+        specialCount = Self.decodeInt(from: c, forKey: .specialCount)
         images       = try c.decodeIfPresent([AniZipImage].self,    forKey: .images)
         mappings     = try c.decodeIfPresent(AniZipMappings.self,   forKey: .mappings)
 
@@ -165,6 +204,28 @@ struct AniZipEpisodesResponse: Codable {
         } else {
             episodes = nil
         }
+    }
+
+    private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        return nil
+    }
+
+    private static func decodeStringMap<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> [String: String]? {
+        guard let nested = try? c.nestedContainer(keyedBy: AniZipDynamicKey.self, forKey: key) else { return nil }
+        var result: [String: String] = [:]
+        for nestedKey in nested.allKeys {
+            if let value = try? nested.decodeIfPresent(String.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = value
+            } else if let value = try? nested.decodeIfPresent(Int.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = String(value)
+            } else if let value = try? nested.decodeIfPresent(Double.self, forKey: nestedKey) {
+                result[nestedKey.stringValue] = String(value)
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 }
 

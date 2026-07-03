@@ -188,7 +188,7 @@ struct TorrentQuery {
     /// TheTVDB episode ID — from api.ani.zip episode entry
     var tvdbEId: Int?
     /// TheMovieDB ID — from api.ani.zip mappings
-    var tmdbId: Int?
+    var tmdbId: String?
     /// Kitsu ID — from api.ani.zip mappings
     var kitsuId: Int?
     /// IMDB ID — from api.ani.zip mappings

@@ -243,20 +243,18 @@ final class ExtensionService {
     /// Mirrors Hayase's ALToAniDB: if no anidb_id in mappings AND format is SPECIAL/OVA/ONA,
     /// falls back to the parent/prequel/sequel's ani.zip data (getParentForSpecial).
     ///
-    /// Key: uses direct dict key lookup (episodes["\(episode)"]) matching Hayase's
-    /// filtered.get('' + episode) in the default makeEpisodeList path.
-    ///
-    /// Uses (x as? NSNumber)?.intValue for all int extraction — JSONSerialization always
-    /// boxes JSON numbers as NSNumber; `as? Int` returns nil for Double-backed NSNumbers.
+    /// Episode IDs are selected through the same makeEpisodeList path as interface:
+    /// direct key lookup for normal shows, and air-date validation when specials/count
+    /// mismatches require it.
     private func fetchAniZipData(item: AnimeItem, episode: Int) async -> (
         aid: Int?, eid: Int?,
         malId: Int?, tvdbId: Int?, tvdbEId: Int?,
-        tmdbId: Int?, kitsuId: Int?, imdbId: String?,
+        tmdbId: String?, kitsuId: Int?, imdbId: String?,
         absoluteEpisodeNumber: Int?
     ) {
         let empty = (aid: nil as Int?, eid: nil as Int?,
                      malId: nil as Int?, tvdbId: nil as Int?, tvdbEId: nil as Int?,
-                     tmdbId: nil as Int?, kitsuId: nil as Int?, imdbId: nil as String?,
+                     tmdbId: nil as String?, kitsuId: nil as Int?, imdbId: nil as String?,
                      absoluteEpisodeNumber: nil as Int?)
 
         guard var json = await fetchAniZipJSON(anilistID: item.id) else {
@@ -272,7 +270,7 @@ final class ExtensionService {
         //   if (!parentID) return
         //   return await _episodes(parentID)
         let mappings = json["mappings"] as? [String: Any]
-        let hasAnidbId = (mappings?["anidb_id"] as? NSNumber)?.intValue != nil
+        let hasAnidbId = Self.intValue(mappings?["anidb_id"]) != nil
 
         if !hasAnidbId, let fmt = item.format,
            ["SPECIAL", "OVA", "ONA"].contains(fmt) {
@@ -288,36 +286,153 @@ final class ExtensionService {
         // ── Mappings: series-level IDs ────────────────────────────────────────────────
         // Mirrors: const { anidb_id: anidbAid, mal_id: malId, ... } = aniDBMeta?.mappings ?? {}
         let finalMappings = json["mappings"] as? [String: Any]
-        let aid     = (finalMappings?["anidb_id"]      as? NSNumber)?.intValue
-        let malId   = (finalMappings?["mal_id"]        as? NSNumber)?.intValue
-        let tvdbId  = (finalMappings?["thetvdb_id"]    as? NSNumber)?.intValue
-        let kitsuId = (finalMappings?["kitsu_id"]      as? NSNumber)?.intValue
-        let tmdbId  = (finalMappings?["themoviedb_id"] as? NSNumber)?.intValue
-        let imdbId  = finalMappings?["imdb_id"] as? String
+        let aid     = Self.intValue(finalMappings?["anidb_id"])
+        let malId   = Self.intValue(finalMappings?["mal_id"])
+        let tvdbId  = Self.intValue(finalMappings?["thetvdb_id"])
+        let kitsuId = Self.intValue(finalMappings?["kitsu_id"])
+        let tmdbId  = Self.stringValue(finalMappings?["themoviedb_id"])
+        let imdbId  = Self.stringValue(finalMappings?["imdb_id"])
 
-        // ── Episodes: direct dict key lookup ─────────────────────────────────────────
-        // Hayase: makeEpisodeList(media, episodesRes)[episode - 1]
-        //
-        // In the default case (no specials or count mismatch), makeEpisodeList does
-        // a simple dict key lookup: filtered.get('' + episode). The ani.zip episodes
-        // dict is keyed by episode number as a string ("1", "2", "3", etc.).
-        // We match Hayase's approach exactly: look up episodes["\(episode)"] directly.
+        // ── Episodes: same entry selection used by makeEpisodeList ───────────────────
+        // Hayase passes torrent metadata through makeEpisodeList(media, episodesRes)[episode - 1],
+        // not a separate endpoint. Keep the same default key lookup and special-airdate validation.
         var eid: Int?
         var tvdbEId: Int?
         var absoluteEpNum: Int?
 
-        if let episodes = json["episodes"] as? [String: Any] {
-            // Direct key lookup: episode 3 → episodes["3"]
-            // Matches Hayase: filtered.get('' + episode)
-            if let ep = episodes["\(episode)"] as? [String: Any] {
-                eid          = (ep["anidbEid"]              as? NSNumber)?.intValue
-                tvdbEId      = (ep["tvdbId"]                as? NSNumber)?.intValue
-                absoluteEpNum = (ep["absoluteEpisodeNumber"] as? NSNumber)?.intValue
-            }
+        if let ep = Self.selectedEpisode(from: json, item: item, episode: episode) {
+            eid           = Self.intValue(ep["anidbEid"])
+            tvdbEId       = Self.intValue(ep["tvdbId"])
+            absoluteEpNum = Self.intValue(ep["absoluteEpisodeNumber"])
         }
 
         print("ExtensionService: anilist_id=\(item.id) ep=\(episode) → anidbAid=\(aid.map(String.init) ?? "nil") anidbEid=\(eid.map(String.init) ?? "nil") malId=\(malId.map(String.init) ?? "nil")")
         return (aid, eid, malId, tvdbId, tvdbEId, tmdbId, kitsuId, imdbId, absoluteEpNum)
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let n = value as? NSNumber { return n.intValue }
+        if let s = value as? String { return Int(s) ?? Int(Double(s) ?? 0) }
+        return nil
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let s = value as? String, !s.isEmpty { return s }
+        if let n = value as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    private struct RawAniZipEpisode {
+        let key: String
+        let data: [String: Any]
+        let airdatems: Double?
+        let anidbEid: Int?
+    }
+
+    private static func selectedEpisode(from json: [String: Any], item: AnimeItem, episode: Int) -> [String: Any]? {
+        guard episode > 0, let episodes = json["episodes"] as? [String: Any] else { return nil }
+
+        let hasSpecial = (intValue(json["specialCount"]) ?? 0) > 0
+        let hasEpisode = episodes["\(episode)"] != nil
+        let hasCountMatch = (item.episodes ?? 0) == (intValue(json["episodeCount"]) ?? 0)
+        let needsValidation = !(!hasSpecial || (hasEpisode && hasCountMatch))
+
+        guard needsValidation else {
+            return episodes["\(episode)"] as? [String: Any]
+        }
+
+        var filtered: [String: RawAniZipEpisode] = [:]
+        for (key, value) in episodes {
+            guard let data = value as? [String: Any] else { continue }
+            let airdatems = dateValue(data["airdate"] as? String)?.timeIntervalSince1970
+            filtered[key] = RawAniZipEpisode(key: key,
+                                             data: data,
+                                             airdatems: airdatems,
+                                             anidbEid: intValue(data["anidbEid"]))
+        }
+
+        let schedule = interfaceAiringSchedule(for: item)
+        let now = Date().timeIntervalSince1970
+        var resolved: RawAniZipEpisode?
+
+        // Interface calls makeEpisodeList(media, episodesRes)[episode - 1]. Re-run that
+        // sequential selection up to the requested episode so the same consumed-special
+        // deletion rules are applied before returning torrent metadata for this episode.
+        for current in 1...episode {
+            let currentHasEpisode = episodes["\(current)"] != nil
+            let currentNeedsValidation = !(!hasSpecial || (currentHasEpisode && hasCountMatch))
+            let currentResolved = currentNeedsValidation
+                ? episodeByAirDate(alDate: schedule[current], filtered: filtered, episode: current)
+                : filtered["\(current)"]
+
+            if currentNeedsValidation, let currentResolved {
+                var keysToRemove: [String] = []
+                for (key, value) in filtered {
+                    if let eid = value.anidbEid, let resolvedEid = currentResolved.anidbEid, eid == resolvedEid {
+                        keysToRemove.append(key)
+                    } else if let entryMs = value.airdatems, entryMs < (currentResolved.airdatems ?? now) {
+                        keysToRemove.append(key)
+                    }
+                }
+                for key in keysToRemove {
+                    filtered.removeValue(forKey: key)
+                }
+            }
+
+            if current == episode {
+                resolved = currentResolved
+            }
+        }
+
+        return resolved?.data ?? episodes["\(episode)"] as? [String: Any]
+    }
+
+    private static func episodeByAirDate(alDate: Date?,
+                                         filtered: [String: RawAniZipEpisode],
+                                         episode: Int) -> RawAniZipEpisode? {
+        guard let alDate, alDate.timeIntervalSince1970 != 0 else {
+            return filtered["\(episode)"]
+        }
+
+        var closest: [RawAniZipEpisode] = []
+        var closestDistance = Double.infinity
+        for entry in filtered.values {
+            let distance = abs((entry.airdatems ?? 0) - alDate.timeIntervalSince1970)
+            if distance < closestDistance {
+                closestDistance = distance
+                closest = [entry]
+            } else if distance == closestDistance {
+                closest.append(entry)
+            }
+        }
+
+        guard !closest.isEmpty else {
+            return filtered["\(episode)"]
+        }
+
+        return closest.min { lhs, rhs in
+            let lhsEp = intValue(lhs.data["episode"]) ?? Int(lhs.key) ?? 0
+            let rhsEp = intValue(rhs.data["episode"]) ?? Int(rhs.key) ?? 0
+            return abs(lhsEp - episode) < abs(rhsEp - episode)
+        }
+    }
+
+    private static func dateValue(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        if let date = ISO8601DateFormatter().date(from: raw) { return date }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        return fmt.date(from: raw)
+    }
+
+    private static func interfaceAiringSchedule(for item: AnimeItem) -> [Int: Date] {
+        var schedule: [Int: Date] = [:]
+        for node in item.airedSchedule + item.notYetAiredSchedule {
+            guard schedule[node.episode] == nil, let airingAt = node.airingAt else { continue }
+            schedule[node.episode] = Date(timeIntervalSince1970: Double(airingAt))
+        }
+        return schedule
     }
 
     /// Fetch raw JSON from api.ani.zip for a given AniList ID.

@@ -36,6 +36,7 @@ private enum EpisodeCardStyle {
     static let cardRadius: CGFloat = 6
     static let cardHeight: CGFloat = 112
     static let thumbnailMaxWidth: CGFloat = 208
+    static let defaultThumbnailAspectRatio: CGFloat = 9.0 / 16.0
     static let thumbnailBadgeBackground = UIColor(white: 23/255, alpha: 0.8)
     static let selectedBackground = UIColor(white: 23/255, alpha: 1)
     static let trackBackground = UIColor(white: 38/255, alpha: 1)
@@ -117,6 +118,7 @@ private final class EpisodeRatingBadgeView: UIView {
 final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     var onTap: ((Int) -> Void)?
+    var onContentHeightChanged: (() -> Void)?
     private var episodeNumber: Int = 0
 
     private let thumbImageView: UIImageView = {
@@ -240,6 +242,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private var textLeadingToCard: NSLayoutConstraint!
     private var thumbWidthPreferred: NSLayoutConstraint!
     private var thumbMaxWidth: NSLayoutConstraint!
+    private var thumbAspectConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -423,10 +426,47 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    private func setThumbnailAspectRatio(_ ratio: CGFloat, active: Bool) {
+        thumbAspectConstraint?.isActive = false
+        thumbAspectConstraint = nil
+
+        guard active, ratio.isFinite, ratio > 0 else { return }
+
+        let constraint = thumbImageView.heightAnchor.constraint(equalTo: thumbImageView.widthAnchor, multiplier: ratio)
+        // CSS gives the image its natural ratio, then max-h-28 may cap it.
+        // Keep the cap authoritative when an episode image is taller than 112pt.
+        constraint.priority = UILayoutPriority(750)
+        constraint.isActive = true
+        thumbAspectConstraint = constraint
+    }
+
+    private func applyThumbnailImage(_ image: UIImage, from urlString: String, animated: Bool) {
+        guard currentImageURL == urlString else { return }
+
+        let oldRatio = thumbAspectConstraint?.multiplier
+        let ratio = image.size.height / max(image.size.width, 1)
+        setThumbnailAspectRatio(ratio, active: true)
+
+        let setImage = { self.thumbImageView.image = image }
+        if animated {
+            UIView.transition(with: thumbImageView, duration: 0.2,
+                              options: [.transitionCrossDissolve, .beginFromCurrentState],
+                              animations: setImage)
+        } else {
+            setImage()
+        }
+
+        if oldRatio.map({ abs($0 - ratio) > 0.01 }) ?? true {
+            onContentHeightChanged?()
+        }
+    }
+
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
                    accentColor: UIColor = .white, isListCompleted: Bool = false,
                    isRepeating: Bool = false, hideSpoilers: Bool = false,
-                   followers: [AniListUserSummary] = []) {
+                   followers: [AniListUserSummary] = [],
+                   onHeightChange: (() -> Void)? = nil) {
+        onContentHeightChanged = onHeightChange
         episodeNumber = episode.number
         numberLabel.text = "\(episode.number). \(episode.title)"
         overviewLabel.text = episode.overview
@@ -515,17 +555,20 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         thumbMaxWidth.isActive = hasImage
         textLeadingToThumb.isActive = hasImage
         textLeadingToCard.isActive = !hasImage
+        setThumbnailAspectRatio(EpisodeCardStyle.defaultThumbnailAspectRatio, active: hasImage)
 
         if let urlStr = episode.imageURL, let url = URL(string: urlStr) {
+            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
+                applyThumbnailImage(cached, from: urlStr, animated: false)
+                return
+            }
+
             let captured = urlStr
             imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 guard let data = data, let img = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(img, forKey: captured as NSString)
                 DispatchQueue.main.async {
-                    if self?.currentImageURL == captured {
-                        UIView.transition(with: self?.thumbImageView ?? UIImageView(),
-                                          duration: 0.2, options: .transitionCrossDissolve,
-                                          animations: { self?.thumbImageView.image = img })
-                    }
+                    self?.applyThumbnailImage(img, from: captured, animated: true)
                 }
             }
             imageTask?.resume()
@@ -549,6 +592,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         thumbImageView.isHidden = false
         thumbWidthPreferred.isActive = true
         thumbMaxWidth.isActive = true
+        setThumbnailAspectRatio(EpisodeCardStyle.defaultThumbnailAspectRatio, active: true)
         textLeadingToThumb.isActive = true
         textLeadingToCard.isActive = false
         numberLabel.text = nil
@@ -576,6 +620,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         progressFillWidthConstraint?.constant = 0
         episodeNumber = 0
         onTap = nil
+        onContentHeightChanged = nil
     }
 }
 
@@ -668,11 +713,12 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
     func configure(with episode: AniZipEpisode, anilistID: Int = 0, anilistProgress: Int = 0,
                    accentColor: UIColor = .white, isListCompleted: Bool = false,
                    isRepeating: Bool = false, hideSpoilers: Bool = false,
-                   followers: [AniListUserSummary] = []) {
+                   followers: [AniListUserSummary] = [],
+                   onHeightChange: (() -> Void)? = nil) {
         cardView.configure(with: episode, anilistID: anilistID, anilistProgress: anilistProgress,
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
-                           followers: followers)
+                           followers: followers, onHeightChange: onHeightChange)
         cardIsTarget = episode.number == (isListCompleted ? 0 : anilistProgress) + 1
         updateCardInsets()
     }
@@ -811,11 +857,13 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
                    accentColor: UIColor, isListCompleted: Bool,
                    isRepeating: Bool = false, hideSpoilers: Bool = false,
-                   followersByEpisode: [Int: [AniListUserSummary]] = [:]) {
+                   followersByEpisode: [Int: [AniListUserSummary]] = [:],
+                   onHeightChange: (() -> Void)? = nil) {
         leftCard.configure(with: left, anilistID: anilistID, anilistProgress: anilistProgress,
                            accentColor: accentColor, isListCompleted: isListCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
-                           followers: followersByEpisode[left.number] ?? [])
+                           followers: followersByEpisode[left.number] ?? [],
+                           onHeightChange: onHeightChange)
         applyTargetPadding(toLeftCard: true, isTarget: left.number == (isListCompleted ? 0 : anilistProgress) + 1)
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
@@ -824,7 +872,8 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
                                 accentColor: accentColor, isListCompleted: isListCompleted,
                                 isRepeating: isRepeating, hideSpoilers: hideSpoilers,
-                                followers: followersByEpisode[right.number] ?? [])
+                                followers: followersByEpisode[right.number] ?? [],
+                                onHeightChange: onHeightChange)
             applyTargetPadding(toLeftCard: false, isTarget: right.number == (isListCompleted ? 0 : anilistProgress) + 1)
             rightCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
             rightContainer.isHidden = false
@@ -1184,7 +1233,8 @@ extension AnimeDetailViewController {
                            anilistProgress: anilistProgress, accentColor: currentAnimeAccent,
                            isListCompleted: isCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
-                           followersByEpisode: followingEntriesByEpisode)
+                           followersByEpisode: followingEntriesByEpisode,
+                           onHeightChange: { [weak self] in self?.scheduleEpisodeHeightInvalidation() })
             cell.onTapEpisode = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }
@@ -1199,7 +1249,8 @@ extension AnimeDetailViewController {
             cell.configure(with: ep, anilistID: currentAnilistID, anilistProgress: anilistProgress,
                            accentColor: currentAnimeAccent, isListCompleted: isCompleted,
                            isRepeating: isRepeating, hideSpoilers: hideSpoilers,
-                           followers: followingEntriesByEpisode[ep.number] ?? [])
+                           followers: followingEntriesByEpisode[ep.number] ?? [],
+                           onHeightChange: { [weak self] in self?.scheduleEpisodeHeightInvalidation() })
             cell.cardView.onTap = { [weak self] epNumber in
                 self?.openExtensionSearch(episode: epNumber)
             }
@@ -1401,8 +1452,7 @@ extension AnimeDetailViewController {
         var closest: [FilteredEpisode] = []
         var closestDist = Double.infinity
         for entry in filtered.values {
-            guard let ms = entry.airdatems else { continue }
-            let dist = abs(ms - alMs)
+            let dist = abs((entry.airdatems ?? 0) - alMs)
             if dist < closestDist {
                 closestDist = dist
                 closest = [entry]
@@ -1414,7 +1464,9 @@ extension AnimeDetailViewController {
         guard !closest.isEmpty else { return filtered["\(episode)"] }
 
         return closest.min(by: {
-            abs((Int($0.key) ?? 0) - episode) < abs((Int($1.key) ?? 0) - episode)
+            let lhs = Int($0.entry.episode) ?? Int($0.key) ?? 0
+            let rhs = Int($1.entry.episode) ?? Int($1.key) ?? 0
+            return abs(lhs - episode) < abs(rhs - episode)
         })
     }
 

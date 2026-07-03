@@ -1660,6 +1660,7 @@ class AnimeDetailViewController: UIViewController {
 
     let episodesPerPage = 16
     var currentEpisodePage: Int = 1
+    private var pendingEpisodeHeightInvalidation = false
     var paginatedEpisodes: [AniZipEpisode] {
         let start = (currentEpisodePage - 1) * episodesPerPage
         let end = min(start + episodesPerPage, episodes.count)
@@ -2360,6 +2361,20 @@ class AnimeDetailViewController: UIViewController {
         currentEpisodePage = clamped
         let sectionsToReload = IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue])
         tableView.reloadSections(sectionsToReload, with: .automatic)
+    }
+
+    func scheduleEpisodeHeightInvalidation() {
+        guard !pendingEpisodeHeightInvalidation else { return }
+        pendingEpisodeHeightInvalidation = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingEpisodeHeightInvalidation = false
+            guard self.activeSection == .episodes else { return }
+            UIView.performWithoutAnimation {
+                self.tableView.beginUpdates()
+                self.tableView.endUpdates()
+            }
+        }
     }
 
     // MARK: - Navigation
