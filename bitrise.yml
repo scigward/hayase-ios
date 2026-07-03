@@ -1,0 +1,191 @@
+format_version: "17"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+
+app:
+  envs:
+    - BITRISE_PROJECT_PATH: Hayase.xcworkspace
+      opts:
+        is_expand: false
+    - BITRISE_SCHEME: Hayase
+      opts:
+        is_expand: false
+    - BITRISE_CONFIGURATION: Release
+      opts:
+        is_expand: false
+    - BUILD_ROOT: "$BITRISE_SOURCE_DIR/build/app"
+      opts:
+        is_expand: true
+
+trigger_map:
+  - push_branch: "*"
+    workflow: primary
+  - pull_request_source_branch: "*"
+    workflow: primary
+
+workflows:
+  primary:
+    description: Builds an unsigned Hayase IPA using the same project-specific preparation steps as the existing CI flows.
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8: {}
+
+      - script@1:
+          title: Checkout submodules
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                git submodule update --init --recursive
+                git submodule update --remote --recursive Component/LibTorrent-Swift
+
+      - script@1:
+          title: Install dependencies
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+                brew list boost >/dev/null 2>&1 || brew install boost
+                brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+                brew list node >/dev/null 2>&1 || brew install node
+
+      - script@1:
+          title: Build WebTorrent backend
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                chmod +x ./scripts/build_webtorrent_backend.sh
+                ./scripts/build_webtorrent_backend.sh
+
+      - script@1:
+          title: Build torrent client GeoIP resources
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                chmod +x ./scripts/build_torrent_client_geoip.sh
+                ./scripts/build_torrent_client_geoip.sh
+
+      - script@1:
+          title: Generate Xcode project
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                chmod +x ./scripts/generate_project.sh
+                ./scripts/generate_project.sh
+
+                test -d Hayase.xcodeproj
+                test -d Hayase.xcworkspace
+                test -d Component/LibTorrent-Swift/LibTorrent.xcodeproj
+
+      - script@1:
+          title: Build LibTorrent
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                chmod +x ./Component/LibTorrent-Swift/make.sh
+                OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
+
+      - script@1:
+          title: Generate app icons
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
+                cd "$ICON_DIR"
+
+                test -f AppIcon.png
+
+                sips -z 58 58 AppIcon.png --out icon_29@2x.png
+                sips -z 87 87 AppIcon.png --out icon_29@3x.png
+                sips -z 80 80 AppIcon.png --out icon_40@2x.png
+                sips -z 120 120 AppIcon.png --out icon_40@3x.png
+                sips -z 120 120 AppIcon.png --out icon_60@2x.png
+                sips -z 180 180 AppIcon.png --out icon_60@3x.png
+
+                sips -z 29 29 AppIcon.png --out icon_ipad_29@1x.png
+                sips -z 58 58 AppIcon.png --out icon_ipad_29@2x.png
+                sips -z 40 40 AppIcon.png --out icon_ipad_40@1x.png
+                sips -z 80 80 AppIcon.png --out icon_ipad_40@2x.png
+                sips -z 76 76 AppIcon.png --out icon_ipad_76@1x.png
+                sips -z 152 152 AppIcon.png --out icon_ipad_76@2x.png
+                sips -z 167 167 AppIcon.png --out icon_ipad_83.5@2x.png
+
+                sips -z 1024 1024 AppIcon.png --out icon_marketing_1024.png
+
+      - script@1:
+          title: Resolve Swift packages
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                RESOLVED=false
+
+                for attempt in 1 2 3; do
+                  echo "Resolve attempt $attempt/3"
+
+                  if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
+                    -workspace "$BITRISE_PROJECT_PATH" \
+                    -scheme "$BITRISE_SCHEME" \
+                    -resolvePackageDependencies \
+                    SYMROOT="$BUILD_ROOT"; then
+                    RESOLVED=true
+                    break
+                  fi
+
+                  sleep 10
+                done
+
+                if [ "$RESOLVED" != "true" ]; then
+                  echo "Failed to resolve Swift packages" >&2
+                  exit 1
+                fi
+
+      - script@1:
+          title: Build Hayase unsigned
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                xcodebuild \
+                  -workspace "$BITRISE_PROJECT_PATH" \
+                  -scheme "$BITRISE_SCHEME" \
+                  -configuration "$BITRISE_CONFIGURATION" \
+                  -sdk iphoneos \
+                  -destination generic/platform=iOS \
+                  -skipPackageUpdates \
+                  CODE_SIGN_IDENTITY="" \
+                  CODE_SIGNING_REQUIRED=NO \
+                  CODE_SIGNING_ALLOWED=NO \
+                  SYMROOT="$BUILD_ROOT" \
+                  clean build
+
+      - script@1:
+          title: Package unsigned IPA
+          inputs:
+            - content: |-
+                set -euo pipefail
+
+                APP_PATH="$(find "$BUILD_ROOT" -name 'Hayase.app' -not -path '*/Build/*' | head -1)"
+
+                if [ -z "$APP_PATH" ]; then
+                  echo "Hayase.app not found" >&2
+                  find "$BUILD_ROOT" -maxdepth 6 -type d -name "*.app" || true
+                  exit 1
+                fi
+
+                echo "Found app at: $APP_PATH"
+
+                rm -rf Payload
+                mkdir -p Payload "$BITRISE_DEPLOY_DIR"
+                cp -R "$APP_PATH" Payload/Hayase.app
+                zip -qry "$BITRISE_DEPLOY_DIR/Hayase.ipa" Payload
+
+                echo "Created $BITRISE_DEPLOY_DIR/Hayase.ipa"
+
+      - deploy-to-bitrise-io@2: {}

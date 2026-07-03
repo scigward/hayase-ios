@@ -40,3 +40,6 @@ Carthage/Build/
 .DS_Store
 *.swp
 *~
+
+# Bitrise local secrets
+.bitrise.secrets.yml
