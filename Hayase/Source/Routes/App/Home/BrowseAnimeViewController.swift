@@ -169,7 +169,9 @@ private final class HomeBannerBackdropView: UIView {
             return
         }
         isFaded = shouldFade
-        UIView.animate(withDuration: 0.5) {
+        UIView.animate(withDuration: 0.5,
+                       delay: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.imageView.alpha = targetAlpha
             self.gradientView.alpha = targetAlpha
         }
@@ -1425,7 +1427,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Web applies opacity to the whole Banner component, including the radial
         // gradient pseudo-element. Fade both layers so the hero does not leave a
         // full-strength black veil over the first row after scrolling.
-        UIView.animate(withDuration: 0.5) {
+        UIView.animate(withDuration: 0.5,
+                       delay: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.backgroundImageView.alpha = targetAlpha
             self.gradientView.alpha = targetAlpha
         }

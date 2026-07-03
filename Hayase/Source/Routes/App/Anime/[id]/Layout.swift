@@ -136,9 +136,13 @@ private final class AnimeDetailBannerBackdropView: UIView {
 
     func applyAlpha(_ alpha: CGFloat, animated: Bool) {
         let clamped = min(max(alpha, 0), 1)
+        guard abs(self.alpha - clamped) > 0.001 else { return }
         let changes = { self.alpha = clamped }
         if animated {
-            UIView.animate(withDuration: 0.5, animations: changes)
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState],
+                           animations: changes)
         } else {
             changes()
         }

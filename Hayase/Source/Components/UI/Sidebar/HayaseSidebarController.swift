@@ -391,7 +391,9 @@ final class HayaseSidebarController: UIViewController {
             let clampedAlpha = min(max(alpha, 0), 1)
             if abs(clampedAlpha - sidebarBackdropAlpha) > 0.01 {
                 sidebarBackdropAlpha = clampedAlpha
-                UIView.animate(withDuration: 0.5) {
+                UIView.animate(withDuration: 0.5,
+                               delay: 0,
+                               options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.sidebarBackdropImageView.alpha = clampedAlpha
                     self.sidebarBackdropGradientView.alpha = clampedAlpha
                     self.sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
