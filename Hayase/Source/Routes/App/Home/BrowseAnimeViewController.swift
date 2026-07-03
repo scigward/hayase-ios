@@ -163,11 +163,7 @@ private final class HomeBannerBackdropView: UIView {
     func applyScrollFade(_ scrollOffset: CGFloat) {
         let shouldFade = scrollOffset > 100
         let targetAlpha: CGFloat = shouldFade ? 0.05 : 1.0
-        guard shouldFade != isFaded else {
-            imageView.alpha = targetAlpha
-            gradientView.alpha = targetAlpha
-            return
-        }
+        guard shouldFade != isFaded else { return }
         isFaded = shouldFade
         UIView.animate(withDuration: 0.5,
                        delay: 0,

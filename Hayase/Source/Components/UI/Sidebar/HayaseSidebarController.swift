@@ -398,10 +398,6 @@ final class HayaseSidebarController: UIViewController {
                     self.sidebarBackdropGradientView.alpha = clampedAlpha
                     self.sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
                 }
-            } else {
-                sidebarBackdropImageView.alpha = clampedAlpha
-                sidebarBackdropGradientView.alpha = clampedAlpha
-                sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
             }
         }
 
