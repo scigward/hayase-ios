@@ -169,7 +169,9 @@ private final class HomeBannerBackdropView: UIView {
             return
         }
         isFaded = shouldFade
-        UIView.animate(withDuration: 0.5) {
+        UIView.animate(withDuration: 0.5,
+                       delay: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.imageView.alpha = targetAlpha
             self.gradientView.alpha = targetAlpha
         }
@@ -1425,7 +1427,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Web applies opacity to the whole Banner component, including the radial
         // gradient pseudo-element. Fade both layers so the hero does not leave a
         // full-strength black veil over the first row after scrolling.
-        UIView.animate(withDuration: 0.5) {
+        UIView.animate(withDuration: 0.5,
+                       delay: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.backgroundImageView.alpha = targetAlpha
             self.gradientView.alpha = targetAlpha
         }
@@ -1818,14 +1822,6 @@ class BrowseAnimeViewController: UIViewController {
     private var visibleHomeSectionIDs = Set<String>()
 
     private let homeBackdropView = HomeBannerBackdropView()
-    private let homeBackdropCoverView: UIView = {
-        let view = UIView()
-        view.backgroundColor = hayasePageBackground
-        view.alpha = 0
-        view.isUserInteractionEnabled = false
-        return view
-    }()
-    private var isHomeBackdropCovered = false
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
     private var homeBackdropTrailingConstraint: NSLayoutConstraint?
 
@@ -1986,9 +1982,7 @@ class BrowseAnimeViewController: UIViewController {
     private func setupHomeBackdropView() {
         view.backgroundColor = hayasePageBackground
         homeBackdropView.translatesAutoresizingMaskIntoConstraints = false
-        homeBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(homeBackdropView)
-        view.addSubview(homeBackdropCoverView)
         homeBackdropLeadingConstraint = homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
         homeBackdropTrailingConstraint = homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
@@ -1996,11 +1990,6 @@ class BrowseAnimeViewController: UIViewController {
             homeBackdropLeadingConstraint!,
             homeBackdropTrailingConstraint!,
             homeBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            homeBackdropCoverView.topAnchor.constraint(equalTo: view.topAnchor),
-            homeBackdropCoverView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            homeBackdropCoverView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            homeBackdropCoverView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         updateHomeBackdropLayout()
     }
@@ -2824,26 +2813,15 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             // User is pulling down past the top → keep the route backdrop visible.
             homeBackdropView.applyOverscrollZoom(-offsetY)
             homeBackdropView.applyScrollFade(0)
-            setHomeBackdropCovered(false)
             bannerCell?.applyOverscrollZoom(-offsetY)
             bannerCell?.applyScrollFade(0)
         } else {
-            // Interface fades BannerImage after scrollTop > 100. UIKit still
-            // has a transparent scroll viewport, so cover the page backdrop
-            // behind scrolled rows once it is faded to prevent image bleed.
+            // Interface only changes hideBanner at this threshold. There is no
+            // extra route-sized cover layer; the BannerImage itself keeps fading.
             homeBackdropView.applyOverscrollZoom(0)
             homeBackdropView.applyScrollFade(offsetY)
-            setHomeBackdropCovered(offsetY > 100)
             bannerCell?.applyOverscrollZoom(0)
             bannerCell?.applyScrollFade(offsetY)
-        }
-    }
-
-    private func setHomeBackdropCovered(_ covered: Bool) {
-        guard covered != isHomeBackdropCovered else { return }
-        isHomeBackdropCovered = covered
-        UIView.animate(withDuration: 0.5, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-            self.homeBackdropCoverView.alpha = covered ? 1 : 0
         }
     }
 
