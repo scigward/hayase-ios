@@ -747,6 +747,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
         if let right = right {
+            rightCard.isHidden = false
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
                                 accentColor: accentColor, isListCompleted: isListCompleted,
                                 isRepeating: isRepeating, hideSpoilers: hideSpoilers,
@@ -756,8 +757,9 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             rightContainer.isHidden = false
         } else {
             rightCard.reset()
+            rightCard.isHidden = true
             applyTargetPadding(toLeftCard: false, isTarget: false)
-            rightContainer.isHidden = true
+            rightContainer.isHidden = false
         }
     }
 
@@ -786,6 +788,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         super.prepareForReuse()
         leftCard.reset()
         rightCard.reset()
+        rightCard.isHidden = false
         rightContainer.isHidden = false
         applyTargetPadding(toLeftCard: true, isTarget: false)
         applyTargetPadding(toLeftCard: false, isTarget: false)
@@ -814,30 +817,32 @@ final class PaginationBarView: UIView {
 
     private let prevButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.setImage(UIImage.hayaseIcon("chevron-left", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
         b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        b.layer.cornerRadius = 6
         return b
     }()
 
     private let nextButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.setImage(UIImage.hayaseIcon("chevron-right", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
         b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        b.layer.cornerRadius = 6
         return b
     }()
 
     private let pageStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 2
+        sv.spacing = 8
         sv.alignment = .center
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
@@ -846,7 +851,7 @@ final class PaginationBarView: UIView {
     private let controlsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 2
+        sv.spacing = 8
         sv.alignment = .center
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
@@ -857,14 +862,17 @@ final class PaginationBarView: UIView {
         label.font = .nunito(ofSize: 13)
         label.textColor = UIColor(white: 0.63, alpha: 1)
         label.textAlignment = .center
+        label.numberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         label.isHidden = true
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }()
 
     private var infoLeadingConstraint: NSLayoutConstraint?
+    private var controlsLeadingConstraint: NSLayoutConstraint?
     private var controlsTrailingConstraint: NSLayoutConstraint?
-    private var controlsCenterXConstraint: NSLayoutConstraint?
     private var renderedInfoText: NSAttributedString?
     private var lastAppliedCompactMode: Bool?
 
@@ -877,31 +885,25 @@ final class PaginationBarView: UIView {
 
         controlsStack.addArrangedSubview(prevButton)
         controlsStack.addArrangedSubview(pageStack)
+        controlsStack.addArrangedSubview(compactInfoLabel)
         controlsStack.addArrangedSubview(nextButton)
 
         addSubview(infoLabel)
         addSubview(controlsStack)
-        addSubview(compactInfoLabel)
 
         infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        controlsLeadingConstraint = controlsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
-        controlsCenterXConstraint = controlsStack.centerXAnchor.constraint(equalTo: centerXAnchor)
 
         NSLayoutConstraint.activate([
             infoLeadingConstraint!,
             infoLabel.centerYAnchor.constraint(equalTo: controlsStack.centerYAnchor),
 
             controlsTrailingConstraint!,
-            controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            controlsStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+            controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            controlsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
 
-            compactInfoLabel.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 8),
-            compactInfoLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-            compactInfoLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-            compactInfoLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            compactInfoLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
-
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
         ])
     }
 
@@ -911,6 +913,7 @@ final class PaginationBarView: UIView {
             ? AnimeDetailViewController.interfacePageSideInset(for: width)
             : CGFloat(16)
         infoLeadingConstraint?.constant = sidePad
+        controlsLeadingConstraint?.constant = sidePad
         controlsTrailingConstraint?.constant = -sidePad
         applyResponsiveModeIfNeeded()
     }
@@ -992,9 +995,9 @@ final class PaginationBarView: UIView {
         infoLabel.attributedText = str
 
         prevButton.isEnabled = currentPage > 1
-        prevButton.alpha = currentPage > 1 ? 1.0 : 0.35
+        prevButton.alpha = currentPage > 1 ? 1.0 : 0.5
         nextButton.isEnabled = currentPage < totalPages
-        nextButton.alpha = currentPage < totalPages ? 1.0 : 0.35
+        nextButton.alpha = currentPage < totalPages ? 1.0 : 0.5
 
         pageStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
@@ -1003,8 +1006,8 @@ final class PaginationBarView: UIView {
             if item.isEllipsis {
                 let label = UILabel()
                 label.text = "..."
-                label.font = .nunito(ofSize: 13)
-                label.textColor = UIColor(white: 0.63, alpha: 1)
+                label.font = .nunito(ofSize: 14)
+                label.textColor = UIColor.HayaseTheme.secondaryForeground
                 label.textAlignment = .center
                 label.widthAnchor.constraint(equalToConstant: 36).isActive = true
                 label.heightAnchor.constraint(equalToConstant: 36).isActive = true
@@ -1012,7 +1015,7 @@ final class PaginationBarView: UIView {
             } else {
                 let btn = UIButton(type: .system)
                 btn.setTitle("\(item.page)", for: .normal)
-                btn.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
+                btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
                 btn.tag = item.page
                 btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
                 btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
@@ -1022,12 +1025,12 @@ final class PaginationBarView: UIView {
 
                 if item.page == currentPage {
                     btn.layer.borderWidth = 1
-                    btn.layer.borderColor = UIColor(white: 0.27, alpha: 1).cgColor
+                    btn.layer.borderColor = UIColor(red: 39/255, green: 39/255, blue: 42/255, alpha: 1).cgColor
                     btn.setTitleColor(.white, for: .normal)
                     btn.backgroundColor = .clear
                 } else {
                     btn.layer.borderWidth = 0
-                    btn.setTitleColor(UIColor(white: 0.63, alpha: 1), for: .normal)
+                    btn.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
                     btn.backgroundColor = .clear
                 }
 
@@ -1046,10 +1049,12 @@ final class PaginationBarView: UIView {
         lastAppliedCompactMode = isCompact
 
         infoLabel.isHidden = isCompact
+        pageStack.isHidden = isCompact
         compactInfoLabel.attributedText = renderedInfoText
         compactInfoLabel.isHidden = !isCompact
-        controlsTrailingConstraint?.isActive = !isCompact
-        controlsCenterXConstraint?.isActive = isCompact
+
+        controlsLeadingConstraint?.isActive = isCompact
+        controlsTrailingConstraint?.isActive = true
     }
 
     private var effectivePaginationWidth: CGFloat {
