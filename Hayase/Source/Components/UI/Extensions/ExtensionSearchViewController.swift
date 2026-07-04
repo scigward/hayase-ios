@@ -176,6 +176,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var headerView: UIView!
 
     // Banner
+    private var bannerContainerView: UIView!
     private var bannerImageView: UIImageView!
     private var bannerGradientLayer: CAGradientLayer!
 
@@ -268,9 +269,8 @@ final class ExtensionSearchViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // bannerImageView fills its parent bannerView (160pt, full width).
-        // The gradient must match the image view's bounds, updated each layout pass.
-        if let iv = bannerImageView { bannerGradientLayer?.frame = iv.bounds }
+        // Interface keeps the dark gradient as a sibling overlay, not inside the 40% image layer.
+        if let container = bannerContainerView { bannerGradientLayer?.frame = container.bounds }
         // Keep close button above all sibling views (state views, skeleton, etc.)
         if let cb = closeButton { view.bringSubviewToFront(cb) }
     }
@@ -289,7 +289,8 @@ final class ExtensionSearchViewController: UIViewController {
         // ── 1. BANNER VIEW — fixed 144pt (max-h-36), sticks at top ──────────────────────────────
         let bannerView = UIView()
         bannerView.clipsToBounds = true
-        bannerView.backgroundColor = .black
+        bannerContainerView = bannerView
+        bannerView.backgroundColor = UIColor.HayaseTheme.background
         bannerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bannerView)
 
@@ -300,13 +301,13 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(bannerImageView)
 
-        // Gradient: bottom 70% fade to black/80 → transparent at top
-        // Matches web: bg-gradient-to-t from-black/80 to-transparent, h-[70%]
+        // Gradient: separate overlay over the 40% banner image, matching SearchModal.svelte.
+        // The gradient itself must not inherit bannerImageView.alpha.
         bannerGradientLayer = CAGradientLayer()
         bannerGradientLayer.colors = [UIColor.clear.cgColor,
-                                       UIColor.black.withAlphaComponent(0.80).cgColor]
+                                       UIColor.HayaseTheme.background.withAlphaComponent(0.80).cgColor]
         bannerGradientLayer.locations = [0.3, 1.0]
-        bannerImageView.layer.addSublayer(bannerGradientLayer)
+        bannerView.layer.addSublayer(bannerGradientLayer)
 
         // Anime title — shown via the titleLabel in controlsView (not navigation bar)
         // Sits on the dark gradient zone → always readable. One line, truncated.
