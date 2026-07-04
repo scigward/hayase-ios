@@ -2093,6 +2093,11 @@ final class VideoPlayerViewController: UIViewController {
                 result.append(track)
             }
         }
+        for dict in renderer.getVideoTracks() {
+            if let track = makeTrack(from: dict, type: "video") {
+                result.append(track)
+            }
+        }
 
         return result
     }
@@ -2128,11 +2133,13 @@ final class VideoPlayerViewController: UIViewController {
         self.tracks = freshTracks
 
         let optionsVC = PlayerOptionsController()
-        optionsVC.modalPresentationStyle = .overFullScreen
+        definesPresentationContext = true
+        optionsVC.modalPresentationStyle = .overCurrentContext
         optionsVC.modalTransitionStyle = .crossDissolve
 
         // Populate data
         optionsVC.audioTracks = freshTracks.filter { $0.type == "audio" }
+        optionsVC.videoTracks = freshTracks.filter { $0.type == "video" }
         optionsVC.subtitleTracks = freshTracks.filter { $0.type == "sub" }
         optionsVC.chapters = chapters
         optionsVC.currentSpeed = playbackRate
@@ -2149,6 +2156,10 @@ final class VideoPlayerViewController: UIViewController {
         // Wire callbacks
         optionsVC.onSelectAudioTrack = { [weak self] trackId in
             self?.surface.mpv.setAudioTrack(trackId)
+        }
+
+        optionsVC.onSelectVideoTrack = { [weak self] trackId in
+            self?.surface.mpv.setVideoTrack(trackId)
         }
 
         optionsVC.onSelectSubtitleTrack = { [weak self] trackId in

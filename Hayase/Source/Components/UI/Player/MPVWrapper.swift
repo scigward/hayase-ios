@@ -764,6 +764,45 @@ final class MPVWrapper {
         }
     }
 
+    // MARK: - Video Track Controls
+
+    func getVideoTracks() -> [[String: Any]] {
+        withHandle([[String: Any]]()) { handle in
+            var tracks: [[String: Any]] = []
+            var trackCount: Int64 = 0
+            getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
+
+            for i in 0..<trackCount {
+                guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
+                      trackType == "video" else { continue }
+
+                var trackId: Int64 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/id", format: MPV_FORMAT_INT64, value: &trackId)
+
+                var track: [String: Any] = ["id": Int(trackId)]
+                if let title = getStringProperty(handle: handle, name: "track-list/\(i)/title") {
+                    track["title"] = title
+                }
+                if let lang = getStringProperty(handle: handle, name: "track-list/\(i)/lang"), lang != "und" {
+                    track["lang"] = lang
+                } else if let demuxLang = getStringProperty(handle: handle, name: "track-list/\(i)/demux-lang"), demuxLang != "und" {
+                    track["lang"] = demuxLang
+                }
+
+                var selected: Int32 = 0
+                getProperty(handle: handle, name: "track-list/\(i)/selected", format: MPV_FORMAT_FLAG, value: &selected)
+                track["selected"] = selected != 0
+                tracks.append(track)
+            }
+
+            return tracks
+        }
+    }
+
+    func setVideoTrack(_ trackId: Int) {
+        setProperty(name: "vid", value: String(trackId))
+    }
+
     // MARK: - Audio Track Controls
     
     func getAudioTracks() -> [[String: Any]] {
