@@ -15,6 +15,61 @@ struct AniZipImage: Codable {
     let url: String?
 }
 
+
+// MARK: - TMDB Images
+
+struct AniZipBackdrop: Codable {
+    let filePath: String
+    let width: Int?
+    let height: Int?
+    let aspectRatio: Double
+    let iso6391: String?
+    let voteAverage: Double
+    let voteCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case filePath = "file_path"
+        case width
+        case height
+        case aspectRatio = "aspect_ratio"
+        case iso6391 = "iso_639_1"
+        case voteAverage = "vote_average"
+        case voteCount = "vote_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        filePath = (try? c.decode(String.self, forKey: .filePath)) ?? ""
+        width = Self.decodeInt(from: c, forKey: .width)
+        height = Self.decodeInt(from: c, forKey: .height)
+        aspectRatio = Self.decodeDouble(from: c, forKey: .aspectRatio) ?? 0
+        iso6391 = try? c.decodeIfPresent(String.self, forKey: .iso6391)
+        voteAverage = Self.decodeDouble(from: c, forKey: .voteAverage) ?? 0
+        voteCount = Self.decodeInt(from: c, forKey: .voteCount)
+    }
+
+    private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        return nil
+    }
+
+    private static func decodeDouble<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Double? {
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return d }
+        if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return Double(n) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Double(s) }
+        return nil
+    }
+}
+
+struct AniZipImagesResponse: Codable {
+    let backdrops: [AniZipBackdrop]?
+    let id: Int?
+    let logos: [AniZipBackdrop]?
+    let posters: [AniZipBackdrop]?
+}
+
 // MARK: - Mappings
 
 struct AniZipMappings: Codable {

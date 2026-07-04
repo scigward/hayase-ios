@@ -20,6 +20,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
         let button = UIButton(type: .system)
         button.tintColor = UIColor.HayaseTheme.foreground
         button.backgroundColor = .clear
+        button.alpha = 0
         button.isHidden = true
         button.translatesAutoresizingMaskIntoConstraints = false
         button.imageView?.contentMode = .scaleAspectFit
@@ -42,10 +43,10 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
         isUserInteractionEnabled = true
         addSubview(muteButton)
         NSLayoutConstraint.activate([
-            muteButton.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            muteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            muteButton.widthAnchor.constraint(equalToConstant: 24),
-            muteButton.heightAnchor.constraint(equalToConstant: 24),
+            muteButton.topAnchor.constraint(equalTo: topAnchor),
+            muteButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            muteButton.widthAnchor.constraint(equalToConstant: 40),
+            muteButton.heightAnchor.constraint(equalToConstant: 40),
         ])
         muteButton.addTarget(self, action: #selector(toggleMute), for: .touchUpInside)
 
@@ -78,6 +79,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.backgroundColor = .clear
         view.isOpaque = false
+        view.alpha = 0
         view.isUserInteractionEnabled = false
         view.scrollView.isScrollEnabled = false
         view.scrollView.bounces = false
@@ -109,15 +111,26 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
     }
 
     private func setHidden(_ hidden: Bool) {
-        webView?.alpha = hidden ? 0 : 1
-        muteButton.isHidden = hidden
+        let targetAlpha: CGFloat = hidden ? 0 : 1
+        if !hidden {
+            muteButton.isHidden = false
+        }
         isUserInteractionEnabled = !hidden
+        UIView.animate(withDuration: 0.3,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .curveEaseInOut]) {
+            self.webView?.alpha = targetAlpha
+            self.muteButton.alpha = targetAlpha
+        } completion: { [weak self] finished in
+            guard let self, hidden, finished else { return }
+            self.muteButton.isHidden = true
+        }
         onHide?(hidden)
     }
 
     private func updateMuteButton() {
         let icon = muted ? "volume-x" : "volume-2"
-        muteButton.setImage(UIImage.hayaseIcon(icon, pointSize: 16), for: .normal)
+        muteButton.setImage(UIImage.hayaseFilledIcon(icon, pointSize: 16), for: .normal)
     }
 
     @objc private func toggleMute() {

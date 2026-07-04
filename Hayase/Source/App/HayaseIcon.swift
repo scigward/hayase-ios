@@ -140,6 +140,12 @@ enum HayaseIcon {
             heart.addLine(to: CGPoint(x: 12, y: 21))
             heart.close()
             filledPath(heart, strokeWidth: 2)
+        case "volume-x":
+            drawVolumeIcon(waves: false)
+            strokeLine(from: CGPoint(x: 16, y: 9), to: CGPoint(x: 22, y: 15), width: 2)
+            strokeLine(from: CGPoint(x: 22, y: 9), to: CGPoint(x: 16, y: 15), width: 2)
+        case "volume-2":
+            drawVolumeIcon(waves: true)
         case "bookmark":
             let bookmark = UIBezierPath()
             bookmark.move(to: CGPoint(x: 5, y: 21))
@@ -179,6 +185,56 @@ enum HayaseIcon {
                       controlPoint2: CGPoint(x: 23.0226, y: 11.9231))
         path.close()
         return path
+    }
+
+
+    private static func drawVolumeIcon(waves: Bool) {
+        let speaker = UIBezierPath()
+        speaker.move(to: CGPoint(x: 11, y: 4.7))
+        speaker.addCurve(to: CGPoint(x: 9.8, y: 4.2),
+                         controlPoint1: CGPoint(x: 11, y: 4.08),
+                         controlPoint2: CGPoint(x: 10.25, y: 3.82))
+        speaker.addLine(to: CGPoint(x: 6.41, y: 7.59))
+        speaker.addCurve(to: CGPoint(x: 5.42, y: 8),
+                         controlPoint1: CGPoint(x: 6.15, y: 7.85),
+                         controlPoint2: CGPoint(x: 5.79, y: 8))
+        speaker.addLine(to: CGPoint(x: 3, y: 8))
+        speaker.addCurve(to: CGPoint(x: 2, y: 9),
+                         controlPoint1: CGPoint(x: 2.45, y: 8),
+                         controlPoint2: CGPoint(x: 2, y: 8.45))
+        speaker.addLine(to: CGPoint(x: 2, y: 15))
+        speaker.addCurve(to: CGPoint(x: 3, y: 16),
+                         controlPoint1: CGPoint(x: 2, y: 15.55),
+                         controlPoint2: CGPoint(x: 2.45, y: 16))
+        speaker.addLine(to: CGPoint(x: 5.42, y: 16))
+        speaker.addCurve(to: CGPoint(x: 6.41, y: 16.41),
+                         controlPoint1: CGPoint(x: 5.79, y: 16),
+                         controlPoint2: CGPoint(x: 6.15, y: 16.15))
+        speaker.addLine(to: CGPoint(x: 9.8, y: 19.8))
+        speaker.addCurve(to: CGPoint(x: 11, y: 19.3),
+                         controlPoint1: CGPoint(x: 10.25, y: 20.18),
+                         controlPoint2: CGPoint(x: 11, y: 19.92))
+        speaker.close()
+        speaker.fill()
+
+        guard waves else { return }
+        let inner = UIBezierPath()
+        inner.move(to: CGPoint(x: 16, y: 9))
+        inner.addCurve(to: CGPoint(x: 16, y: 15),
+                       controlPoint1: CGPoint(x: 17.33, y: 10.67),
+                       controlPoint2: CGPoint(x: 17.33, y: 13.33))
+        inner.lineWidth = 2
+        inner.lineCapStyle = .round
+        inner.stroke()
+
+        let outer = UIBezierPath()
+        outer.move(to: CGPoint(x: 19.36, y: 5.64))
+        outer.addCurve(to: CGPoint(x: 19.36, y: 18.36),
+                       controlPoint1: CGPoint(x: 22.88, y: 9.15),
+                       controlPoint2: CGPoint(x: 22.88, y: 14.85))
+        outer.lineWidth = 2
+        outer.lineCapStyle = .round
+        outer.stroke()
     }
 
     private static func drawSkipBackIcon() {

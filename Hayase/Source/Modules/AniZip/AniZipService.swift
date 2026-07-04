@@ -13,11 +13,14 @@ final class AniZipService {
     private init() {}
 
     private let baseURL = "https://api.ani.zip/v1"
+    private let imagesBaseURL = "https://api.ani.zip/v2/images/tmdb"
 
     // MARK: - Cached episodes
 
     private var lastCachedID: Int = 0
     private var lastCachedData: AniZipEpisodesResponse?
+    private var lastImagesCachedID: Int = 0
+    private var lastImagesCachedData: AniZipImagesResponse?
     private let cacheQueue = DispatchQueue(label: "com.hayase.anizip.cache")
 
     func episodesCached(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
@@ -35,6 +38,33 @@ final class AniZipService {
                 completion(response)
             }
         }
+    }
+
+
+    func imagesCached(anilistID: Int, completion: @escaping (AniZipImagesResponse?) -> Void) {
+        cacheQueue.async { [weak self] in
+            guard let self else { completion(nil); return }
+            if self.lastImagesCachedID == anilistID, let cached = self.lastImagesCachedData {
+                completion(cached)
+                return
+            }
+            self.images(anilistID: anilistID) { response in
+                self.cacheQueue.async {
+                    self.lastImagesCachedID = anilistID
+                    self.lastImagesCachedData = response
+                }
+                completion(response)
+            }
+        }
+    }
+
+    // MARK: - TMDB Images
+
+    func images(anilistID: Int, completion: @escaping (AniZipImagesResponse?) -> Void) {
+        guard let url = URL(string: "\(imagesBaseURL)?anilist_id=\(anilistID)") else {
+            completion(nil); return
+        }
+        safeFetch(url: url, completion: completion)
     }
 
     // MARK: - Episodes

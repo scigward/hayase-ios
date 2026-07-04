@@ -132,6 +132,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
         configureButtons()
         configureCardTap()
+        configureFrameCallbacks()
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.size.width),
@@ -165,6 +166,20 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
         transform = CGAffineTransform(translationX: 0, y: 19.2).scaledBy(x: 0.95, y: 0.95)
         alpha = 0
+    }
+
+
+    private func configureFrameCallbacks() {
+        youtubeIframe.onHide = { [weak self] hidden in
+            self?.setBackdropBlurHidden(!hidden)
+        }
+        videoframe.onHide = { [weak self] hidden in
+            self?.setBackdropBlurHidden(!hidden)
+        }
+    }
+
+    private func setBackdropBlurHidden(_ hidden: Bool) {
+        blurredImageView.isHidden = hidden
     }
 
     private func configureButtons() {
@@ -213,6 +228,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         isFavorite = false
         isBookmarked = media.mediaListEntry != nil
         refreshActionIcons()
+        setBackdropBlurHidden(false)
         loadBanner(for: media)
 
         if ProcessInfo.processInfo.isLowPowerModeEnabled {
@@ -315,7 +331,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             return
         }
 
-        AniZipService.shared.episodesCached(anilistID: media.id) { [weak self] response in
+        AniZipService.shared.imagesCached(anilistID: media.id) { [weak self] response in
             DispatchQueue.main.async {
                 guard let self,
                       self.bannerLoadToken == token,
@@ -340,9 +356,16 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         return media.coverURL ?? media.bannerURL ?? Self.youtubeThumbnailURL(for: media.trailerYouTubeID)
     }
 
-    private static func anizipBannerURL(from response: AniZipEpisodesResponse?) -> String? {
-        response?.images?.first { $0.coverType == "Fanart" }?.url
-            ?? response?.images?.first { $0.coverType == "Poster" }?.url
+    private static func anizipBannerURL(from response: AniZipImagesResponse?) -> String? {
+        let backdrop = response?.backdrops?
+            .sorted { $0.voteAverage > $1.voteAverage }
+            .first { $0.iso6391 == nil && $0.aspectRatio > 1.2 && !$0.filePath.isEmpty }?
+            .filePath
+        let poster = response?.posters?
+            .sorted { $0.voteAverage > $1.voteAverage }
+            .first { $0.iso6391 == nil && $0.aspectRatio > 1.2 && !$0.filePath.isEmpty }?
+            .filePath
+        return backdrop ?? poster
     }
 
     private static func youtubeThumbnailURL(for id: String?) -> String? {
@@ -453,6 +476,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         imageTask = nil
         youtubeIframe.reset()
         videoframe.reset()
+        setBackdropBlurHidden(false)
     }
 }
 
