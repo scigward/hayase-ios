@@ -184,7 +184,7 @@ final class ExtensionSearchViewController: UIViewController {
     // Controls
     private var filterField: UITextField!
     private var episodeField: UITextField!
-    private var resolutionButton: UIButton!
+    private var resolutionComboBox: ComboBox!
     private var autoSelectButton: UIButton!
     /// Progress overlay on Auto Select button (mirrors web ProgressButton animation)
     private var progressOverlay: UIView!
@@ -198,7 +198,13 @@ final class ExtensionSearchViewController: UIViewController {
     private var errorLabel: UILabel!
     private var skeletonView: UIStackView!
 
-    private let resolutions = ["2160", "1080", "720", "540", "480"]
+    private let resolutionOptions: [(value: String, label: String)] = [
+        ("2160", "2160p"),
+        ("1080", "1080p"),
+        ("720", "720p"),
+        ("480", "480p"),
+        ("", "Any"),
+    ]
 
     /// Whether this VC is presented modally (custom dialog on iPad, fullScreen on iPhone).
     /// When true, a close button is shown and dismiss() is used instead of pop.
@@ -206,12 +212,12 @@ final class ExtensionSearchViewController: UIViewController {
         return navigationController == nil
     }
 
-    /// Presents like the player options overlay: no adaptive sheet, no bottom-dialog chrome.
+    /// Presents over the current screen with the same dialog shell as the interface search modal.
     func prepareOverlayPresentation(from presenter: UIViewController?) {
         presenter?.definesPresentationContext = true
-        modalPresentationStyle = .overCurrentContext
+        modalPresentationStyle = .custom
         modalTransitionStyle = .crossDissolve
-        transitioningDelegate = nil
+        transitioningDelegate = self
     }
 
     // MARK: Lifecycle
@@ -221,6 +227,10 @@ final class ExtensionSearchViewController: UIViewController {
         currentEpisode = initialEpisode
         if shouldAutoSelectOnSearch {
             autoSelectAfterSearch = true
+        }
+        let savedResolution = UserDefaults.standard.string(forKey: "pref_searchQuality") ?? currentResolution
+        if resolutionOptions.contains(where: { $0.value == savedResolution }) {
+            currentResolution = savedResolution
         }
         view.backgroundColor = UIColor.HayaseTheme.background
         navigationItem.largeTitleDisplayMode = .never
@@ -361,9 +371,7 @@ final class ExtensionSearchViewController: UIViewController {
             closeButton = UIButton(type: .system)
             closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)
             closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
-            closeButton.backgroundColor = UIColor.HayaseTheme.accent.withAlphaComponent(0.7)
-            closeButton.layer.cornerRadius = 2
-            closeButton.clipsToBounds = true
+            closeButton.backgroundColor = .clear
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
             // Ensure touches always reach the button
@@ -472,19 +480,16 @@ final class ExtensionSearchViewController: UIViewController {
         resLabel.text = "Resolution"; resLabel.textColor = .white
         resLabel.font = .nunito(ofSize: 14)
 
-        resolutionButton = UIButton(type: .system)
-        resolutionButton.setTitle("1080p ▾", for: .normal)
-        resolutionButton.setTitleColor(.white, for: .normal)
-        resolutionButton.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)  // text-sm
-        resolutionButton.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
-        resolutionButton.layer.cornerRadius = 6  // rounded-md
-        resolutionButton.layer.borderWidth = 1
-        resolutionButton.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
-        resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        resolutionButton.showsMenuAsPrimaryAction = true
-        resolutionButton.menu = resolutionMenu()
+        resolutionComboBox = ComboBox()
+        resolutionComboBox.layer.borderWidth = 1
+        resolutionComboBox.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
+        resolutionComboBox.configure(text: labelForResolution(currentResolution),
+                                    placeholder: currentResolution.isEmpty)
+        resolutionComboBox.addTarget(self, action: #selector(showResolutionPicker), for: .touchUpInside)
+        resolutionComboBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        resolutionComboBox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionButton])
+        let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionComboBox])
         resStack.axis = .horizontal; resStack.spacing = 8; resStack.alignment = .center
 
         let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
@@ -545,6 +550,8 @@ final class ExtensionSearchViewController: UIViewController {
 
             episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),  // flexible width, grows to fill
             episodeField.heightAnchor.constraint(equalToConstant: 36),  // h-9
+            resolutionComboBox.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            resolutionComboBox.heightAnchor.constraint(equalToConstant: 36),
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
             autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
@@ -942,20 +949,31 @@ final class ExtensionSearchViewController: UIViewController {
         triggerSearch()
     }
 
-    private func resolutionMenu() -> UIMenu {
-        let labels = ["4K (2160p)", "1080p", "720p", "540p", "480p"]
-        let actions = labels.enumerated().map { index, label in
-            let resolution = resolutions[index]
-            return UIAction(title: label, state: resolution == currentResolution ? .on : .off) { [weak self] _ in
-                guard let self else { return }
-                self.currentResolution = resolution
-                let display = resolution == "2160" ? "4K" : "\(resolution)p"
-                self.resolutionButton.setTitle("\(display) ▾", for: .normal)
-                self.resolutionButton.menu = self.resolutionMenu()
-                self.triggerSearch()
-            }
+    private func labelForResolution(_ value: String) -> String {
+        resolutionOptions.first(where: { $0.value == value })?.label ?? "Any"
+    }
+
+    @objc private func showResolutionPicker() {
+        let picker = CommandPopoverViewController(
+            title: "Resolution",
+            placeholder: "Any",
+            groups: [CommandGroup(options: resolutionOptions.map {
+                CommandOption(value: $0.value, label: $0.label)
+            })],
+            selectedValues: [currentResolution],
+            allowsMultiple: false,
+            sourceView: resolutionComboBox
+        )
+        picker.onSelectionChanged = { [weak self] values in
+            guard let self, let value = values.first else { return }
+            guard value != self.currentResolution else { return }
+            self.currentResolution = value
+            UserDefaults.standard.set(value, forKey: "pref_searchQuality")
+            self.resolutionComboBox.configure(text: self.labelForResolution(value),
+                                              placeholder: value.isEmpty)
+            self.triggerSearch()
         }
-        return UIMenu(title: "Resolution", children: actions)
+        present(picker, animated: true)
     }
 
     @objc private func autoSelectTapped() {
