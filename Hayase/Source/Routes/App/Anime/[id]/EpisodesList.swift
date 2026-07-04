@@ -183,7 +183,8 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private let overviewLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 9.6)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0)
+        // interface EpisodesList.svelte: text-muted-foreground, dark theme hsl(240 5% 64.9%) = #a1a1aa.
+        l.textColor = UIColor(red: 161/255, green: 161/255, blue: 170/255, alpha: 1)
         l.numberOfLines = 0
         l.lineBreakMode = .byClipping
         l.clipsToBounds = true
