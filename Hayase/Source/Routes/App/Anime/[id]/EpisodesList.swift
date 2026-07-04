@@ -870,7 +870,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
 
         // Keep the empty second grid column for odd episode counts, but do not
         // let the hidden reusable card contribute a fake row height.
-        NSLayoutConstraint.setActive(rightCardVerticalConstraints, isPresent)
+        rightCardVerticalConstraints.forEach { $0.isActive = isPresent }
     }
 
     func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
