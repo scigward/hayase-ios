@@ -361,7 +361,7 @@ final class AnimeTagChipButton: UIButton {
         dashLayer.fillColor = UIColor.clear.cgColor
         dashLayer.lineCap = .butt
         dashLayer.lineJoin = .round
-        dashLayer.lineDashPattern = [3, 3]
+        dashLayer.lineDashPattern = [6, 4]
         dashLayer.contentsScale = UIScreen.main.scale
         dashLayer.isHidden = true
 
@@ -373,19 +373,76 @@ final class AnimeTagChipButton: UIButton {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        dashLayer.isHidden = !dashedBorder || bounds.isEmpty
-        if dashedBorder {
-            let borderWidth: CGFloat = 1
-            let inset = borderWidth / 2
-            dashLayer.frame = bounds
-            dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset),
-                                          cornerRadius: max(0, layer.cornerRadius - inset)).cgPath
-            dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-            dashLayer.lineWidth = borderWidth
-        }
 
+        updateDashedBorderPath()
         blurredTitleView.frame = titleLabel?.frame ?? bounds.insetBy(dx: contentEdgeInsets.left, dy: 0)
         updateSpoilerRendering()
+    }
+
+    private func updateDashedBorderPath() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        dashLayer.isHidden = !dashedBorder || bounds.isEmpty
+        guard dashedBorder, !bounds.isEmpty else { return }
+
+        let lineWidth: CGFloat = 2
+        let inset = lineWidth / 2
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let cornerRadius = min(layer.cornerRadius, rect.width / 2, rect.height / 2)
+
+        dashLayer.frame = bounds
+        dashLayer.path = makeStableDashedBorderPath(in: rect, cornerRadius: cornerRadius).cgPath
+        dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
+        dashLayer.lineWidth = lineWidth
+        dashLayer.lineDashPattern = [6, 4]
+        dashLayer.lineDashPhase = 0
+        dashLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
+    }
+
+    private func makeStableDashedBorderPath(in rect: CGRect, cornerRadius: CGFloat) -> UIBezierPath {
+        let radius = max(0, cornerRadius)
+        let path = UIBezierPath()
+
+        // Draw each edge as its own subpath so the dash pattern restarts per side,
+        // matching CSS border-dashed more closely than one continuous rounded path.
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
+
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
+
+        path.move(to: CGPoint(x: rect.maxX, y: rect.minY + radius))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+
+        guard radius > 0 else { return path }
+
+        path.append(UIBezierPath(arcCenter: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
+                                 radius: radius,
+                                 startAngle: .pi,
+                                 endAngle: .pi * 1.5,
+                                 clockwise: true))
+        path.append(UIBezierPath(arcCenter: CGPoint(x: rect.maxX - radius, y: rect.minY + radius),
+                                 radius: radius,
+                                 startAngle: .pi * 1.5,
+                                 endAngle: 0,
+                                 clockwise: true))
+        path.append(UIBezierPath(arcCenter: CGPoint(x: rect.maxX - radius, y: rect.maxY - radius),
+                                 radius: radius,
+                                 startAngle: 0,
+                                 endAngle: .pi / 2,
+                                 clockwise: true))
+        path.append(UIBezierPath(arcCenter: CGPoint(x: rect.minX + radius, y: rect.maxY - radius),
+                                 radius: radius,
+                                 startAngle: .pi / 2,
+                                 endAngle: .pi,
+                                 clockwise: true))
+
+        return path
     }
 
     private func updateSpoilerRendering() {
