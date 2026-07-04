@@ -42,21 +42,19 @@ private enum TitleUtils {
     private static func build() -> [(pattern: NSRegularExpression, term: Term)] {
         let pairs: [(String, Term)] = [
             // Resolution (lime)
-            (#"\b2160p\b"#,              Term(text: "4K",       color: lime)),
+            (#"\b2160p\b"#,              Term(text: "2160p",    color: lime)),
             (#"\b4K\b"#,                 Term(text: "4K",       color: lime)),
             (#"\b1080p\b"#,              Term(text: "1080p",    color: lime)),
             (#"\b720p\b"#,               Term(text: "720p",     color: lime)),
             (#"\b480p\b"#,               Term(text: "480p",     color: lime)),
             // Video codec (blue)
             (#"\b(?:HEVC|H\.265|x265|H265)\b"#, Term(text: "HEVC",     color: blue)),
-            (#"\b(?:AVC|H\.264|x264|H264)\b"#,  Term(text: "AVC",      color: blue)),
             (#"\bAV1\b"#,                        Term(text: "AV1",      color: blue)),
             (#"\b(?:10[- ]?[Bb]it|HI10P?|Hi10P?)\b"#, Term(text: "10 Bit", color: blue)),
             (#"\bHI444P{1,2}\b"#,        Term(text: "HI444",    color: blue)),
             // Source (dark red)
             (#"\b(?:BD|BDRip|BluRay|Blu-Ray|Blu_Ray)\b"#, Term(text: "BD",   color: darkRed)),
             (#"\b(?:DVD|DVDRip|DVD-RIP)\b"#,               Term(text: "DVD",  color: darkRed)),
-            (#"\bWEB(?:RIP|-RIP)?\b"#,                     Term(text: "WEB",  color: darkRed)),
             // Audio (orange)
             (#"\bFLAC(?:X[234])?\b"#,   Term(text: "FLAC",      color: orange)),
             (#"\bTrueHD5\.1\b"#,        Term(text: "TrueHD 5.1",color: orange)),
@@ -314,11 +312,11 @@ final class ExtensionSearchViewController: UIViewController {
         // Sits on the dark gradient zone → always readable. One line, truncated.
 
         // Banner image source — mirrors web Banner component's breakpoint behavior:
-        //   md (iPad regular): ani.zip Fanart → Poster → AniList banner → cover
-        //   mobile (iPhone compact): cover(media) = coverImage (no fanart fetch)
+        //   md (iPad regular): AniZip v2 TMDB backdrop → poster → AniList banner → YouTube → cover
+        //   mobile (compact): cover(media) = coverImage → banner fallback
         let isRegular = traitCollection.horizontalSizeClass == .regular
         if isRegular, let anilistID = animeItem?.id {
-            // iPad — fetch ani.zip Fanart/Poster, fall back to AniList banner → cover
+            // iPad — fetch AniZip v2 TMDB artwork, fall back to AniList banner → YouTube → cover
             let bannerFallback = resolvedBannerFallback()
             AniListClient.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
                 let urlStr = fanartURL ?? bannerFallback
@@ -370,7 +368,7 @@ final class ExtensionSearchViewController: UIViewController {
         if isPresentedModally {
             closeButton = UIButton(type: .system)
             closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)
-            closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
+            closeButton.tintColor = UIColor.HayaseTheme.foreground
             closeButton.backgroundColor = .clear
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -380,7 +378,7 @@ final class ExtensionSearchViewController: UIViewController {
 
             // Web: absolute right-4 top-4, Cross2 size-4.
             NSLayoutConstraint.activate([
-                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+                closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
                 closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
                 closeButton.widthAnchor.constraint(equalToConstant: 16),
                 closeButton.heightAnchor.constraint(equalToConstant: 16),
@@ -416,22 +414,22 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.placeholder = "Filter by text, or paste a magnet link or torrent file here to specify a torrent manually"
         filterField.attributedPlaceholder = NSAttributedString(
             string: filterField.placeholder ?? "",
-            attributes: [.foregroundColor: UIColor(white: 0.45, alpha: 1)])
-        filterField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background (nearly black)
-        filterField.textColor = .white
-        filterField.tintColor = .white
+            attributes: [.foregroundColor: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)])
+        filterField.backgroundColor = UIColor.HayaseTheme.muted
+        filterField.textColor = UIColor.HayaseTheme.foreground
+        filterField.tintColor = UIColor.HayaseTheme.foreground
         filterField.font = .nunito(ofSize: 14)  // text-sm = 0.875rem = 14px
         filterField.autocorrectionType = .no
         filterField.autocapitalizationType = .none
         filterField.returnKeyType = .done
         filterField.layer.cornerRadius = 6  // rounded-md
         filterField.layer.borderWidth = 1
-        filterField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
+        filterField.layer.borderColor = UIColor.HayaseTheme.input.cgColor
         filterField.leftViewMode = .always
         let magIcon = UIImageView(image: UIImage.hayaseIcon("search", pointSize: 16))
-        magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
-        magIcon.contentMode = .scaleAspectFit
-        magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 16)  // pl-9 = 2.25rem = 36pt left padding for icon area
+        magIcon.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
+        magIcon.contentMode = .center
+        magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 36)  // pl-9 = 2.25rem = 36pt left padding for icon area
         filterField.leftView = magIcon
         filterField.delegate = self
         filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
@@ -448,10 +446,10 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.text = "\(currentEpisode)"
         episodeField.keyboardType = .numberPad
         episodeField.backgroundColor = UIColor(white: 0.04, alpha: 1) // bg-background
-        episodeField.textColor = .white
-        episodeField.tintColor = .white
+        episodeField.textColor = UIColor.HayaseTheme.foreground
+        episodeField.tintColor = UIColor.HayaseTheme.foreground
         episodeField.font = .nunito(ofSize: 14)  // text-sm = 14px
-        episodeField.textAlignment = .center
+        episodeField.textAlignment = .left
         // Add left/right padding (web Input: px-3 = 12pt)
         episodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
         episodeField.leftViewMode = .always
@@ -459,7 +457,7 @@ final class ExtensionSearchViewController: UIViewController {
         episodeField.rightViewMode = .always
         episodeField.layer.cornerRadius = 6  // rounded-md
         episodeField.layer.borderWidth = 1
-        episodeField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
+        episodeField.layer.borderColor = UIColor.HayaseTheme.input.cgColor
         episodeField.delegate = self
         episodeField.translatesAutoresizingMaskIntoConstraints = false
         let toolbar = UIToolbar(); toolbar.sizeToFit()
@@ -482,9 +480,9 @@ final class ExtensionSearchViewController: UIViewController {
 
         resolutionComboBox = ComboBox()
         resolutionComboBox.layer.borderWidth = 1
-        resolutionComboBox.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
+        resolutionComboBox.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         resolutionComboBox.configure(text: labelForResolution(currentResolution),
-                                    placeholder: currentResolution.isEmpty)
+                                    placeholder: false)
         resolutionComboBox.addTarget(self, action: #selector(showResolutionPicker), for: .touchUpInside)
         resolutionComboBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
         resolutionComboBox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -528,7 +526,7 @@ final class ExtensionSearchViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             // Presented as an overlay, so keep controls below the current safe area.
-            controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            controlsView.topAnchor.constraint(equalTo: view.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlsView.heightAnchor.constraint(equalToConstant: 220),
@@ -970,7 +968,7 @@ final class ExtensionSearchViewController: UIViewController {
             self.currentResolution = value
             UserDefaults.standard.set(value, forKey: "pref_searchQuality")
             self.resolutionComboBox.configure(text: self.labelForResolution(value),
-                                              placeholder: value.isEmpty)
+                                              placeholder: false)
             self.triggerSearch()
         }
         present(picker, animated: true)
@@ -1709,6 +1707,20 @@ final class TorrentResultCell: UITableViewCell {
         return l
     }
 
+    /// Renders BadgeCheck like interface: green/currentColor fill with black lucide stroke.
+    private static func makeBadgeCheckImage(fill: UIColor, size: CGFloat) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { _ in
+            let rect = CGRect(x: 0, y: 0, width: size, height: size)
+            UIImage.hayaseFilledIcon("badge-check", pointSize: size)?
+                .withTintColor(fill, renderingMode: .alwaysOriginal)
+                .draw(in: rect)
+            UIImage.hayaseIcon("badge-check", pointSize: size)?
+                .withTintColor(.black, renderingMode: .alwaysOriginal)
+                .draw(in: rect)
+        }.withRenderingMode(.alwaysOriginal)
+    }
+
     /// Creates a dot separator label matching web `.details span+span::before { content: '•' }`
     private static func makeDotSeparator() -> UILabel {
         let l = UILabel()
@@ -1744,13 +1756,11 @@ final class TorrentResultCell: UITableViewCell {
         switch result.accuracy {
         case "high":
             let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
-            badgeCheckView.image = UIImage.hayaseFilledIcon("badge-check", pointSize: 19)?
-                .withTintColor(green, renderingMode: .alwaysOriginal)
+            badgeCheckView.image = Self.makeBadgeCheckImage(fill: green, size: 19)
             badgeCheckView.isHidden = false
         case "medium":
             // Web: text-muted-foreground/20 — muted foreground (≈ white 0.65) at 20% opacity
-            badgeCheckView.image = UIImage.hayaseFilledIcon("badge-check", pointSize: 19)?
-                .withTintColor(UIColor(white: 0.65, alpha: 0.2), renderingMode: .alwaysOriginal)
+            badgeCheckView.image = Self.makeBadgeCheckImage(fill: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.2), size: 19)
             badgeCheckView.isHidden = false
         default:
             badgeCheckView.isHidden = true
@@ -1932,7 +1942,7 @@ final class BottomDialogPresentationController: UIPresentationController {
     /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg pattern).
     private let dimmingView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         return v
     }()
 

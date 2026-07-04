@@ -249,7 +249,7 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
             onSelectionChanged?(selectedValues)
             tableView.reloadRows(at: [indexPath], with: .none)
         } else {
-            selectedValues = selectedValues.contains(option.value) ? [] : [option.value]
+            selectedValues = [option.value]
             onSelectionChanged?(selectedValues)
             closeAndRestoreFocus()
         }
