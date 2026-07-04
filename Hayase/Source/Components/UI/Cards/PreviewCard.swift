@@ -84,6 +84,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     private var actions: PreviewCardActions?
     private var imageTask: URLSessionDataTask?
     private var currentImageURL: String?
+    private var bannerLoadToken = 0
     private var isFavorite = false
     private var isBookmarked = false
 
@@ -300,20 +301,100 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private func loadBanner(for media: AnimeItem) {
         imageTask?.cancel()
-        let urlString = media.bannerURL ?? media.coverURL
-        currentImageURL = urlString
+        imageTask = nil
+        bannerLoadToken += 1
+        let token = bannerLoadToken
+        currentImageURL = nil
         bannerImageView.image = nil
         blurredImageView.image = nil
         bannerImageView.backgroundColor = UIColor(hexString: media.coverColor) ?? UIColor.HayaseTheme.background
+
+        let fallbackURL = resolvedFallbackBannerURL(for: media)
+        guard usesWideBannerSource else {
+            loadResolvedBannerURL(fallbackURL, media: media, token: token)
+            return
+        }
+
+        AniZipService.shared.episodesCached(anilistID: media.id) { [weak self] response in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.bannerLoadToken == token,
+                      self.media?.id == media.id else { return }
+                self.loadResolvedBannerURL(Self.anizipBannerURL(from: response) ?? fallbackURL,
+                                           media: media,
+                                           token: token)
+            }
+        }
+    }
+
+    private var usesWideBannerSource: Bool {
+        // Mirrors the web Banner component's md breakpoint for preview cards.
+        let width = window?.bounds.width ?? UIScreen.main.bounds.width
+        return width >= 768
+    }
+
+    private func resolvedFallbackBannerURL(for media: AnimeItem) -> String? {
+        if usesWideBannerSource {
+            return media.bannerURL ?? Self.youtubeThumbnailURL(for: media.trailerYouTubeID) ?? media.coverURL
+        }
+        return media.coverURL ?? media.bannerURL ?? Self.youtubeThumbnailURL(for: media.trailerYouTubeID)
+    }
+
+    private static func anizipBannerURL(from response: AniZipEpisodesResponse?) -> String? {
+        response?.images?.first { $0.coverType == "Fanart" }?.url
+            ?? response?.images?.first { $0.coverType == "Poster" }?.url
+    }
+
+    private static func youtubeThumbnailURL(for id: String?) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        return "https://i.ytimg.com/vi/\(id)/maxresdefault.jpg"
+    }
+
+    private static func nextYoutubeThumbnailURL(after urlString: String, media: AnimeItem) -> String? {
+        guard let id = media.trailerYouTubeID, !id.isEmpty,
+              urlString.contains("i.ytimg.com/vi/\(id)/") else { return nil }
+        let sizes = ["maxresdefault", "sddefault", "hqdefault", "mqdefault", "default"]
+        guard let current = sizes.firstIndex(where: { urlString.contains("/\($0).jpg") }) else { return nil }
+        let next = sizes.index(after: current)
+        guard next < sizes.endIndex else { return nil }
+        return "https://i.ytimg.com/vi/\(id)/\(sizes[next]).jpg"
+    }
+
+    private static func isMissingYoutubeThumbnail(_ image: UIImage, urlString: String) -> Bool {
+        urlString.contains("i.ytimg.com/vi/")
+            && Int(image.size.width.rounded()) == 120
+            && Int(image.size.height.rounded()) == 90
+    }
+
+    private func loadResolvedBannerURL(_ urlString: String?, media: AnimeItem, token: Int) {
+        currentImageURL = urlString
         guard let urlString, let url = URL(string: urlString) else { return }
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            if Self.isMissingYoutubeThumbnail(cached, urlString: urlString),
+               let nextURL = Self.nextYoutubeThumbnailURL(after: urlString, media: media) {
+                loadResolvedBannerURL(nextURL, media: media, token: token)
+                return
+            }
             applyImage(cached, for: urlString)
             return
         }
+        imageTask?.cancel()
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
-            DispatchQueue.main.async { self?.applyImage(image, for: urlString) }
+            guard let self,
+                  let data,
+                  let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                guard self.bannerLoadToken == token,
+                      self.media?.id == media.id,
+                      self.currentImageURL == urlString else { return }
+                if Self.isMissingYoutubeThumbnail(image, urlString: urlString),
+                   let nextURL = Self.nextYoutubeThumbnailURL(after: urlString, media: media) {
+                    self.loadResolvedBannerURL(nextURL, media: media, token: token)
+                    return
+                }
+                SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+                self.applyImage(image, for: urlString)
+            }
         }
         imageTask?.resume()
     }
@@ -367,7 +448,9 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     func prepareForDismissal() {
+        bannerLoadToken += 1
         imageTask?.cancel()
+        imageTask = nil
         youtubeIframe.reset()
         videoframe.reset()
     }

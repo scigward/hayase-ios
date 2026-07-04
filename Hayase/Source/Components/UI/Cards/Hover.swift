@@ -60,8 +60,8 @@ final class Hover: NSObject {
 
         let card = PreviewCard()
         card.translatesAutoresizingMaskIntoConstraints = false
-        card.configure(media: media, actions: actions)
         window.addSubview(card)
+        card.configure(media: media, actions: actions)
 
         let sourceFrame = source.convert(source.bounds, to: window)
         let centerX = min(max(sourceFrame.midX, PreviewCard.size.width / 2),

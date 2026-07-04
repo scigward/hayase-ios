@@ -1501,7 +1501,7 @@ public final class AniListClient: NSObject {
         }
         return objectArray(nodesValue).compactMap { node in
             guard let media = node["mediaRecommendation"] as? [String: Any] else { return nil }
-            return parseAnimeItem(from: media)
+            return parseFullAnimeItem(from: media)
         }
     }
 

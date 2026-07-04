@@ -145,7 +145,7 @@ private final class AnimeDetailBannerBackdropView: UIView {
         displayedAlpha = clamped
         let changes = { self.alpha = clamped }
         if animated {
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: changes,
@@ -2017,7 +2017,7 @@ class AnimeDetailViewController: UIViewController {
 
         if hidden {
             animeBackdropView.applyAlpha(1.0, animated: false)
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: {
@@ -2028,7 +2028,7 @@ class AnimeDetailViewController: UIViewController {
             })
         } else {
             animeBackdropView.applyAlpha(1.0, animated: false)
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.animeBackdropCoverView.alpha = 0

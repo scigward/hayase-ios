@@ -178,7 +178,7 @@ private final class HomeBannerBackdropView: UIView {
         }
 
         if animated {
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: changes,
@@ -1428,7 +1428,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Applies the fade effect when the user scrolls down past the banner.
     /// `scrollOffset` is the raw contentOffset.y value.
     /// Matches interface: hideBanner = scrollTop > 100 → 5% opacity, else 100% opacity,
-    /// with a 500ms animated transition.
+    /// with the native cover-mask timing tuned to match interface visually.
     func applyScrollFade(_ scrollOffset: CGFloat) {
         // Interface only changes hideBanner when the threshold flips. Avoid
         // posting sidebar backdrop updates on every scroll tick; that forces the
@@ -1441,7 +1441,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Web applies opacity to the whole Banner component, including the radial
         // gradient pseudo-element. Fade both layers so the hero does not leave a
         // full-strength black veil over the first row after scrolling.
-        UIView.animate(withDuration: 0.5,
+        UIView.animate(withDuration: 0.3,
                        delay: 0,
                        options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.backgroundImageView.alpha = targetAlpha
@@ -2917,7 +2917,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             // semi-transparent mask. Once fully covered, park the backdrop at
             // its hidden alpha behind the mask so card gaps stay protected.
             homeBackdropView.setFaded(false, animated: false)
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: {
@@ -2931,7 +2931,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             // fade only the mask away. This avoids exposing an animating radial
             // gradient/cropped image during upward threshold crossings.
             homeBackdropView.setFaded(false, animated: false)
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.homeBackdropCoverView.alpha = 0

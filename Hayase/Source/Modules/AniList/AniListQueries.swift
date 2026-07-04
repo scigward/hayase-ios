@@ -310,33 +310,7 @@ enum AniListQueries {
             id
             rating
             mediaRecommendation {
-              mediaListEntry { id status progress repeat score(format: POINT_10) customLists(asArray: true) }
-              id
-              status
-              format
-              episodes
-              title { userPreferred romaji english native }
-              coverImage { extraLarge medium color }
-              type
-              synonyms
-              season
-              seasonYear
-              relations {
-                edges {
-                  relationType(version: 2)
-                  node {
-                    id
-                    status
-                    format
-                    episodes
-                    title { userPreferred }
-                    type
-                    coverImage { extraLarge }
-                  }
-                }
-              }
-              startDate { year month day }
-              endDate { year month day }
+              \(fullMediaFields)
             }
           }
         }

@@ -442,7 +442,7 @@ final class HayaseSidebarController: UIViewController {
         if alpha <= 0.05 {
             sidebarBackdropImageView.alpha = 1
             sidebarBackdropGradientView.alpha = 1
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: {
@@ -455,7 +455,7 @@ final class HayaseSidebarController: UIViewController {
         } else {
             sidebarBackdropImageView.alpha = alpha
             sidebarBackdropGradientView.alpha = alpha
-            UIView.animate(withDuration: 0.5,
+            UIView.animate(withDuration: 0.3,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.sidebarBackdropCoverView.alpha = 0
