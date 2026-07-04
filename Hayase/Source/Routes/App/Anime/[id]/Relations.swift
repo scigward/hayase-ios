@@ -242,9 +242,6 @@ private final class RelationGraphBackgroundView: UIView {
     var dotSpacing: CGFloat = 20 { didSet { setNeedsDisplay() } }
     var dotRadius: CGFloat = 0.65 { didSet { setNeedsDisplay() } }
 
-    private var viewportOffset: CGPoint = .zero
-    private var viewportZoomScale: CGFloat = 1
-
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
@@ -255,13 +252,8 @@ private final class RelationGraphBackgroundView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     func updateViewport(offset: CGPoint, zoomScale: CGFloat) {
-        let scale = max(zoomScale, 0.01)
-        guard abs(viewportOffset.x - offset.x) > 0.5
-            || abs(viewportOffset.y - offset.y) > 0.5
-            || abs(viewportZoomScale - scale) > 0.001 else { return }
-        viewportOffset = offset
-        viewportZoomScale = scale
-        setNeedsDisplay()
+        // Svelte Flow's background stays visually screen-spaced while the graph
+        // zooms/pans above it. Do not couple the dot grid to graph transform.
     }
 
     override func draw(_ rect: CGRect) {
@@ -269,18 +261,15 @@ private final class RelationGraphBackgroundView: UIView {
         UIRectFill(rect)
 
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        let scale = max(viewportZoomScale, 0.01)
-        let spacing = max(dotSpacing * scale, 6)
-        let radius = max(dotRadius * scale, 0.55)
+        let spacing = max(dotSpacing, 1)
+        let radius = max(dotRadius, 0.1)
         let diameter = radius * 2
-        let offsetX = viewportOffset.x.truncatingRemainder(dividingBy: dotSpacing) * scale
-        let offsetY = viewportOffset.y.truncatingRemainder(dividingBy: dotSpacing) * scale
         let path = CGMutablePath()
 
-        var y = rect.minY - rect.minY.truncatingRemainder(dividingBy: spacing) - offsetY
+        var y = rect.minY - rect.minY.truncatingRemainder(dividingBy: spacing)
         while y < rect.minY - spacing { y += spacing }
         while y <= rect.maxY + spacing {
-            var x = rect.minX - rect.minX.truncatingRemainder(dividingBy: spacing) - offsetX
+            var x = rect.minX - rect.minX.truncatingRemainder(dividingBy: spacing)
             while x < rect.minX - spacing { x += spacing }
             while x <= rect.maxX + spacing {
                 path.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: diameter, height: diameter))
