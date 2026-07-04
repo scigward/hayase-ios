@@ -135,19 +135,25 @@ private final class AnimeDetailBannerBackdropView: UIView {
         transform = .identity
     }
 
-    func applyAlpha(_ alpha: CGFloat, animated: Bool) {
+    func applyAlpha(_ alpha: CGFloat, animated: Bool, completion: ((Bool) -> Void)? = nil) {
         let clamped = min(max(alpha, 0), 1)
-        guard abs(clamped - displayedAlpha) > 0.001 else { return }
+        guard abs(clamped - displayedAlpha) > 0.001 else {
+            completion?(true)
+            return
+        }
+
         displayedAlpha = clamped
         let changes = { self.alpha = clamped }
         if animated {
             UIView.animate(withDuration: 0.5,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState],
-                           animations: changes)
+                           animations: changes,
+                           completion: completion)
         } else {
             layer.removeAllAnimations()
             changes()
+            completion?(true)
         }
     }
 
@@ -1653,6 +1659,7 @@ class AnimeDetailViewController: UIViewController {
         return view
     }()
     private var isAnimeBackdropCovered = false
+    private var animeBackdropCoverTransitionID = 0
     private var pendingAnimeBannerRevealWorkItem: DispatchWorkItem?
     private let animeBannerRevealDelay: DispatchTimeInterval = .milliseconds(120)
     private var animeBackdropLeadingConstraint: NSLayoutConstraint?
@@ -1980,7 +1987,6 @@ class AnimeDetailViewController: UIViewController {
     private func applyAnimeBannerVisibility(hidden: Bool) {
         let effectiveOffset: CGFloat = hidden ? 101 : 0
         headerView.applyScrollFade(effectiveOffset)
-        setAnimeBackdropCovered(hidden)
     }
 
     private func scheduleAnimeBannerRevealIfNeeded() {
@@ -2000,13 +2006,28 @@ class AnimeDetailViewController: UIViewController {
         pendingAnimeBannerRevealWorkItem = nil
     }
 
-    func setAnimeBackdropCovered(_ covered: Bool) {
-        guard covered != isAnimeBackdropCovered else { return }
-        isAnimeBackdropCovered = covered
+    private func transitionAnimeBackdropCover(hidden: Bool) {
+        let targetCoverAlpha: CGFloat = hidden ? 1 : 0
+        guard hidden != isAnimeBackdropCovered || abs(animeBackdropCoverView.alpha - targetCoverAlpha) > 0.001 else { return }
+
+        animeBackdropCoverTransitionID += 1
+        let transitionID = animeBackdropCoverTransitionID
+        isAnimeBackdropCovered = hidden
         animeBackdropCoverView.layer.removeAllAnimations()
-        if covered {
-            animeBackdropCoverView.alpha = 1
+
+        if hidden {
+            animeBackdropView.applyAlpha(1.0, animated: false)
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState],
+                           animations: {
+                self.animeBackdropCoverView.alpha = 1
+            }, completion: { [weak self] _ in
+                guard let self, self.animeBackdropCoverTransitionID == transitionID else { return }
+                self.animeBackdropView.applyAlpha(0.05, animated: false)
+            })
         } else {
+            animeBackdropView.applyAlpha(1.0, animated: false)
             UIView.animate(withDuration: 0.5,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
@@ -2028,7 +2049,7 @@ class AnimeDetailViewController: UIViewController {
             animeBackdropView.applyScrollOffset(scrollOffset)
         }
         if let alpha = info[hayaseAnimeBannerBackdropAlphaKey] as? CGFloat {
-            animeBackdropView.applyAlpha(alpha, animated: true)
+            transitionAnimeBackdropCover(hidden: alpha <= 0.05)
         }
     }
 

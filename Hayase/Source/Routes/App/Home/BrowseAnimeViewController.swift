@@ -161,15 +161,33 @@ private final class HomeBannerBackdropView: UIView {
     }
 
     func applyScrollFade(_ scrollOffset: CGFloat) {
-        let shouldFade = scrollOffset > 100
-        let targetAlpha: CGFloat = shouldFade ? 0.05 : 1.0
-        guard shouldFade != isFaded else { return }
-        isFaded = shouldFade
-        UIView.animate(withDuration: 0.5,
-                       delay: 0,
-                       options: [.allowUserInteraction, .beginFromCurrentState]) {
+        setFaded(scrollOffset > 100, animated: true)
+    }
+
+    func setFaded(_ faded: Bool, animated: Bool, completion: ((Bool) -> Void)? = nil) {
+        let targetAlpha: CGFloat = faded ? 0.05 : 1.0
+        guard faded != isFaded || abs(imageView.alpha - targetAlpha) > 0.001 else {
+            completion?(true)
+            return
+        }
+
+        isFaded = faded
+        let changes = {
             self.imageView.alpha = targetAlpha
             self.gradientView.alpha = targetAlpha
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState],
+                           animations: changes,
+                           completion: completion)
+        } else {
+            imageView.layer.removeAllAnimations()
+            gradientView.layer.removeAllAnimations()
+            changes()
+            completion?(true)
         }
     }
 }
@@ -1826,6 +1844,7 @@ class BrowseAnimeViewController: UIViewController {
         return view
     }()
     private var isHomeBackdropCovered = false
+    private var homeBackdropCoverTransitionID = 0
     private var pendingHomeBannerRevealWorkItem: DispatchWorkItem?
     private let homeBannerRevealDelay: DispatchTimeInterval = .milliseconds(120)
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
@@ -2861,9 +2880,8 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     private func applyHomeBannerVisibility(hidden: Bool, bannerCell: FeaturedBannerCell?) {
         let effectiveOffset: CGFloat = hidden ? 101 : 0
-        homeBackdropView.applyScrollFade(effectiveOffset)
-        setHomeBackdropCovered(hidden)
         bannerCell?.applyScrollFade(effectiveOffset)
+        transitionHomeBackdropCover(hidden: hidden)
     }
 
     private func scheduleHomeBannerRevealIfNeeded() {
@@ -2885,13 +2903,34 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         pendingHomeBannerRevealWorkItem = nil
     }
 
-    private func setHomeBackdropCovered(_ covered: Bool) {
-        guard covered != isHomeBackdropCovered else { return }
-        isHomeBackdropCovered = covered
+    private func transitionHomeBackdropCover(hidden: Bool) {
+        let targetCoverAlpha: CGFloat = hidden ? 1 : 0
+        guard hidden != isHomeBackdropCovered || abs(homeBackdropCoverView.alpha - targetCoverAlpha) > 0.001 else { return }
+
+        homeBackdropCoverTransitionID += 1
+        let transitionID = homeBackdropCoverTransitionID
+        isHomeBackdropCovered = hidden
         homeBackdropCoverView.layer.removeAllAnimations()
-        if covered {
-            homeBackdropCoverView.alpha = 1
+
+        if hidden {
+            // Fade the mask itself instead of fading the gradient under a
+            // semi-transparent mask. Once fully covered, park the backdrop at
+            // its hidden alpha behind the mask so card gaps stay protected.
+            homeBackdropView.setFaded(false, animated: false)
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState],
+                           animations: {
+                self.homeBackdropCoverView.alpha = 1
+            }, completion: { [weak self] _ in
+                guard let self, self.homeBackdropCoverTransitionID == transitionID else { return }
+                self.homeBackdropView.setFaded(true, animated: false)
+            })
         } else {
+            // Prepare the full banner while it is still hidden by the mask, then
+            // fade only the mask away. This avoids exposing an animating radial
+            // gradient/cropped image during upward threshold crossings.
+            homeBackdropView.setFaded(false, animated: false)
             UIView.animate(withDuration: 0.5,
                            delay: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {

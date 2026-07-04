@@ -37,6 +37,7 @@ final class HayaseSidebarController: UIViewController {
     private var sidebarBackdropTask: URLSessionDataTask?
     private var sidebarBackdropURL: String?
     private var sidebarBackdropAlpha: CGFloat = 0
+    private var sidebarBackdropCoverTransitionID = 0
     private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var mobileLauncherWidthConstraint: NSLayoutConstraint?
@@ -388,29 +389,7 @@ final class HayaseSidebarController: UIViewController {
         }
 
         if let alpha = userInfo[Self.homeBannerBackdropAlphaKey] as? CGFloat {
-            let clampedAlpha = min(max(alpha, 0), 1)
-            let shouldCover = clampedAlpha <= 0.05
-            if abs(clampedAlpha - sidebarBackdropAlpha) > 0.01 {
-                sidebarBackdropAlpha = clampedAlpha
-                sidebarBackdropCoverView.layer.removeAllAnimations()
-                if shouldCover {
-                    sidebarBackdropCoverView.alpha = 1
-                    UIView.animate(withDuration: 0.5,
-                                   delay: 0,
-                                   options: [.allowUserInteraction, .beginFromCurrentState]) {
-                        self.sidebarBackdropImageView.alpha = clampedAlpha
-                        self.sidebarBackdropGradientView.alpha = clampedAlpha
-                    }
-                } else {
-                    UIView.animate(withDuration: 0.5,
-                                   delay: 0,
-                                   options: [.allowUserInteraction, .beginFromCurrentState]) {
-                        self.sidebarBackdropImageView.alpha = clampedAlpha
-                        self.sidebarBackdropGradientView.alpha = clampedAlpha
-                        self.sidebarBackdropCoverView.alpha = 0
-                    }
-                }
-            }
+            transitionSidebarBackdrop(to: min(max(alpha, 0), 1))
         }
 
         updateSidebarBackground()
@@ -450,11 +429,49 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropGradientView.transform = .identity
     }
 
+    private func transitionSidebarBackdrop(to alpha: CGFloat) {
+        guard abs(alpha - sidebarBackdropAlpha) > 0.01 else { return }
+
+        sidebarBackdropAlpha = alpha
+        sidebarBackdropCoverTransitionID += 1
+        let transitionID = sidebarBackdropCoverTransitionID
+        sidebarBackdropImageView.layer.removeAllAnimations()
+        sidebarBackdropGradientView.layer.removeAllAnimations()
+        sidebarBackdropCoverView.layer.removeAllAnimations()
+
+        if alpha <= 0.05 {
+            sidebarBackdropImageView.alpha = 1
+            sidebarBackdropGradientView.alpha = 1
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState],
+                           animations: {
+                self.sidebarBackdropCoverView.alpha = 1
+            }, completion: { [weak self] _ in
+                guard let self, self.sidebarBackdropCoverTransitionID == transitionID else { return }
+                self.sidebarBackdropImageView.alpha = alpha
+                self.sidebarBackdropGradientView.alpha = alpha
+            })
+        } else {
+            sidebarBackdropImageView.alpha = alpha
+            sidebarBackdropGradientView.alpha = alpha
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.sidebarBackdropCoverView.alpha = 0
+            }
+        }
+    }
+
     private func clearSidebarBackdrop() {
         sidebarBackdropTask?.cancel()
         sidebarBackdropTask = nil
         sidebarBackdropURL = nil
         sidebarBackdropAlpha = 0
+        sidebarBackdropCoverTransitionID += 1
+        sidebarBackdropImageView.layer.removeAllAnimations()
+        sidebarBackdropGradientView.layer.removeAllAnimations()
+        sidebarBackdropCoverView.layer.removeAllAnimations()
         sidebarBackdropImageView.image = nil
         sidebarBackdropImageView.alpha = 0
         sidebarBackdropImageView.transform = .identity
