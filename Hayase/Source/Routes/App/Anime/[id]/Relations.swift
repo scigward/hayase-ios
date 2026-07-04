@@ -239,8 +239,11 @@ private extension UIColor {
 }
 
 private final class RelationGraphBackgroundView: UIView {
-    var dotSpacing: CGFloat = 12 { didSet { setNeedsDisplay() } }
-    var dotRadius: CGFloat = 0.55 { didSet { setNeedsDisplay() } }
+    var dotSpacing: CGFloat = 20 { didSet { setNeedsDisplay() } }
+    var dotRadius: CGFloat = 0.65 { didSet { setNeedsDisplay() } }
+
+    private var viewportOffset: CGPoint = .zero
+    private var viewportZoomScale: CGFloat = 1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -251,20 +254,44 @@ private final class RelationGraphBackgroundView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    func updateViewport(offset: CGPoint, zoomScale: CGFloat) {
+        let scale = max(zoomScale, 0.01)
+        guard abs(viewportOffset.x - offset.x) > 0.5
+            || abs(viewportOffset.y - offset.y) > 0.5
+            || abs(viewportZoomScale - scale) > 0.001 else { return }
+        viewportOffset = offset
+        viewportZoomScale = scale
+        setNeedsDisplay()
+    }
+
     override func draw(_ rect: CGRect) {
         UIColor.black.setFill()
         UIRectFill(rect)
-        UIColor(white: 0.22, alpha: 0.34).setFill()
 
-        var y = rect.minY - rect.minY.truncatingRemainder(dividingBy: dotSpacing)
-        while y <= rect.maxY {
-            var x = rect.minX - rect.minX.truncatingRemainder(dividingBy: dotSpacing)
-            while x <= rect.maxX {
-                UIBezierPath(ovalIn: CGRect(x: x, y: y, width: dotRadius * 2, height: dotRadius * 2)).fill()
-                x += dotSpacing
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let scale = max(viewportZoomScale, 0.01)
+        let spacing = max(dotSpacing * scale, 6)
+        let radius = max(dotRadius * scale, 0.55)
+        let diameter = radius * 2
+        let offsetX = viewportOffset.x.truncatingRemainder(dividingBy: dotSpacing) * scale
+        let offsetY = viewportOffset.y.truncatingRemainder(dividingBy: dotSpacing) * scale
+        let path = CGMutablePath()
+
+        var y = rect.minY - rect.minY.truncatingRemainder(dividingBy: spacing) - offsetY
+        while y < rect.minY - spacing { y += spacing }
+        while y <= rect.maxY + spacing {
+            var x = rect.minX - rect.minX.truncatingRemainder(dividingBy: spacing) - offsetX
+            while x < rect.minX - spacing { x += spacing }
+            while x <= rect.maxX + spacing {
+                path.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: diameter, height: diameter))
+                x += spacing
             }
-            y += dotSpacing
+            y += spacing
         }
+
+        context.setFillColor(UIColor(hex: 0x81818a, alpha: 0.86).cgColor)
+        context.addPath(path)
+        context.fillPath()
     }
 }
 
@@ -551,6 +578,15 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerZoomedContent()
+        updateBackgroundViewport()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateBackgroundViewport()
+    }
+
+    private func updateBackgroundViewport() {
+        backgroundGrid.updateViewport(offset: scrollView.contentOffset, zoomScale: scrollView.zoomScale)
     }
 
     private func clearGraph() {
@@ -587,6 +623,7 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
 
         drawEdges(graph)
         fitGraph(animated: false)
+        updateBackgroundViewport()
     }
 
     private func layoutGraph(_ graph: AnimeRelationGraph) -> LayoutResult {
@@ -849,21 +886,19 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
             layer.path = path.cgPath
             layer.strokeColor = (isCurrentEdge ? accentColor : UIColor(white: 0.67, alpha: 0.72)).cgColor
             layer.fillColor = UIColor.clear.cgColor
-            layer.lineWidth = isCurrentEdge ? 1.35 : 1
+            layer.lineWidth = 1
             layer.lineCap = .round
             layer.lineJoin = .round
+            layer.lineDashPattern = [5, 5]
             content.layer.insertSublayer(layer, at: 0)
             edgeLayers.append(layer)
 
-            if isCurrentEdge {
-                let animation = CABasicAnimation(keyPath: "lineDashPhase")
-                animation.fromValue = 12
-                animation.toValue = 0
-                animation.duration = 0.9
-                animation.repeatCount = .infinity
-                layer.lineDashPattern = [6, 4]
-                layer.add(animation, forKey: "relationEdgeFlow")
-            }
+            let animation = CABasicAnimation(keyPath: "lineDashPhase")
+            animation.fromValue = 10
+            animation.toValue = 0
+            animation.duration = 0.9
+            animation.repeatCount = .infinity
+            layer.add(animation, forKey: "relationEdgeFlow")
 
             addEdgeLabel(edge.relationType.replacingOccurrences(of: "_", with: " "),
                          at: CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2),
@@ -874,7 +909,7 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     private func addEdgeLabel(_ text: String, at center: CGPoint, highlighted: Bool) {
         let label = UILabel()
         label.text = text
-        label.font = .nunito(ofSize: 7.2, weight: .semibold)
+        label.font = .nunito(ofSize: 10, weight: .semibold)
         label.textColor = highlighted ? accentColor : UIColor(white: 0.74, alpha: 0.96)
         label.backgroundColor = UIColor.black.withAlphaComponent(0.88)
         label.textAlignment = .center
@@ -882,7 +917,7 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         label.clipsToBounds = true
         label.sizeToFit()
         let width = max(32, label.bounds.width + 8)
-        label.frame = CGRect(x: center.x - width / 2, y: center.y - 8, width: width, height: 16)
+        label.frame = CGRect(x: center.x - width / 2, y: center.y - 9, width: width, height: 18)
         content.addSubview(label)
         edgeLabels.append(label)
     }
