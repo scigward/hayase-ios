@@ -2126,6 +2126,30 @@ final class VideoPlayerViewController: UIViewController {
         "\(track.type):\(track.id)"
     }
 
+    private func captureScreenshot() {
+        surface.mpv.captureScreenshotPNGData { [weak self] data in
+            guard let self else { return }
+            guard let data else {
+                self.presentScreenshotError()
+                return
+            }
+
+            UIPasteboard.general.setData(data, forPasteboardType: "public.png")
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            self.showPlayerAnimation(icon: "screen-share")
+            self.scheduleHide()
+        }
+    }
+
+    private func presentScreenshotError() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        let alert = UIAlertController(title: "Screenshot Failed",
+                                      message: "Could not capture the current frame.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+        (presentedViewController ?? self).present(alert, animated: true)
+    }
+
     private func showOptionsSheet() {
         // Keep this synchronous path cheap so the menu appears immediately.
         // MKV language parsing can touch disk and is done from track readiness instead.
@@ -2211,6 +2235,10 @@ final class VideoPlayerViewController: UIViewController {
 
         optionsVC.onToggleFullscreen = { [weak self] in
             self?.toggleFullscreenPresentation()
+        }
+
+        optionsVC.onScreenshot = { [weak self] in
+            self?.captureScreenshot()
         }
 
         optionsVC.onSubtitleDelayChanged = { [weak self] delay in

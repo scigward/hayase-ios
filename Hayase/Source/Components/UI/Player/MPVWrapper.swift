@@ -746,6 +746,23 @@ final class MPVWrapper {
         setProperty(name: "sub-delay", value: String(delay))
     }
 
+    func captureScreenshotPNGData(completion: @escaping (Data?) -> Void) {
+        queue.async { [weak self] in
+            guard let self, let handle = self.mpv, !self.isStopping else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("hayase_screenshot_\(UUID().uuidString).png")
+            let status = self.commandSync(handle, ["screenshot-to-file", url.path, "subtitles"])
+            let data = status >= 0 ? try? Data(contentsOf: url) : nil
+            try? FileManager.default.removeItem(at: url)
+
+            DispatchQueue.main.async { completion(data) }
+        }
+    }
+
     // MARK: - Deband
     
     func setDeband(_ enabled: Bool) {

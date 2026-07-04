@@ -95,6 +95,7 @@ final class PlayerOptionsController: UIViewController {
     var onToggleDeband: (() -> Void)?
     var onTogglePiP: (() -> Void)?
     var onToggleFullscreen: (() -> Void)?
+    var onScreenshot: (() -> Void)?
     var onSubtitleDelayChanged: ((Double) -> Void)?
     var onDismiss: (() -> Void)?
 
@@ -345,6 +346,13 @@ final class PlayerOptionsController: UIViewController {
                 }
             }
             items.append(.expandable(title: "Playlist", children: playlistItems))
+        }
+
+        // Screenshot (options.svelte: plain action item, does not close menu)
+        if onScreenshot != nil {
+            items.append(.action(title: "Screenshot") { [weak self] in
+                self?.onScreenshot?()
+            })
         }
 
         // Fullscreen (options.svelte: Fullscreen tree item)
