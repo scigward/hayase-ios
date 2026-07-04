@@ -44,6 +44,38 @@ private final class PassthroughRootViewController: UIViewController {
     }
 }
 
+private final class MiniPlayerStripeOverlayView: UIView {
+    private let blurView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        view.alpha = 0.3
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
+    private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        addSubview(blurView)
+        layer.addSublayer(stripeLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        blurView.frame = bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stripeLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
 final class MiniPlayerManager {
 
     static let shared = MiniPlayerManager()
@@ -100,6 +132,14 @@ final class MiniPlayerManager {
 
     /// The play/pause button in the mini-player overlay.
     private var playPauseButton: UIButton?
+
+    /// Active modal striped-backdrop count. The mini-player normally floats above
+    /// app content in its own window, so app-level Dialog overlays do not cover it.
+    /// Keep this ref-counted so overlapping dialogs cannot leave the stripe stuck on.
+    private var externalStripeOverlayCount = 0
+
+    /// Non-interactive visual overlay applied only while a striped app dialog is active.
+    private var externalStripeOverlayView: MiniPlayerStripeOverlayView?
 
     /// True when the mini-player is currently visible.
     var isActive: Bool { miniWindow != nil && activePlayer != nil }
@@ -193,6 +233,7 @@ final class MiniPlayerManager {
 
         // Add mini-player controls overlay.
         addOverlay(to: container)
+        updateExternalStripeOverlay(animated: false)
 
         // Position and show immediately — don't start invisible and don't
         // depend on the dismiss completion to make the container visible.
@@ -259,6 +300,8 @@ final class MiniPlayerManager {
         ])
 
         // Tear down the mini-player window.
+        externalStripeOverlayView?.removeFromSuperview()
+        externalStripeOverlayView = nil
         container.removeFromSuperview()
         containerView = nil
         miniWindow?.isHidden = true
@@ -293,6 +336,8 @@ final class MiniPlayerManager {
                 container.alpha = 0
                 container.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
             }, completion: { [weak self] _ in
+                self?.externalStripeOverlayView?.removeFromSuperview()
+                self?.externalStripeOverlayView = nil
                 container.removeFromSuperview()
                 self?.containerView = nil
                 self?.miniWindow?.isHidden = true
@@ -302,6 +347,71 @@ final class MiniPlayerManager {
 
         player.tearDownPlayer()
         activePlayer = nil
+    }
+
+    // MARK: - External striped backdrop
+
+    /// Called by app-level dialog presentation controllers when their
+    /// `custom-bg backdrop-blur-sm` overlay is active. The mini-player lives in
+    /// a higher window, so it needs a matching local overlay instead of relying
+    /// on the presenting window's backdrop.
+    func beginExternalStripeOverlay() {
+        externalStripeOverlayCount += 1
+        updateExternalStripeOverlay(animated: true)
+    }
+
+    /// Balances `beginExternalStripeOverlay()`. Never lets the counter go
+    /// negative, which prevents a stale always-striped mini-player state.
+    func endExternalStripeOverlay() {
+        externalStripeOverlayCount = max(0, externalStripeOverlayCount - 1)
+        updateExternalStripeOverlay(animated: true)
+    }
+
+    private func updateExternalStripeOverlay(animated: Bool) {
+        guard let inner = containerView?.viewWithTag(innerContainerTag) else {
+            externalStripeOverlayView = nil
+            return
+        }
+
+        let shouldShow = externalStripeOverlayCount > 0
+        if shouldShow {
+            let overlay = externalStripeOverlayView ?? MiniPlayerStripeOverlayView()
+            externalStripeOverlayView = overlay
+            overlay.frame = inner.bounds
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            if overlay.superview !== inner {
+                overlay.alpha = 0
+                inner.addSubview(overlay)
+            } else {
+                inner.bringSubviewToFront(overlay)
+            }
+            animateStripeOverlay(overlay, alpha: 1, animated: animated)
+        } else if let overlay = externalStripeOverlayView {
+            animateStripeOverlay(overlay, alpha: 0, animated: animated) { [weak self, weak overlay] in
+                overlay?.removeFromSuperview()
+                if self?.externalStripeOverlayView === overlay {
+                    self?.externalStripeOverlayView = nil
+                }
+            }
+        }
+    }
+
+    private func animateStripeOverlay(_ overlay: UIView,
+                                      alpha: CGFloat,
+                                      animated: Bool,
+                                      completion: (() -> Void)? = nil) {
+        let changes = { overlay.alpha = alpha }
+        guard animated else {
+            changes()
+            completion?()
+            return
+        }
+        UIView.animate(withDuration: 0.15,
+                       delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState],
+                       animations: changes) { _ in
+            completion?()
+        }
     }
 
     // MARK: - Layout

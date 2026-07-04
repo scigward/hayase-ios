@@ -688,6 +688,7 @@ final class CenteredDialogPresentationController: UIPresentationController {
 
     override func presentationTransitionWillBegin() {
         guard let containerView = containerView else { return }
+        MiniPlayerManager.shared.beginExternalStripeOverlay()
         dimmingView.frame = containerView.bounds
         dimmingView.alpha = 0
         containerView.insertSubview(dimmingView, at: 0)
@@ -710,7 +711,14 @@ final class CenteredDialogPresentationController: UIPresentationController {
         })
     }
 
+    override func presentationTransitionDidEnd(_ completed: Bool) {
+        if !completed {
+            MiniPlayerManager.shared.endExternalStripeOverlay()
+        }
+    }
+
     override func dismissalTransitionWillBegin() {
+        MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
             self.blurView.alpha = 0
@@ -721,6 +729,8 @@ final class CenteredDialogPresentationController: UIPresentationController {
         if completed {
             dimmingView.removeFromSuperview()
             blurView.removeFromSuperview()
+        } else {
+            MiniPlayerManager.shared.beginExternalStripeOverlay()
         }
     }
 

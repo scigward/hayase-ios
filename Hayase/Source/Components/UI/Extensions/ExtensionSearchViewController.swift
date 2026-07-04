@@ -1976,6 +1976,7 @@ final class BottomDialogPresentationController: UIPresentationController {
 
     override func presentationTransitionWillBegin() {
         guard let containerView = containerView else { return }
+        MiniPlayerManager.shared.beginExternalStripeOverlay()
 
         // Add backdrop blur behind dimming (matching web's backdrop-blur-sm)
         blurView.frame = containerView.bounds
@@ -2000,7 +2001,14 @@ final class BottomDialogPresentationController: UIPresentationController {
         })
     }
 
+    override func presentationTransitionDidEnd(_ completed: Bool) {
+        if !completed {
+            MiniPlayerManager.shared.endExternalStripeOverlay()
+        }
+    }
+
     override func dismissalTransitionWillBegin() {
+        MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
             self.blurView.alpha = 0
@@ -2011,6 +2019,8 @@ final class BottomDialogPresentationController: UIPresentationController {
         if completed {
             dimmingView.removeFromSuperview()
             blurView.removeFromSuperview()
+        } else {
+            MiniPlayerManager.shared.beginExternalStripeOverlay()
         }
     }
 
