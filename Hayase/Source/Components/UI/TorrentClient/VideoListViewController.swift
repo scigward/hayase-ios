@@ -498,14 +498,9 @@ class VideoListViewController: UIViewController {
         searchVC.initialEpisode = episode
         searchVC.shouldAutoSelectOnSearch = true
 
-        if traitCollection.horizontalSizeClass == .regular {
-            searchVC.modalPresentationStyle = .custom
-            searchVC.transitioningDelegate = searchVC
-        } else {
-            searchVC.modalPresentationStyle = .fullScreen
-        }
-
-        (Self.topViewController() ?? self).present(searchVC, animated: true)
+        let presenter = Self.topViewController() ?? self
+        searchVC.prepareOverlayPresentation(from: presenter)
+        presenter.present(searchVC, animated: true)
     }
 
     private static func topViewController() -> UIViewController? {

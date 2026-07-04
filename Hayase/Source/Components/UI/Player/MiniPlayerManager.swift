@@ -1145,17 +1145,12 @@ final class MiniPlayerManager {
         searchVC.shouldAutoSelectOnSearch = true
 
         if let presenter = topViewController() {
-            if presenter.traitCollection.horizontalSizeClass == .regular {
-                searchVC.modalPresentationStyle = .custom
-                searchVC.transitioningDelegate = searchVC
-            } else {
-                searchVC.modalPresentationStyle = .fullScreen
-            }
+            searchVC.prepareOverlayPresentation(from: presenter)
             presenter.present(searchVC, animated: true)
             return
         }
 
-        searchVC.modalPresentationStyle = .fullScreen
+        searchVC.prepareOverlayPresentation(from: window.rootViewController)
         window.rootViewController?.present(searchVC, animated: true)
     }
 }

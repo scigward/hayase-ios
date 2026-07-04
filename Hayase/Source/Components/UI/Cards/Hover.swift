@@ -202,20 +202,15 @@ extension UIViewController {
         searchVC.animeItem = media
         searchVC.initialEpisode = episode
 
-        if traitCollection.horizontalSizeClass == .regular {
-            searchVC.modalPresentationStyle = .custom
-            searchVC.transitioningDelegate = searchVC
-        } else {
-            searchVC.modalPresentationStyle = .fullScreen
-        }
-
         guard var presenter = view.window?.rootViewController else {
+            searchVC.prepareOverlayPresentation(from: self)
             present(searchVC, animated: true)
             return
         }
         while let presented = presenter.presentedViewController {
             presenter = presented
         }
+        searchVC.prepareOverlayPresentation(from: presenter)
         presenter.present(searchVC, animated: true)
     }
 }

@@ -206,6 +206,14 @@ final class ExtensionSearchViewController: UIViewController {
         return navigationController == nil
     }
 
+    /// Presents like the player options overlay: no adaptive sheet, no bottom-dialog chrome.
+    func prepareOverlayPresentation(from presenter: UIViewController?) {
+        presenter?.definesPresentationContext = true
+        modalPresentationStyle = .overCurrentContext
+        modalTransitionStyle = .crossDissolve
+        transitioningDelegate = nil
+    }
+
     // MARK: Lifecycle
 
     override func viewDidLoad() {
@@ -214,7 +222,7 @@ final class ExtensionSearchViewController: UIViewController {
         if shouldAutoSelectOnSearch {
             autoSelectAfterSearch = true
         }
-        view.backgroundColor = .black
+        view.backgroundColor = UIColor.HayaseTheme.background
         navigationItem.largeTitleDisplayMode = .never
 
         // Corner rounding is handled by BottomDialogPresentationController on iPad
@@ -301,7 +309,7 @@ final class ExtensionSearchViewController: UIViewController {
         let isRegular = traitCollection.horizontalSizeClass == .regular
         if isRegular, let anilistID = animeItem?.id {
             // iPad — fetch ani.zip Fanart/Poster, fall back to AniList banner → cover
-            let bannerFallback = animeItem?.bannerURL ?? animeItem?.coverURL
+            let bannerFallback = resolvedBannerFallback()
             AniListClient.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
                 let urlStr = fanartURL ?? bannerFallback
                 guard let urlStr, let url = URL(string: urlStr) else { return }
@@ -318,7 +326,7 @@ final class ExtensionSearchViewController: UIViewController {
             }
         } else {
             // iPhone — use cover image directly (matches web: cover(media) on non-md)
-            let urlStr = animeItem?.coverURL ?? animeItem?.bannerURL
+            let urlStr = resolvedCoverFallback()
             if let urlStr, let url = URL(string: urlStr) {
                 if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                     bannerImageView.image = cached
@@ -351,14 +359,10 @@ final class ExtensionSearchViewController: UIViewController {
         // Shown when presented modally; dismisses the modal on tap.
         if isPresentedModally {
             closeButton = UIButton(type: .system)
-            // Web: Cross2 size-4 (16px), data-[state=open]:text-muted-foreground, rounded-sm (2px)
-            // data-[state=open]:bg-accent/70 → dark accent bg at 70% opacity
-            let xCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-            closeButton.setImage(UIImage.hayaseIcon("x", withConfiguration: xCfg), for: .normal)
-            closeButton.tintColor = UIColor(white: 0.64, alpha: 1)  // text-muted-foreground
-            // Web: bg-accent/70 — dark theme accent HSL(240, 3.7%, 15.9%) at 70% opacity
-            closeButton.backgroundColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 0.7)
-            closeButton.layer.cornerRadius = 4  // rounded-sm (web 2px, but 4px looks better at 36pt)
+            closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)
+            closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
+            closeButton.backgroundColor = UIColor.HayaseTheme.accent.withAlphaComponent(0.7)
+            closeButton.layer.cornerRadius = 2
             closeButton.clipsToBounds = true
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -366,22 +370,12 @@ final class ExtensionSearchViewController: UIViewController {
             closeButton.isExclusiveTouch = true
             view.addSubview(closeButton)
 
-            // Web: absolute right-4 top-4 = 16px from dialog top/right.
-            // On .custom (iPad), view.topAnchor IS the dialog top (set by BottomDialogPresentationController).
-            // On .fullScreen (iPhone), we must use safeAreaLayoutGuide so the
-            // button sits below the status bar / Dynamic Island.
-            // Size: 36×36 ensures reliable touch target while keeping visual compact.
-            let closeTopAnchor: NSLayoutConstraint
-            if modalPresentationStyle == .custom || modalPresentationStyle == .formSheet {
-                closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
-            } else {
-                closeTopAnchor = closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
-            }
+            // Web: absolute right-4 top-4, Cross2 size-4.
             NSLayoutConstraint.activate([
-                closeTopAnchor,
+                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
                 closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-                closeButton.widthAnchor.constraint(equalToConstant: 36),
-                closeButton.heightAnchor.constraint(equalToConstant: 36),
+                closeButton.widthAnchor.constraint(equalToConstant: 16),
+                closeButton.heightAnchor.constraint(equalToConstant: 16),
             ])
         }
 
@@ -392,7 +386,7 @@ final class ExtensionSearchViewController: UIViewController {
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
 
         // Web: px-4 sm:px-6 → 16px on mobile (<640px), 24px on ≥640px (iPad formSheet)
-        let hPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+        let hPad: CGFloat = (view.window?.bounds.width ?? UIScreen.main.bounds.width) >= 640 ? 24 : 16
 
         let controlsView = UIView()
         controlsView.backgroundColor = .clear     // transparent — banner visible behind controls
@@ -426,7 +420,7 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.layer.borderWidth = 1
         filterField.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-input
         filterField.leftViewMode = .always
-        let magIcon = UIImageView(image: UIImage.hayaseIcon("search"))
+        let magIcon = UIImageView(image: UIImage.hayaseIcon("search", pointSize: 16))
         magIcon.tintColor = UIColor(white: 0.5, alpha: 1)
         magIcon.contentMode = .scaleAspectFit
         magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 16)  // pl-9 = 2.25rem = 36pt left padding for icon area
@@ -487,7 +481,8 @@ final class ExtensionSearchViewController: UIViewController {
         resolutionButton.layer.borderWidth = 1
         resolutionButton.layer.borderColor = UIColor(white: 0.16, alpha: 1).cgColor // border-border
         resolutionButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        resolutionButton.addTarget(self, action: #selector(resolutionTapped), for: .touchUpInside)
+        resolutionButton.showsMenuAsPrimaryAction = true
+        resolutionButton.menu = resolutionMenu()
 
         let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionButton])
         resStack.axis = .horizontal; resStack.spacing = 8; resStack.alignment = .center
@@ -527,11 +522,8 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isHidden = true
 
         NSLayoutConstraint.activate([
-            // controlsView: on .custom (iPad), dialog top IS the content top (BottomDialogPresentationController
-            // positions the view at y=16 from screen top). On .fullScreen (iPhone), use safe area to clear
-            // the status bar / Dynamic Island.
-            controlsView.topAnchor.constraint(equalTo:
-                modalPresentationStyle == .custom ? view.topAnchor : view.safeAreaLayoutGuide.topAnchor),
+            // Presented as an overlay, so keep controls below the current safe area.
+            controlsView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlsView.heightAnchor.constraint(equalToConstant: 220),
@@ -589,10 +581,23 @@ final class ExtensionSearchViewController: UIViewController {
         return brightness > 0.502 ? UIColor(white: 0.07, alpha: 1) : .white
     }
 
+    private func resolvedBannerFallback() -> String? {
+        animeItem?.bannerURL ?? youtubeThumbnailURL(for: animeItem?.trailerYouTubeID) ?? animeItem?.coverURL
+    }
+
+    private func resolvedCoverFallback() -> String? {
+        animeItem?.coverURL ?? resolvedBannerFallback()
+    }
+
+    private func youtubeThumbnailURL(for id: String?) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        return "https://i.ytimg.com/vi/\(id)/maxresdefault.jpg"
+    }
+
     private func setupTableView() {
         tableView = UITableView(frame: .zero, style: .plain)
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = .black
+        tableView.backgroundColor = UIColor.HayaseTheme.background
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 16, right: 0)
         tableView.delegate   = self
@@ -738,7 +743,7 @@ final class ExtensionSearchViewController: UIViewController {
         view.addSubview(errorView)
 
         // Web: px-4 sm:px-6 → responsive horizontal padding for skeleton/state views
-        let skelPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+        let skelPad: CGFloat = (view.window?.bounds.width ?? UIScreen.main.bounds.width) >= 640 ? 24 : 16
 
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
@@ -937,22 +942,20 @@ final class ExtensionSearchViewController: UIViewController {
         triggerSearch()
     }
 
-    @objc private func resolutionTapped() {
-        let sheet = UIAlertController(title: "Resolution", message: nil, preferredStyle: .actionSheet)
+    private func resolutionMenu() -> UIMenu {
         let labels = ["4K (2160p)", "1080p", "720p", "540p", "480p"]
-        for (i, label) in labels.enumerated() {
-            let res = resolutions[i]
-            sheet.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
+        let actions = labels.enumerated().map { index, label in
+            let resolution = resolutions[index]
+            return UIAction(title: label, state: resolution == currentResolution ? .on : .off) { [weak self] _ in
                 guard let self else { return }
-                self.currentResolution = res
-                let display = res == "2160" ? "4K" : "\(res)p"
+                self.currentResolution = resolution
+                let display = resolution == "2160" ? "4K" : "\(resolution)p"
                 self.resolutionButton.setTitle("\(display) ▾", for: .normal)
+                self.resolutionButton.menu = self.resolutionMenu()
                 self.triggerSearch()
-            })
+            }
         }
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        sheet.popoverPresentationController?.sourceView = resolutionButton
-        present(sheet, animated: true)
+        return UIMenu(title: "Resolution", children: actions)
     }
 
     @objc private func autoSelectTapped() {
@@ -1439,6 +1442,13 @@ final class TorrentResultCell: UITableViewCell {
     /// Stored constraints for BadgeCheck responsive position (top-4 left-4 mobile, md:top-3 md:left-3 iPad)
     private var badgeTopConstraint: NSLayoutConstraint!
     private var badgeLeadingConstraint: NSLayoutConstraint!
+    private var contentLeadingConstraint: NSLayoutConstraint!
+
+    private let leftIconContainer: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
 
     /// Card container — stored for highlight effects
     private let cardView: UIView = {
@@ -1483,6 +1493,18 @@ final class TorrentResultCell: UITableViewCell {
         return sv
     }()
 
+    private let groupRow: UIStackView = {
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let sv = UIStackView(arrangedSubviews: [spacer])
+        sv.axis = .horizontal
+        sv.spacing = 8
+        sv.alignment = .center
+        sv.layoutMargins = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 0)
+        sv.isLayoutMarginsRelativeArrangement = true
+        return sv
+    }()
+
     // Simplified filename
     private let filenameLabel: UILabel = {
         let l = UILabel()
@@ -1522,7 +1544,7 @@ final class TorrentResultCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .black // page bg
+        backgroundColor = UIColor.HayaseTheme.background
         selectionStyle = .none
 
         // Card: theme-default --card hsl(0 0% 4%), 6px radius, mb-2 p-3
@@ -1532,21 +1554,14 @@ final class TorrentResultCell: UITableViewCell {
         // BadgeCheck absolute top-left (mirrors absolute top-4 left-4)
         cardView.addSubview(badgeCheckView)
 
-        // NOTE: Hayase shows the left Folder/File icon only on {#if $breakpoints.md} (≥768pt).
-        // iOS phones are always <768pt wide, so we hide the left icon — matching Hayase mobile.
-        // fileIconView is kept on the model for accuracy-badge toggle but not added to layout.
+        // Hayase shows the 80px Folder/File icon only at the md breakpoint.
+        cardView.addSubview(leftIconContainer)
+        leftIconContainer.addSubview(fileIconView)
 
         // Group row: [groupLabel ········· extIconsStack]
-        // Web: group label has pl-6 (24px) on mobile to clear the BadgeCheck icon.
-        // Use layoutMargins to indent group row content without affecting trailing position.
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let groupRow = UIStackView(arrangedSubviews: [groupLabel, spacer, extIconsStack])
-        groupRow.axis = .horizontal
-        groupRow.spacing = 8
-        groupRow.alignment = .center
-        groupRow.layoutMargins = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 0) // pl-6 = 24px
-        groupRow.isLayoutMarginsRelativeArrangement = true
+        // Web: pl-6 on compact cards, md:pl-0 when the 80px file icon is visible.
+        groupRow.insertArrangedSubview(groupLabel, at: 0)
+        groupRow.addArrangedSubview(extIconsStack)
 
         // Bottom-left: type badge + seeders + size + date (mirrors web details row)
         // Web: text-[.7rem] = 11.2px ≈ 11pt, normal weight. .details span+span::before for dots.
@@ -1580,6 +1595,7 @@ final class TorrentResultCell: UITableViewCell {
         // Card margins: responsive px-4 (16pt) on mobile, sm:px-6 (24pt) on iPad
         cardLeadingConstraint = cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         cardTrailingConstraint = cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+        contentLeadingConstraint = contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 20)
 
         // BadgeCheck position: 16px on mobile (top-4 left-4), 12px on iPad (md:top-3 md:left-3)
         badgeTopConstraint = badgeCheckView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16)
@@ -1599,9 +1615,17 @@ final class TorrentResultCell: UITableViewCell {
             badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
             badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
 
-            // Content column: p-3 (12pt) + pl-2 (8pt) = 20pt from card left
-            // Group row uses layoutMargins.left=24 for the pl-6 indent to clear BadgeCheck
-            contentCol.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 20),
+            leftIconContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
+            leftIconContainer.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            leftIconContainer.widthAnchor.constraint(equalToConstant: 80),
+            leftIconContainer.heightAnchor.constraint(equalToConstant: 80),
+            fileIconView.centerXAnchor.constraint(equalTo: leftIconContainer.centerXAnchor),
+            fileIconView.centerYAnchor.constraint(equalTo: leftIconContainer.centerYAnchor),
+            fileIconView.widthAnchor.constraint(equalToConstant: 48),
+            fileIconView.heightAnchor.constraint(equalToConstant: 48),
+
+            // Content column: p-3 (12pt) + pl-2 (8pt) on compact, md icon width + pl-2 on wide.
+            contentLeadingConstraint,
             contentCol.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
             contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
             contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
@@ -1682,13 +1706,19 @@ final class TorrentResultCell: UITableViewCell {
         let title = result.title
         accentColor = accent
 
-        // Responsive card margins: px-4 (16pt) mobile, sm:px-6 (24pt) iPad
-        let hPad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+        // Responsive card margins: px-4 (16pt), sm:px-6 (24pt), md icon row at 768px.
+        let viewportWidth = window?.bounds.width ?? UIScreen.main.bounds.width
+        let hPad: CGFloat = viewportWidth >= 640 ? 24 : 16
         cardLeadingConstraint.constant = hPad
         cardTrailingConstraint.constant = -hPad
 
+        let usesWideCard = viewportWidth >= 768
+        leftIconContainer.isHidden = !usesWideCard
+        contentLeadingConstraint.constant = usesWideCard ? 100 : 20
+        groupRow.layoutMargins.left = usesWideCard ? 0 : 24
+
         // Responsive BadgeCheck position: top-4 left-4 (16px) mobile, md:top-3 md:left-3 (12px) iPad
-        let badgeInset: CGFloat = traitCollection.horizontalSizeClass == .regular ? 12 : 16
+        let badgeInset: CGFloat = usesWideCard ? 12 : 16
         badgeTopConstraint.constant = badgeInset
         badgeLeadingConstraint.constant = badgeInset
 
@@ -1713,15 +1743,14 @@ final class TorrentResultCell: UITableViewCell {
 
         // ── File icon (folder=batch/best/alt, file=single, mirrors Folder/File icons)
         let yellow = UIColor(red: 1.0, green: 0.796, blue: 0.231, alpha: 1) // text-yellow-300
-        let cfg = UIImage.SymbolConfiguration(pointSize: 40, weight: .regular)
         if let rtype = result.type, !rtype.isEmpty {
             // batch / best / alt → folder icon (yellow)
-            fileIconView.image = UIImage.hayaseFilledIcon("folder", pointSize: 40)?
+            fileIconView.image = UIImage.hayaseFilledIcon("folder", pointSize: 48)?
                 .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         } else {
             // single episode → file icon (muted)
-            fileIconView.image = UIImage.hayaseIcon("file", withConfiguration: cfg)?
-                .withTintColor(UIColor(white: 0.4, alpha: 0.8), renderingMode: .alwaysOriginal)
+            fileIconView.image = UIImage.hayaseIcon("file", pointSize: 48)?
+                .withTintColor(UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)
         }
 
         // ── Release group
