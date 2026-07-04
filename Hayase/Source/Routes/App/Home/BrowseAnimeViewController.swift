@@ -1826,6 +1826,8 @@ class BrowseAnimeViewController: UIViewController {
         return view
     }()
     private var isHomeBackdropCovered = false
+    private var pendingHomeBannerRevealWorkItem: DispatchWorkItem?
+    private let homeBannerRevealDelay: DispatchTimeInterval = .milliseconds(120)
     private var homeBackdropLeadingConstraint: NSLayoutConstraint?
     private var homeBackdropTrailingConstraint: NSLayoutConstraint?
 
@@ -1970,6 +1972,7 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     deinit {
+        pendingHomeBannerRevealWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
         searchDebounceTimer?.invalidate()
         homeRefreshTimer?.invalidate()
@@ -2821,29 +2824,79 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         let bannerCell = collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell
 
         if offsetY < 0 {
-            // User is pulling down past the top → keep the route backdrop visible.
+            // A real pull-down is an intentional reveal. Apply it immediately.
+            cancelPendingHomeBannerReveal()
             homeBackdropView.applyOverscrollZoom(-offsetY)
-            homeBackdropView.applyScrollFade(0)
-            setHomeBackdropCovered(false)
             bannerCell?.applyOverscrollZoom(-offsetY)
-            bannerCell?.applyScrollFade(0)
-        } else {
-            // Interface fades BannerImage after scrollTop > 100. UIKit still
-            // has a transparent scroll viewport, so cover the page backdrop
-            // behind scrolled rows once it is faded to prevent image bleed.
-            homeBackdropView.applyOverscrollZoom(0)
-            homeBackdropView.applyScrollFade(offsetY)
-            setHomeBackdropCovered(offsetY > 100)
-            bannerCell?.applyOverscrollZoom(0)
-            bannerCell?.applyScrollFade(offsetY)
+            applyHomeBannerVisibility(hidden: false, bannerCell: bannerCell)
+            return
         }
+
+        homeBackdropView.applyOverscrollZoom(0)
+        bannerCell?.applyOverscrollZoom(0)
+
+        if offsetY > 100 {
+            // Hide immediately. The cover is a bleed-prevention mask, so it must
+            // not spend frames half-transparent while rows are already over it.
+            cancelPendingHomeBannerReveal()
+            applyHomeBannerVisibility(hidden: true, bannerCell: bannerCell)
+        } else if shouldRevealHomeBannerImmediately(offsetY: offsetY) {
+            cancelPendingHomeBannerReveal()
+            applyHomeBannerVisibility(hidden: false, bannerCell: bannerCell)
+        } else {
+            // UIKit can chatter around 100 during rebound/deceleration. Do not
+            // start a visible fade-in unless the scroll position stays on the
+            // visible side of the threshold for a short moment.
+            scheduleHomeBannerRevealIfNeeded()
+        }
+    }
+
+    private func shouldRevealHomeBannerImmediately(offsetY: CGFloat) -> Bool {
+        guard offsetY > 0 else { return true }
+        if collectionView.isDragging {
+            return collectionView.panGestureRecognizer.velocity(in: collectionView).y > 0
+        }
+        return !collectionView.isDecelerating && !collectionView.isTracking
+    }
+
+    private func applyHomeBannerVisibility(hidden: Bool, bannerCell: FeaturedBannerCell?) {
+        let effectiveOffset: CGFloat = hidden ? 101 : 0
+        homeBackdropView.applyScrollFade(effectiveOffset)
+        setHomeBackdropCovered(hidden)
+        bannerCell?.applyScrollFade(effectiveOffset)
+    }
+
+    private func scheduleHomeBannerRevealIfNeeded() {
+        guard pendingHomeBannerRevealWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingHomeBannerRevealWorkItem = nil
+            guard !self.isSearching,
+                  self.collectionView.contentOffset.y <= 100 else { return }
+            let bannerCell = self.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell
+            self.applyHomeBannerVisibility(hidden: false, bannerCell: bannerCell)
+        }
+        pendingHomeBannerRevealWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + homeBannerRevealDelay, execute: workItem)
+    }
+
+    private func cancelPendingHomeBannerReveal() {
+        pendingHomeBannerRevealWorkItem?.cancel()
+        pendingHomeBannerRevealWorkItem = nil
     }
 
     private func setHomeBackdropCovered(_ covered: Bool) {
         guard covered != isHomeBackdropCovered else { return }
         isHomeBackdropCovered = covered
-        UIView.animate(withDuration: 0.5, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-            self.homeBackdropCoverView.alpha = covered ? 1 : 0
+        homeBackdropCoverView.layer.removeAllAnimations()
+        if covered {
+            homeBackdropCoverView.alpha = 1
+        } else {
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.homeBackdropCoverView.alpha = 0
+            }
         }
     }
 

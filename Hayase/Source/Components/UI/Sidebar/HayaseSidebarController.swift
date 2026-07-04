@@ -389,14 +389,26 @@ final class HayaseSidebarController: UIViewController {
 
         if let alpha = userInfo[Self.homeBannerBackdropAlphaKey] as? CGFloat {
             let clampedAlpha = min(max(alpha, 0), 1)
+            let shouldCover = clampedAlpha <= 0.05
             if abs(clampedAlpha - sidebarBackdropAlpha) > 0.01 {
                 sidebarBackdropAlpha = clampedAlpha
-                UIView.animate(withDuration: 0.5,
-                               delay: 0,
-                               options: [.allowUserInteraction, .beginFromCurrentState]) {
-                    self.sidebarBackdropImageView.alpha = clampedAlpha
-                    self.sidebarBackdropGradientView.alpha = clampedAlpha
-                    self.sidebarBackdropCoverView.alpha = clampedAlpha <= 0.05 ? 1 : 0
+                sidebarBackdropCoverView.layer.removeAllAnimations()
+                if shouldCover {
+                    sidebarBackdropCoverView.alpha = 1
+                    UIView.animate(withDuration: 0.5,
+                                   delay: 0,
+                                   options: [.allowUserInteraction, .beginFromCurrentState]) {
+                        self.sidebarBackdropImageView.alpha = clampedAlpha
+                        self.sidebarBackdropGradientView.alpha = clampedAlpha
+                    }
+                } else {
+                    UIView.animate(withDuration: 0.5,
+                                   delay: 0,
+                                   options: [.allowUserInteraction, .beginFromCurrentState]) {
+                        self.sidebarBackdropImageView.alpha = clampedAlpha
+                        self.sidebarBackdropGradientView.alpha = clampedAlpha
+                        self.sidebarBackdropCoverView.alpha = 0
+                    }
                 }
             }
         }

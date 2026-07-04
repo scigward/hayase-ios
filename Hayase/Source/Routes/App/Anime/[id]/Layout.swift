@@ -85,6 +85,7 @@ private final class AnimeDetailBannerBackdropView: UIView {
     private var currentURLString: String?
     private var imageTask: URLSessionDataTask?
     private var heightConstraint: NSLayoutConstraint?
+    private var displayedAlpha: CGFloat = 1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -136,7 +137,8 @@ private final class AnimeDetailBannerBackdropView: UIView {
 
     func applyAlpha(_ alpha: CGFloat, animated: Bool) {
         let clamped = min(max(alpha, 0), 1)
-        guard abs(self.alpha - clamped) > 0.001 else { return }
+        guard abs(clamped - displayedAlpha) > 0.001 else { return }
+        displayedAlpha = clamped
         let changes = { self.alpha = clamped }
         if animated {
             UIView.animate(withDuration: 0.5,
@@ -144,6 +146,7 @@ private final class AnimeDetailBannerBackdropView: UIView {
                            options: [.allowUserInteraction, .beginFromCurrentState],
                            animations: changes)
         } else {
+            layer.removeAllAnimations()
             changes()
         }
     }
@@ -1137,9 +1140,10 @@ final class AnimeInfoHeaderView: UIView {
 
     func applyScrollFade(_ scrollOffset: CGFloat) {
         let shouldHide = scrollOffset > 100
+        guard shouldHide != bannerHidden else { return }
+        bannerHidden = shouldHide
         let targetAlpha: CGFloat = shouldHide ? 0.05 : 1.0
         postSidebarBackdrop(scrollOffset: scrollOffset, alpha: targetAlpha)
-        bannerHidden = shouldHide
     }
 
     // MARK: - Actions
@@ -1649,6 +1653,8 @@ class AnimeDetailViewController: UIViewController {
         return view
     }()
     private var isAnimeBackdropCovered = false
+    private var pendingAnimeBannerRevealWorkItem: DispatchWorkItem?
+    private let animeBannerRevealDelay: DispatchTimeInterval = .milliseconds(120)
     private var animeBackdropLeadingConstraint: NSLayoutConstraint?
     private var animeBackdropTrailingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
@@ -1850,6 +1856,7 @@ class AnimeDetailViewController: UIViewController {
     }
 
     deinit {
+        pendingAnimeBannerRevealWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1941,11 +1948,70 @@ class AnimeDetailViewController: UIViewController {
                                                object: nil)
     }
 
+    func applyAnimeBannerScrollEffects(scrollView: UIScrollView) {
+        let offsetY = scrollView.contentOffset.y
+        if offsetY < 0 {
+            cancelPendingAnimeBannerReveal()
+            headerView.applyOverscrollZoom(-offsetY)
+            applyAnimeBannerVisibility(hidden: false)
+            return
+        }
+
+        headerView.applyOverscrollZoom(0)
+        if offsetY > 100 {
+            cancelPendingAnimeBannerReveal()
+            applyAnimeBannerVisibility(hidden: true)
+        } else if shouldRevealAnimeBannerImmediately(offsetY: offsetY, scrollView: scrollView) {
+            cancelPendingAnimeBannerReveal()
+            applyAnimeBannerVisibility(hidden: false)
+        } else {
+            scheduleAnimeBannerRevealIfNeeded()
+        }
+    }
+
+    private func shouldRevealAnimeBannerImmediately(offsetY: CGFloat, scrollView: UIScrollView) -> Bool {
+        guard offsetY > 0 else { return true }
+        if scrollView.isDragging {
+            return scrollView.panGestureRecognizer.velocity(in: scrollView).y > 0
+        }
+        return !scrollView.isDecelerating && !scrollView.isTracking
+    }
+
+    private func applyAnimeBannerVisibility(hidden: Bool) {
+        let effectiveOffset: CGFloat = hidden ? 101 : 0
+        headerView.applyScrollFade(effectiveOffset)
+        setAnimeBackdropCovered(hidden)
+    }
+
+    private func scheduleAnimeBannerRevealIfNeeded() {
+        guard pendingAnimeBannerRevealWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingAnimeBannerRevealWorkItem = nil
+            guard self.tableView.contentOffset.y <= 100 else { return }
+            self.applyAnimeBannerVisibility(hidden: false)
+        }
+        pendingAnimeBannerRevealWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + animeBannerRevealDelay, execute: workItem)
+    }
+
+    private func cancelPendingAnimeBannerReveal() {
+        pendingAnimeBannerRevealWorkItem?.cancel()
+        pendingAnimeBannerRevealWorkItem = nil
+    }
+
     func setAnimeBackdropCovered(_ covered: Bool) {
         guard covered != isAnimeBackdropCovered else { return }
         isAnimeBackdropCovered = covered
-        UIView.animate(withDuration: 0.5, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-            self.animeBackdropCoverView.alpha = covered ? 1 : 0
+        animeBackdropCoverView.layer.removeAllAnimations()
+        if covered {
+            animeBackdropCoverView.alpha = 1
+        } else {
+            UIView.animate(withDuration: 0.5,
+                           delay: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.animeBackdropCoverView.alpha = 0
+            }
         }
     }
 

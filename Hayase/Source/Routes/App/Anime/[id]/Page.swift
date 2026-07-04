@@ -232,16 +232,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
 extension AnimeDetailViewController: UITableViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offsetY = scrollView.contentOffset.y
-        if offsetY < 0 {
-            headerView.applyOverscrollZoom(-offsetY)
-            headerView.applyScrollFade(0)
-            setAnimeBackdropCovered(false)
-        } else {
-            headerView.applyOverscrollZoom(0)
-            headerView.applyScrollFade(offsetY)
-            setAnimeBackdropCovered(offsetY > 100)
-        }
+        applyAnimeBannerScrollEffects(scrollView: scrollView)
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
