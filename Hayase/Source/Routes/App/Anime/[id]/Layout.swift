@@ -359,7 +359,10 @@ final class AnimeTagChipButton: UIButton {
     private func setupLayers() {
         layer.addSublayer(dashLayer)
         dashLayer.fillColor = UIColor.clear.cgColor
-        dashLayer.lineDashPattern = [6, 4]
+        dashLayer.lineCap = .butt
+        dashLayer.lineJoin = .round
+        dashLayer.lineDashPattern = [3, 3]
+        dashLayer.contentsScale = UIScreen.main.scale
         dashLayer.isHidden = true
 
         blurredTitleView.isUserInteractionEnabled = false
@@ -370,12 +373,15 @@ final class AnimeTagChipButton: UIButton {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        dashLayer.isHidden = !dashedBorder
+        dashLayer.isHidden = !dashedBorder || bounds.isEmpty
         if dashedBorder {
+            let borderWidth: CGFloat = 1
+            let inset = borderWidth / 2
             dashLayer.frame = bounds
-            dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerRadius: layer.cornerRadius).cgPath
+            dashLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset),
+                                          cornerRadius: max(0, layer.cornerRadius - inset)).cgPath
             dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-            dashLayer.lineWidth = 2
+            dashLayer.lineWidth = borderWidth
         }
 
         blurredTitleView.frame = titleLabel?.frame ?? bounds.insetBy(dx: contentEdgeInsets.left, dy: 0)
@@ -592,8 +598,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let entryEditorButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage.hayaseIcon("pencil-line")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("pencil-line", pointSize: 16), for: .normal)
         b.tintColor = .black
         b.backgroundColor = UIColor(white: 0.75, alpha: 1)
         b.layer.cornerRadius = 6
@@ -604,8 +609,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let favoriteButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("heart", pointSize: 16), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
@@ -615,8 +619,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let bookmarkButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("bookmark", pointSize: 16), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
@@ -626,8 +629,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private let shareButton: UIButton = {
         let b = UIButton(type: .system)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        b.setImage(UIImage.hayaseIcon("share-2")?.withConfiguration(iconCfg), for: .normal)
+        b.setImage(UIImage.hayaseIcon("share-2", pointSize: 16), for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
@@ -637,16 +639,14 @@ final class AnimeInfoHeaderView: UIView {
 
     private let trailerButton: UIButton = {
         let b = UIButton(type: .custom)
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         let lucideId: String
         if #available(iOS 16.0, *) {
             lucideId = "clapperboard"
         } else {
             lucideId = "film"
         }
-        let img = UIImage.hayaseIcon(lucideId, withConfiguration: iconCfg)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
-        b.setImage(img, for: .normal)
+        b.setImage(UIImage.hayaseIcon(lucideId, pointSize: 16), for: .normal)
+        b.tintColor = .white
         b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
@@ -1168,10 +1168,9 @@ final class AnimeInfoHeaderView: UIView {
 
     @objc private func shareTapped() {
         animateTap(shareButton)
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        shareButton.setImage(UIImage.hayaseIcon("check")?.withConfiguration(cfg), for: .normal)
+        shareButton.setImage(UIImage.hayaseIcon("check", pointSize: 16), for: .normal)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.shareButton.setImage(UIImage.hayaseIcon("share-2")?.withConfiguration(cfg), for: .normal)
+            self?.shareButton.setImage(UIImage.hayaseIcon("share-2", pointSize: 16), for: .normal)
         }
         onShare?()
     }
@@ -1213,11 +1212,10 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        favoriteButton.setImage(isFavorite ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
+        favoriteButton.setImage(isFavorite ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart", pointSize: 16), for: .normal)
         favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
-        bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
+        bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark", pointSize: 16), for: .normal)
         bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 
