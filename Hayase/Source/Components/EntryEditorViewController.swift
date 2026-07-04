@@ -626,23 +626,7 @@ final class EntryEditorViewController: UIViewController, UIViewControllerTransit
 
 final class CenteredDialogPresentationController: UIPresentationController {
 
-    private let dimmingView: UIView = {
-        let v = UIView()
-        // Matches web custom-bg: repeating-linear-gradient(40deg, #1114 0, #5554 1px, #5554 5px, #1114 6px, #1114 10px)
-        // Use dark semi-transparent base to approximate the striped overlay pattern
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.8)
-        return v
-    }()
-
-    /// Blur effect matching web's `backdrop-blur-sm` (blur 4px).
-    private let blurView: UIVisualEffectView = {
-        let blur = UIBlurEffect(style: .dark)
-        let v = UIVisualEffectView(effect: blur)
-        v.alpha = 0.3 // subtle to match backdrop-blur-sm
-        return v
-    }()
-
-    private lazy var stripedLayer = HayaseStripePattern.customBackground.makeLayer()
+    private let dimmingView = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.8))
 
     private var isCalculatingFrame = false
 
@@ -693,21 +677,11 @@ final class CenteredDialogPresentationController: UIPresentationController {
         dimmingView.alpha = 0
         containerView.insertSubview(dimmingView, at: 0)
 
-        // Add backdrop blur matching web's backdrop-blur-sm
-        blurView.frame = containerView.bounds
-        containerView.insertSubview(blurView, at: 0)
-        blurView.alpha = 0
-
-        // Add striped overlay pattern on top of dimming base
-        stripedLayer.frame = dimmingView.bounds
-        dimmingView.layer.addSublayer(stripedLayer)
-
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimmingTapped))
         dimmingView.addGestureRecognizer(tap)
 
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 1
-            self.blurView.alpha = 0.3
         })
     }
 
@@ -721,14 +695,12 @@ final class CenteredDialogPresentationController: UIPresentationController {
         MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
-            self.blurView.alpha = 0
         })
     }
 
     override func dismissalTransitionDidEnd(_ completed: Bool) {
         if completed {
             dimmingView.removeFromSuperview()
-            blurView.removeFromSuperview()
         } else {
             MiniPlayerManager.shared.beginExternalStripeOverlay()
         }
@@ -740,8 +712,6 @@ final class CenteredDialogPresentationController: UIPresentationController {
         super.containerViewDidLayoutSubviews()
         let bounds = containerView?.bounds ?? .zero
         dimmingView.frame = bounds
-        blurView.frame = bounds
-        stripedLayer.frame = dimmingView.bounds
         presentedView?.frame = frameOfPresentedViewInContainerView
     }
 

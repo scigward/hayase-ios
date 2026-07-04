@@ -1940,22 +1940,8 @@ private extension UIColor {
 /// sheet matching the web interface's Dialog.Content exactly.
 final class BottomDialogPresentationController: UIPresentationController {
 
-    /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg pattern).
-    private let dimmingView: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        return v
-    }()
-
-    /// Blur effect matching web's `backdrop-blur-sm` (blur 4px).
-    private let blurView: UIVisualEffectView = {
-        let blur = UIBlurEffect(style: .dark)
-        let v = UIVisualEffectView(effect: blur)
-        v.alpha = 0.3 // subtle to match backdrop-blur-sm
-        return v
-    }()
-
-    private lazy var stripedLayer = HayaseStripePattern.customBackground.makeLayer()
+    /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg + backdrop blur).
+    private let dimmingView = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.55))
 
     // MARK: Frame
 
@@ -1978,18 +1964,9 @@ final class BottomDialogPresentationController: UIPresentationController {
         guard let containerView = containerView else { return }
         MiniPlayerManager.shared.beginExternalStripeOverlay()
 
-        // Add backdrop blur behind dimming (matching web's backdrop-blur-sm)
-        blurView.frame = containerView.bounds
-        blurView.alpha = 0
-        containerView.insertSubview(blurView, at: 0)
-
         dimmingView.frame = containerView.bounds
         dimmingView.alpha = 0
-        containerView.insertSubview(dimmingView, aboveSubview: blurView)
-
-        // Add striped overlay pattern on top of dimming base
-        stripedLayer.frame = dimmingView.bounds
-        dimmingView.layer.addSublayer(stripedLayer)
+        containerView.insertSubview(dimmingView, at: 0)
 
         // Tap outside → dismiss (matches web Dialog.Overlay click-to-close)
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimmingTapped))
@@ -1997,7 +1974,6 @@ final class BottomDialogPresentationController: UIPresentationController {
 
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 1
-            self.blurView.alpha = 0.3
         })
     }
 
@@ -2011,14 +1987,12 @@ final class BottomDialogPresentationController: UIPresentationController {
         MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
-            self.blurView.alpha = 0
         })
     }
 
     override func dismissalTransitionDidEnd(_ completed: Bool) {
         if completed {
             dimmingView.removeFromSuperview()
-            blurView.removeFromSuperview()
         } else {
             MiniPlayerManager.shared.beginExternalStripeOverlay()
         }
@@ -2030,8 +2004,6 @@ final class BottomDialogPresentationController: UIPresentationController {
         super.containerViewDidLayoutSubviews()
         let bounds = containerView?.bounds ?? .zero
         dimmingView.frame = bounds
-        blurView.frame = bounds
-        stripedLayer.frame = dimmingView.bounds
         presentedView?.frame = frameOfPresentedViewInContainerView
 
         // lg:rounded-t-xl (12px top corners) + !rounded-b-none (square bottom)

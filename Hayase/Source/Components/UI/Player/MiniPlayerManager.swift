@@ -44,38 +44,6 @@ private final class PassthroughRootViewController: UIViewController {
     }
 }
 
-private final class MiniPlayerStripeOverlayView: UIView {
-    private let blurView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
-        view.alpha = 0.3
-        view.isUserInteractionEnabled = false
-        return view
-    }()
-
-    private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        backgroundColor = .clear
-        addSubview(blurView)
-        layer.addSublayer(stripeLayer)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        blurView.frame = bounds
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        stripeLayer.frame = bounds
-        CATransaction.commit()
-    }
-}
-
 final class MiniPlayerManager {
 
     static let shared = MiniPlayerManager()
@@ -139,7 +107,7 @@ final class MiniPlayerManager {
     private var externalStripeOverlayCount = 0
 
     /// Non-interactive visual overlay applied only while a striped app dialog is active.
-    private var externalStripeOverlayView: MiniPlayerStripeOverlayView?
+    private var externalStripeOverlayView: HayaseStripedBackdropView?
 
     /// True when the mini-player is currently visible.
     var isActive: Bool { miniWindow != nil && activePlayer != nil }
@@ -375,10 +343,11 @@ final class MiniPlayerManager {
 
         let shouldShow = externalStripeOverlayCount > 0
         if shouldShow {
-            let overlay = externalStripeOverlayView ?? MiniPlayerStripeOverlayView()
+            let overlay = externalStripeOverlayView ?? HayaseStripedBackdropView()
             externalStripeOverlayView = overlay
             overlay.frame = inner.bounds
             overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.isUserInteractionEnabled = false
             if overlay.superview !== inner {
                 overlay.alpha = 0
                 inner.addSubview(overlay)

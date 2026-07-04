@@ -215,6 +215,49 @@ enum HayaseStripePattern {
     }
 }
 
+/// Shared visual for Hayase `custom-bg backdrop-blur-sm` surfaces.
+///
+/// Keep the blur with the striped backdrop so every place that enables the
+/// stripe effect gets the same interface-style backdrop treatment.
+final class HayaseStripedBackdropView: UIView {
+    private let blurView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
+    private let stripeLayer: CALayer
+
+    init(pattern: HayaseStripePattern = .customBackground,
+         dimColor: UIColor? = nil,
+         blurAlpha: CGFloat = 0.3) {
+        self.stripeLayer = pattern.makeLayer()
+        super.init(frame: .zero)
+        backgroundColor = dimColor ?? .clear
+        blurView.alpha = blurAlpha
+        addSubview(blurView)
+        layer.addSublayer(stripeLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        self.stripeLayer = HayaseStripePattern.customBackground.makeLayer()
+        super.init(coder: coder)
+        backgroundColor = .clear
+        blurView.alpha = 0.3
+        addSubview(blurView)
+        layer.addSublayer(stripeLayer)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        blurView.frame = bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stripeLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
 fileprivate struct HayaseStripeRenderSpec {
     let tileSize: CGSize
     let angleDegrees: CGFloat

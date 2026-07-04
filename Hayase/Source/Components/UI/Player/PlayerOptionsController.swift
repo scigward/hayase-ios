@@ -203,7 +203,7 @@ final class PlayerOptionsController: UIViewController {
     private let containerView = UIView()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let wideTreeView = UIView()
-    private let stripedLayer = HayaseStripePattern.customBackground.makeLayer()
+    private let stripedBackdropView = HayaseStripedBackdropView()
 
     /// Navigation stack for drill-down. Each entry is (title, items).
     private var navigationStack: [(title: String?, items: [OptionItem])] = []
@@ -226,8 +226,10 @@ final class PlayerOptionsController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        stripedLayer.frame = view.bounds
-        view.layer.addSublayer(stripedLayer)
+        stripedBackdropView.frame = view.bounds
+        stripedBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        stripedBackdropView.isUserInteractionEnabled = false
+        view.addSubview(stripedBackdropView)
 
         // Tap-to-dismiss background (matches options.svelte on:pointerdown|self={close})
         let tapBG = UITapGestureRecognizer(target: self, action: #selector(dismissSelf))
@@ -248,13 +250,6 @@ final class PlayerOptionsController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard stripedLayer.frame != view.bounds else { return }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        stripedLayer.frame = view.bounds
-        CATransaction.commit()
-        stripedLayer.setNeedsDisplay()
         if isUsingWideTree != shouldUseWideTree {
             reloadCurrentPresentation()
         }
