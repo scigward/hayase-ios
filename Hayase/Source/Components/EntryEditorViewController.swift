@@ -629,6 +629,7 @@ final class CenteredDialogPresentationController: UIPresentationController {
     private let dimmingView = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.8))
 
     private var isCalculatingFrame = false
+    private var isDismissing = false
 
     // MARK: Frame
 
@@ -692,6 +693,7 @@ final class CenteredDialogPresentationController: UIPresentationController {
     }
 
     override func dismissalTransitionWillBegin() {
+        isDismissing = true
         MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
@@ -699,6 +701,7 @@ final class CenteredDialogPresentationController: UIPresentationController {
     }
 
     override func dismissalTransitionDidEnd(_ completed: Bool) {
+        isDismissing = false
         if completed {
             dimmingView.removeFromSuperview()
         } else {
@@ -712,7 +715,9 @@ final class CenteredDialogPresentationController: UIPresentationController {
         super.containerViewDidLayoutSubviews()
         let bounds = containerView?.bounds ?? .zero
         dimmingView.frame = bounds
-        presentedView?.frame = frameOfPresentedViewInContainerView
+        if !isDismissing {
+            presentedView?.frame = frameOfPresentedViewInContainerView
+        }
     }
 
     @objc private func dimmingTapped() {
