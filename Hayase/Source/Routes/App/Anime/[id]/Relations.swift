@@ -428,6 +428,8 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
     private let refreshButton = UIButton(type: .system)
     private lazy var nodeTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(graphTapped(_:)))
 
+    private var graphLeadingConstraint: NSLayoutConstraint?
+    private var graphTrailingConstraint: NSLayoutConstraint?
     private var edgeLayers: [CAShapeLayer] = []
     private var edgeLabels: [UILabel] = []
     private var graph: AnimeRelationGraph?
@@ -506,10 +508,15 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
         refreshButton.addTarget(self, action: #selector(refreshTapped), for: .touchUpInside)
         [zoomInButton, zoomOutButton, fitButton, expandButton, refreshButton].forEach { controlsStack.addArrangedSubview($0) }
 
+        let graphLeading = backgroundGrid.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
+        let graphTrailing = backgroundGrid.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        graphLeadingConstraint = graphLeading
+        graphTrailingConstraint = graphTrailing
+
         NSLayoutConstraint.activate([
             backgroundGrid.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            backgroundGrid.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            backgroundGrid.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            graphLeading,
+            graphTrailing,
             backgroundGrid.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
             scrollView.topAnchor.constraint(equalTo: backgroundGrid.topAnchor),
@@ -520,6 +527,15 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
             controlsStack.leadingAnchor.constraint(equalTo: backgroundGrid.leadingAnchor, constant: 10),
             controlsStack.bottomAnchor.constraint(equalTo: backgroundGrid.bottomAnchor, constant: -10),
         ])
+    }
+
+    func applyWindowInset(for viewportWidth: CGFloat) {
+        let pageMaxWidth: CGFloat = 1600
+        let outerInset = max((viewportWidth - pageMaxWidth) / 2, 0)
+        let innerInset = AnimeDetailViewController.interfacePageSideInset(for: viewportWidth)
+        let inset = outerInset + innerInset
+        graphLeadingConstraint?.constant = inset
+        graphTrailingConstraint?.constant = -inset
     }
 
     private func configureControlButton(_ button: UIButton, lucideName: String, fallback: String) {
@@ -1228,6 +1244,7 @@ extension AnimeDetailViewController {
             withIdentifier: RelationGraphCell.reuseID,
             for: indexPath) as? RelationGraphCell {
             if relationGraph == nil { relationGraph = graph }
+            cell.applyWindowInset(for: tableView.frame.width)
             cell.configure(graph: graph,
                            currentID: routeAnimeID,
                            accentColor: currentAnimeAccent,
