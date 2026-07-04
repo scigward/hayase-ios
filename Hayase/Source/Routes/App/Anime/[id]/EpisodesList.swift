@@ -779,6 +779,9 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
     private var rightCardTrailingConstraint: NSLayoutConstraint?
     private var pageSideInset: CGFloat = 0
 
+    private var leftCardVerticalConstraints: [NSLayoutConstraint] = []
+    private var rightCardVerticalConstraints: [NSLayoutConstraint] = []
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setup()
@@ -825,6 +828,9 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         rightCardLeadingConstraint = rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12)
         rightCardTrailingConstraint = rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12)
 
+        leftCardVerticalConstraints = makeCenteredCardVerticalConstraints(card: leftCard, in: leftContainer)
+        rightCardVerticalConstraints = makeCenteredCardVerticalConstraints(card: rightCard, in: rightContainer)
+
         NSLayoutConstraint.activate([
             overflowViewport.topAnchor.constraint(equalTo: contentView.topAnchor),
             overflowViewport.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -844,15 +850,27 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             stackLeadingConstraint!,
             stackTrailingConstraint!,
 
-            leftCard.topAnchor.constraint(equalTo: leftContainer.topAnchor),
-            leftCard.bottomAnchor.constraint(equalTo: leftContainer.bottomAnchor),
             leftCardLeadingConstraint!,
             leftCardTrailingConstraint!,
-            rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
-            rightCard.bottomAnchor.constraint(equalTo: rightContainer.bottomAnchor),
             rightCardLeadingConstraint!,
             rightCardTrailingConstraint!,
-        ])
+        ] + leftCardVerticalConstraints + rightCardVerticalConstraints)
+    }
+
+    private func makeCenteredCardVerticalConstraints(card: EpisodeCardView, in container: UIView) -> [NSLayoutConstraint] {
+        [
+            card.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor),
+            card.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor),
+            card.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ]
+    }
+
+    private func setRightCardPresent(_ isPresent: Bool) {
+        rightCard.isHidden = !isPresent
+
+        // Keep the empty second grid column for odd episode counts, but do not
+        // let the hidden reusable card contribute a fake row height.
+        NSLayoutConstraint.setActive(rightCardVerticalConstraints, isPresent)
     }
 
     func configure(left: AniZipEpisode, right: AniZipEpisode?, anilistID: Int, anilistProgress: Int,
@@ -869,7 +887,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         leftCard.onTap = { [weak self] num in self?.onTapEpisode?(num) }
 
         if let right = right {
-            rightCard.isHidden = false
+            setRightCardPresent(true)
             rightCard.configure(with: right, anilistID: anilistID, anilistProgress: anilistProgress,
                                 accentColor: accentColor, isListCompleted: isListCompleted,
                                 isRepeating: isRepeating, hideSpoilers: hideSpoilers,
@@ -880,7 +898,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
             rightContainer.isHidden = false
         } else {
             rightCard.reset()
-            rightCard.isHidden = true
+            setRightCardPresent(false)
             applyTargetPadding(toLeftCard: false, isTarget: false)
             rightContainer.isHidden = false
         }
@@ -917,7 +935,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
         super.prepareForReuse()
         leftCard.reset()
         rightCard.reset()
-        rightCard.isHidden = false
+        setRightCardPresent(true)
         rightContainer.isHidden = false
         applyTargetPadding(toLeftCard: true, isTarget: false)
         applyTargetPadding(toLeftCard: false, isTarget: false)
