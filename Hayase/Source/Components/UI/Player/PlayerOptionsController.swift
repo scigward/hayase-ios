@@ -30,10 +30,90 @@ private enum OptionItem {
 // MARK: - Language helpers
 
 /// Mirrors Svelte's `class='capitalize'` for language group labels.
-/// The interface displays raw track language keys, not localized names.
+/// The menu displays stable language keys, not localized language names.
 private func languageName(for code: String) -> String {
-    guard let first = code.first else { return code }
-    return first.uppercased() + code.dropFirst()
+    let normalized = interfaceLanguageKey(code)
+    guard let first = normalized.first else { return normalized }
+    return first.uppercased() + normalized.dropFirst()
+}
+
+/// MPV may expose BCP-47 language tags such as `es-419`, while Hayase's
+/// interface menu normally receives the shorter language keys used by its
+/// player settings (`spa`, `eng`, `jpn`, ...). Normalize only the known player
+/// languages so menu grouping/labels stay stable without localizing them.
+private func interfaceLanguageKey(_ code: String) -> String {
+    let value = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !value.isEmpty else { return value }
+
+    let base = value.split(separator: "-").first.map(String.init) ?? value
+    switch base {
+    case "en": return "eng"
+    case "ja", "jp": return "jpn"
+    case "zh": return "chi"
+    case "pt": return "por"
+    case "es": return "spa"
+    case "de": return "ger"
+    case "fr": return "fre"
+    case "ko": return "kor"
+    case "pl": return "pol"
+    case "it": return "ita"
+    case "ru": return "rus"
+    case "sk": return "slo"
+    case "sv": return "swe"
+    case "ar": return "ara"
+    case "hi": return "hin"
+    case "bn": return "ben"
+    case "th": return "tha"
+    case "tr": return "tur"
+    case "vi": return "vie"
+    case "da": return "dan"
+    case "fi": return "fin"
+    case "hu": return "hun"
+    case "nl": return "dut"
+    case "no", "nb", "nn": return "nor"
+    case "ro": return "rum"
+    case "cs": return "cze"
+    case "el": return "gre"
+    case "fa": return "per"
+    case "id": return "idn"
+    case "he", "iw": return "heb"
+    case "ms", "ml": return "mal"
+    default: break
+    }
+
+    let aliases: [String: String] = [
+        "jpn": "jpn", "japanese": "jpn",
+        "eng": "eng", "english": "eng",
+        "chi": "chi", "zho": "chi", "chinese": "chi",
+        "por": "por", "portuguese": "por", "brazilian": "por",
+        "spa": "spa", "esp": "spa", "spanish": "spa", "espanol": "spa", "español": "spa",
+        "ger": "ger", "deu": "ger", "german": "ger",
+        "pol": "pol", "polish": "pol",
+        "dan": "dan", "danish": "dan",
+        "fin": "fin", "finnish": "fin",
+        "hun": "hun", "hungarian": "hun",
+        "ita": "ita", "italian": "ita",
+        "kor": "kor", "korean": "kor",
+        "rus": "rus", "russian": "rus",
+        "slo": "slo", "slk": "slo", "slovak": "slo",
+        "swe": "swe", "swedish": "swe",
+        "ara": "ara", "arabic": "ara",
+        "hin": "hin", "hindi": "hin",
+        "ben": "ben", "bengali": "ben",
+        "tha": "tha", "thai": "tha",
+        "tur": "tur", "turkish": "tur",
+        "vie": "vie", "vietnamese": "vie",
+        "fre": "fre", "fra": "fre", "french": "fre",
+        "dut": "dut", "nld": "dut", "dutch": "dut",
+        "rum": "rum", "ron": "rum", "romanian": "rum",
+        "cze": "cze", "ces": "cze", "czech": "cze",
+        "gre": "gre", "ell": "gre", "greek": "gre",
+        "per": "per", "fas": "per", "persian": "per",
+        "idn": "idn", "ind": "idn", "indonesian": "idn",
+        "heb": "heb", "hebrew": "heb",
+        "mal": "mal", "may": "mal", "msa": "mal", "malay": "mal", "malayalam": "mal",
+    ]
+    return aliases[value] ?? value
 }
 
 private func defaultTrackLabel(_ track: MPVTrack) -> String {
@@ -48,7 +128,7 @@ private func defaultSubtitleLabel(_ track: MPVTrack, fallbackLanguage: String) -
         return title
     }
     if let lang = track.lang?.trimmingCharacters(in: .whitespacesAndNewlines), !lang.isEmpty {
-        return lang
+        return interfaceLanguageKey(lang)
     }
     return fallbackLanguage
 }
@@ -57,11 +137,14 @@ private func defaultSubtitleLabel(_ track: MPVTrack, fallbackLanguage: String) -
 /// If no track has language "eng"/"en", untagged tracks default to "eng";
 /// otherwise they default to "unk".
 private func groupByLanguage(_ tracks: [MPVTrack]) -> [(lang: String, tracks: [MPVTrack])] {
-    let hasEng = tracks.contains { $0.lang == "eng" || $0.lang == "en" }
+    let hasEng = tracks.contains { track in
+        guard let lang = track.lang, !lang.isEmpty else { return false }
+        return interfaceLanguageKey(lang) == "eng"
+    }
     var groups: [(key: String, values: [MPVTrack])] = []
     var dict: [String: Int] = [:]  // lang → index in groups
     for track in tracks {
-        let lang = track.lang.flatMap({ $0.isEmpty ? nil : $0 })
+        let lang = track.lang.flatMap({ $0.isEmpty ? nil : interfaceLanguageKey($0) })
             ?? (hasEng ? "unk" : "eng")
         if let idx = dict[lang] {
             groups[idx].values.append(track)
@@ -400,7 +483,7 @@ final class PlayerOptionsController: UIViewController {
         containerView.isHidden = isUsingWideTree
         wideTreeView.isHidden = !isUsingWideTree
         if isUsingWideTree {
-            reloadWideTree()
+            reloadWideTree(animated: false)
         } else {
             tableView.reloadData()
             updateContainerHeight()
@@ -423,13 +506,13 @@ final class PlayerOptionsController: UIViewController {
         navigationStack.append((title: title, items: items))
         activeIndices = Array(activeIndices.prefix(level))
         activeIndices.append(row)
-        reloadWideTree()
+        reloadWideTree(animated: true)
     }
 
     private func collapseWideLevel(_ level: Int) {
         navigationStack = Array(navigationStack.prefix(level + 1))
         activeIndices = Array(activeIndices.prefix(level))
-        reloadWideTree()
+        reloadWideTree(animated: true)
     }
 
     private func animateTransition(forward: Bool) {
@@ -461,7 +544,10 @@ final class PlayerOptionsController: UIViewController {
         containerHeightConstraint?.constant = max(clamped, 48) // minimum reasonable height
     }
 
-    private func reloadWideTree() {
+    private func reloadWideTree(animated: Bool = false) {
+        let oldSnapshot = animated ? wideTreeView.snapshotView(afterScreenUpdates: false) : nil
+        oldSnapshot?.frame = wideTreeView.bounds
+
         wideTreeView.subviews.forEach { $0.removeFromSuperview() }
         wideTableLevels.removeAll()
 
@@ -470,7 +556,12 @@ final class PlayerOptionsController: UIViewController {
         let submenuYOffset: CGFloat = -5
 
         let columnHeights = navigationStack.map { columnHeight(for: $0.items) }
-        var yOffsets = Array(repeating: CGFloat.zero, count: navigationStack.count)
+        let totalWidth = CGFloat(navigationStack.count) * menuWidth + CGFloat(max(0, navigationStack.count - 1)) * columnGap
+        wideTreeWidthConstraint?.constant = totalWidth
+        wideTreeHeightConstraint?.constant = maxMenuHeight
+
+        let rootTop = max((maxMenuHeight - (columnHeights.first ?? 48)) / 2, 0)
+        var yOffsets = Array(repeating: rootTop, count: navigationStack.count)
         if navigationStack.count > 1 {
             for level in 1..<navigationStack.count {
                 let parentRow = CGFloat(activeIndices[safe: level - 1] ?? 0)
@@ -478,23 +569,18 @@ final class PlayerOptionsController: UIViewController {
             }
         }
 
-        let minY = yOffsets.min() ?? 0
-        let normalizedY = yOffsets.map { $0 - minY }
-        let totalWidth = CGFloat(navigationStack.count) * menuWidth + CGFloat(max(0, navigationStack.count - 1)) * columnGap
-        let totalHeight = zip(normalizedY, columnHeights).map { $0 + $1 }.max() ?? 48
-        wideTreeWidthConstraint?.constant = totalWidth
-        wideTreeHeightConstraint?.constant = totalHeight
-
+        var newMenus: [UIView] = []
         for level in navigationStack.indices {
-            let menu = makeMenuContainer(dimmed: activeIndices.indices.contains(level))
+            let menu = makeMenuContainer()
             let table = makeColumnTableView(level: level)
             menu.addSubview(table)
             wideTreeView.addSubview(menu)
+            newMenus.append(menu)
 
             let x = CGFloat(level) * (menuWidth + columnGap)
             NSLayoutConstraint.activate([
                 menu.leadingAnchor.constraint(equalTo: wideTreeView.leadingAnchor, constant: x),
-                menu.topAnchor.constraint(equalTo: wideTreeView.topAnchor, constant: normalizedY[level]),
+                menu.topAnchor.constraint(equalTo: wideTreeView.topAnchor, constant: yOffsets[level]),
                 menu.widthAnchor.constraint(equalToConstant: menuWidth),
                 menu.heightAnchor.constraint(equalToConstant: columnHeights[level]),
 
@@ -506,15 +592,31 @@ final class PlayerOptionsController: UIViewController {
         }
 
         view.layoutIfNeeded()
+
+        guard animated, let oldSnapshot else { return }
+        wideTreeView.addSubview(oldSnapshot)
+        newMenus.forEach {
+            $0.alpha = 0
+            $0.transform = CGAffineTransform(translationX: 12, y: 0)
+        }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            oldSnapshot.alpha = 0
+            newMenus.forEach {
+                $0.alpha = 1
+                $0.transform = .identity
+            }
+        } completion: { _ in
+            oldSnapshot.removeFromSuperview()
+        }
     }
 
     private func columnHeight(for items: [OptionItem]) -> CGFloat {
         min(max(CGFloat(items.count) * 40 + 8, 48), maxMenuHeight)
     }
 
-    private func makeMenuContainer(dimmed: Bool) -> UIView {
+    private func makeMenuContainer() -> UIView {
         let menu = UIView()
-        menu.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(dimmed ? 0.30 : 1)
+        menu.backgroundColor = UIColor.HayaseTheme.background
         menu.layer.cornerRadius = 6
         menu.layer.borderWidth = 1
         menu.layer.borderColor = UIColor.HayaseTheme.border.cgColor
@@ -615,7 +717,7 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
         switch item {
         case .expandable(let title, _):
             guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: activeRow == itemIndex, hasChevron: true, isBackRow: false, isDimmed: hasOpenChild && activeRow != itemIndex)
+            cell.configure(title: title, isActive: activeRow == itemIndex, hasChevron: true, isBackRow: false, isDimmed: hasOpenChild)
             return cell
 
         case .selectable(let title, let isActive, _):
@@ -689,8 +791,16 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
 
 extension PlayerOptionsController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // Only dismiss when tapping the background, not the container
+        // Only dismiss when tapping the background, not an options menu column.
         let location = touch.location(in: view)
+        if isUsingWideTree {
+            var touchedView: UIView? = touch.view
+            while let current = touchedView {
+                if current === wideTreeView { return false }
+                touchedView = current.superview
+            }
+            return true
+        }
         return !containerView.frame.contains(location)
     }
 }
