@@ -174,7 +174,7 @@ private final class ProfileAvatarView: UIView {
         fallbackLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fallbackLabel)
 
-        skeletonView.backgroundColor = UIColor.HayaseTheme.muted
+        skeletonView.backgroundColor = HayaseSkeleton.color
         skeletonView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(skeletonView)
 
@@ -228,17 +228,11 @@ private final class ProfileAvatarView: UIView {
 
     private func startSkeleton() {
         skeletonView.isHidden = false
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.35
-        pulse.toValue = 0.85
-        pulse.duration = 0.75
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        skeletonView.layer.add(pulse, forKey: "profile-avatar-skeleton")
+        HayaseSkeleton.startPulse(on: skeletonView)
     }
 
     private func stopSkeleton(showFallback: Bool) {
-        skeletonView.layer.removeAnimation(forKey: "profile-avatar-skeleton")
+        HayaseSkeleton.stopPulse(on: skeletonView)
         skeletonView.isHidden = true
         fallbackLabel.isHidden = !showFallback && imageView.image != nil
     }
@@ -246,7 +240,7 @@ private final class ProfileAvatarView: UIView {
     func prepareForReuse() {
         imageTask?.cancel()
         imageTask = nil
-        skeletonView.layer.removeAnimation(forKey: "profile-avatar-skeleton")
+        HayaseSkeleton.stopPulse(on: skeletonView)
     }
 }
 

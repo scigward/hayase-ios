@@ -637,7 +637,7 @@ final class ExtensionSearchViewController: UIViewController {
         skeletonView.isHidden = true
         skeletonView.translatesAutoresizingMaskIntoConstraints = false
         let cardBg = UIColor.HayaseTheme.card
-        let shimmerColor = UIColor.white.withAlphaComponent(0.05)             // bg-primary/5
+        let shimmerColor = HayaseSkeleton.color
         for _ in 0..<12 {
             let card = UIView()
             card.backgroundColor = cardBg
@@ -888,14 +888,7 @@ final class ExtensionSearchViewController: UIViewController {
     private func startSkeletonPulse() {
         for card in skeletonView.arrangedSubviews {
             for bar in card.subviews {
-                let anim = CABasicAnimation(keyPath: "opacity")
-                anim.fromValue = 1.0
-                anim.toValue = 0.5
-                anim.duration = 2.0
-                anim.autoreverses = true
-                anim.repeatCount = .infinity
-                anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                bar.layer.add(anim, forKey: "pulse")
+                HayaseSkeleton.startPulse(on: bar)
             }
         }
     }
@@ -903,7 +896,7 @@ final class ExtensionSearchViewController: UIViewController {
     private func stopSkeletonPulse() {
         for card in skeletonView.arrangedSubviews {
             for bar in card.subviews {
-                bar.layer.removeAnimation(forKey: "pulse")
+                HayaseSkeleton.stopPulse(on: bar)
             }
         }
     }

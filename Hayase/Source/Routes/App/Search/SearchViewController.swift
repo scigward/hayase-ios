@@ -1468,7 +1468,7 @@ private final class SkeletonSearchCell: UICollectionViewCell {
     }()
     private let coverShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1481,7 +1481,7 @@ private final class SkeletonSearchCell: UICollectionViewCell {
     }()
     private let titleShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1494,7 +1494,7 @@ private final class SkeletonSearchCell: UICollectionViewCell {
     }()
     private let metaShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1558,13 +1558,7 @@ private final class SkeletonSearchCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func startPulse() {
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.05
-        pulse.toValue = 0.12
-        pulse.duration = 1.0
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        [coverShimmer, titleShimmer, metaShimmer].forEach { $0.layer.add(pulse, forKey: "pulse") }
+        [coverShimmer, titleShimmer, metaShimmer].forEach { HayaseSkeleton.startPulse(on: $0) }
     }
 
     override func prepareForReuse() {

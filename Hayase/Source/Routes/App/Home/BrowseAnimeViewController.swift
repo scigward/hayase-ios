@@ -1471,7 +1471,7 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }()
     private let coverShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05) // bg-primary/5
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1485,7 +1485,7 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }()
     private let titleShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1499,7 +1499,7 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     }()
     private let metaShimmer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+        v.backgroundColor = HayaseSkeleton.color
         return v
     }()
 
@@ -1567,13 +1567,7 @@ private final class SkeletonPosterCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func startPulse() {
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.05
-        pulse.toValue = 0.12
-        pulse.duration = 1.0
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        [coverShimmer, titleShimmer, metaShimmer].forEach { $0.layer.add(pulse, forKey: "pulse") }
+        [coverShimmer, titleShimmer, metaShimmer].forEach { HayaseSkeleton.startPulse(on: $0) }
     }
 
     override func prepareForReuse() {
@@ -1680,7 +1674,7 @@ private final class SkeletonBannerCell: UICollectionViewCell {
             container.clipsToBounds = true
 
             let shimmer = UIView()
-            shimmer.backgroundColor = UIColor.white.withAlphaComponent(0.05) // bg-primary/5
+            shimmer.backgroundColor = HayaseSkeleton.color
             shimmer.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(shimmer)
 
@@ -1722,13 +1716,7 @@ private final class SkeletonBannerCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func startPulse() {
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.05
-        pulse.toValue = 0.12
-        pulse.duration = 1.0
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        shimmerViews.forEach { $0.layer.add(pulse, forKey: "pulse") }
+        shimmerViews.forEach { HayaseSkeleton.startPulse(on: $0) }
     }
 
     override func prepareForReuse() {

@@ -381,6 +381,10 @@ extension AnimeDetailViewController {
     }
 
     func makeThreadCell(for indexPath: IndexPath) -> UITableViewCell {
+        if threadsLoading {
+            return makeThreadsSkeletonCell()
+        }
+
         let cols = threadColumnCount
         if cols >= 2 && !threadsLoading && !threads.isEmpty {
             guard let cell = tableView.dequeueReusableCell(
@@ -411,10 +415,10 @@ extension AnimeDetailViewController {
             return cell
         }
 
-        if threadsLoading || threads.isEmpty {
+        if threads.isEmpty {
             return makeEmptyStateCell(
                 text: animePageErrorDescription ?? "Looks like there's nothing here yet!",
-                loading: threadsLoading)
+                loading: false)
         }
         guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
@@ -450,5 +454,78 @@ extension AnimeDetailViewController {
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
         ])
         return cell
+    }
+
+    private func makeThreadsSkeletonCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .none
+
+        let columns = max(threadColumnCount, 1)
+        let rows = (4 + columns - 1) / columns
+        let outerStack = UIStackView()
+        outerStack.axis = .vertical
+        outerStack.spacing = 28
+        outerStack.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(outerStack)
+
+        var made = 0
+        for _ in 0..<rows {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = columns > 1 ? 40 : 0
+            outerStack.addArrangedSubview(row)
+
+            for _ in 0..<columns {
+                if made < 4 {
+                    row.addArrangedSubview(makeThreadSkeletonCard())
+                } else {
+                    row.addArrangedSubview(UIView())
+                }
+                made += 1
+            }
+        }
+
+        let sidePad = traitCollection.horizontalSizeClass == .regular
+            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
+            : CGFloat(16)
+
+        NSLayoutConstraint.activate([
+            outerStack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
+            outerStack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
+            outerStack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            outerStack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+        ])
+        return cell
+    }
+
+    private func makeThreadSkeletonCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = hayaseCardBackground
+        card.layer.cornerRadius = 6
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        let footer = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        card.addSubview(title)
+        card.addSubview(footer)
+
+        NSLayoutConstraint.activate([
+            card.heightAnchor.constraint(equalToConstant: 75),
+
+            title.topAnchor.constraint(equalTo: card.topAnchor, constant: 18),
+            title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            title.widthAnchor.constraint(equalToConstant: 112),
+            title.heightAnchor.constraint(equalToConstant: 8),
+
+            footer.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            footer.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -18),
+            footer.widthAnchor.constraint(equalToConstant: 80),
+            footer.heightAnchor.constraint(equalToConstant: 8),
+        ])
+
+        return card
     }
 }

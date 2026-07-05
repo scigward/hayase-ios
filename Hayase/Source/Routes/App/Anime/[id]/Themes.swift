@@ -112,10 +112,14 @@ extension AnimeDetailViewController {
     }
 
     func makeThemeCell(for indexPath: IndexPath) -> UITableViewCell {
-        if themesLoading || themes.isEmpty {
+        if themesLoading {
+            return makeThemesSkeletonCell()
+        }
+
+        if themes.isEmpty {
             return makeEmptyStateCell(
                 text: "No themes found.",
-                loading: themesLoading)
+                loading: false)
         }
         guard let theme = themes[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
@@ -250,6 +254,79 @@ extension AnimeDetailViewController {
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -28),
         ])
         return cell
+    }
+
+    private func makeThemesSkeletonCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .none
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(stack)
+
+        for _ in 0..<2 {
+            stack.addArrangedSubview(makeThemeSkeletonCard())
+        }
+
+        let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
+            stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: themeSidePad),
+            stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -themeSidePad),
+        ])
+
+        return cell
+    }
+
+    private func makeThemeSkeletonCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = hayaseCardBackground
+        card.layer.cornerRadius = 6
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let typeHeader = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        let title = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        let artist = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        let version = HayaseSkeleton.makeBlock(cornerRadius: 4)
+        let episodes = HayaseSkeleton.makeBlock(cornerRadius: 4)
+
+        [typeHeader, title, artist, version, episodes].forEach { card.addSubview($0) }
+
+        NSLayoutConstraint.activate([
+            card.heightAnchor.constraint(equalToConstant: 112),
+
+            typeHeader.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 28),
+            typeHeader.topAnchor.constraint(equalTo: card.topAnchor, constant: 27),
+            typeHeader.widthAnchor.constraint(equalToConstant: 16),
+            typeHeader.heightAnchor.constraint(equalToConstant: 10),
+
+            title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 76),
+            title.centerYAnchor.constraint(equalTo: typeHeader.centerYAnchor),
+            title.widthAnchor.constraint(equalToConstant: 128),
+            title.heightAnchor.constraint(equalToConstant: 10),
+
+            artist.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 8),
+            artist.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            artist.widthAnchor.constraint(equalToConstant: 80),
+            artist.heightAnchor.constraint(equalToConstant: 10),
+
+            version.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 28),
+            version.topAnchor.constraint(equalTo: card.topAnchor, constant: 75),
+            version.widthAnchor.constraint(equalToConstant: 16),
+            version.heightAnchor.constraint(equalToConstant: 8),
+
+            episodes.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 76),
+            episodes.centerYAnchor.constraint(equalTo: version.centerYAnchor),
+            episodes.widthAnchor.constraint(equalToConstant: 80),
+            episodes.heightAnchor.constraint(equalToConstant: 8),
+        ])
+
+        return card
     }
 
     @objc private func themePlayTapped(_ sender: UIButton) {
