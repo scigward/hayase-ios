@@ -3,8 +3,7 @@ name: Export Final App Source
 on:
   push:
     branches:
-      - codex
-      - webtorrent-backend-switch
+      - "codex/**"
 
 jobs:
   export-final-source:
