@@ -1745,6 +1745,7 @@ class AnimeDetailViewController: UIViewController {
     var followingEntriesByEpisode: [Int: [AniListUserSummary]] = [:]
     var threadTotalCount: Int = 0
     var activeThemeVideoURL: String?
+    var recommendationsLoading = false
     var threadsLoading = false
     var themesLoading = false
     var animePageRequestID = UUID()

@@ -41,3 +41,86 @@ enum HayaseSkeleton {
         view.layer.opacity = 1
     }
 }
+
+final class SkeletonCardCell: UICollectionViewCell {
+    static let reuseID = "SkeletonCardCell"
+
+    private let coverPlaceholder: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.layer.cornerRadius = 4
+        view.clipsToBounds = true
+        return view
+    }()
+
+    private let titlePlaceholder: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.layer.cornerRadius = 2
+        view.clipsToBounds = true
+        return view
+    }()
+
+    private let metaPlaceholder: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.layer.cornerRadius = 2
+        view.clipsToBounds = true
+        return view
+    }()
+
+    private let coverPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
+    private let titlePulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
+    private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        coverPlaceholder.addSubview(coverPulse)
+        titlePlaceholder.addSubview(titlePulse)
+        metaPlaceholder.addSubview(metaPulse)
+
+        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titlePlaceholder, metaPlaceholder])
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.setCustomSpacing(16, after: coverPlaceholder)
+        stack.setCustomSpacing(8, after: titlePlaceholder)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
+            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+
+            coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+            coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
+
+            titlePlaceholder.widthAnchor.constraint(equalToConstant: 112),
+            titlePlaceholder.heightAnchor.constraint(equalToConstant: 8),
+
+            metaPlaceholder.widthAnchor.constraint(equalToConstant: 80),
+            metaPlaceholder.heightAnchor.constraint(equalToConstant: 8),
+
+            coverPulse.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
+            coverPulse.leadingAnchor.constraint(equalTo: coverPlaceholder.leadingAnchor),
+            coverPulse.trailingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor),
+            coverPulse.bottomAnchor.constraint(equalTo: coverPlaceholder.bottomAnchor),
+
+            titlePulse.topAnchor.constraint(equalTo: titlePlaceholder.topAnchor),
+            titlePulse.leadingAnchor.constraint(equalTo: titlePlaceholder.leadingAnchor),
+            titlePulse.trailingAnchor.constraint(equalTo: titlePlaceholder.trailingAnchor),
+            titlePulse.bottomAnchor.constraint(equalTo: titlePlaceholder.bottomAnchor),
+
+            metaPulse.topAnchor.constraint(equalTo: metaPlaceholder.topAnchor),
+            metaPulse.leadingAnchor.constraint(equalTo: metaPlaceholder.leadingAnchor),
+            metaPulse.trailingAnchor.constraint(equalTo: metaPlaceholder.trailingAnchor),
+            metaPulse.bottomAnchor.constraint(equalTo: metaPlaceholder.bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+}

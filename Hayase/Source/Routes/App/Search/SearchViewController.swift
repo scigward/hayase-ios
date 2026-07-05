@@ -1541,6 +1541,7 @@ private final class SkeletonSearchCell: UICollectionViewCell {
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
+            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
 
             coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
             coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),

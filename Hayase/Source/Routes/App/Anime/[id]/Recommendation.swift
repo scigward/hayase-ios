@@ -11,6 +11,7 @@ import UIKit
 
 final class RecommendationGridCell: UITableViewCell {
     static let reuseID = "RecommendationGridCell"
+    static let skeletonItemCount = 50
 
     let collectionView: UICollectionView
 
@@ -46,6 +47,8 @@ final class RecommendationGridCell: UITableViewCell {
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
+        collectionView.register(SkeletonCardCell.self,
+                                forCellWithReuseIdentifier: SkeletonCardCell.reuseID)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(collectionView)
 
@@ -93,19 +96,22 @@ final class RecommendationGridCell: UITableViewCell {
 // MARK: - AnimeDetailViewController + Recommendations
 
 extension AnimeDetailViewController {
-
     func fetchAnimePageData() {
         guard let id = routeAnimeID, id > 0 else { return }
         let requestID = UUID()
         animePageRequestID = requestID
+        recommendationsLoading = true
+        animePageErrorDescription = nil
         followingEntriesByEpisode.removeAll()
         headerView?.clearFollowingAvatars()
+        reloadAnimePagePayloadSections()
 
         AniListClient.shared.fetchAnimePageResult(id: id) { [weak self] result in
             guard let self,
                   self.routeAnimeID == id,
                   self.animePageRequestID == requestID else { return }
 
+            self.recommendationsLoading = false
             switch result {
             case .success(let payload):
                 self.animePageErrorDescription = nil
@@ -164,6 +170,21 @@ extension AnimeDetailViewController {
     }
 
     func makeRecommendationCell(for indexPath: IndexPath) -> UITableViewCell {
+        if recommendationsLoading {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: RecommendationGridCell.reuseID,
+                for: indexPath) as? RecommendationGridCell else {
+                return UITableViewCell()
+            }
+            cell.collectionView.tag = 401
+            cell.collectionView.dataSource = self
+            cell.collectionView.delegate = self
+            cell.configure(itemCount: RecommendationGridCell.skeletonItemCount,
+                           availableWidth: tableView.bounds.width,
+                           isRegular: traitCollection.horizontalSizeClass == .regular)
+            return cell
+        }
+
         guard !recommendations.isEmpty else {
             return makeEmptyStateCell(text: animePageErrorDescription ?? "Looks like there's nothing here yet!", loading: false)
         }

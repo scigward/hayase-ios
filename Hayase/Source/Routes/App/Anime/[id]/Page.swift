@@ -299,6 +299,7 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
         case 100: return relations.count
         case 300: return staff.count
         case 400: return recommendations.count
+        case 401: return RecommendationGridCell.skeletonItemCount
         default:  return 0
         }
     }
@@ -331,6 +332,9 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
                               mediaProvider: { item },
                               actions: hayasePreviewCardActions())
             return cell
+        case 401:
+            return collectionView.dequeueReusableCell(
+                withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
         default:
             return UICollectionViewCell()
         }

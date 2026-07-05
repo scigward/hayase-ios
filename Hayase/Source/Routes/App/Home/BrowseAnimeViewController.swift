@@ -1545,12 +1545,14 @@ private final class SkeletonPosterCell: UICollectionViewCell {
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
+            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
 
-            // Cover: h-[13.5rem] relative to card width (matches 216/152 of small.svelte)
-            coverPlaceholder.heightAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 216.0 / 152.0),
+            // Cover: h-[13.5rem] / w-[9.5rem], fixed inside the p-4 outer slot.
+            coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+            coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
 
             // Title bar: h-2 (8pt), w-28 (112pt)
             titleBar.heightAnchor.constraint(equalToConstant: 8),
