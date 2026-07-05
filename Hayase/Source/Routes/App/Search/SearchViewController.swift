@@ -864,8 +864,8 @@ class SearchViewController: UIViewController {
         collectionView.delegate = self; collectionView.dataSource = self
         collectionView.register(AnimeCollectionViewCell.self,
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
-        collectionView.register(SkeletonSearchCell.self,
-                                forCellWithReuseIdentifier: SkeletonSearchCell.reuseID)
+        collectionView.register(SkeletonCardCell.self,
+                                forCellWithReuseIdentifier: SkeletonCardCell.reuseID)
         collectionView.keyboardDismissMode = .onDrag
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -1183,7 +1183,7 @@ extension SearchViewController: UICollectionViewDataSource {
         }
         if isShowingSkeleton {
             return collectionView.dequeueReusableCell(
-                withReuseIdentifier: SkeletonSearchCell.reuseID, for: indexPath)
+                withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
         }
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
@@ -1445,124 +1445,5 @@ private final class SearchFilterItemCell: UICollectionViewCell {
     func configure(type: SearchFilterType, title: String, placeholder: Bool) {
         titleLabel.text = type.label
         comboBox.configure(text: title, placeholder: placeholder)
-    }
-}
-
-// MARK: - SkeletonSearchCell
-// Matches web skeleton.svelte: same fixed 184pt outer slot as SmallCard,
-// with a 152×216pt skeleton cover inside 16pt padding.
-// • w-[9.5rem] item, aspect-ratio 152/290
-// • h-[13.5rem] cover: bg-black rounded + bg-primary/5 animate-pulse
-// • h-2 w-28 title bar: bg-black rounded + bg-primary/5 animate-pulse
-// • h-2 w-20 meta bar: bg-black rounded + bg-primary/5 animate-pulse
-
-private final class SkeletonSearchCell: UICollectionViewCell {
-    static let reuseID = "SkeletonSearchCell"
-
-    private let coverPlaceholder: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 4
-        v.clipsToBounds = true
-        return v
-    }()
-    private let coverShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    private let titleBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 2
-        v.clipsToBounds = true
-        return v
-    }()
-    private let titleShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    private let metaBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 2
-        v.clipsToBounds = true
-        return v
-    }()
-    private let metaShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        contentView.backgroundColor = .clear
-
-        coverShimmer.translatesAutoresizingMaskIntoConstraints = false
-        coverPlaceholder.addSubview(coverShimmer)
-        NSLayoutConstraint.activate([
-            coverShimmer.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
-            coverShimmer.leadingAnchor.constraint(equalTo: coverPlaceholder.leadingAnchor),
-            coverShimmer.trailingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor),
-            coverShimmer.bottomAnchor.constraint(equalTo: coverPlaceholder.bottomAnchor),
-        ])
-
-        titleShimmer.translatesAutoresizingMaskIntoConstraints = false
-        titleBar.addSubview(titleShimmer)
-        NSLayoutConstraint.activate([
-            titleShimmer.topAnchor.constraint(equalTo: titleBar.topAnchor),
-            titleShimmer.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor),
-            titleShimmer.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor),
-            titleShimmer.bottomAnchor.constraint(equalTo: titleBar.bottomAnchor),
-        ])
-
-        metaShimmer.translatesAutoresizingMaskIntoConstraints = false
-        metaBar.addSubview(metaShimmer)
-        NSLayoutConstraint.activate([
-            metaShimmer.topAnchor.constraint(equalTo: metaBar.topAnchor),
-            metaShimmer.leadingAnchor.constraint(equalTo: metaBar.leadingAnchor),
-            metaShimmer.trailingAnchor.constraint(equalTo: metaBar.trailingAnchor),
-            metaShimmer.bottomAnchor.constraint(equalTo: metaBar.bottomAnchor),
-        ])
-
-        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titleBar, metaBar])
-        stack.axis = .vertical
-        stack.spacing = 0
-        stack.setCustomSpacing(16, after: coverPlaceholder) // mt-4
-        stack.setCustomSpacing(8, after: titleBar)          // mt-2
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
-            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
-
-            coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
-            coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
-
-            titleBar.heightAnchor.constraint(equalToConstant: 8),
-            titleBar.widthAnchor.constraint(equalToConstant: 112),
-
-            metaBar.heightAnchor.constraint(equalToConstant: 8),
-            metaBar.widthAnchor.constraint(equalToConstant: 80),
-        ])
-
-        startPulse()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func startPulse() {
-        [coverShimmer, titleShimmer, metaShimmer].forEach { HayaseSkeleton.startPulse(on: $0) }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
     }
 }

@@ -1450,134 +1450,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     }
 }
 
-// MARK: - SkeletonPosterCell
-// Matches Hayase's cards/skeleton.svelte exactly:
-// • p-4 outer padding around item
-// • w-[9.5rem] item (same as small.svelte), aspect-ratio 152/290
-// • h-[13.5rem] cover placeholder: bg-black rounded + bg-primary/5 animate-pulse inside
-// • mt-4 h-2 w-28 title bar: bg-black rounded + bg-primary/5 animate-pulse
-// • mt-2 h-2 w-20 meta bar:  bg-black rounded + bg-primary/5 animate-pulse
-
-private final class SkeletonPosterCell: UICollectionViewCell {
-    static let reuseID = "SkeletonPosterCell"
-
-    // bg-black cover placeholder (h-[13.5rem])
-    private let coverPlaceholder: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 4 // rounded
-        v.clipsToBounds = true
-        return v
-    }()
-    private let coverShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    // Title bar: bg-black h-2 w-28
-    private let titleBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 2
-        v.clipsToBounds = true
-        return v
-    }()
-    private let titleShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    // Meta bar: bg-black h-2 w-20
-    private let metaBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .black
-        v.layer.cornerRadius = 2
-        v.clipsToBounds = true
-        return v
-    }()
-    private let metaShimmer: UIView = {
-        let v = UIView()
-        v.backgroundColor = HayaseSkeleton.color
-        return v
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        contentView.backgroundColor = .clear
-
-        // Cover shimmer fills cover placeholder
-        coverShimmer.translatesAutoresizingMaskIntoConstraints = false
-        coverPlaceholder.addSubview(coverShimmer)
-        NSLayoutConstraint.activate([
-            coverShimmer.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
-            coverShimmer.leadingAnchor.constraint(equalTo: coverPlaceholder.leadingAnchor),
-            coverShimmer.trailingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor),
-            coverShimmer.bottomAnchor.constraint(equalTo: coverPlaceholder.bottomAnchor),
-        ])
-
-        titleShimmer.translatesAutoresizingMaskIntoConstraints = false
-        titleBar.addSubview(titleShimmer)
-        NSLayoutConstraint.activate([
-            titleShimmer.topAnchor.constraint(equalTo: titleBar.topAnchor),
-            titleShimmer.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor),
-            titleShimmer.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor),
-            titleShimmer.bottomAnchor.constraint(equalTo: titleBar.bottomAnchor),
-        ])
-
-        metaShimmer.translatesAutoresizingMaskIntoConstraints = false
-        metaBar.addSubview(metaShimmer)
-        NSLayoutConstraint.activate([
-            metaShimmer.topAnchor.constraint(equalTo: metaBar.topAnchor),
-            metaShimmer.leadingAnchor.constraint(equalTo: metaBar.leadingAnchor),
-            metaShimmer.trailingAnchor.constraint(equalTo: metaBar.trailingAnchor),
-            metaShimmer.bottomAnchor.constraint(equalTo: metaBar.bottomAnchor),
-        ])
-
-        // Stack: [cover, titleBar, metaBar]
-        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titleBar, metaBar])
-        stack.axis = .vertical
-        stack.spacing = 0
-        stack.setCustomSpacing(16, after: coverPlaceholder) // mt-4
-        stack.setCustomSpacing(8, after: titleBar)          // mt-2
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
-            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
-
-            // Cover: h-[13.5rem] / w-[9.5rem], fixed inside the p-4 outer slot.
-            coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
-            coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
-
-            // Title bar: h-2 (8pt), w-28 (112pt)
-            titleBar.heightAnchor.constraint(equalToConstant: 8),
-            titleBar.widthAnchor.constraint(equalToConstant: 112),
-
-            // Meta bar: h-2 (8pt), w-20 (80pt)
-            metaBar.heightAnchor.constraint(equalToConstant: 8),
-            metaBar.widthAnchor.constraint(equalToConstant: 80),
-        ])
-
-        startPulse()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func startPulse() {
-        [coverShimmer, titleShimmer, metaShimmer].forEach { HayaseSkeleton.startPulse(on: $0) }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-    }
-}
-
-
 // MARK: - HomeSectionMessageCell
 
 private final class HomeSectionMessageCell: UICollectionViewCell {
@@ -1670,37 +1542,23 @@ private final class SkeletonBannerCell: UICollectionViewCell {
         contentView.addSubview(stack)
 
         for (i, bar) in bars.enumerated() {
-            let container = UIView()
-            container.backgroundColor = .black
-            container.layer.cornerRadius = 4
-            container.clipsToBounds = true
-
-            let shimmer = UIView()
-            shimmer.backgroundColor = HayaseSkeleton.color
-            shimmer.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(shimmer)
-
-            container.translatesAutoresizingMaskIntoConstraints = false
-            stack.addArrangedSubview(container)
+            let barView = HayaseSkeleton.makeBlock(cornerRadius: 4)
+            stack.addArrangedSubview(barView)
             NSLayoutConstraint.activate([
-                container.heightAnchor.constraint(equalToConstant: bar.height),
-                container.widthAnchor.constraint(equalToConstant: bar.width),
-                shimmer.topAnchor.constraint(equalTo: container.topAnchor),
-                shimmer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                shimmer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                shimmer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                barView.heightAnchor.constraint(equalToConstant: bar.height),
+                barView.widthAnchor.constraint(equalToConstant: bar.width),
             ])
 
-            shimmerViews.append(shimmer)
+            shimmerViews.append(barView)
 
             // Spacing after each bar to match web CSS margins
             // Web: title(mb-1) → spacer1(my-5) → desc lines(mb-2) → spacer2(my-3) → button(mb-4)
             switch i {
-            case 0: stack.setCustomSpacing(24, after: container) // title mb-1(4) + spacer my-5 top(20) = 24
-            case 1: stack.setCustomSpacing(20, after: container) // spacer my-5 bottom = 20
-            case 2, 3, 4: stack.setCustomSpacing(8, after: container) // desc lines mb-2 = 8
-            case 5: stack.setCustomSpacing(20, after: container) // desc4 mb-2(8) + spacer2 my-3 top(12) = 20
-            case 6: stack.setCustomSpacing(12, after: container) // spacer2 my-3 bottom = 12
+            case 0: stack.setCustomSpacing(24, after: barView) // title mb-1(4) + spacer my-5 top(20) = 24
+            case 1: stack.setCustomSpacing(20, after: barView) // spacer my-5 bottom = 20
+            case 2, 3, 4: stack.setCustomSpacing(8, after: barView) // desc lines mb-2 = 8
+            case 5: stack.setCustomSpacing(20, after: barView) // desc4 mb-2(8) + spacer2 my-3 top(12) = 20
+            case 6: stack.setCustomSpacing(12, after: barView) // spacer2 my-3 bottom = 12
             default: break // button: mb-4 + trailing empty div mb-3 = bottom padding
             }
         }
@@ -1721,8 +1579,15 @@ private final class SkeletonBannerCell: UICollectionViewCell {
         shimmerViews.forEach { HayaseSkeleton.startPulse(on: $0) }
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        startPulse()
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
+        startPulse()
     }
 }
 
@@ -2039,8 +1904,8 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.register(FeaturedBannerCell.self,
                                 forCellWithReuseIdentifier: FeaturedBannerCell.reuseID)
         // Skeleton shimmer cells (shown while home sections are loading)
-        collectionView.register(SkeletonPosterCell.self,
-                                forCellWithReuseIdentifier: SkeletonPosterCell.reuseID)
+        collectionView.register(SkeletonCardCell.self,
+                                forCellWithReuseIdentifier: SkeletonCardCell.reuseID)
         collectionView.register(SkeletonBannerCell.self,
                                 forCellWithReuseIdentifier: SkeletonBannerCell.reuseID)
         collectionView.register(HomeSectionMessageCell.self,
@@ -2626,7 +2491,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 return cell
             }
             let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
+                withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
             cell.layer.zPosition = 10
             return cell
         }
@@ -2689,7 +2554,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         if homeSection.contentState.showsPlaceholderItems {
             let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: SkeletonPosterCell.reuseID, for: indexPath)
+                withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
             cell.layer.zPosition = 10
             return cell
         }

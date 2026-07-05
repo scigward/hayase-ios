@@ -72,6 +72,7 @@ final class SkeletonCardCell: UICollectionViewCell {
     private let coverPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
     private let titlePulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
     private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
+    private lazy var pulseViews = [coverPulse, titlePulse, metaPulse]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -123,4 +124,19 @@ final class SkeletonCardCell: UICollectionViewCell {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        restartPulse()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        restartPulse()
+    }
+
+    private func restartPulse() {
+        pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+    }
 }
