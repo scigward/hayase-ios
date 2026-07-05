@@ -1,7 +1,10 @@
 name: Export Final App Source
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - codex
+      - webtorrent-backend-switch
 
 jobs:
   export-final-source:
