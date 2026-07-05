@@ -61,6 +61,9 @@ jobs:
             SYMROOT=${{ github.workspace }}/build/app \
             clean build
 
+      - name: Fix build artifacts permissions
+        run: chmod -R u+rw ${{ github.workspace }}/build/app
+
       - name: Prepare final source export
         run: |
           set -euo pipefail
