@@ -73,7 +73,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 11)
+        l.font = .nunito(ofSize: 11.2)
         l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 4
         l.lineBreakMode = .byTruncatingTail
@@ -188,7 +188,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         playButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
         playButton.titleLabel?.font = .nunito(ofSize: 12, weight: .bold)
         playButton.layer.cornerRadius = 2
-        playButton.setImage(UIImage.hayaseFilledIcon("play", pointSize: 10), for: .normal)
+        playButton.setImage(UIImage.hayaseFilledIcon("play", pointSize: 9.6), for: .normal)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
 
         [favoriteButton, bookmarkButton].forEach {
@@ -220,10 +220,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         self.media = media
         self.actions = actions
         titleLabel.text = AniListUtil.title(for: media)
-        descriptionLabel.text = (media.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? media.description
-            : "No description available."
-        detailsLabel.text = detailsText(for: media)
+        descriptionLabel.text = descriptionText(for: media)
+        updateDetails(for: media)
         updatePlayTitle(for: media)
         isFavorite = false
         isBookmarked = media.mediaListEntry != nil
@@ -256,6 +254,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
                 if var updated = self?.media {
                     updated.mediaListEntry = entry
                     self?.media = updated
+                    self?.updateDetails(for: updated)
                     self?.updatePlayTitle(for: updated)
                 }
             }
@@ -269,25 +268,75 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    private func detailsText(for media: AnimeItem) -> String {
-        var details: [String] = []
-        details.append(formatString(media.format))
-        if let episodes = media.episodes, episodes > 0 {
-            details.append(episodes == 1 ? "1 Episode" : "\(episodes) Episodes")
-        } else if let duration = media.duration, duration > 0 {
-            details.append("\(duration)m")
-        } else {
-            details.append("N/A")
+    private func updateDetails(for media: AnimeItem) {
+        detailsLabel.attributedText = detailsAttributedText(for: media)
+    }
+
+    private func detailsAttributedText(for media: AnimeItem) -> NSAttributedString {
+        let details = detailParts(for: media)
+        let result = NSMutableAttributedString()
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: detailsLabel.font as Any,
+            .foregroundColor: UIColor.HayaseTheme.foreground,
+        ]
+        let bulletAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.nunito(ofSize: 6, weight: .regular),
+            .foregroundColor: UIColor(white: 0.45, alpha: 1),
+            .baselineOffset: 1,
+        ]
+
+        for (index, detail) in details.enumerated() {
+            if index > 0 {
+                result.append(NSAttributedString(string: "  •  ", attributes: bulletAttributes))
+            }
+            result.append(NSAttributedString(string: detail, attributes: textAttributes))
         }
-        if let season = media.season, let year = media.year ?? media.startYear {
-            details.append("\(season.capitalized) \(year)")
-        } else if let year = media.year ?? media.startYear {
-            details.append("\(year)")
+        return result
+    }
+
+    private func detailParts(for media: AnimeItem) -> [String] {
+        var details: [String] = [formatString(media.format)]
+        details.append(progressOrDurationText(for: media) ?? "N/A")
+
+        if let season = seasonText(for: media), !season.isEmpty {
+            details.append(season)
         }
-        if let score = media.score, score > 0 {
+        if !shouldHideScore(for: media), let score = media.score, score > 0 {
             details.append("\(Int(score))%")
         }
-        return details.joined(separator: "  ")
+        return details
+    }
+
+    private func progressOrDurationText(for media: AnimeItem) -> String? {
+        if let episodes = media.episodes, episodes > 1 {
+            let progress = media.mediaListEntry?.progress ?? 0
+            if progress > 0, progress < episodes {
+                return "\(progress) / \(episodes) Episodes"
+            }
+            return "\(episodes) Episodes"
+        }
+        if let duration = media.duration, duration > 0 {
+            return "\(duration) Minute\(duration == 1 ? "" : "s")"
+        }
+        return nil
+    }
+
+    private func seasonText(for media: AnimeItem) -> String? {
+        let year = media.year ?? media.startYear
+        if let season = media.season, let year {
+            return "\(season.capitalized) \(year)"
+        }
+        return year.map(String.init)
+    }
+
+    private func shouldHideScore(for media: AnimeItem) -> Bool {
+        guard UserDefaults.standard.bool(forKey: "pref_hideSpoilers") else { return false }
+        return media.mediaListEntry?.status == "CURRENT" || media.mediaListEntry?.status == "PLANNING"
+    }
+
+    private func descriptionText(for media: AnimeItem) -> String {
+        let text = AniListUtil.stripHTML(media.description ?? "No description available.")
+        return text.isEmpty ? "No description available." : text
     }
 
     private func updatePlayTitle(for media: AnimeItem) {
@@ -310,9 +359,9 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private func previewActionIcon(_ lucideId: String, filled: Bool) -> UIImage? {
         if filled {
-            return UIImage.hayaseFilledIcon(lucideId, pointSize: 11)
+            return UIImage.hayaseFilledIcon(lucideId, pointSize: 11.2)
         }
-        return UIImage.hayaseIcon(lucideId, pointSize: 11)
+        return UIImage.hayaseIcon(lucideId, pointSize: 11.2)
     }
 
     private func loadBanner(for media: AnimeItem) {
@@ -429,7 +478,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func formatString(_ raw: String?) -> String {
-        guard let raw else { return "TV Series" }
+        guard let raw else { return "N/A" }
         switch raw {
         case "TV": return "TV Series"
         case "TV_SHORT": return "TV Short"
@@ -438,6 +487,9 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         case "MOVIE": return "Movie"
         case "SPECIAL": return "Special"
         case "MUSIC": return "Music"
+        case "MANGA": return "Manga"
+        case "NOVEL": return "Novel"
+        case "ONE_SHOT": return "One Shot"
         default: return raw.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
