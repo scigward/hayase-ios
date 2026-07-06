@@ -407,7 +407,7 @@ final class AniListTracking {
                     score: self.jsonInt(entry["score"]),
                     repeatCount: self.jsonInt(entry["repeat"]),
                     customLists: enabledLists)
-                AniListClient.shared.updateMediaListEntry(mediaID: resultMediaID, entry: resultEntry)
+                AniListMutationUpdaters.applyMediaListEntry(mediaID: resultMediaID, entry: resultEntry)
                 self.updateCachedUserLists(mediaID: resultMediaID,
                                            status: resultEntry.status,
                                            refreshAfterUpdate: resultEntry.status == "COMPLETED") { [weak self] in
@@ -453,7 +453,7 @@ final class AniListTracking {
                 }
                 if deleted {
                     if let mediaID {
-                        AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: nil)
+                        AniListMutationUpdaters.applyMediaListEntry(mediaID: mediaID, entry: nil)
                         self?.updateCachedUserLists(mediaID: mediaID,
                                                     status: nil,
                                                     refreshAfterUpdate: true) { [weak self] in
@@ -819,7 +819,7 @@ final class AniListTracking {
                 }
                 let nodes = ((payload["anime"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
                 let isFavourite = nodes.contains { ($0["id"] as? Int) == mediaID }
-                AniListClient.shared.updateFavouriteState(mediaID: mediaID, isFavourite: isFavourite)
+                AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: isFavourite)
                 self?.notifyTrackingDidChange()
                 completion(.success(isFavourite))
             case .failure(let error):

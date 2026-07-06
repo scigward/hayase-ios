@@ -313,7 +313,14 @@ public final class AniListClient: NSObject {
         ])
 
         let bannerKey = cacheKey(prefix: "banner", variables: variables)
-        if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { bannerCache[bannerKey] }) {
+        let cachedBanner = queryCacheQueue.sync(execute: { bannerCache[bannerKey] })
+        if policy != .networkOnly, let cached = cachedBanner {
+            query?.setSuccess(cached, isEmpty: cached.isEmpty)
+            completion(.success(cached))
+            if policy == .cacheFirst { return nil }
+        }
+        if policy != .networkOnly, cachedBanner == nil, let cached = cachedAnimeItems(for: bannerKey) {
+            queryCacheQueue.async { self.bannerCache[bannerKey] = cached }
             query?.setSuccess(cached, isEmpty: cached.isEmpty)
             completion(.success(cached))
             if policy == .cacheFirst { return nil }
@@ -411,6 +418,15 @@ public final class AniListClient: NSObject {
         if policy != .networkOnly, let cachedSection {
             query?.setSuccess(cachedSection, isEmpty: cachedSection.items.isEmpty)
             completion(.success(cachedSection))
+            if policy == .cacheFirst { return nil }
+        }
+        if policy != .networkOnly, cachedSection == nil, let cached = cachedAnimeItems(for: key) {
+            let section = makeHomeSectionData(definition: definition,
+                                              items: cached,
+                                              state: cached.isEmpty ? .empty : .loaded)
+            queryCacheQueue.async { self.homeSectionItemCache[key] = cached }
+            query?.setSuccess(section, isEmpty: cached.isEmpty)
+            completion(.success(section))
             if policy == .cacheFirst { return nil }
         }
 
@@ -596,6 +612,22 @@ public final class AniListClient: NSObject {
         return false
     }
 
+    private func cachedSearchPage(for key: String) -> AniListSearchPage? {
+        guard let data = AniListOperationCache.shared.cachedData(for: key),
+              let response = try? JSONDecoder().decode(AniListResponse.self, from: data),
+              let pageData = response.data?.Page else {
+            return nil
+        }
+        return AniListSearchPage(
+            items: (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) },
+            hasNextPage: pageData.pageInfo?.hasNextPage ?? false,
+            isCacheResult: true)
+    }
+
+    private func cachedAnimeItems(for key: String) -> [AnimeItem]? {
+        cachedSearchPage(for: key)?.items
+    }
+
     @discardableResult
     private func fetchSectionItemsResult(variables: [String: Any],
                                          policy: AniListRequestPolicy,
@@ -603,7 +635,13 @@ public final class AniListClient: NSObject {
         let vars = applyNsfwFilter(to: variables)
         let key = cacheKey(prefix: "search", variables: vars)
 
-        if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { homeSectionItemCache[key] }) {
+        let cachedItems = queryCacheQueue.sync(execute: { homeSectionItemCache[key] })
+        if policy != .networkOnly, let cached = cachedItems {
+            completion(.success(cached))
+            if policy == .cacheFirst { return nil }
+        }
+        if policy != .networkOnly, cachedItems == nil, let cached = cachedAnimeItems(for: key) {
+            queryCacheQueue.async { self.homeSectionItemCache[key] = cached }
             completion(.success(cached))
             if policy == .cacheFirst { return nil }
         }
@@ -749,11 +787,18 @@ public final class AniListClient: NSObject {
         variables = applyNsfwFilter(to: variables)
 
         let key = cacheKey(prefix: "search", variables: variables)
-        if policy != .networkOnly, let cached = queryCacheQueue.sync(execute: { searchPageCache[key] }) {
+        let cachedSearch = queryCacheQueue.sync(execute: { searchPageCache[key] })
+        if policy != .networkOnly, let cached = cachedSearch {
             query?.setSuccess(cached, isEmpty: cached.items.isEmpty)
             completion(.success(AniListSearchPage(items: cached.items,
                                                   hasNextPage: cached.hasNextPage,
                                                   isCacheResult: policy == .cacheAndNetwork)))
+            if policy == .cacheFirst { return nil }
+        }
+        if policy != .networkOnly, cachedSearch == nil, let cached = cachedSearchPage(for: key) {
+            queryCacheQueue.async { self.searchPageCache[key] = cached }
+            query?.setSuccess(cached, isEmpty: cached.items.isEmpty)
+            completion(.success(cached))
             if policy == .cacheFirst { return nil }
         }
         guard policy != .pausedUntilVisible else { return nil }
@@ -970,7 +1015,7 @@ public final class AniListClient: NSObject {
             }
         }
 
-        if let cached {
+        if let cached = cached {
             DispatchQueue.main.async { completion(.success(cached)) }
             return
         }
@@ -1281,7 +1326,7 @@ public final class AniListClient: NSObject {
             }
         }
 
-        if let cached {
+        if let cached = cached {
             deliverAnimePagePayload(.success(cached), completion: completion)
             return
         }

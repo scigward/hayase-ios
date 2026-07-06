@@ -64,11 +64,13 @@ enum AniListRequestError: Error, CustomStringConvertible {
     var isRateLimitLike: Bool {
         switch self {
         case .httpStatus(let status, _):
-            return status == 429
+            return status == 429 || status == 500
+        case .network:
+            return true
         case .graphQLErrors(let messages):
             return messages.contains { message in
                 let lowercased = message.lowercased()
-                return lowercased.contains("429") || lowercased.contains("rate")
+                return lowercased.contains("429") || lowercased.contains("rate") || lowercased.contains("500")
             }
         default:
             return false
@@ -247,6 +249,14 @@ final class AniListRequestExecutor {
                 return
             }
 
+            let cacheable = self.isCacheableQuery(query)
+            if case .failure = result,
+               cacheable,
+               let cached = self.cachedGraphQLResult(for: key) {
+                self.finish(key: key, result: .success(cached))
+                return
+            }
+
             if case .failure(let requestError) = result,
                self.shouldRetry(requestError) {
                 self.scheduleRetry(query: query,
@@ -258,6 +268,11 @@ final class AniListRequestExecutor {
                 return
             }
 
+            if case .success(let graphQLResult) = result, cacheable {
+                AniListOperationCache.shared.store(data: graphQLResult.data, for: key)
+                AniListOperationCache.shared.purgeStaleEntries()
+            }
+
             self.finish(key: key, result: result)
         }
 
@@ -266,6 +281,19 @@ final class AniListRequestExecutor {
             callbacks.forEach { $0.token.attach(task) }
         }
         task.resume()
+    }
+
+    private func isCacheableQuery(_ query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("query") || trimmed.hasPrefix("{")
+    }
+
+    private func cachedGraphQLResult(for key: String) -> AniListGraphQLResult? {
+        guard let data = AniListOperationCache.shared.cachedData(for: key),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return AniListGraphQLResult(data: data, json: json, response: nil)
     }
 
     private func makeRequest(query: String, variables: [String: Any]?, authorized: Bool) -> URLRequest? {

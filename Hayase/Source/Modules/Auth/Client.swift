@@ -103,6 +103,7 @@ final class TrackerAccountManager {
     private func clearAniListRuntimeState() {
         AniListClient.shared.clearViewerDependentCaches()
         AniListTracking.shared.clearViewerCache()
+        AniListOperationCache.shared.clearViewerScopedEntries()
         DispatchQueue.main.async {
             Router.shared.clearAniListViewerState()
         }

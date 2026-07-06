@@ -405,6 +405,94 @@ enum AniListQueries {
     }
     """
 
+    static let thread = """
+    query Thread($threadId: Int!) {
+      Thread(id: $threadId) {
+        \(threadFields)
+      }
+    }
+    """
+
+    static let comments = """
+    query Comments($threadId: Int, $page: Int) {
+      Page(page: $page, perPage: 15) {
+        pageInfo { hasNextPage total }
+        threadComments(threadId: $threadId) {
+          id
+          comment
+          isLiked
+          likeCount
+          createdAt
+          user { \(userFields) }
+          childComments
+          isLocked
+        }
+      }
+    }
+    """
+
+    static let toggleLike = """
+    mutation ToggleLike($id: Int!, $type: LikeableType!) {
+      ToggleLikeV2(id: $id, type: $type) {
+        ... on Thread {
+          id
+          likeCount
+          isLiked
+        }
+        ... on ThreadComment {
+          id
+          likeCount
+          isLiked
+        }
+      }
+    }
+    """
+
+    static let saveThreadComment = """
+    mutation SaveThreadComment($id: Int, $threadId: Int, $parentCommentId: Int, $comment: String) {
+      SaveThreadComment(id: $id, threadId: $threadId, parentCommentId: $parentCommentId, comment: $comment) {
+        id
+        comment
+        isLiked
+        likeCount
+        createdAt
+        user { \(userFields) }
+        childComments
+        isLocked
+      }
+    }
+    """
+
+    static let deleteThreadComment = """
+    mutation DeleteThreadComment($id: Int) {
+      DeleteThreadComment(id: $id) {
+        deleted
+      }
+    }
+    """
+
+    static let idTitle = """
+    query IDTitle($id: Int) {
+      Media(id: $id) {
+        id
+        title { userPreferred }
+      }
+    }
+    """
+
+    static let updateUser = """
+    mutation UpdateUser($lists: [String], $adult: Boolean, $language: UserTitleLanguage) {
+      UpdateUser(animeListOptions: { customLists: $lists }, displayAdultContent: $adult, titleLanguage: $language) {
+        id
+        name
+        avatar { large }
+        bannerImage
+        mediaListOptions { animeList { customLists } }
+        options { titleLanguage displayAdultContent profileColor }
+      }
+    }
+    """
+
     // MARK: - Airing schedule
 
     static let schedule = """

@@ -1,7 +1,7 @@
 // ThreadDetailViewController.swift
 // Renders AniList forum threads in-app using WKWebView + dark HTML.
-// Fetches thread body + comments from AniList GraphQL, builds a complete
-// dark-themed HTML page — same approach as Hayase's thread detail page.
+// Fetches thread body + comments through AniListForumClient, mirroring
+// interface/src/lib/modules/anilist/client.ts thread/comment boundaries.
 
 import UIKit
 import WebKit
@@ -61,63 +61,31 @@ final class ThreadDetailViewController: UIViewController {
 
     // MARK: - Fetch
     private func fetchThread() {
-        let query = """
-        query($id:Int){
-          Thread(id:$id){
-            id title body(asHtml:true) viewCount replyCount likeCount isLocked createdAt
-            user{name avatar{large}}
-            categories{id name}
-          }
-          Page(perPage:50){
-            threadComments(threadId:$id,sort:ID){
-              id comment(asHtml:true) likeCount createdAt
-              user{name avatar{large}}
+        AniListForumClient.shared.threadDetailResult(threadID: threadID) { [weak self] result in
+            switch result {
+            case .success(let payload):
+                self?.render(thread: payload.thread, comments: payload.comments.comments)
+            case .failure:
+                self?.showError()
             }
-          }
         }
-        """
-        guard let url = URL(string: "https://graphql.anilist.co") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "query": query,
-            "variables": ["id": threadID]
-        ])
-        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-            guard let self = self, let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let d = json["data"] as? [String: Any] else {
-                DispatchQueue.main.async { self?.showError() }
-                return
-            }
-            let thread   = d["Thread"] as? [String: Any]
-            let page     = d["Page"] as? [String: Any]
-            let comments = page?["threadComments"] as? [[String: Any]] ?? []
-            DispatchQueue.main.async {
-                self.render(thread: thread, comments: comments)
-            }
-        }.resume()
     }
 
     // MARK: - Render
-    private func render(thread: [String: Any]?, comments: [[String: Any]]) {
+    private func render(thread: AniListThread?, comments: [AniListThreadComment]) {
         spinner.stopAnimating()
 
-        let body     = (thread?["body"] as? String ?? "<p>No content.</p>")
+        let body     = (thread?.body ?? "<p>No content.</p>")
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
 
-        let views    = thread?["viewCount"]  as? Int ?? 0
-        let replies  = thread?["replyCount"] as? Int ?? 0
-        let likes    = thread?["likeCount"]  as? Int ?? 0
-        let locked   = thread?["isLocked"]   as? Bool ?? false
-        let user     = thread?["user"]       as? [String: Any]
-        let userName = user?["name"]         as? String ?? "Unknown"
-        let avatarURL = (user?["avatar"] as? [String: Any])?["large"] as? String ?? ""
-
-        let ts       = thread?["createdAt"]  as? TimeInterval ?? 0
-        let timeAgo  = sinceString(ts)
+        let views    = thread?.viewCount ?? 0
+        let replies  = thread?.replyCount ?? 0
+        let likes    = thread?.likeCount ?? 0
+        let locked   = thread?.isLocked ?? false
+        let userName = thread?.userName ?? "Unknown"
+        let avatarURL = thread?.avatarURL ?? ""
+        let timeAgo  = thread?.sinceString ?? ""
 
         let lockedBadge = locked
             ? "<span class='badge locked'>\(lucideSVG("lock")) Locked</span>" : ""
@@ -125,15 +93,13 @@ final class ThreadDetailViewController: UIViewController {
         // Build comment HTML
         var commentsHTML = ""
         for c in comments {
-            let cBody    = (c["comment"]  as? String ?? "<p>—</p>")
+            let cBody    = (c.comment.isEmpty ? "<p>—</p>" : c.comment)
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
-            let cLikes   = c["likeCount"] as? Int ?? 0
-            let cTs      = c["createdAt"] as? TimeInterval ?? 0
-            let cTime    = sinceString(cTs)
-            let cUser    = c["user"]      as? [String: Any]
-            let cName    = cUser?["name"] as? String ?? "Unknown"
-            let cAvatar  = (cUser?["avatar"] as? [String: Any])?["large"] as? String ?? ""
+            let cLikes   = c.likeCount
+            let cTime    = c.sinceString
+            let cName    = c.user?.name ?? "Unknown"
+            let cAvatar  = c.user?.avatarURL ?? ""
             commentsHTML += """
             <div class='comment'>
               <div class='comment-header'>
