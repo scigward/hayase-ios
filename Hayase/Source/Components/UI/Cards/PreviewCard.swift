@@ -372,7 +372,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         currentImageURL = nil
         bannerImageView.image = nil
         blurredImageView.image = nil
-        bannerImageView.backgroundColor = UIColor(hexString: media.coverColor) ?? UIColor.HayaseTheme.background
+        bannerImageView.backgroundColor = .clear
 
         let fallbackURL = resolvedFallbackBannerURL(for: media)
         guard usesWideBannerSource else {
@@ -559,20 +559,5 @@ private final class PreviewBannerGradientView: UIView {
                                    start: CGPoint(x: bounds.midX, y: bounds.minY),
                                    end: CGPoint(x: bounds.midX, y: bounds.maxY),
                                    options: [])
-    }
-}
-
-private extension UIColor {
-    convenience init?(hexString: String?) {
-        guard let hex = hexString?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-        var cleanHex = hex
-        if cleanHex.hasPrefix("#") { cleanHex = String(cleanHex.dropFirst()) }
-        guard cleanHex.count == 6, let rgb = UInt64(cleanHex, radix: 16) else { return nil }
-        self.init(
-            red: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
-        )
     }
 }
