@@ -20,12 +20,12 @@ final class AniListForumClient {
     func threadDetailResult(threadID: Int,
                             page: Int = 1,
                             completion: @escaping (Result<AniListThreadDetailPayload, AniListRequestError>) -> Void) {
-        var threadResult: Result<AniListThread?, AniListRequestError>?
-        var commentsResult: Result<AniListCommentPage, AniListRequestError>?
+        var fetchedThread: Result<AniListThread?, AniListRequestError>?
+        var fetchedComments: Result<AniListCommentPage, AniListRequestError>?
 
         func finishIfReady() {
-            guard let threadResult, let commentsResult else { return }
-            switch (threadResult, commentsResult) {
+            guard let fetchedThread, let fetchedComments else { return }
+            switch (fetchedThread, fetchedComments) {
             case (.success(let thread), .success(let comments)):
                 completion(.success(AniListThreadDetailPayload(thread: thread, comments: comments)))
             case (.failure(let error), _), (_, .failure(let error)):
@@ -34,11 +34,11 @@ final class AniListForumClient {
         }
 
         threadResult(threadID: threadID) { result in
-            threadResult = result
+            fetchedThread = result
             finishIfReady()
         }
         commentsResult(threadID: threadID, page: page) { result in
-            commentsResult = result
+            fetchedComments = result
             finishIfReady()
         }
     }
