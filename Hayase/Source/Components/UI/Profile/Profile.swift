@@ -261,6 +261,7 @@ private final class ProfileCardViewController: UIViewController {
     private let bannerImageView = UIImageView()
     private let avatarView: ProfileAvatarView
     private var bannerTask: URLSessionDataTask?
+    private var aboutHeight: CGFloat
 
     init(user: AniListUserSummary, sourceView: UIView) {
         self.user = user
@@ -269,6 +270,7 @@ private final class ProfileCardViewController: UIViewController {
                                             avatarSize: 80,
                                             ringWidth: 0,
                                             ringColor: .clear)
+        self.aboutHeight = ProfileShadowView.estimatedHeight(for: user.about, width: Self.contentWidth - 32)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -307,9 +309,9 @@ private final class ProfileCardViewController: UIViewController {
 
         cardShadowView.backgroundColor = .clear
         cardShadowView.layer.shadowColor = UIColor.black.cgColor
-        cardShadowView.layer.shadowOpacity = 0.35
-        cardShadowView.layer.shadowRadius = 12
-        cardShadowView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        cardShadowView.layer.shadowOpacity = 0.2
+        cardShadowView.layer.shadowRadius = 3
+        cardShadowView.layer.shadowOffset = CGSize(width: 0, height: 1)
         view.addSubview(cardShadowView)
 
         cardContentView.backgroundColor = .clear
@@ -330,12 +332,12 @@ private final class ProfileCardViewController: UIViewController {
         coreView.translatesAutoresizingMaskIntoConstraints = false
         cardContentView.addSubview(coreView)
 
-        headerView.backgroundColor = user.bannerURL == nil ? UIColor.HayaseTheme.primary.withAlphaComponent(0.1) : .clear
+        headerView.backgroundColor = bannerURLString == nil ? UIColor.HayaseTheme.primary.withAlphaComponent(0.1) : .clear
         headerView.translatesAutoresizingMaskIntoConstraints = false
         coreView.addSubview(headerView)
 
         bannerImageView.contentMode = .scaleAspectFill
-        bannerImageView.alpha = 0.5
+        bannerImageView.alpha = 0
         bannerImageView.clipsToBounds = true
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(bannerImageView)
@@ -369,19 +371,12 @@ private final class ProfileCardViewController: UIViewController {
             headerView.addSubview(bubbleView)
         }
 
-        let aboutLabel = UILabel()
-        aboutLabel.text = Self.sanitizedDescription(user.about) ?? "No user description"
-        aboutLabel.font = .nunito(ofSize: 14, weight: .regular)
-        aboutLabel.textColor = UIColor.HayaseTheme.foreground
-        aboutLabel.numberOfLines = 0
-        aboutLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let aboutScroll = UIScrollView()
-        aboutScroll.showsVerticalScrollIndicator = false
-        aboutScroll.alwaysBounceVertical = false
-        aboutScroll.translatesAutoresizingMaskIntoConstraints = false
-        aboutScroll.addSubview(aboutLabel)
-        coreView.addSubview(aboutScroll)
+        let aboutView = ProfileShadowView(html: user.about)
+        aboutView.translatesAutoresizingMaskIntoConstraints = false
+        aboutView.onNavigatePath = { [weak self] path in
+            self?.navigate(to: path)
+        }
+        coreView.addSubview(aboutView)
 
         let statsLabel = UILabel()
         statsLabel.attributedText = statsText
@@ -392,8 +387,15 @@ private final class ProfileCardViewController: UIViewController {
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
         coreView.addSubview(statsLabel)
 
-        let aboutHeight = Self.aboutBlockHeight(for: aboutLabel.text ?? "")
         let statsHeight = ceil(statsLabel.font.lineHeight)
+        let aboutHeightConstraint = aboutView.heightAnchor.constraint(equalToConstant: aboutHeight)
+        aboutView.onHeightChange = { [weak self] height in
+            guard let self else { return }
+            self.aboutHeight = height
+            aboutHeightConstraint.constant = height
+            self.layoutCard()
+            self.view.layoutIfNeeded()
+        }
 
         NSLayoutConstraint.activate([
             coreView.topAnchor.constraint(equalTo: cardContentView.topAnchor, constant: Self.outerPadding),
@@ -420,18 +422,12 @@ private final class ProfileCardViewController: UIViewController {
             textStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12),
             textStack.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
 
-            aboutScroll.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 8),
-            aboutScroll.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
-            aboutScroll.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
-            aboutScroll.heightAnchor.constraint(equalToConstant: aboutHeight),
+            aboutView.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 8),
+            aboutView.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
+            aboutView.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
+            aboutHeightConstraint,
 
-            aboutLabel.topAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.topAnchor, constant: 8),
-            aboutLabel.leadingAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.leadingAnchor),
-            aboutLabel.trailingAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.trailingAnchor),
-            aboutLabel.bottomAnchor.constraint(equalTo: aboutScroll.contentLayoutGuide.bottomAnchor, constant: -8),
-            aboutLabel.widthAnchor.constraint(equalTo: aboutScroll.frameLayoutGuide.widthAnchor),
-
-            statsLabel.topAnchor.constraint(equalTo: aboutScroll.bottomAnchor, constant: 8),
+            statsLabel.topAnchor.constraint(equalTo: aboutView.bottomAnchor, constant: 8),
             statsLabel.leadingAnchor.constraint(equalTo: coreView.leadingAnchor, constant: 16),
             statsLabel.trailingAnchor.constraint(equalTo: coreView.trailingAnchor, constant: -16),
             statsLabel.heightAnchor.constraint(equalToConstant: statsHeight),
@@ -451,12 +447,12 @@ private final class ProfileCardViewController: UIViewController {
         let label = UILabel()
         label.text = bubble
         label.font = .nunito(ofSize: 14, weight: .regular)
-        label.textColor = UIColor.HayaseTheme.primaryForeground
+        label.textColor = .black
         label.numberOfLines = 1
         label.setContentHuggingPriority(.required, for: .horizontal)
 
         let bubbleView = UIView()
-        bubbleView.backgroundColor = blend(.white, profileBaseColor, amount: 0.33)
+        bubbleView.backgroundColor = mixedBubbleColor
         bubbleView.layer.cornerRadius = 16
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.addSubview(label)
@@ -493,29 +489,17 @@ private final class ProfileCardViewController: UIViewController {
         return bubbleView
     }
 
-    private static let detailTextColor = UIColor(red: 229/255, green: 229/255, blue: 229/255, alpha: 1)
+    private static let detailTextColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.8)
     private static let separatorTextColor = UIColor(red: 115/255, green: 115/255, blue: 115/255, alpha: 1)
 
-    private static func preferredSize(for user: AniListUserSummary) -> CGSize {
-        let about = sanitizedDescription(user.about) ?? "No user description"
-        let aboutHeight = aboutBlockHeight(for: about)
+    private static func preferredSize(aboutHeight: CGFloat) -> CGSize {
         let statsHeight = ceil(UIFont.nunito(ofSize: 11, weight: .regular).lineHeight)
         let height = outerPadding * 2 + 105 + 8 + aboutHeight + 8 + statsHeight + 8
         return CGSize(width: contentWidth + outerPadding * 2, height: ceil(height))
     }
 
-    private static func aboutBlockHeight(for text: String) -> CGFloat {
-        let font = UIFont.nunito(ofSize: 14, weight: .regular)
-        let width = contentWidth - 32
-        let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
-                                                   options: [.usesLineFragmentOrigin, .usesFontLeading],
-                                                   attributes: [.font: font],
-                                                   context: nil)
-        return min(max(ceil(rect.height), ceil(font.lineHeight)) + 16, 200)
-    }
-
     private func layoutCard() {
-        let size = Self.preferredSize(for: user)
+        let size = Self.preferredSize(aboutHeight: aboutHeight)
         let bounds = view.bounds
         let fallback = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
         let sourceRect: CGRect
@@ -561,7 +545,17 @@ private final class ProfileCardViewController: UIViewController {
     }
 
     private var mixedCoreColor: UIColor {
-        blend(UIColor(red: 20/255, green: 20/255, blue: 20/255, alpha: 1), profileBaseColor, amount: 0.77)
+        mixOklab(UIColor(red: 20/255, green: 20/255, blue: 20/255, alpha: 1), weight: 0.3,
+                 with: profileBaseColor, weight: 1)
+    }
+
+    private var mixedBubbleColor: UIColor {
+        mixOklab(.white, weight: 1, with: profileBaseColor, weight: 0.5)
+    }
+
+    private var bannerURLString: String? {
+        guard let value = user.bannerURL?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
     }
 
     private var detailText: NSAttributedString {
@@ -585,11 +579,13 @@ private final class ProfileCardViewController: UIViewController {
         let result = NSMutableAttributedString()
         for (index, part) in parts.enumerated() {
             if index > 0 {
-                result.append(NSAttributedString(string: " • ", attributes: [
+                result.append(NSAttributedString(string: " ", attributes: [.font: font]))
+                result.append(NSAttributedString(string: "•", attributes: [
                     .font: UIFont.nunito(ofSize: 6.4, weight: .regular),
                     .foregroundColor: Self.separatorTextColor,
                     .baselineOffset: 1
                 ]))
+                result.append(NSAttributedString(string: " ", attributes: [.font: font]))
             }
             result.append(NSAttributedString(string: part, attributes: [
                 .font: font,
@@ -600,11 +596,11 @@ private final class ProfileCardViewController: UIViewController {
     }
 
     private func loadBanner() {
-        guard let urlString = user.bannerURL,
-              !urlString.isEmpty,
+        guard let urlString = bannerURLString,
               let url = URL(string: urlString) else { return }
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
             bannerImageView.image = cached
+            bannerImageView.alpha = Self.bannerImageAlpha
             return
         }
         bannerTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -612,44 +608,99 @@ private final class ProfileCardViewController: UIViewController {
                   let image = UIImage(data: data) else { return }
             SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
             DispatchQueue.main.async {
-                self?.bannerImageView.image = image
+                guard let self else { return }
+                self.bannerImageView.image = image
+                UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut]) {
+                    self.bannerImageView.alpha = Self.bannerImageAlpha
+                }
             }
         }
         bannerTask?.resume()
     }
 
-    private static func sanitizedDescription(_ html: String?) -> String? {
-        guard let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let stripped = html
-            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#039;", with: "'")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stripped.isEmpty ? nil : stripped
+    private static let bannerImageAlpha: CGFloat = 0.25
+
+    private func navigate(to path: String) {
+        let hostTabIndex = presentingViewController?.tabBarController?.selectedIndex
+        dismiss(animated: false) {
+            Router.shared.navigate(path: path, hostTabIndex: hostTabIndex)
+        }
     }
 
-    private func blend(_ first: UIColor, _ second: UIColor, amount: CGFloat) -> UIColor {
-        var r1: CGFloat = 0
-        var g1: CGFloat = 0
-        var b1: CGFloat = 0
-        var a1: CGFloat = 0
-        var r2: CGFloat = 0
-        var g2: CGFloat = 0
-        var b2: CGFloat = 0
-        var a2: CGFloat = 0
-        first.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
-        second.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-        return UIColor(red: r1 * (1 - amount) + r2 * amount,
-                       green: g1 * (1 - amount) + g2 * amount,
-                       blue: b1 * (1 - amount) + b2 * amount,
-                       alpha: a1 * (1 - amount) + a2 * amount)
+    private func mixOklab(_ first: UIColor, weight firstWeight: CGFloat, with second: UIColor, weight secondWeight: CGFloat) -> UIColor {
+        let total = firstWeight + secondWeight
+        guard total > 0 else { return first }
+        let firstLab = Oklab(color: first)
+        let secondLab = Oklab(color: second)
+        let firstAmount = firstWeight / total
+        let secondAmount = secondWeight / total
+        return Oklab(L: firstLab.L * firstAmount + secondLab.L * secondAmount,
+                     a: firstLab.a * firstAmount + secondLab.a * secondAmount,
+                     b: firstLab.b * firstAmount + secondLab.b * secondAmount,
+                     alpha: firstLab.alpha * firstAmount + secondLab.alpha * secondAmount).color
+    }
+
+    private struct Oklab {
+        let L: CGFloat
+        let a: CGFloat
+        let b: CGFloat
+        let alpha: CGFloat
+
+        init(L: CGFloat, a: CGFloat, b: CGFloat, alpha: CGFloat) {
+            self.L = L
+            self.a = a
+            self.b = b
+            self.alpha = alpha
+        }
+
+        init(color: UIColor) {
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            var alpha: CGFloat = 0
+            color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+            let r = Self.linear(red)
+            let g = Self.linear(green)
+            let b = Self.linear(blue)
+            let lmsL = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+            let lmsM = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+            let lmsS = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+            let l = CGFloat(pow(Double(lmsL), 1.0 / 3.0))
+            let m = CGFloat(pow(Double(lmsM), 1.0 / 3.0))
+            let s = CGFloat(pow(Double(lmsS), 1.0 / 3.0))
+
+            self.L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+            self.a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+            self.b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+            self.alpha = alpha
+        }
+
+        var color: UIColor {
+            let l = L + 0.3963377774 * a + 0.2158037573 * b
+            let m = L - 0.1055613458 * a - 0.0638541728 * b
+            let s = L - 0.0894841775 * a - 1.2914855480 * b
+            let l3 = l * l * l
+            let m3 = m * m * m
+            let s3 = s * s * s
+            let red = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3
+            let green = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3
+            let blue = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
+            return UIColor(red: Self.gamma(red), green: Self.gamma(green), blue: Self.gamma(blue), alpha: alpha)
+        }
+
+        private static func linear(_ value: CGFloat) -> CGFloat {
+            value <= 0.04045 ? value / 12.92 : CGFloat(pow(Double((value + 0.055) / 1.055), 2.4))
+        }
+
+        private static func gamma(_ value: CGFloat) -> CGFloat {
+            let clamped = min(max(value, 0), 1)
+            return clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * CGFloat(pow(Double(clamped), 1 / 2.4)) - 0.055
+        }
     }
 
 }
+
 
 private extension UIResponder {
     var nearestViewController: UIViewController? {
