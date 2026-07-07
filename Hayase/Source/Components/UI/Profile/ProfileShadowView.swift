@@ -184,6 +184,7 @@ final class ProfileShadowView: UIView {
             let trimmed = block.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return "" }
             if trimmed.hasPrefix("<details") || trimmed.hasPrefix("<center") { return inlineMarkdown(trimmed) }
+            if let code = fencedCodeHTML(trimmed) { return code }
             if let heading = headingHTML(trimmed) { return heading }
             if let list = listHTML(trimmed) { return list }
             if trimmed.hasPrefix("> ") {
@@ -204,6 +205,15 @@ final class ProfileShadowView: UIView {
             }
         }
         return nil
+    }
+
+    private static func fencedCodeHTML(_ block: String) -> String? {
+        guard block.hasPrefix("```") else { return nil }
+        var lines = block.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.count >= 2 else { return nil }
+        lines.removeFirst()
+        if lines.last?.hasPrefix("```") == true { lines.removeLast() }
+        return "<pre><code>\(htmlEscape(lines.joined(separator: "\n")))</code></pre>"
     }
 
     private static func listHTML(_ block: String) -> String? {
@@ -236,6 +246,12 @@ final class ProfileShadowView: UIView {
             let titleAttr = title.isEmpty ? "" : " title=\"\(attributeEscape(title))\""
             return "<a href=\"\(attributeEscape(href))\" target=\"_blank\" rel=\"noopener noreferrer\"\(titleAttr)>\(htmlEscape(substring(in: text, for: match.range(at: 1))))</a>"
         }
+        html = replace(pattern: "\\*\\*\\*([^*]+)\\*\\*\\*", in: html) { match, text in
+            "<strong><em>\(substring(in: text, for: match.range(at: 1)))</em></strong>"
+        }
+        html = replace(pattern: "___([^_]+)___", in: html) { match, text in
+            "<strong><em>\(substring(in: text, for: match.range(at: 1)))</em></strong>"
+        }
         html = replace(pattern: "\\*\\*([^*]+)\\*\\*", in: html) { match, text in
             "<strong>\(substring(in: text, for: match.range(at: 1)))</strong>"
         }
@@ -246,6 +262,9 @@ final class ProfileShadowView: UIView {
             "<del>\(substring(in: text, for: match.range(at: 1)))</del>"
         }
         html = replace(pattern: "(^|[^*])\\*([^*]+)\\*", in: html) { match, text in
+            "\(substring(in: text, for: match.range(at: 1)))<em>\(substring(in: text, for: match.range(at: 2)))</em>"
+        }
+        html = replace(pattern: "(^|[^_])_([^_]+)_", in: html) { match, text in
             "\(substring(in: text, for: match.range(at: 1)))<em>\(substring(in: text, for: match.range(at: 2)))</em>"
         }
         return html.replacingOccurrences(of: "\n", with: "<br>")
