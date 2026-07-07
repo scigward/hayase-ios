@@ -52,8 +52,6 @@ enum AniListRequestError: Error, CustomStringConvertible {
 
     var isInvalidToken: Bool {
         switch self {
-        case .httpStatus(let status, _):
-            return status == 401
         case .graphQLErrors(let messages):
             return messages.contains { $0.caseInsensitiveCompare("Invalid token") == .orderedSame }
         default:

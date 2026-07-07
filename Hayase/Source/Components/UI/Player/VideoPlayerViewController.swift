@@ -1901,6 +1901,8 @@ final class VideoPlayerViewController: UIViewController {
         let mediaID = media?.id ?? currentMediaID
         if let file = batchFile(forEpisode: episode, mediaID: mediaID) {
             switchToBatchFile(file)
+        } else if let match = videoMatchByFilename(forEpisode: episode) {
+            switchToVideo(match, episode: episode, media: media ?? currentBatchFile?.media)
         } else {
             requestEpisodeChange(episode, media: media)
         }
@@ -1930,6 +1932,9 @@ final class VideoPlayerViewController: UIViewController {
         if let file = currentBatchFile {
             return file.episodeReference.intValue
         }
+        if let parsedEpisode = TorrentBatchResolver.extractEpisodeNumber(from: videoEntity?.videoName ?? "") {
+            return parsedEpisode
+        }
         return episodeNumber
     }
 
@@ -1951,7 +1956,30 @@ final class VideoPlayerViewController: UIViewController {
         if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil {
             return true
         }
+        if videoMatchByFilename(forEpisode: episode) != nil {
+            return true
+        }
         return currentMediaID > 0 && onEpisodeChange != nil
+    }
+
+    private func videoMatchByFilename(forEpisode episode: Int) -> (video: Videos, index: Int)? {
+        guard !allVideos.isEmpty else { return nil }
+
+        for (index, video) in allVideos.enumerated() {
+            if TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "") == episode {
+                return (video, index)
+            }
+        }
+
+        guard allVideos.count > 1,
+              let video = TorrentBatchResolver.selectByFilename(from: allVideos,
+                                                                targetEpisode: episode,
+                                                                name: { $0.videoName }),
+              TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "") == episode,
+              let index = allVideos.firstIndex(of: video) else {
+            return nil
+        }
+        return (video, index)
     }
 
     private var playlistIndex: Int {
