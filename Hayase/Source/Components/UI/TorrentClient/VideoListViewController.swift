@@ -474,6 +474,7 @@ class VideoListViewController: UIViewController {
         player.fileIndex         = fileIdx
         player.anilistID         = activeMedia?.id ?? Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
         player.episodeNumber     = activeFile?.episodeReference.intValue
+            ?? targetEpisode
             ?? TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "")
             ?? Int(indexNum.intValue) + 1
         player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? vs.torrentEntity.animes?.animeTotalEps?.intValue ?? 0

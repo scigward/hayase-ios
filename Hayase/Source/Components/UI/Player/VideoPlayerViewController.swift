@@ -1932,10 +1932,13 @@ final class VideoPlayerViewController: UIViewController {
         if let file = currentBatchFile {
             return file.episodeReference.intValue
         }
+        if episodeNumber > 0 {
+            return episodeNumber
+        }
         if let parsedEpisode = TorrentBatchResolver.extractEpisodeNumber(from: videoEntity?.videoName ?? "") {
             return parsedEpisode
         }
-        return episodeNumber
+        return nil
     }
 
     private var canNavigateToPreviousEpisode: Bool {
