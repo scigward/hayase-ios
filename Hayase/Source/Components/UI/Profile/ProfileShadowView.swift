@@ -239,6 +239,9 @@ final class ProfileShadowView: UIView {
         html = replace(pattern: "\\*\\*([^*]+)\\*\\*", in: html) { match, text in
             "<strong>\(substring(in: text, for: match.range(at: 1)))</strong>"
         }
+        html = replace(pattern: "__([^_]+)__", in: html) { match, text in
+            "<strong>\(substring(in: text, for: match.range(at: 1)))</strong>"
+        }
         html = replace(pattern: "~~([^~]+)~~", in: html) { match, text in
             "<del>\(substring(in: text, for: match.range(at: 1)))</del>"
         }

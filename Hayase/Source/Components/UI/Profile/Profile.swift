@@ -353,9 +353,9 @@ private final class ProfileCardViewController: UIViewController {
         nameLabel.lineBreakMode = .byTruncatingTail
 
         let detailLabel = UILabel()
-        detailLabel.attributedText = detailText
         detailLabel.font = .nunito(ofSize: 11, weight: .regular)
         detailLabel.textColor = Self.detailTextColor
+        detailLabel.attributedText = detailText
         detailLabel.numberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
 
@@ -368,7 +368,7 @@ private final class ProfileCardViewController: UIViewController {
         let bubbleView = makeBubbleView()
         if let bubbleView {
             bubbleView.translatesAutoresizingMaskIntoConstraints = false
-            headerView.addSubview(bubbleView)
+            cardShadowView.addSubview(bubbleView)
         }
 
         let aboutView = ProfileShadowView(html: user.about)
@@ -379,9 +379,9 @@ private final class ProfileCardViewController: UIViewController {
         coreView.addSubview(aboutView)
 
         let statsLabel = UILabel()
-        statsLabel.attributedText = statsText
         statsLabel.font = .nunito(ofSize: 11, weight: .regular)
         statsLabel.textColor = Self.detailTextColor
+        statsLabel.attributedText = statsText
         statsLabel.numberOfLines = 1
         statsLabel.lineBreakMode = .byTruncatingTail
         statsLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -436,8 +436,8 @@ private final class ProfileCardViewController: UIViewController {
 
         if let bubbleView {
             NSLayoutConstraint.activate([
-                bubbleView.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: -20),
-                bubbleView.topAnchor.constraint(equalTo: headerView.topAnchor, constant: -44),
+                bubbleView.leadingAnchor.constraint(equalTo: cardShadowView.leadingAnchor, constant: Self.outerPadding - 20),
+                bubbleView.topAnchor.constraint(equalTo: cardShadowView.topAnchor, constant: Self.outerPadding - 44),
             ])
         }
     }
