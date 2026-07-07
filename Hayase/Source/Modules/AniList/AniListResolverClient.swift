@@ -11,17 +11,7 @@ import Foundation
 extension AniListClient {
     func searchCompoundResult(flattenedTitles: [(key: String, title: String, year: String?, isAdult: Bool)],
                               completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
-        var groups: [String: (titles: [String], year: String?)] = [:]
-        for title in flattenedTitles {
-            var group = groups[title.key] ?? (titles: [], year: nil)
-            group.titles.append(title.title)
-            if group.year == nil { group.year = title.year }
-            groups[title.key] = group
-        }
-        let grouped = groups
-            .map { (key: $0.key, titles: $0.value.titles, year: $0.value.year) }
-            .sorted { $0.key < $1.key }
-        searchResolverAnimeIDsResult(titleGroups: grouped, completion: completion)
+        searchResolverAnimeIDsResult(flattenedTitles: flattenedTitles, completion: completion)
     }
 
     func malIdsCompoundResult(_ malIDs: [Int],

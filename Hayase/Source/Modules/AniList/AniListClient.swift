@@ -875,12 +875,18 @@ public final class AniListClient: NSObject {
     func searchResolverAnimeIDsResult(titleGroups: [(key: String, titles: [String], year: String?)],
                                       completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
         let flattened = titleGroups.flatMap { group -> [(key: String, title: String, year: String?, isAdult: Bool)] in
-            var objects = group.titles.map { (key: group.key, title: $0, year: group.year, isAdult: false) }
-            if let last = objects.last {
-                objects.append((key: last.key, title: last.title, year: last.year, isAdult: true))
+            group.titles.flatMap { title in
+                [
+                    (key: group.key, title: title, year: group.year, isAdult: false),
+                    (key: group.key, title: title, year: group.year, isAdult: true),
+                ]
             }
-            return objects
         }
+        searchResolverAnimeIDsResult(flattenedTitles: flattened, completion: completion)
+    }
+
+    func searchResolverAnimeIDsResult(flattenedTitles: [(key: String, title: String, year: String?, isAdult: Bool)],
+                                      completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
         guard !flattened.isEmpty else {
             DispatchQueue.main.async { completion(.success([:])) }
             return

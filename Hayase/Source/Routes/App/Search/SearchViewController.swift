@@ -955,7 +955,7 @@ class SearchViewController: UIViewController {
             onList: selectedOnList,
             ids: traceIds,
             page: currentPage,
-            policy: .cacheFirst,
+            policy: .cacheAndNetwork,
             query: searchQuery
         ) { [weak self] result in
             guard let self = self, self.fetchRequestID == myRequestID else { return }

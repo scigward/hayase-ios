@@ -431,9 +431,11 @@ final class AniListRequestExecutor {
         return lockQueue.sync {
             let now = Date()
             let elapsed = now.timeIntervalSince(lastRetryTime)
-            let spacingDelay = max(0, minimumSpacing - elapsed)
-            lastRetryTime = now.addingTimeInterval(max(minimumSpacing, spacingDelay))
-            return min(max(baseDelay, minimumSpacing, spacingDelay), 60)
+            if elapsed < minimumSpacing {
+                return min(max(baseDelay, minimumSpacing - elapsed), 60)
+            }
+            lastRetryTime = now
+            return min(max(baseDelay, minimumSpacing), 60)
         }
     }
 
