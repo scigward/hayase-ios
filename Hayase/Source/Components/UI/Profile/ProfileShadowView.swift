@@ -236,16 +236,72 @@ final class ProfileShadowView: UIView {
     }
 
     private static func inlineMarkdown(_ text: String) -> String {
+        splitHTMLSegments(text).map { segment in
+            switch segment {
+            case .html(let html):
+                return html
+            case .text(let value):
+                return inlineMarkdownText(value).replacingOccurrences(of: "\n", with: "<br>")
+            }
+        }.joined()
+    }
+
+    private enum InlineSegment {
+        case text(String)
+        case html(String)
+    }
+
+    private static func splitHTMLSegments(_ text: String) -> [InlineSegment] {
+        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return [.text(text)] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return [.text(text)] }
+
+        var segments: [InlineSegment] = []
+        var cursor = 0
+        for match in matches {
+            if match.range.location > cursor {
+                segments.append(.text(nsText.substring(with: NSRange(location: cursor, length: match.range.location - cursor))))
+            }
+            segments.append(.html(nsText.substring(with: match.range)))
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < nsText.length {
+            segments.append(.text(nsText.substring(from: cursor)))
+        }
+        return segments
+    }
+
+    private static func inlineMarkdownText(_ text: String) -> String {
         var html = text
+        var protected: [String] = []
+
+        func protect(_ value: String) -> String {
+            protected.append(value)
+            return "\u{E000}" + String(protected.count - 1) + "\u{E001}"
+        }
+
         html = replace(pattern: "`([^`]+)`", in: html) { match, text in
-            "<code>\(htmlEscape(substring(in: text, for: match.range(at: 1))))</code>"
+            protect("<code>\(htmlEscape(substring(in: text, for: match.range(at: 1))))</code>")
         }
         html = replace(pattern: "\\[([^\\]]+)\\]\\(([^\\s)]+)(?:\\s+\"([^\"]+)\")?\\)", in: html) { match, text in
             let title = substring(in: text, for: match.range(at: 3))
             let href = renderedLinkHref(substring(in: text, for: match.range(at: 2)))
             let titleAttr = title.isEmpty ? "" : " title=\"\(attributeEscape(title))\""
-            return "<a href=\"\(attributeEscape(href))\" target=\"_blank\" rel=\"noopener noreferrer\"\(titleAttr)>\(htmlEscape(substring(in: text, for: match.range(at: 1))))</a>"
+            let label = inlineMarkdownText(substring(in: text, for: match.range(at: 1)))
+            return protect("<a href=\"\(attributeEscape(href))\" target=\"_blank\" rel=\"noopener noreferrer\"\(titleAttr)>\(label)</a>")
         }
+        html = applyInlineStyles(html)
+        html = replace(pattern: "\u{E000}(\\d+)\u{E001}", in: html) { match, text in
+            let index = Int(substring(in: text, for: match.range(at: 1))) ?? -1
+            guard protected.indices.contains(index) else { return "" }
+            return protected[index]
+        }
+        return html
+    }
+
+    private static func applyInlineStyles(_ text: String) -> String {
+        var html = text
         html = replace(pattern: "\\*\\*\\*([^*]+)\\*\\*\\*", in: html) { match, text in
             "<strong><em>\(substring(in: text, for: match.range(at: 1)))</em></strong>"
         }
@@ -267,7 +323,7 @@ final class ProfileShadowView: UIView {
         html = replace(pattern: "(^|[^_])_([^_]+)_", in: html) { match, text in
             "\(substring(in: text, for: match.range(at: 1)))<em>\(substring(in: text, for: match.range(at: 2)))</em>"
         }
-        return html.replacingOccurrences(of: "\n", with: "<br>")
+        return html
     }
 
     private static func renderedLinkHref(_ href: String) -> String {
