@@ -1689,6 +1689,7 @@ class BrowseAnimeViewController: UIViewController {
     private var homeSectionQueries: [String: PageQuery<HomeSectionData>] = [:]
     private var homeSectionObserverIDs: [String: UUID] = [:]
     private var visibleHomeSectionIDs = Set<String>()
+    private let homeFlipDuration: TimeInterval = 0.4
 
     private let homeBackdropView = HomeBannerBackdropView()
     private let homeBackdropCoverView: UIView = {
@@ -2325,12 +2326,80 @@ class BrowseAnimeViewController: UIViewController {
 
     private func updateHomeSection(_ section: HomeSectionData, id: String) {
         guard let rowIndex = sections.firstIndex(where: { $0.queryID == id }) else { return }
-        sections[rowIndex] = section
+        let previousSection = sections[rowIndex]
         let collectionSection = rowIndex + 1
+        let shouldFlip = canFlipHomeSectionUpdate(from: previousSection, to: section)
+        let previousFrames = shouldFlip ? visibleHomeItemFrames(rowIndex: rowIndex,
+                                                                collectionSection: collectionSection) : [:]
+        sections[rowIndex] = section
         guard isViewLoaded, collectionView.numberOfSections > collectionSection else { return }
-        collectionView.reloadSections(IndexSet(integer: collectionSection))
+        if shouldFlip {
+            UIView.performWithoutAnimation {
+                collectionView.reloadSections(IndexSet(integer: collectionSection))
+                collectionView.layoutIfNeeded()
+            }
+            animateHomeSectionFlip(from: previousFrames,
+                                   rowIndex: rowIndex,
+                                   collectionSection: collectionSection)
+        } else {
+            collectionView.reloadSections(IndexSet(integer: collectionSection))
+        }
         emptyLabel.isHidden = true
         DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
+    }
+
+    private func canFlipHomeSectionUpdate(from previous: HomeSectionData, to next: HomeSectionData) -> Bool {
+        guard isLoadedHomeSection(previous.contentState),
+              isLoadedHomeSection(next.contentState),
+              !previous.items.isEmpty,
+              !next.items.isEmpty else { return false }
+        return previous.items.map(\.id) != next.items.map(\.id)
+    }
+
+    private func isLoadedHomeSection(_ state: HomeSectionContentState) -> Bool {
+        if case .loaded = state { return true }
+        return false
+    }
+
+    private func visibleHomeItemFrames(rowIndex: Int, collectionSection: Int) -> [Int: CGRect] {
+        guard rowIndex >= 0, rowIndex < sections.count else { return [:] }
+        var frames: [Int: CGRect] = [:]
+        for indexPath in collectionView.indexPathsForVisibleItems where indexPath.section == collectionSection {
+            guard indexPath.item < sections[rowIndex].items.count else { continue }
+            let mediaID = sections[rowIndex].items[indexPath.item].id
+            let frame: CGRect?
+            if let attributes = collectionView.layoutAttributesForItem(at: indexPath) {
+                frame = attributes.frame
+            } else {
+                frame = collectionView.cellForItem(at: indexPath)?.frame
+            }
+            if let frame {
+                frames[mediaID] = frame
+            }
+        }
+        return frames
+    }
+
+    private func animateHomeSectionFlip(from previousFrames: [Int: CGRect],
+                                        rowIndex: Int,
+                                        collectionSection: Int) {
+        guard rowIndex >= 0, rowIndex < sections.count, !previousFrames.isEmpty else { return }
+        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.77, y: 0.0),
+                                             controlPoint2: CGPoint(x: 0.175, y: 1.0))
+        for indexPath in collectionView.indexPathsForVisibleItems where indexPath.section == collectionSection {
+            guard indexPath.item < sections[rowIndex].items.count,
+                  let cell = collectionView.cellForItem(at: indexPath),
+                  let oldFrame = previousFrames[sections[rowIndex].items[indexPath.item].id] else { continue }
+            let newFrame = collectionView.layoutAttributesForItem(at: indexPath)?.frame ?? cell.frame
+            let translation = CGAffineTransform(translationX: oldFrame.midX - newFrame.midX,
+                                                y: oldFrame.midY - newFrame.midY)
+            cell.transform = translation
+            let animator = UIViewPropertyAnimator(duration: homeFlipDuration, timingParameters: timing)
+            animator.addAnimations {
+                cell.transform = .identity
+            }
+            animator.startAnimation()
+        }
     }
 
     private func resumeHomeSectionIfNeeded(rowSection: Int) {
@@ -2379,11 +2448,33 @@ class BrowseAnimeViewController: UIViewController {
         let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
         let remoteListChanged = notification.object is AniListTracking
         guard remoteListChanged || currentLocalContinueIDs != lastLocalContinueIDs else { return }
+        if currentLocalContinueIDs != lastLocalContinueIDs {
+            applyLocalContinueWatchingOrder(currentLocalContinueIDs)
+        }
         homeRefreshTimer?.invalidate()
         homeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.refreshPersonalSectionQueries(fetchRemoteLists: remoteListChanged)
         }
+    }
+
+    private func applyLocalContinueWatchingOrder(_ ids: [Int]) {
+        guard !ids.isEmpty,
+              let rowIndex = sections.firstIndex(where: { $0.queryID == "personal.continue" }),
+              isLoadedHomeSection(sections[rowIndex].contentState),
+              !sections[rowIndex].items.isEmpty else { return }
+
+        var byID: [Int: AnimeItem] = [:]
+        sections[rowIndex].items.forEach { byID[$0.id] = $0 }
+        var reordered = ids.compactMap { byID[$0] }
+        let visibleIDs = Set(reordered.map(\.id))
+        reordered.append(contentsOf: sections[rowIndex].items.filter { !visibleIDs.contains($0.id) })
+        guard reordered.map(\.id) != sections[rowIndex].items.map(\.id) else { return }
+
+        var section = sections[rowIndex]
+        section.items = reordered
+        section.filterIDs = ids
+        updateHomeSection(section, id: "personal.continue")
     }
 
     private func performFetch() {

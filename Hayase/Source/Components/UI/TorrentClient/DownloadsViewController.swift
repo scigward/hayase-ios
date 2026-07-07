@@ -1744,11 +1744,17 @@ class DownloadsViewController: UIViewController {
         player.torrentHandle = handle
         player.videoService = videoService
         player.fileIndex = selectedIndex
-        player.anilistID = entity.animes?.animeAnilistId?.intValue ?? 0
+        let mediaID = entity.animes?.animeAnilistId?.intValue ?? 0
+        player.anilistID = mediaID
         player.episodeNumber = TorrentBatchResolver.extractEpisodeNumber(from: selectedVideo.videoName ?? "") ?? 0
         player.totalEpisodes = entity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos = videos
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        player.onEpisodeChange = { [weak self] episode, media in
+            self?.handleEpisodeChangeFromTorrentClient(episode: episode,
+                                                       media: media,
+                                                       fallbackMediaID: mediaID)
+        }
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
         return true
     }
@@ -1880,9 +1886,60 @@ class DownloadsViewController: UIViewController {
         player.totalEpisodes = torrentEntity.animes?.animeTotalEps?.intValue ?? 0
         player.allVideos = videos
         player.currentVideoIndex = videos.firstIndex(of: selectedVideo) ?? 0
+        player.onEpisodeChange = { [weak self] episode, media in
+            self?.handleEpisodeChangeFromTorrentClient(episode: episode,
+                                                       media: media,
+                                                       fallbackMediaID: mediaID)
+        }
         openingLibraryPlaybackHash = nil
         pendingLibraryPlaybackService = nil
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
+    }
+
+    private func handleEpisodeChangeFromTorrentClient(episode: Int,
+                                                      media: AnimeItem?,
+                                                      fallbackMediaID: Int) {
+        if let media {
+            presentEpisodeSearch(media: media, episode: episode)
+            return
+        }
+
+        guard fallbackMediaID > 0 else { return }
+        AniListClient.shared.fetchAnimeByIdsResult([fallbackMediaID]) { [weak self] result in
+            switch result {
+            case .success(let items):
+                guard let media = items.first else { return }
+                DispatchQueue.main.async {
+                    self?.presentEpisodeSearch(media: media, episode: episode)
+                }
+            case .failure(let error):
+                NSLog("[Downloads] AniList lookup failed for episode change: %@", error.description)
+            }
+        }
+    }
+
+    private func presentEpisodeSearch(media: AnimeItem, episode: Int) {
+        MiniPlayerManager.shared.close()
+
+        let searchVC = ExtensionSearchViewController()
+        searchVC.animeItem = media
+        searchVC.initialEpisode = episode
+        searchVC.shouldAutoSelectOnSearch = true
+
+        let presenter = Self.topViewController() ?? self
+        searchVC.prepareOverlayPresentation(from: presenter)
+        presenter.present(searchVC, animated: true)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+              let window = appDelegate.window else { return nil }
+        var viewController = window.rootViewController
+        while let presented = viewController?.presentedViewController,
+              !presented.isBeingDismissed {
+            viewController = presented
+        }
+        return viewController
     }
 
     private func restoreMiniPlayerIfAlreadyPlaying(hash: String, episode: Int?) -> Bool {
