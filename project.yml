@@ -35,6 +35,9 @@ packages:
   CobeKit:
     url: https://github.com/ohwhen/CobeKit.git
     branch: main
+  SwiftSoup:
+    url: https://github.com/scinfu/SwiftSoup.git
+    from: "2.13.6"
 
 targets:
   Hayase:
@@ -76,6 +79,7 @@ targets:
       - package: LucideIcons
       - package: Starscream
       - package: CobeKit
+      - package: SwiftSoup
 
     postBuildScripts:
       - name: Embed WebTorrent backend resources

@@ -7,6 +7,7 @@
 
 import UIKit
 import WebKit
+import SwiftSoup
 
 final class ProfileShadowView: UIView {
     static let maxHeight: CGFloat = 200
@@ -252,7 +253,7 @@ final class ProfileShadowView: UIView {
     }
 
     private static func splitHTMLSegments(_ text: String) -> [InlineSegment] {
-        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return [.text(text)] }
+        guard let regex = try? NSRegularExpression(pattern: "<\\s*/?\\s*([A-Za-z][A-Za-z0-9]*)\\b[^>]*>") else { return [.text(text)] }
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
         guard !matches.isEmpty else { return [.text(text)] }
@@ -260,16 +261,32 @@ final class ProfileShadowView: UIView {
         var segments: [InlineSegment] = []
         var cursor = 0
         for match in matches {
+            let tag = substring(in: text, for: match.range(at: 1)).lowercased()
+            let html = nsText.substring(with: match.range)
+            guard allowedTags.contains(tag), isParsableHTMLTag(html, tag: tag) else { continue }
             if match.range.location > cursor {
                 segments.append(.text(nsText.substring(with: NSRange(location: cursor, length: match.range.location - cursor))))
             }
-            segments.append(.html(nsText.substring(with: match.range)))
+            segments.append(.html(html))
             cursor = match.range.location + match.range.length
         }
         if cursor < nsText.length {
             segments.append(.text(nsText.substring(from: cursor)))
         }
-        return segments
+        return segments.isEmpty ? [.text(text)] : segments
+    }
+
+    private static func isParsableHTMLTag(_ html: String, tag: String) -> Bool {
+        if html.hasPrefix("</") { return true }
+        do {
+            let document = try SwiftSoup.parseBodyFragment(html)
+            guard let body = document.body() else { return false }
+            let children = try body.children()
+            guard let first = children.first() else { return false }
+            return (try first.tagName()).lowercased() == tag
+        } catch {
+            return false
+        }
     }
 
     private static func inlineMarkdownText(_ text: String) -> String {
