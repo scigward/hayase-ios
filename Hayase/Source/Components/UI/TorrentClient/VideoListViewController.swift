@@ -149,6 +149,7 @@ class VideoListViewController: UIViewController {
     private var pendingAutoOpenIndexPath: IndexPath?
     private var didAutoResolve = false
     private var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
+    private var resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []
 
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -364,12 +365,14 @@ class VideoListViewController: UIViewController {
                       let targetMedia = resolverTargetMedia(),
                       let videos = videoResultsController?.fetchedObjects {
                 didAutoResolve = true
-                resolver.selectByAnime(from: videos,
-                                       targetEpisode: ep,
-                                       targetMedia: targetMedia,
-                                       name: { $0.videoName }) { [weak self] video in
-                    guard let self, let video else { return }
-                    self.selectAndOpenVideo(video, videoService: vs)
+                resolver.resolveItemsByAnime(from: videos,
+                                             targetEpisode: ep,
+                                             targetMedia: targetMedia,
+                                             name: { $0.videoName }) { [weak self] result in
+                    guard let self, let match = result.target else { return }
+                    self.selectAndOpenVideo(match.item,
+                                            videoService: vs,
+                                            resolvedVideoFiles: result.resolvedFiles)
                 }
             }
         }
@@ -390,6 +393,7 @@ class VideoListViewController: UIViewController {
                                             batchFiles: [TorrentBatchResolver.ResolvedFile]) {
         guard let fileIdx = fileIndex(from: match.entry.index) else { return }
         self.batchFiles = batchFiles
+        self.resolvedVideoFiles = []
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -409,10 +413,13 @@ class VideoListViewController: UIViewController {
         }
     }
 
-    private func selectAndOpenVideo(_ video: Videos, videoService vs: VideoService) {
+    private func selectAndOpenVideo(_ video: Videos,
+                                    videoService vs: VideoService,
+                                    resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []) {
         guard let index = video.videoIndex?.intValue,
               let fileIdx = fileIndex(from: index) else { return }
         batchFiles = []
+        self.resolvedVideoFiles = resolvedVideoFiles
         vs.selectFileForStreaming(fileIdx)
         tableView.reloadData()
 
@@ -469,11 +476,13 @@ class VideoListViewController: UIViewController {
         player.torrentHandle     = vs.torrentHandle
         player.videoService      = vs
         let activeFile = batchFiles.first { UInt(exactly: $0.entry.index) == Optional(fileIdx) }
-        let activeMedia = activeFile?.media
+        let activeVideoFile = resolvedVideoFiles.first { $0.item.objectID == video.objectID || $0.item.videoIndex == video.videoIndex }
+        let activeMedia = activeFile?.media ?? activeVideoFile?.media
 
         player.fileIndex         = fileIdx
         player.anilistID         = activeMedia?.id ?? Int(vs.torrentEntity.animes?.animeAnilistId ?? 0)
         player.episodeNumber     = activeFile?.episodeReference.intValue
+            ?? activeVideoFile?.episodeReference.intValue
             ?? targetEpisode
             ?? TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "")
             ?? Int(indexNum.intValue) + 1
@@ -481,6 +490,7 @@ class VideoListViewController: UIViewController {
         player.allVideos         = allVids
         player.currentVideoIndex = allVids.firstIndex(of: video) ?? 0
         player.batchFiles        = batchFiles
+        player.resolvedVideoFiles = resolvedVideoFiles
         player.onEpisodeChange   = { [weak self] episode, media in
             self?.handleEpisodeChangeFromPlayer(episode, media: media)
         }

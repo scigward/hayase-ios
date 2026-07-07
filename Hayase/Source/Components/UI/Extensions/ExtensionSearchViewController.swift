@@ -1252,19 +1252,21 @@ final class ExtensionSearchViewController: UIViewController {
             let resolver = TorrentBatchResolver()
             if let animeItem {
                 isResolvingPendingMetadata = true
-                resolver.selectByAnime(from: videos,
-                                       targetEpisode: currentEpisode,
-                                       targetMedia: animeItem,
-                                       name: { $0.videoName }) { [weak self] resolvedVideo in
+                resolver.resolveItemsByAnime(from: videos,
+                                             targetEpisode: currentEpisode,
+                                             targetMedia: animeItem,
+                                             name: { $0.videoName }) { [weak self] result in
                     guard let self else { return }
                     self.isResolvingPendingMetadata = false
+                    let resolvedVideo = result.target?.item
                     let resolvedIndex = torrentFileIndex(from: resolvedVideo?.videoIndex?.intValue) ?? 0
                     self.presentPendingVideo(vs: vs,
                                              entity: entity,
                                              targetVideo: resolvedVideo,
                                              targetIndex: resolvedIndex,
                                              videos: videos,
-                                             batchFiles: [])
+                                             batchFiles: [],
+                                             resolvedVideoFiles: result.resolvedFiles)
                 }
                 return
             }
@@ -1278,7 +1280,8 @@ final class ExtensionSearchViewController: UIViewController {
                              targetVideo: targetVideo,
                              targetIndex: targetIndex,
                              videos: videos,
-                             batchFiles: [])
+                             batchFiles: [],
+                             resolvedVideoFiles: [])
     }
 
     private func presentPendingVideo(vs: VideoService,
@@ -1286,7 +1289,8 @@ final class ExtensionSearchViewController: UIViewController {
                                      targetVideo: Videos?,
                                      targetIndex: UInt,
                                      videos: [Videos],
-                                     batchFiles: [TorrentBatchResolver.ResolvedFile]) {
+                                     batchFiles: [TorrentBatchResolver.ResolvedFile],
+                                     resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []) {
         var targetVideo = targetVideo
         var targetIndex = targetIndex
 
@@ -1315,8 +1319,9 @@ final class ExtensionSearchViewController: UIViewController {
             // Close any existing mini-player before starting a new one.
             MiniPlayerManager.shared.close()
             let activeFile = batchFiles.first { torrentFileIndex(from: $0.entry.index) == Optional(targetIndex) }
-            let activeMedia = activeFile?.media ?? self.animeItem
-            let activeEpisode = activeFile?.episodeReference.intValue ?? self.currentEpisode
+            let activeVideoFile = resolvedVideoFiles.first { $0.item.videoIndex?.uintValue == targetIndex }
+            let activeMedia = activeFile?.media ?? activeVideoFile?.media ?? self.animeItem
+            let activeEpisode = activeFile?.episodeReference.intValue ?? activeVideoFile?.episodeReference.intValue ?? self.currentEpisode
 
             let player = VideoPlayerViewController()
             player.videoEntity       = video
@@ -1329,6 +1334,7 @@ final class ExtensionSearchViewController: UIViewController {
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
             player.batchFiles        = batchFiles
+            player.resolvedVideoFiles = resolvedVideoFiles
             // Hayase web mediahandler.svelte playEpisode(): when the target
             // episode is not in the current batch, initiate a new search.
             player.onEpisodeChange   = { [weak self] episode, media in

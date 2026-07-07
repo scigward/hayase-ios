@@ -378,7 +378,9 @@ final class VideoPlayerViewController: UIViewController {
     var allVideos: [Videos] = []
     var currentVideoIndex: Int = 0
     var batchFiles: [TorrentBatchResolver.ResolvedFile] = []
+    var resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []
     private var currentResolvedFile: TorrentBatchResolver.ResolvedFile?
+    private var currentResolvedVideoFile: TorrentBatchResolver.ResolvedItem<Videos>?
 
     /// Callback fired when the user taps next/prev and the target episode is
     /// NOT in the current torrent batch. The presenting view controller should
@@ -1901,8 +1903,10 @@ final class VideoPlayerViewController: UIViewController {
         let mediaID = media?.id ?? currentMediaID
         if let file = batchFile(forEpisode: episode, mediaID: mediaID) {
             switchToBatchFile(file)
+        } else if let file = resolvedVideoFile(forEpisode: episode, mediaID: mediaID) {
+            switchToResolvedVideoFile(file)
         } else if let match = videoMatchByFilename(forEpisode: episode) {
-            switchToVideo(match, episode: episode, media: media ?? currentBatchFile?.media)
+            switchToVideo(match, episode: episode, media: media ?? currentBatchFile?.media ?? currentResolvedVideoFile?.media)
         } else {
             requestEpisodeChange(episode, media: media)
         }
@@ -1917,6 +1921,15 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
+    private func resolvedVideoFile(forEpisode targetEp: Int,
+                                   mediaID: Int) -> TorrentBatchResolver.ResolvedItem<Videos>? {
+        resolvedVideoFiles.first { resolvedFile in
+            resolvedFile.episodeReference.matches(targetEp)
+                && resolvedFile.media?.id == mediaID
+                && videoMatch(for: resolvedFile) != nil
+        }
+    }
+
     private var currentBatchFile: TorrentBatchResolver.ResolvedFile? {
         if let currentResolvedFile, matchesFileIndex(currentResolvedFile, fileIndex) {
             return currentResolvedFile
@@ -1924,12 +1937,22 @@ final class VideoPlayerViewController: UIViewController {
         return batchFiles.first { matchesFileIndex($0, fileIndex) }
     }
 
+    private var currentResolvedVideo: TorrentBatchResolver.ResolvedItem<Videos>? {
+        if let currentResolvedVideoFile, matchesVideo(currentResolvedVideoFile, fileIndex) {
+            return currentResolvedVideoFile
+        }
+        return resolvedVideoFiles.first { matchesVideo($0, fileIndex) }
+    }
+
     private var currentMediaID: Int {
-        currentBatchFile?.media?.id ?? anilistID
+        currentBatchFile?.media?.id ?? currentResolvedVideo?.media?.id ?? anilistID
     }
 
     private var currentEpisodeForNavigation: Int? {
         if let file = currentBatchFile {
+            return file.episodeReference.intValue
+        }
+        if let file = currentResolvedVideo {
             return file.episodeReference.intValue
         }
         if episodeNumber > 0 {
@@ -1957,6 +1980,9 @@ final class VideoPlayerViewController: UIViewController {
         guard limit <= 0 || episode <= limit else { return false }
 
         if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil {
+            return true
+        }
+        if resolvedVideoFile(forEpisode: episode, mediaID: currentMediaID) != nil {
             return true
         }
         if videoMatchByFilename(forEpisode: episode) != nil {
@@ -1989,19 +2015,27 @@ final class VideoPlayerViewController: UIViewController {
         if let index = batchFiles.firstIndex(where: { matchesFileIndex($0, fileIndex) }) {
             return index
         }
+        if let index = resolvedVideoFiles.firstIndex(where: { matchesVideo($0, fileIndex) }) {
+            return index
+        }
         return currentVideoIndex
     }
 
     private var currentEpisodeLimit: Int {
-        if let media = currentBatchFile?.media {
+        if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
             return TorrentBatchResolver.episodeCount(for: media)
         }
         return totalEpisodes
     }
 
     private var playlistVideos: [Videos] {
-        guard !batchFiles.isEmpty else { return allVideos }
-        return batchFiles.compactMap { videoMatch(for: $0)?.video }
+        if !batchFiles.isEmpty {
+            return batchFiles.compactMap { videoMatch(for: $0)?.video }
+        }
+        if !resolvedVideoFiles.isEmpty {
+            return resolvedVideoFiles.compactMap { videoMatch(for: $0)?.video }
+        }
+        return allVideos
     }
 
     private func fileIndex(for file: TorrentBatchResolver.ResolvedFile) -> UInt? {
@@ -2019,6 +2053,17 @@ final class VideoPlayerViewController: UIViewController {
         }.map { ($0.element, $0.offset) }
     }
 
+    private func matchesVideo(_ file: TorrentBatchResolver.ResolvedItem<Videos>, _ index: UInt) -> Bool {
+        videoMatch(for: file)?.video.videoIndex?.uintValue == index
+    }
+
+    private func videoMatch(for file: TorrentBatchResolver.ResolvedItem<Videos>) -> (video: Videos, index: Int)? {
+        allVideos.enumerated().first { _, video in
+            video.objectID == file.item.objectID
+                || video.videoIndex == file.item.videoIndex
+        }.map { ($0.element, $0.offset) }
+    }
+
     private func episodeNumber(for file: TorrentBatchResolver.ResolvedFile) -> Int {
         file.episodeReference.intValue ?? episodeNumber
     }
@@ -2026,6 +2071,18 @@ final class VideoPlayerViewController: UIViewController {
     private func switchToBatchFile(_ file: TorrentBatchResolver.ResolvedFile) {
         guard let match = videoMatch(for: file) else { return }
         currentResolvedFile = file
+        currentResolvedVideoFile = nil
+        switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
+    }
+
+    private func episodeNumber(for file: TorrentBatchResolver.ResolvedItem<Videos>) -> Int {
+        file.episodeReference.intValue ?? episodeNumber
+    }
+
+    private func switchToResolvedVideoFile(_ file: TorrentBatchResolver.ResolvedItem<Videos>) {
+        guard let match = videoMatch(for: file) else { return }
+        currentResolvedFile = nil
+        currentResolvedVideoFile = file
         switchToVideo(match, episode: episodeNumber(for: file), media: file.media)
     }
 
@@ -2033,6 +2090,7 @@ final class VideoPlayerViewController: UIViewController {
     private func switchToVideo(_ match: (video: Videos, index: Int), episode: Int, media: AnimeItem? = nil) {
         if media == nil {
             currentResolvedFile = nil
+            currentResolvedVideoFile = nil
         }
         streamServer?.stop()
         streamServer = nil
@@ -2058,7 +2116,7 @@ final class VideoPlayerViewController: UIViewController {
     /// Requests an episode change for an episode NOT in the current batch.
     /// The callback performs the web-equivalent `searchStore.set({ media, episode })`.
     private func requestEpisodeChange(_ episode: Int, media: AnimeItem?) {
-        onEpisodeChange?(episode, media ?? currentBatchFile?.media)
+        onEpisodeChange?(episode, media ?? currentBatchFile?.media ?? currentResolvedVideo?.media)
     }
 
     @objc private func toggleTimeFormat() {
