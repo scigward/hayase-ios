@@ -887,6 +887,7 @@ public final class AniListClient: NSObject {
 
     func searchResolverAnimeIDsResult(flattenedTitles: [(key: String, title: String, year: String?, isAdult: Bool)],
                                       completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
+        let flattened = flattenedTitles
         guard !flattened.isEmpty else {
             DispatchQueue.main.async { completion(.success([:])) }
             return
