@@ -1684,6 +1684,7 @@ class BrowseAnimeViewController: UIViewController {
     private var homeRefreshTimer: Timer?
     private var personalSectionsLoadID = 0
     private var lastLocalContinueIDs: [Int] = []
+    private var lastLocalPlanningIDs: [Int] = []
     private let bannerQuery = PageQuery<[AnimeItem]>()
     private var homeSectionDescriptors: [String: HomeSectionDescriptor] = [:]
     private var homeSectionQueries: [String: PageQuery<HomeSectionData>] = [:]
@@ -1763,6 +1764,7 @@ class BrowseAnimeViewController: UIViewController {
         // back from a detail VC), so the banner could be stuck in the wrong opacity state.
         // Matches the interface: hideBanner.value = false at component init, then re-evaluated.
         syncBannerToCurrentScrollPosition()
+        refreshPersonalSectionsIfLocalListsChanged()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -2073,6 +2075,7 @@ class BrowseAnimeViewController: UIViewController {
         isLoadingSections = false
         personalSectionsLoadID += 1
         lastLocalContinueIDs = []
+        lastLocalPlanningIDs = []
         visibleHomeSectionIDs.removeAll()
         resetHomeSectionQueries()
         collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
@@ -2117,10 +2120,12 @@ class BrowseAnimeViewController: UIViewController {
 
     private func personalHomeSectionDescriptors(userListIDs: AniListTracking.UserListIDs?) -> [HomeSectionDescriptor] {
         let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+        let localPlanningIDs = LocalTracking.shared.planningIDs()
         lastLocalContinueIDs = localContinueIDs
+        lastLocalPlanningIDs = localPlanningIDs
         let remoteContinueIDs = userListIDs?.continueIDs ?? []
         let continueIDs = mergeIDs(localContinueIDs, remoteContinueIDs)
-        let planningIDs = userListIDs?.planningIDs ?? []
+        let planningIDs = userListIDs?.planningIDs ?? localPlanningIDs
         let sequelIDs = userListIDs?.sequelIDs ?? []
 
         var descriptors: [HomeSectionDescriptor] = []
@@ -2446,8 +2451,11 @@ class BrowseAnimeViewController: UIViewController {
     @objc private func handleTrackingDidChange(_ notification: Notification) {
         guard !isSearching else { return }
         let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+        let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
         let remoteListChanged = notification.object is AniListTracking
-        guard remoteListChanged || currentLocalContinueIDs != lastLocalContinueIDs else { return }
+        guard remoteListChanged ||
+              currentLocalContinueIDs != lastLocalContinueIDs ||
+              currentLocalPlanningIDs != lastLocalPlanningIDs else { return }
         if currentLocalContinueIDs != lastLocalContinueIDs {
             applyLocalContinueWatchingOrder(currentLocalContinueIDs)
         }
@@ -2456,6 +2464,15 @@ class BrowseAnimeViewController: UIViewController {
             guard let self else { return }
             self.refreshPersonalSectionQueries(fetchRemoteLists: remoteListChanged)
         }
+    }
+
+    private func refreshPersonalSectionsIfLocalListsChanged() {
+        guard !isSearching else { return }
+        let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
+        let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
+        guard currentLocalContinueIDs != lastLocalContinueIDs ||
+              currentLocalPlanningIDs != lastLocalPlanningIDs else { return }
+        refreshPersonalSectionQueries(fetchRemoteLists: false)
     }
 
     private func applyLocalContinueWatchingOrder(_ ids: [Int]) {

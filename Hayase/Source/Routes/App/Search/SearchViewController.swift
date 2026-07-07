@@ -71,11 +71,13 @@ class SearchViewController: UIViewController {
     private let searchQuery = PageQuery<AniListSearchPage>()
     private var currentTitle = ""
     private var debounceTimer: Timer?
+    private var trackingRefreshTimer: Timer?
     /// Set when a trace.moe image search is active; causes grid to show trace results.
     private var traceIds: [Int]?
     /// True while the trace.moe network request is in-flight.
     private var isTracing = false
     private var lastFilterLayoutSignature = ""
+    private let searchFlipDuration: TimeInterval = 0.4
 
     // MARK: - Views
     private var headerView: UIView!
@@ -98,7 +100,9 @@ class SearchViewController: UIViewController {
 
     deinit {
         debounceTimer?.invalidate()
+        trackingRefreshTimer?.invalidate()
         searchTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
     }
 
     // Active chips (wrapping frame layout, min-h-9)
@@ -143,6 +147,7 @@ class SearchViewController: UIViewController {
         setupHeaderView()
         setupCollectionView()
         setupOverlays()
+        setupNotifications()
         rebuildActiveChipEntries()
         refreshFilterPickers()
         rebuildActiveChips()
@@ -965,41 +970,112 @@ class SearchViewController: UIViewController {
                 if !page.isCacheResult { self.searchTask = nil }
                 self.isShowingSkeleton = false
                 self.loadingIndicator.stopAnimating()
+                let updatedResults: [AnimeItem]
                 if reset {
                     if page.isCacheResult || self.currentPage <= requestedPage + 1 {
-                        self.animeResults = page.items
+                        updatedResults = page.items
                     } else {
                         let tailStart = min(page.items.count, self.animeResults.count)
-                        self.animeResults = page.items + Array(self.animeResults.dropFirst(tailStart))
+                        updatedResults = page.items + Array(self.animeResults.dropFirst(tailStart))
                     }
                 } else if page.isCacheResult {
-                    self.animeResults.append(contentsOf: page.items)
+                    updatedResults = self.animeResults + page.items
                 } else if self.animeResults.count > previousResults.count {
                     let prefix = Array(self.animeResults.prefix(previousResults.count))
                     let tailStart = min(previousResults.count + page.items.count, self.animeResults.count)
                     let tail = Array(self.animeResults.dropFirst(tailStart))
-                    self.animeResults = prefix + page.items + tail
+                    updatedResults = prefix + page.items + tail
                 } else {
-                    self.animeResults.append(contentsOf: page.items)
+                    updatedResults = self.animeResults + page.items
                 }
                 self.hasNextPage = page.hasNextPage
                 self.currentPage = max(self.currentPage, requestedPage + 1)
-                self.emptyLabel.isHidden = !self.animeResults.isEmpty
-                if self.animeResults.isEmpty {
+                self.emptyLabel.isHidden = !updatedResults.isEmpty
+                if updatedResults.isEmpty {
                     self.emptyLabel.text = self.currentTitle.isEmpty
                         ? "No results found" : "No results for \"\(self.currentTitle)\""
                 }
+                self.applySearchResults(updatedResults)
             case .failure(let error):
                 self.isFetching = false
                 self.searchTask = nil
                 self.isShowingSkeleton = false
                 self.loadingIndicator.stopAnimating()
-                if reset { self.animeResults = [] }
+                if reset { self.applySearchResults([], animated: false) }
                 self.hasNextPage = false
                 self.emptyLabel.isHidden = false
                 self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
             }
-            self.collectionView.reloadData()
+        }
+    }
+
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleTrackingDidChange(_:)),
+                                               name: LocalTracking.didChange,
+                                               object: nil)
+    }
+
+    @objc private func handleTrackingDidChange(_ notification: Notification) {
+        guard selectedOnList != nil else { return }
+        trackingRefreshTimer?.invalidate()
+        trackingRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            self?.fetchResults(reset: true)
+        }
+    }
+
+    private func applySearchResults(_ results: [AnimeItem], animated: Bool = true) {
+        let previousFrames = animated ? visibleSearchItemFrames() : [:]
+        let shouldFlip = !previousFrames.isEmpty &&
+            !animeResults.isEmpty &&
+            !results.isEmpty &&
+            animeResults.map(\.id) != results.map(\.id)
+
+        animeResults = results
+        guard isViewLoaded, collectionView != nil else { return }
+
+        if shouldFlip {
+            UIView.performWithoutAnimation {
+                collectionView.reloadData()
+                collectionView.layoutIfNeeded()
+            }
+            animateSearchFlip(from: previousFrames)
+        } else {
+            collectionView.reloadData()
+        }
+    }
+
+    private func visibleSearchItemFrames() -> [Int: CGRect] {
+        guard collectionView != nil, !isShowingSkeleton else { return [:] }
+        var frames: [Int: CGRect] = [:]
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard indexPath.item < animeResults.count,
+                  collectionView.cellForItem(at: indexPath) is AnimeCollectionViewCell else { continue }
+            let mediaID = animeResults[indexPath.item].id
+            let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame
+                ?? collectionView.cellForItem(at: indexPath)?.frame
+            if let frame {
+                frames[mediaID] = frame
+            }
+        }
+        return frames
+    }
+
+    private func animateSearchFlip(from previousFrames: [Int: CGRect]) {
+        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.77, y: 0.0),
+                                             controlPoint2: CGPoint(x: 0.175, y: 1.0))
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard indexPath.item < animeResults.count,
+                  let cell = collectionView.cellForItem(at: indexPath),
+                  let oldFrame = previousFrames[animeResults[indexPath.item].id] else { continue }
+            let newFrame = collectionView.layoutAttributesForItem(at: indexPath)?.frame ?? cell.frame
+            cell.transform = CGAffineTransform(translationX: oldFrame.midX - newFrame.midX,
+                                               y: oldFrame.midY - newFrame.midY)
+            let animator = UIViewPropertyAnimator(duration: searchFlipDuration, timingParameters: timing)
+            animator.addAnimations {
+                cell.transform = .identity
+            }
+            animator.startAnimation()
         }
     }
 
@@ -1120,15 +1196,14 @@ class SearchViewController: UIViewController {
 
             switch result {
             case .success(let items):
-                self.animeResults = items
+                self.applySearchResults(items)
                 self.emptyLabel.isHidden = !items.isEmpty
                 if items.isEmpty { self.emptyLabel.text = "No matching anime found" }
             case .failure(let error):
-                self.animeResults = []
+                self.applySearchResults([], animated: false)
                 self.emptyLabel.isHidden = false
                 self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
             }
-            self.collectionView.reloadData()
         }
     }
 }

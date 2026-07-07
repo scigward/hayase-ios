@@ -116,6 +116,26 @@ final class LocalTracking {
         entry(for: mediaID)?.progress
     }
 
+    func planningIDs() -> [Int] {
+        mediaIDs(withStatuses: ["PLANNING"])
+    }
+
+    func continueIDs() -> [Int] {
+        mediaIDs(withStatuses: ["CURRENT", "REPEATING"])
+    }
+
+    private func mediaIDs(withStatuses statuses: Set<String>) -> [Int] {
+        entriesLock.lock()
+        defer { entriesLock.unlock() }
+        return allEntries().values
+            .filter { entry in
+                guard let status = entry.status else { return false }
+                return statuses.contains(status)
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map(\.mediaID)
+    }
+
     private func allEntries() -> [Int: LocalMediaTrackingEntry] {
         guard let data = UserDefaults.standard.data(forKey: udKey),
               let decoded = try? JSONDecoder().decode([Int: LocalMediaTrackingEntry].self, from: data) else {
