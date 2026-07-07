@@ -32,33 +32,7 @@ final class AniListAuth {
         return components.url ?? URL(string: "https://anilist.co/api/v2/oauth/authorize")!
     }
 
-    private static let viewerFields = """
-            id
-            name
-            bannerImage
-            avatar { large }
-            mediaListOptions { animeList { customLists } }
-            options { titleLanguage displayAdultContent }
-    """
-
-    private static var updateUserMutation: String {
-        """
-        mutation UpdateUser($lists: [String], $adult: Boolean, $language: UserTitleLanguage) {
-          UpdateUser(animeListOptions: { customLists: $lists }, displayAdultContent: $adult, titleLanguage: $language) {
-        \(viewerFields)
-          }
-        }
-        """
-    }
-
     static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
-        let query = """
-        {
-          Viewer {
-        \(viewerFields)
-          }
-        }
-        """
         guard let url = URL(string: "https://graphql.anilist.co") else {
             completion(nil)
             return
@@ -67,7 +41,7 @@ final class AniListAuth {
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["query": query]
+        let body: [String: Any] = ["query": AniListQueries.viewer]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         AniListRequestExecutor.shared.perform(request, context: "AniListViewer") { result in
@@ -117,7 +91,7 @@ final class AniListAuth {
         var lists = viewer.customLists
         lists.append(hayaseCustomListName)
         let variables: [String: Any] = ["lists": lists]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": updateUserMutation, "variables": variables])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": AniListQueries.updateUser, "variables": variables])
 
         AniListRequestExecutor.shared.perform(request, context: "AniListUpdateUser") { result in
             guard case .success(let data) = result,
@@ -167,50 +141,6 @@ final class AniListTracking {
     }
 
     // MARK: - Mutations
-
-    private let saveEntryMutation = """
-    mutation ($lists: [String], $id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
-        SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score, customLists: $lists) {
-            id
-            status
-            progress
-            score(format: POINT_10)
-            repeat
-            customLists(asArray: true)
-            media { id }
-        }
-    }
-    """
-
-    private let deleteEntryMutation = """
-    mutation ($id: Int!) {
-        DeleteMediaListEntry(id: $id) {
-            deleted
-        }
-    }
-    """
-
-    private let singleMediaQuery = """
-    query ($id: Int!) {
-        Media(id: $id, type: ANIME) {
-            id
-            status
-            episodes
-            format
-            duration
-            title { romaji english native userPreferred }
-            synonyms
-            mediaListEntry {
-                id
-                status
-                progress
-                score(format: POINT_10)
-                repeat
-                customLists(asArray: true)
-            }
-        }
-    }
-    """
 
     // MARK: - Private helpers
 
@@ -278,7 +208,7 @@ final class AniListTracking {
 
     func fetchMediaWithEntryResult(anilistID: Int,
                                    completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?), AniListRequestError>) -> Void) {
-        authRequestResult(query: singleMediaQuery, variables: ["id": anilistID]) { [weak self] result in
+        authRequestResult(query: AniListQueries.trackingSingleMedia, variables: ["id": anilistID]) { [weak self] result in
             guard let self else {
                 completion(.failure(.cancelled))
                 return
@@ -378,7 +308,7 @@ final class AniListTracking {
         }
         vars["lists"] = customLists
 
-        authRequestResult(query: saveEntryMutation, variables: vars) { [weak self] result in
+        authRequestResult(query: AniListQueries.saveEntry, variables: vars) { [weak self] result in
             guard let self else {
                 completion(.failure(.cancelled))
                 return
@@ -443,7 +373,7 @@ final class AniListTracking {
             return
         }
 
-        authRequestResult(query: deleteEntryMutation, variables: ["id": listID]) { [weak self] result in
+        authRequestResult(query: AniListQueries.deleteEntry, variables: ["id": listID]) { [weak self] result in
             switch result {
             case .success(let data):
                 guard let payload = data["DeleteMediaListEntry"] as? [String: Any],
@@ -533,42 +463,6 @@ final class AniListTracking {
 
     // MARK: - User lists
 
-    private let userListsQuery = """
-    query ($id: Int) {
-        MediaListCollection(userId: $id, type: ANIME, forceSingleCompletedList: true, sort: UPDATED_TIME_DESC) {
-            lists {
-                status
-                entries {
-                    id
-                    media {
-                        id
-                        status
-                        episodes
-                        mediaListEntry {
-                            id
-                            status
-                            progress
-                            score(format: POINT_10)
-                            repeat
-                        }
-                        nextAiringEpisode {
-                            episode
-                        }
-                        relations {
-                            edges {
-                                relationType(version: 2)
-                                node {
-                                    id
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    """
-
     struct UserListIDs {
         let continueIDs: [Int]
         let planningIDs: [Int]
@@ -617,7 +511,7 @@ final class AniListTracking {
             self.userListFetchCompletions.append(completion)
             if alreadyFetching { return }
 
-            self.authRequestResult(query: self.userListsQuery, variables: ["id": viewerID]) { [weak self] result in
+            self.authRequestResult(query: AniListQueries.userLists, variables: ["id": viewerID]) { [weak self] result in
                 guard let self else { return }
                 let parsed: UserListIDs?
                 switch result {
@@ -780,22 +674,6 @@ final class AniListTracking {
 
     // MARK: - Toggle Favourite
 
-    private let toggleFavouriteMutation = """
-    mutation ($animeId: Int) {
-        ToggleFavourite(animeId: $animeId) {
-            anime { nodes { id } }
-        }
-    }
-    """
-
-    private let isFavouriteQuery = """
-    query ($id: Int) {
-        Media(id: $id) {
-            isFavourite
-        }
-    }
-    """
-
     func toggleFavourite(mediaID: Int, completion: ((Bool) -> Void)? = nil) {
         toggleFavouriteResult(mediaID: mediaID) { result in
             switch result {
@@ -810,7 +688,7 @@ final class AniListTracking {
 
     func toggleFavouriteResult(mediaID: Int,
                                completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
-        authRequestResult(query: toggleFavouriteMutation, variables: ["animeId": mediaID]) { [weak self] result in
+        authRequestResult(query: AniListQueries.toggleFavourite, variables: ["animeId": mediaID]) { [weak self] result in
             switch result {
             case .success(let data):
                 guard let payload = data["ToggleFavourite"] as? [String: Any] else {
@@ -842,7 +720,7 @@ final class AniListTracking {
 
     func checkIsFavouriteResult(mediaID: Int,
                                 completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
-        authRequestResult(query: isFavouriteQuery, variables: ["id": mediaID]) { result in
+        authRequestResult(query: AniListQueries.isFavourite, variables: ["id": mediaID]) { result in
             switch result {
             case .success(let data):
                 guard let media = data["Media"] as? [String: Any],

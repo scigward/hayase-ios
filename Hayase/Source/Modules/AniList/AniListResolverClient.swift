@@ -51,14 +51,20 @@ extension AniListClient {
             }
 
             let chunk = chunks[index]
+            let pages = stride(from: 0, to: chunk.count, by: 50).map { offset in
+                let page = (offset / 50) + 1
+                return """
+                  v\(offset): Page(perPage: 50, page: \(page)) {
+                    media(idMal_in: $ids, type: ANIME) {
+                      id
+                      idMal
+                    }
+                  }
+                """
+            }.joined(separator: "\n")
             let query = """
             query($ids: [Int]) {
-              Page(perPage: 50) {
-                media(idMal_in: $ids, type: ANIME) {
-                  id
-                  idMal
-                }
-              }
+              \(pages)
             }
             """
             AniListRequestExecutor.shared.execute(query: query,
@@ -67,8 +73,10 @@ extension AniListClient {
                                                   dedupeKey: "malIds|\(chunk)") { graphResult in
                 switch graphResult {
                 case .success(let graphQLResult):
-                    let page = (graphQLResult.json["data"] as? [String: Any])?["Page"] as? [String: Any]
-                    let media = page?["media"] as? [[String: Any]] ?? []
+                    let data = graphQLResult.json["data"] as? [String: Any] ?? [:]
+                    let media = data.values
+                        .compactMap { ($0 as? [String: Any])?["media"] as? [[String: Any]] }
+                        .flatMap { $0 }
                     for item in media {
                         guard let anilistID = item["id"] as? Int,
                               let malID = item["idMal"] as? Int else { continue }

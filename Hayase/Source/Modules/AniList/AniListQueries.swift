@@ -101,6 +101,19 @@ enum AniListQueries {
           }
     """
 
+    static let viewer = """
+    {
+      Viewer {
+        id
+        name
+        bannerImage
+        avatar { large }
+        mediaListOptions { animeList { customLists } }
+        options { titleLanguage displayAdultContent }
+      }
+    }
+    """
+
     static let threadFields = """
           id
           title
@@ -489,6 +502,101 @@ enum AniListQueries {
         bannerImage
         mediaListOptions { animeList { customLists } }
         options { titleLanguage displayAdultContent profileColor }
+      }
+    }
+    """
+
+    static let userLists = """
+    query UserLists($id: Int) {
+      MediaListCollection(userId: $id, type: ANIME, forceSingleCompletedList: true, sort: UPDATED_TIME_DESC) {
+        user { id }
+        lists {
+          status
+          entries {
+            id
+            media {
+              title { userPreferred }
+              id
+              status
+              episodes
+              mediaListEntry {
+                id
+                status
+                progress
+                score(format: POINT_10)
+                repeat
+                customLists(asArray: true)
+              }
+              nextAiringEpisode { episode }
+              relations {
+                edges {
+                  relationType(version: 2)
+                  node { id }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    static let saveEntry = """
+    mutation Entry($lists: [String], $id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
+      SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score, customLists: $lists) {
+        id
+        status
+        progress
+        score(format: POINT_10)
+        repeat
+        customLists(asArray: true)
+        media { id }
+      }
+    }
+    """
+
+    static let deleteEntry = """
+    mutation DeleteEntry($id: Int!) {
+      DeleteMediaListEntry(id: $id) {
+        deleted
+      }
+    }
+    """
+
+    static let trackingSingleMedia = """
+    query TrackingSingleMedia($id: Int!) {
+      Media(id: $id, type: ANIME) {
+        id
+        status
+        episodes
+        format
+        duration
+        title { romaji english native userPreferred }
+        synonyms
+        mediaListEntry {
+          id
+          status
+          progress
+          score(format: POINT_10)
+          repeat
+          customLists(asArray: true)
+        }
+      }
+    }
+    """
+
+    static let toggleFavourite = """
+    mutation ToggleFavourite($animeId: Int) {
+      ToggleFavourite(animeId: $animeId) {
+        anime { nodes { id } }
+      }
+    }
+    """
+
+    static let isFavourite = """
+    query IsFavourite($id: Int) {
+      Media(id: $id) {
+        isFavourite
       }
     }
     """
