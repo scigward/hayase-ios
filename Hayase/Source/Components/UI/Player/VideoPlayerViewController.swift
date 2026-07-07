@@ -1857,11 +1857,42 @@ final class VideoPlayerViewController: UIViewController {
 
     private func navigateEpisode(by delta: Int) {
         guard let currentEpisode = currentEpisodeForNavigation else { return }
-        let targetEpisode = currentEpisode + delta
-        guard canNavigate(to: targetEpisode) else { return }
+        let media = currentBatchFile?.media
+        let mediaID = media?.id ?? currentMediaID
 
-        saveProgress()
-        playEpisode(targetEpisode, media: currentBatchFile?.media)
+        resolveNavigationEpisode(from: currentEpisode, delta: delta, mediaID: mediaID) { [weak self] targetEpisode in
+            guard let self, let targetEpisode else { return }
+            self.saveProgress()
+            self.playEpisode(targetEpisode, media: media)
+        }
+    }
+
+    private func resolveNavigationEpisode(from currentEpisode: Int,
+                                          delta: Int,
+                                          mediaID: Int,
+                                          completion: @escaping (Int?) -> Void) {
+        let rawTarget = currentEpisode + delta
+        guard UserDefaults.standard.bool(forKey: "pref_skipFiller"), mediaID > 0 else {
+            completion(canNavigate(to: rawTarget) ? rawTarget : nil)
+            return
+        }
+
+        AnimeDetailViewController.loadFillerSet(for: mediaID) { [weak self] fillerSet in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var targetEpisode = rawTarget
+                while fillerSet.contains(targetEpisode) {
+                    targetEpisode += delta
+                }
+                if delta > 0 {
+                    let limit = self.currentEpisodeLimit
+                    if limit > 0 { targetEpisode = min(targetEpisode, limit) }
+                } else {
+                    targetEpisode = max(1, targetEpisode)
+                }
+                completion(self.canNavigate(to: targetEpisode) ? targetEpisode : nil)
+            }
+        }
     }
 
     /// Mirrors Hayase web mediahandler.svelte `playEpisode`: search the current

@@ -932,6 +932,13 @@ extension W2GViewController {
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
         player.batchFiles        = []
+        player.onEpisodeChange   = { [weak self] episode, media in
+            self?.handleW2GEpisodeChange(episode: episode,
+                                         media: media,
+                                         fallbackMediaID: anilistID,
+                                         fallbackAnimeItem: animeItem,
+                                         torrentEntity: entity)
+        }
         Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
     }
 
@@ -1082,6 +1089,13 @@ extension W2GViewController {
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
             player.batchFiles        = batchFiles
+            player.onEpisodeChange   = { [weak self] episode, media in
+                self?.handleW2GEpisodeChange(episode: episode,
+                                             media: media,
+                                             fallbackMediaID: media?.id ?? anilistID,
+                                             fallbackAnimeItem: animeItem,
+                                             torrentEntity: entity)
+            }
             Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
         }
 
@@ -1093,6 +1107,74 @@ extension W2GViewController {
         } else {
             presentResolved(targetIndex, filenameResolution.resolvedFiles)
         }
+    }
+
+    private func handleW2GEpisodeChange(episode: Int,
+                                        media: AnimeItem?,
+                                        fallbackMediaID: Int,
+                                        fallbackAnimeItem: AnimeItem?,
+                                        torrentEntity: Torrents) {
+        if let media {
+            presentW2GEpisodeSearch(media: media, episode: episode)
+            return
+        }
+
+        if let fallbackAnimeItem, hasSearchableTitle(fallbackAnimeItem) {
+            presentW2GEpisodeSearch(media: fallbackAnimeItem, episode: episode)
+            return
+        }
+
+        if let entityMedia = w2gResolverTargetMedia(entity: torrentEntity, anilistID: fallbackMediaID),
+           hasSearchableTitle(entityMedia) {
+            presentW2GEpisodeSearch(media: entityMedia, episode: episode)
+            return
+        }
+
+        guard fallbackMediaID > 0 else { return }
+        AniListClient.shared.fetchAnimeByIdsResult([fallbackMediaID]) { [weak self] result in
+            switch result {
+            case .success(let items):
+                guard let media = items.first else { return }
+                DispatchQueue.main.async {
+                    self?.presentW2GEpisodeSearch(media: media, episode: episode)
+                }
+            case .failure(let error):
+                NSLog("[W2G] AniList lookup failed for episode change: %@", error.description)
+            }
+        }
+    }
+
+    private func hasSearchableTitle(_ item: AnimeItem) -> Bool {
+        [item.titleUserPreferred, item.titleRomaji, item.titleEnglish, item.titleNative]
+            .contains { title in
+                guard let value = title?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+                return !value.isEmpty
+            }
+    }
+
+    private func presentW2GEpisodeSearch(media: AnimeItem, episode: Int) {
+        MiniPlayerManager.shared.close()
+
+        let searchVC = ExtensionSearchViewController()
+        searchVC.animeItem = media
+        searchVC.initialEpisode = episode
+        searchVC.shouldAutoSelectOnSearch = true
+
+        let presenter = Self.topViewController() ?? self
+        searchVC.prepareOverlayPresentation(from: presenter)
+        presenter.present(searchVC, animated: true)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+              let window = appDelegate.window else { return nil }
+
+        var viewController = window.rootViewController
+        while let presented = viewController?.presentedViewController,
+              !presented.isBeingDismissed {
+            viewController = presented
+        }
+        return viewController
     }
 
     private func w2gResolverTargetMedia(entity: Torrents, anilistID: Int) -> AnimeItem? {
