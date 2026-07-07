@@ -1951,7 +1951,7 @@ final class VideoPlayerViewController: UIViewController {
         if batchFile(forEpisode: episode, mediaID: currentMediaID) != nil {
             return true
         }
-        return onEpisodeChange != nil
+        return currentMediaID > 0 && onEpisodeChange != nil
     }
 
     private var playlistIndex: Int {
