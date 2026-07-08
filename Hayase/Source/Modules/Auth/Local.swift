@@ -10,6 +10,8 @@ import Foundation
 
 struct LocalMediaTrackingEntry: Codable {
     let mediaID: Int
+    var isFavourite: Bool
+    var hasMediaListEntry: Bool
     var status: String?
     var progress: Int
     var score: Int
@@ -25,6 +27,51 @@ struct LocalMediaTrackingEntry: Codable {
             score: score,
             repeatCount: repeatCount,
             customLists: customLists)
+    }
+
+    init(mediaID: Int,
+         isFavourite: Bool = false,
+         hasMediaListEntry: Bool = true,
+         status: String? = nil,
+         progress: Int = 0,
+         score: Int = 0,
+         repeatCount: Int = 0,
+         customLists: [String] = [],
+         updatedAt: Date = Date()) {
+        self.mediaID = mediaID
+        self.isFavourite = isFavourite
+        self.hasMediaListEntry = hasMediaListEntry
+        self.status = status
+        self.progress = progress
+        self.score = score
+        self.repeatCount = repeatCount
+        self.customLists = customLists
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaID
+        case isFavourite
+        case hasMediaListEntry
+        case status
+        case progress
+        case score
+        case repeatCount
+        case customLists
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mediaID = try container.decode(Int.self, forKey: .mediaID)
+        isFavourite = try container.decodeIfPresent(Bool.self, forKey: .isFavourite) ?? false
+        hasMediaListEntry = try container.decodeIfPresent(Bool.self, forKey: .hasMediaListEntry) ?? true
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        progress = try container.decodeIfPresent(Int.self, forKey: .progress) ?? 0
+        score = try container.decodeIfPresent(Int.self, forKey: .score) ?? 0
+        repeatCount = try container.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 0
+        customLists = try container.decodeIfPresent([String].self, forKey: .customLists) ?? []
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 }
 
@@ -45,23 +92,18 @@ final class LocalTracking {
         entriesLock.lock()
 
         var entries = allEntries()
-        var entry = entries[mediaID] ?? LocalMediaTrackingEntry(
-            mediaID: mediaID,
-            status: nil,
-            progress: 0,
-            score: 0,
-            repeatCount: 0,
-            customLists: [],
-            updatedAt: Date())
+        var entry = entries[mediaID] ?? LocalMediaTrackingEntry(mediaID: mediaID)
 
         let old = entry
+        entry.hasMediaListEntry = true
         if let status { entry.status = status }
-        if let progress { entry.progress = max(entry.progress, progress) }
+        if let progress { entry.progress = max(0, progress) }
         if let score { entry.score = score }
         if let repeatCount { entry.repeatCount = repeatCount }
         if let lists { entry.customLists = lists }
         if entry.status == nil { entry.status = "CURRENT" }
-        let changed = old.status != entry.status ||
+        let changed = old.hasMediaListEntry != entry.hasMediaListEntry ||
+            old.status != entry.status ||
             old.progress != entry.progress ||
             old.score != entry.score ||
             old.repeatCount != entry.repeatCount ||
@@ -81,14 +123,44 @@ final class LocalTracking {
     func delete(mediaID: Int) -> Bool {
         entriesLock.lock()
         var entries = allEntries()
-        let removed = entries.removeValue(forKey: mediaID) != nil
-        if removed {
+        var entry = entries[mediaID] ?? LocalMediaTrackingEntry(mediaID: mediaID)
+        let changed = entry.hasMediaListEntry
+        if changed {
+            entry.hasMediaListEntry = false
+            entry.status = nil
+            entry.progress = 0
+            entry.score = 0
+            entry.repeatCount = 0
+            entry.customLists = []
+            entry.updatedAt = Date()
+            entries[mediaID] = entry
             save(entries)
         }
         entriesLock.unlock()
 
-        if removed { notify() }
-        return removed
+        if changed { notify() }
+        return changed
+    }
+
+    func toggleFavourite(mediaID: Int) -> Bool {
+        entriesLock.lock()
+        var entries = allEntries()
+        var entry = entries[mediaID] ?? LocalMediaTrackingEntry(mediaID: mediaID)
+        entry.isFavourite.toggle()
+        entry.updatedAt = Date()
+        entries[mediaID] = entry
+        save(entries)
+        let isFavourite = entry.isFavourite
+        entriesLock.unlock()
+
+        notify()
+        return isFavourite
+    }
+
+    func isFavourite(mediaID: Int) -> Bool {
+        entriesLock.lock()
+        defer { entriesLock.unlock() }
+        return allEntries()[mediaID]?.isFavourite ?? false
     }
 
     func watch(anilistID: Int, episodeProgress: Int, totalEpisodes: Int? = nil) {
@@ -109,7 +181,9 @@ final class LocalTracking {
     func entry(for mediaID: Int) -> AnimeItem.MediaListEntry? {
         entriesLock.lock()
         defer { entriesLock.unlock() }
-        return allEntries()[mediaID]?.animeEntry
+        guard let entry = allEntries()[mediaID],
+              entry.hasMediaListEntry else { return nil }
+        return entry.animeEntry
     }
 
     func progress(for mediaID: Int) -> Int? {
@@ -129,6 +203,7 @@ final class LocalTracking {
         defer { entriesLock.unlock() }
         return allEntries().values
             .filter { entry in
+                guard entry.hasMediaListEntry else { return false }
                 guard let status = entry.status else { return false }
                 return statuses.contains(status)
             }

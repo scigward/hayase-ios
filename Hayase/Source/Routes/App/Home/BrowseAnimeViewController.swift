@@ -2123,9 +2123,9 @@ class BrowseAnimeViewController: UIViewController {
         let localPlanningIDs = LocalTracking.shared.planningIDs()
         lastLocalContinueIDs = localContinueIDs
         lastLocalPlanningIDs = localPlanningIDs
-        let remoteContinueIDs = userListIDs?.continueIDs ?? []
-        let continueIDs = mergeIDs(localContinueIDs, remoteContinueIDs)
-        let planningIDs = userListIDs?.planningIDs ?? localPlanningIDs
+        let hasAniList = TrackerAccountManager.shared.isLoggedIn(.anilist)
+        let continueIDs = userListIDs?.continueIDs ?? (hasAniList ? [] : localContinueIDs)
+        let planningIDs = userListIDs?.planningIDs ?? (hasAniList ? [] : localPlanningIDs)
         let sequelIDs = userListIDs?.sequelIDs ?? []
 
         var descriptors: [HomeSectionDescriptor] = []
@@ -2439,24 +2439,17 @@ class BrowseAnimeViewController: UIViewController {
         removeHomeSectionQueries(where: { _ in true })
     }
 
-    private func mergeIDs(_ primary: [Int], _ secondary: [Int]) -> [Int] {
-        var seen = Set<Int>()
-        var result: [Int] = []
-        for id in primary + secondary where seen.insert(id).inserted {
-            result.append(id)
-        }
-        return result
-    }
-
     @objc private func handleTrackingDidChange(_ notification: Notification) {
         guard !isSearching else { return }
+        let hasAniList = TrackerAccountManager.shared.isLoggedIn(.anilist)
         let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
         let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
         let remoteListChanged = notification.object is AniListTracking
         guard remoteListChanged ||
-              currentLocalContinueIDs != lastLocalContinueIDs ||
-              currentLocalPlanningIDs != lastLocalPlanningIDs else { return }
-        if currentLocalContinueIDs != lastLocalContinueIDs {
+              (!hasAniList &&
+               (currentLocalContinueIDs != lastLocalContinueIDs ||
+                currentLocalPlanningIDs != lastLocalPlanningIDs)) else { return }
+        if !hasAniList, currentLocalContinueIDs != lastLocalContinueIDs {
             applyLocalContinueWatchingOrder(currentLocalContinueIDs)
         }
         homeRefreshTimer?.invalidate()
@@ -2468,6 +2461,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private func refreshPersonalSectionsIfLocalListsChanged() {
         guard !isSearching else { return }
+        guard !TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
         let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
         let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
         guard currentLocalContinueIDs != lastLocalContinueIDs ||

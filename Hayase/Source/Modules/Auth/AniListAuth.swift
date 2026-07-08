@@ -201,7 +201,8 @@ final class AniListTracking {
                 completion(payload.entry, payload.mediaStatus, payload.episodes, payload.format, payload.duration)
             case .failure(let error):
                 NSLog("[AniListTracking] fetchMediaWithEntry failed: %@", error.description)
-                completion(LocalTracking.shared.entry(for: anilistID), nil, nil, nil, nil)
+                let fallbackEntry = TrackerAccountManager.shared.isLoggedIn(.anilist) ? nil : LocalTracking.shared.entry(for: anilistID)
+                completion(fallbackEntry, nil, nil, nil, nil)
             }
         }
     }
@@ -244,7 +245,8 @@ final class AniListTracking {
                         repeatCount: self.jsonInt(mle["repeat"]),
                         customLists: enabledLists)
                 }
-                completion(.success((entry ?? LocalTracking.shared.entry(for: anilistID), mediaStatus, episodes, format, duration)))
+                let fallbackEntry = TrackerAccountManager.shared.isLoggedIn(.anilist) ? nil : LocalTracking.shared.entry(for: anilistID)
+                completion(.success((entry ?? fallbackEntry, mediaStatus, episodes, format, duration)))
             case .failure(let error):
                 completion(.failure(error))
             }
@@ -283,16 +285,21 @@ final class AniListTracking {
                      repeatCount: Int? = nil,
                      lists: [String]? = nil,
                      completion: @escaping (Result<AnimeItem.MediaListEntry, AniListRequestError>) -> Void) {
-        let localEntry = LocalTracking.shared.entry(
+        let syncLocal = TrackerAccountManager.shared.isSyncEnabled(for: .local)
+        let localEntry = syncLocal ? LocalTracking.shared.entry(
             mediaID: mediaID,
             status: status,
             progress: progress,
             score: score,
             repeatCount: repeatCount,
-            lists: lists)
+            lists: lists) : nil
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            completion(.success(localEntry))
+            if let localEntry {
+                completion(.success(localEntry))
+            } else {
+                completion(.failure(.unauthenticated))
+            }
             return
         }
 
@@ -345,7 +352,12 @@ final class AniListTracking {
                 }
                 completion(.success(resultEntry))
             case .failure(let error):
-                completion(.failure(error))
+                if let localEntry {
+                    NSLog("[AniListTracking] SaveMediaListEntry remote failed after local update: %@", error.description)
+                    completion(.success(localEntry))
+                } else {
+                    completion(.failure(error))
+                }
             }
         }
     }
@@ -369,8 +381,18 @@ final class AniListTracking {
                            completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
+            guard TrackerAccountManager.shared.isSyncEnabled(for: .local) else {
+                completion(.failure(.unauthenticated))
+                return
+            }
             completion(.success(LocalTracking.shared.delete(mediaID: mediaID ?? listID)))
             return
+        }
+        var localDeleteAttempted = false
+        if TrackerAccountManager.shared.isSyncEnabled(for: .local),
+           let mediaID {
+            localDeleteAttempted = true
+            _ = LocalTracking.shared.delete(mediaID: mediaID)
         }
 
         authRequestResult(query: AniListQueries.deleteEntry, variables: ["id": listID]) { [weak self] result in
@@ -395,7 +417,12 @@ final class AniListTracking {
                 }
                 completion(.success(deleted))
             case .failure(let error):
-                completion(.failure(error))
+                if localDeleteAttempted {
+                    NSLog("[AniListTracking] DeleteMediaListEntry remote failed after local update: %@", error.description)
+                    completion(.success(true))
+                } else {
+                    completion(.failure(error))
+                }
             }
         }
     }
@@ -403,7 +430,9 @@ final class AniListTracking {
     // MARK: - watch()
 
     func watch(anilistID: Int, episodeProgress: Int) {
-        LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress)
+        if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
+            LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress)
+        }
         fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, mediaStatus, totalEps, _, _ in
             guard let self else { return }
 
@@ -415,7 +444,9 @@ final class AniListTracking {
 
             let total = totalEps ?? max(1, episodeProgress)
             if total < episodeProgress { return }
-            LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress, totalEpisodes: total)
+            if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
+                LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress, totalEpisodes: total)
+            }
 
             let currentProgress = currentEntry?.progress ?? 0
             if currentProgress >= episodeProgress { return }
@@ -439,7 +470,9 @@ final class AniListTracking {
     // MARK: - setInitialState()
 
     func setInitialState(anilistID: Int, episode: Int) {
-        LocalTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
+        if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
+            LocalTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
+        }
         guard episode == 1 else { return }
 
         fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, _, totalEps, _, _ in
@@ -668,7 +701,7 @@ final class AniListTracking {
             completion(localProgress); return
         }
         fetchMediaWithEntry(anilistID: anilistID) { entry, _, _, _, _ in
-            completion(max(entry?.progress ?? 0, localProgress ?? 0))
+            completion(entry?.progress)
         }
     }
 
@@ -688,6 +721,15 @@ final class AniListTracking {
 
     func toggleFavouriteResult(mediaID: Int,
                                completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        let localFavourite = LocalTracking.shared.toggleFavourite(mediaID: mediaID)
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
+              TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
+            AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: localFavourite)
+            notifyTrackingDidChange()
+            completion(.success(localFavourite))
+            return
+        }
+
         authRequestResult(query: AniListQueries.toggleFavourite, variables: ["animeId": mediaID]) { [weak self] result in
             switch result {
             case .success(let data):
@@ -701,7 +743,10 @@ final class AniListTracking {
                 self?.notifyTrackingDidChange()
                 completion(.success(isFavourite))
             case .failure(let error):
-                completion(.failure(error))
+                NSLog("[AniListTracking] ToggleFavourite remote failed after local update: %@", error.description)
+                AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: localFavourite)
+                self?.notifyTrackingDidChange()
+                completion(.success(localFavourite))
             }
         }
     }
@@ -720,6 +765,10 @@ final class AniListTracking {
 
     func checkIsFavouriteResult(mediaID: Int,
                                 completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
+            completion(.success(LocalTracking.shared.isFavourite(mediaID: mediaID)))
+            return
+        }
         authRequestResult(query: AniListQueries.isFavourite, variables: ["id": mediaID]) { result in
             switch result {
             case .success(let data):
