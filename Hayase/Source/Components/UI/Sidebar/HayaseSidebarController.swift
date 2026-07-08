@@ -558,7 +558,7 @@ final class HayaseSidebarController: UIViewController {
             self.restoreScrollPositionIfNeeded(for: route)
         }
 
-        if shouldCrossfadeRoute(kind: kind, animated: animated) {
+        if shouldCrossfadeRoute(route: route, kind: kind, animated: animated) {
             UIView.transition(with: contentContainer,
                               duration: 0.16,
                               options: [.transitionCrossDissolve, .allowAnimatedContent],
@@ -568,8 +568,16 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func shouldCrossfadeRoute(kind: Router.NavigationKind, animated: Bool) -> Bool {
+    private func shouldCrossfadeRoute(route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
         guard animated else { return false }
+        switch route {
+        case .anime, .animeThread:
+            // UINavigationController owns anime stack pushes. Wrapping them in
+            // a content crossfade can leave compact iPhone interaction disabled.
+            return false
+        default:
+            break
+        }
         switch kind {
         case .push, .back, .forward:
             return true
