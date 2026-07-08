@@ -312,6 +312,7 @@ struct AniListThread {
     let isSubscribed: Bool?
     let isLiked: Bool?
     let createdAt: TimeInterval
+    let user: AniListUserSummary?
     let userName: String?
     let avatarURL: String?
     let categories: [String]
@@ -332,6 +333,7 @@ struct AniListThread {
         let createdAt = (dict["createdAt"] as? NSNumber)?.doubleValue ?? dict["createdAt"] as? TimeInterval
         self.createdAt = repliedAt ?? createdAt ?? 0
         let user = dict["user"] as? [String: Any]
+        self.user = user.flatMap { AniListUserSummary(dict: $0) }
         self.userName = user?["name"] as? String
         let avatar = user?["avatar"] as? [String: Any]
         self.avatarURL = avatar?["large"] as? String

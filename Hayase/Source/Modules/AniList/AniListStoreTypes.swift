@@ -21,6 +21,7 @@ struct AniListThreadComment {
     let createdAt: TimeInterval
     let user: AniListUserSummary?
     let childComments: Any?
+    let childCommentItems: [AniListThreadComment]
     let isLocked: Bool
 
     init?(dict: [String: Any]) {
@@ -36,6 +37,13 @@ struct AniListThreadComment {
         }
         self.user = (dict["user"] as? [String: Any]).flatMap { AniListUserSummary(dict: $0) }
         self.childComments = dict["childComments"]
+        if let children = dict["childComments"] as? [[String: Any]] {
+            self.childCommentItems = children.compactMap { AniListThreadComment(dict: $0) }
+        } else if let children = dict["childComments"] as? [Any] {
+            self.childCommentItems = children.compactMap { ($0 as? [String: Any]).flatMap(AniListThreadComment.init) }
+        } else {
+            self.childCommentItems = []
+        }
         self.isLocked = dict["isLocked"] as? Bool ?? false
     }
 
