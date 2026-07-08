@@ -517,6 +517,13 @@ final class AnimeInfoHeaderView: UIView {
     private var contentWidthConstraint: NSLayoutConstraint?
     private var contentCenterXConstraint: NSLayoutConstraint?
     private var playComboWidthConstraint: NSLayoutConstraint?
+    private enum ActionLayoutMode {
+        case regular
+        case compactNarrow
+        case compactWide
+    }
+    private var appliedActionLayoutMode: ActionLayoutMode?
+    private var appliedPlayComboWidth: CGFloat = -1
 
     // MARK: - Cover
 
@@ -970,32 +977,12 @@ final class AnimeInfoHeaderView: UIView {
 
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
 
-        actionsTrailingSpacer.removeFromSuperview()
-        for sv in actionsRow.arrangedSubviews { actionsRow.removeArrangedSubview(sv) }
-
         if isRegular {
-            actionsRow.addArrangedSubview(playCombo)
-            actionsRow.addArrangedSubview(favoriteButton)
-            actionsRow.addArrangedSubview(bookmarkButton)
-            actionsRow.addArrangedSubview(shareButton)
-            actionsRow.addArrangedSubview(trailerButton)
-            actionsRow.addArrangedSubview(anilistButton)
-            actionsRow.addArrangedSubview(malButton)
-            actionsRow.addArrangedSubview(headerFollowerStack)
-            actionsRow.addArrangedSubview(actionsTrailingSpacer)
-            actionsRow.setCustomSpacing(20, after: playCombo)
             anilistButton.isHidden = false
             malButton.isHidden = (malId == nil)
             updateFollowerProfileSpacing(isRegular: true)
             headerFollowerStack.isHidden = headerFollowerStack.arrangedSubviews.isEmpty
         } else {
-            actionsRow.addArrangedSubview(bookmarkButton)
-            actionsRow.addArrangedSubview(favoriteButton)
-            actionsRow.addArrangedSubview(playCombo)
-            actionsRow.addArrangedSubview(shareButton)
-            actionsRow.addArrangedSubview(trailerButton)
-            actionsRow.addArrangedSubview(anilistButton)
-            actionsRow.addArrangedSubview(malButton)
             anilistButton.isHidden = true
             malButton.isHidden = true
             headerFollowerStack.isHidden = true
@@ -1082,13 +1069,18 @@ final class AnimeInfoHeaderView: UIView {
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         let contentWidth = max(0, effectiveWidth - 2 * hPad)
         let isNarrow = contentWidth < 380
+        let targetMode: ActionLayoutMode = isRegular ? .regular : (isNarrow ? .compactNarrow : .compactWide)
+        applyActionLayoutMode(targetMode)
 
-        if isNarrow {
-            playComboWidthConstraint?.priority = .required
-            playComboWidthConstraint?.constant = contentWidth
-        } else {
-            playComboWidthConstraint?.priority = UILayoutPriority(999)
-            playComboWidthConstraint?.constant = 180
+        let fixedButtonWidth = isNarrow ? (36 * 2 + actionsRow.spacing * 2) : 0
+        let targetPlayComboWidth = isNarrow ? max(0, contentWidth - fixedButtonWidth) : 180
+        let targetPriority: UILayoutPriority = isNarrow ? .required : UILayoutPriority(999)
+        if playComboWidthConstraint?.priority != targetPriority {
+            playComboWidthConstraint?.priority = targetPriority
+        }
+        if abs(targetPlayComboWidth - appliedPlayComboWidth) > 0.5 {
+            appliedPlayComboWidth = targetPlayComboWidth
+            playComboWidthConstraint?.constant = targetPlayComboWidth
         }
 
         shareButton.isHidden = isNarrow
@@ -1097,6 +1089,49 @@ final class AnimeInfoHeaderView: UIView {
         malButton.isHidden = !isRegular || malId == nil
         headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
         updateFollowerProfileSpacing(isRegular: isRegular)
+    }
+
+    private func applyActionLayoutMode(_ mode: ActionLayoutMode) {
+        guard appliedActionLayoutMode != mode else { return }
+        appliedActionLayoutMode = mode
+
+        actionsTrailingSpacer.removeFromSuperview()
+        actionsRow.arrangedSubviews.forEach {
+            actionsRow.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+
+        switch mode {
+        case .regular:
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            actionsRow.addArrangedSubview(headerFollowerStack)
+            actionsRow.addArrangedSubview(actionsTrailingSpacer)
+            actionsRow.setCustomSpacing(20, after: playCombo)
+        case .compactNarrow:
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            actionsRow.setCustomSpacing(actionsRow.spacing, after: playCombo)
+        case .compactWide:
+            actionsRow.addArrangedSubview(bookmarkButton)
+            actionsRow.addArrangedSubview(favoriteButton)
+            actionsRow.addArrangedSubview(playCombo)
+            actionsRow.addArrangedSubview(shareButton)
+            actionsRow.addArrangedSubview(trailerButton)
+            actionsRow.addArrangedSubview(anilistButton)
+            actionsRow.addArrangedSubview(malButton)
+            actionsRow.setCustomSpacing(actionsRow.spacing, after: playCombo)
+        }
     }
 
     private func updateFollowerProfileSpacing(isRegular: Bool) {
