@@ -261,10 +261,12 @@ final class ChipWrapView: UIView {
     let chipHeight: CGFloat = 28
 
     private var chipWidths: [CGFloat] = []
+    private var lastLaidOutHeight: CGFloat = 0
 
     func setChips(_ newChips: [UIView]) {
         subviews.forEach { $0.removeFromSuperview() }
         chipWidths = newChips.map { widthForChip($0) }
+        lastLaidOutHeight = 0
         newChips.forEach {
             $0.translatesAutoresizingMaskIntoConstraints = true
             addSubview($0)
@@ -313,7 +315,8 @@ final class ChipWrapView: UIView {
             x += w + interItemSpacing
         }
         let newH = y + chipHeight
-        if abs(newH - intrinsicContentSize.height) > 0.5 {
+        if abs(newH - lastLaidOutHeight) > 0.5 {
+            lastLaidOutHeight = newH
             invalidateIntrinsicContentSize()
             superview?.setNeedsLayout()
         }
@@ -742,6 +745,7 @@ final class AnimeInfoHeaderView: UIView {
     private var bannerHidden = false
     private var hasTrailer = false
     private var rawDescription: String?
+    private var lastAppliedLabelMaxWidth: CGFloat = 0
 
     // MARK: - Init
 
@@ -912,6 +916,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private func applyLayoutForSizeClass() {
         let isRegular = traitCollection.horizontalSizeClass == .regular
+        lastAppliedSizeClass = traitCollection.horizontalSizeClass
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
 
@@ -1005,7 +1010,6 @@ final class AnimeInfoHeaderView: UIView {
             lastAppliedSizeClass = currentSC
             applyLayoutForSizeClass()
             setNeedsLayout()
-            layoutIfNeeded()
             invalidateIntrinsicContentSize()
         }
     }
@@ -1020,7 +1024,6 @@ final class AnimeInfoHeaderView: UIView {
                 lastAppliedSizeClass = currentSC
                 applyLayoutForSizeClass()
                 setNeedsLayout()
-                layoutIfNeeded()
                 invalidateIntrinsicContentSize()
             }
         }
@@ -1050,6 +1053,7 @@ final class AnimeInfoHeaderView: UIView {
     }
 
     func updateLabelWidths(forContainerWidth width: CGFloat) {
+        guard width > 1 else { return }
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let measuredWidth = measuredContentWidth(fallbackWidth: width)
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
@@ -1061,6 +1065,8 @@ final class AnimeInfoHeaderView: UIView {
             maxW = effectiveWidth - 2 * hPad
         }
         guard maxW > 0 else { return }
+        guard abs(maxW - lastAppliedLabelMaxWidth) > 0.5 else { return }
+        lastAppliedLabelMaxWidth = maxW
         titleLabel.preferredMaxLayoutWidth = maxW
         romajiLabel.preferredMaxLayoutWidth = maxW
         descriptionLabel.preferredMaxLayoutWidth = maxW
