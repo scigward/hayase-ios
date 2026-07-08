@@ -14,6 +14,10 @@ final class ThreadDetailViewController: UIViewController {
     private let threadID: Int
     private let threadTitle: String
     private let accentColor: UIColor
+    private let perPage = 15
+    private var currentPage = 1
+    private var currentThread: AniListThread?
+    private var currentCommentsPage: AniListCommentPage?
     var routeThreadID: Int { threadID }
 
     init(threadID: Int, title: String, accentColor: UIColor? = nil) {
@@ -79,20 +83,42 @@ final class ThreadDetailViewController: UIViewController {
     // MARK: - Fetch
     private func fetchThread() {
         spinner.startAnimating()
-        AniListForumClient.shared.threadDetailResult(threadID: threadID) { [weak self] result in
+        AniListForumClient.shared.threadDetailResult(threadID: threadID, page: currentPage) { [weak self] result in
             guard let self else { return }
             self.spinner.stopAnimating()
             switch result {
             case .success(let payload):
-                self.render(thread: payload.thread, comments: payload.comments.comments)
+                self.currentThread = payload.thread
+                self.currentCommentsPage = payload.comments
+                self.render(thread: payload.thread, commentsPage: payload.comments)
             case .failure(let error):
                 self.showError(error.localizedDescription)
             }
         }
     }
 
+    private func fetchComments(page: Int) {
+        currentPage = page
+        renderLoadingComments()
+        AniListForumClient.shared.commentsResult(threadID: threadID, page: page) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let page):
+                self.currentCommentsPage = page
+                self.render(thread: self.currentThread, commentsPage: page)
+            case .failure(let error):
+                self.showCommentsError(error.localizedDescription)
+            }
+        }
+    }
+
     // MARK: - Render
-    private func render(thread: AniListThread?, comments: [AniListThreadComment]) {
+    private func render(thread: AniListThread?, commentsPage: AniListCommentPage) {
+        renderBase(thread: thread)
+        renderComments(thread: thread, commentsPage: commentsPage)
+    }
+
+    private func renderBase(thread: AniListThread?) {
         contentStack.arrangedSubviews.forEach { view in
             contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -110,10 +136,13 @@ final class ThreadDetailViewController: UIViewController {
         let repliesLabel = UILabel()
         repliesLabel.font = .nunito(ofSize: 20, weight: .bold)
         repliesLabel.textColor = UIColor.HayaseTheme.foreground
-        repliesLabel.text = "\(thread?.replyCount ?? comments.count) Replies"
+        repliesLabel.text = "\(thread?.replyCount ?? currentCommentsPage?.total ?? 0) Replies"
         repliesLabel.numberOfLines = 1
         contentStack.addArrangedSubview(repliesLabel)
+    }
 
+    private func renderComments(thread: AniListThread?, commentsPage: AniListCommentPage) {
+        let comments = commentsPage.comments
         if comments.isEmpty {
             contentStack.addArrangedSubview(makeEmptyState())
         } else {
@@ -123,6 +152,36 @@ final class ThreadDetailViewController: UIViewController {
                 }
                 contentStack.addArrangedSubview(view)
             }
+        }
+        contentStack.addArrangedSubview(makePaginationView(commentsPage: commentsPage))
+    }
+
+    private func renderLoadingComments() {
+        renderBase(thread: currentThread)
+        for _ in 0..<4 {
+            contentStack.addArrangedSubview(ThreadCommentSkeletonView())
+        }
+        if let currentCommentsPage {
+            contentStack.addArrangedSubview(makePaginationView(commentsPage: currentCommentsPage))
+        }
+    }
+
+
+    private func makePaginationView(commentsPage: AniListCommentPage) -> ThreadPaginationView {
+        let view = ThreadPaginationView()
+        view.configure(count: commentsPage.total,
+                       perPage: perPage,
+                       currentPage: currentPage) { [weak self] page in
+            self?.fetchComments(page: page)
+        }
+        return view
+    }
+
+    private func showCommentsError(_ message: String) {
+        renderBase(thread: currentThread)
+        contentStack.addArrangedSubview(makeErrorState(message))
+        if let currentCommentsPage {
+            contentStack.addArrangedSubview(makePaginationView(commentsPage: currentCommentsPage))
         }
     }
 
@@ -186,9 +245,11 @@ final class ThreadDetailViewController: UIViewController {
             contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-
         contentStack.addArrangedSubview(makeHeader(title: threadTitle))
+        contentStack.addArrangedSubview(makeErrorState(message))
+    }
 
+    private func makeErrorState(_ message: String) -> UIView {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.heightAnchor.constraint(equalToConstant: 320).isActive = true
@@ -226,7 +287,7 @@ final class ThreadDetailViewController: UIViewController {
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
         ])
-        contentStack.addArrangedSubview(container)
+        return container
     }
 
     @objc private func goBack() {
