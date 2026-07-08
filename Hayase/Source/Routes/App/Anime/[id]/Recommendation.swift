@@ -104,7 +104,7 @@ extension AnimeDetailViewController {
         animePageErrorDescription = nil
         followingEntriesByEpisode.removeAll()
         headerView?.clearFollowingAvatars()
-        reloadAnimePagePayloadSections()
+        reloadAnimePagePayloadSections(includeHeader: false)
 
         AniListClient.shared.fetchAnimePageResult(id: id) { [weak self] result in
             guard let self,
@@ -157,16 +157,23 @@ extension AnimeDetailViewController {
         }
     }
 
-    private func reloadAnimePagePayloadSections() {
+    func reloadAnimePagePayloadSections(includeHeader: Bool = true) {
         guard tableView != nil else { return }
-        let sections = IndexSet([
-            Section.header.rawValue,
+        guard canReloadAnimePagePayloadSections() else {
+            pendingAnimePagePayloadReload = true
+            pendingAnimePagePayloadReloadIncludesHeader = pendingAnimePagePayloadReloadIncludesHeader || includeHeader
+            return
+        }
+        var rawSections = [
             Section.episodes.rawValue,
             Section.relations.rawValue,
             Section.threads.rawValue,
             Section.recommendations.rawValue,
-        ])
-        tableView.reloadSections(sections, with: .none)
+        ]
+        if includeHeader {
+            rawSections.insert(Section.header.rawValue, at: 0)
+        }
+        tableView.reloadSections(IndexSet(rawSections), with: .none)
     }
 
     func makeRecommendationCell(for indexPath: IndexPath) -> UITableViewCell {

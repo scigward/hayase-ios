@@ -1756,6 +1756,10 @@ class AnimeDetailViewController: UIViewController {
     var themesLoading = false
     var animePageRequestID = UUID()
     var animePageErrorDescription: String?
+    var hasCompletedInitialAnimeLayout = false
+    var pendingAnimePagePayloadReload = false
+    var pendingAnimePagePayloadReloadIncludesHeader = false
+    private var hasStartedInitialAnimeLoads = false
 
     var activeSection: Section = .episodes
 
@@ -1885,8 +1889,6 @@ class AnimeDetailViewController: UIViewController {
         observeAnimeBackdrop()
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
-        fetchAnimePageData()
-        fetchEpisodes()
         applyViewerStateFromRouteMedia()
         headerView?.publishSidebarBackdrop()
     }
@@ -1904,6 +1906,18 @@ class AnimeDetailViewController: UIViewController {
         nb?.tintColor = .white
 
         headerView?.publishSidebarBackdrop()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        markInitialAnimeLayoutCompleteIfReady()
+        startInitialAnimeLoadsIfReady()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        markInitialAnimeLayoutCompleteIfReady()
+        startInitialAnimeLoadsIfReady()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1929,6 +1943,52 @@ class AnimeDetailViewController: UIViewController {
             self.configureAnimeBackdropForCurrentSize(width: size.width)
             self.tableView.reloadData()
         })
+    }
+
+    @discardableResult
+    private func markInitialAnimeLayoutCompleteIfReady() -> Bool {
+        guard !hasCompletedInitialAnimeLayout,
+              tableView != nil,
+              tableView.window != nil,
+              tableView.bounds.width > 1,
+              tableView.bounds.height > 1 else { return hasCompletedInitialAnimeLayout }
+        hasCompletedInitialAnimeLayout = true
+        flushPendingAnimePagePayloadReload()
+        return true
+    }
+
+    private func startInitialAnimeLoadsIfReady() {
+        guard !hasStartedInitialAnimeLoads,
+              hasCompletedInitialAnimeLayout,
+              tableView != nil,
+              tableView.window != nil,
+              tableView.bounds.width > 1,
+              tableView.bounds.height > 1 else { return }
+        hasStartedInitialAnimeLoads = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.tableView != nil,
+                  self.tableView.window != nil else { return }
+            self.fetchAnimePageData()
+            self.fetchEpisodes()
+        }
+    }
+
+    func canReloadAnimePagePayloadSections() -> Bool {
+        tableView != nil
+            && hasCompletedInitialAnimeLayout
+            && tableView.window != nil
+            && tableView.bounds.width > 1
+            && tableView.bounds.height > 1
+    }
+
+    func flushPendingAnimePagePayloadReload() {
+        guard pendingAnimePagePayloadReload,
+              canReloadAnimePagePayloadSections() else { return }
+        let includeHeader = pendingAnimePagePayloadReloadIncludesHeader
+        pendingAnimePagePayloadReload = false
+        pendingAnimePagePayloadReloadIncludesHeader = false
+        reloadAnimePagePayloadSections(includeHeader: includeHeader)
     }
 
     // MARK: - Setup
