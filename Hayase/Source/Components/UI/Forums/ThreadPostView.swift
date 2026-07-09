@@ -17,9 +17,13 @@ final class ThreadPostView: UIView {
     private let bodyHost = UIStackView()
     private let footerRow = UIStackView()
     private let footerLeading = UIStackView()
+    private let likeButton = ThreadForumIconButton(iconName: "heart")
+    private let replyButton = ThreadForumIconButton(iconName: "reply")
     private let dateLabel = UILabel()
     private let badgeStack = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
+    private var onLike: (() -> Void)?
+    private var onReply: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -78,8 +82,11 @@ final class ThreadPostView: UIView {
         footerLeading.spacing = 4
         footerRow.addArrangedSubview(footerLeading)
 
-        footerLeading.addArrangedSubview(ThreadForumIconButton(iconName: "heart"))
-        footerLeading.addArrangedSubview(ThreadForumIconButton(iconName: "reply"))
+        likeButton.addTarget(self, action: #selector(likeTapped), for: .touchUpInside)
+        footerLeading.addArrangedSubview(likeButton)
+
+        replyButton.addTarget(self, action: #selector(replyTapped), for: .touchUpInside)
+        footerLeading.addArrangedSubview(replyButton)
 
         dateLabel.font = .nunito(ofSize: 9.6)
         dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
@@ -103,7 +110,12 @@ final class ThreadPostView: UIView {
     func configure(thread: AniListThread?,
                    fallbackTitle: String,
                    accentColor: UIColor,
-                   onNavigatePath: @escaping (String) -> Void) {
+                   onNavigatePath: @escaping (String) -> Void,
+                   onLike: @escaping () -> Void,
+                   onReply: @escaping () -> Void) {
+        self.onLike = onLike
+        self.onReply = onReply
+
         let user = thread?.user
         avatarStack.reset()
         if let user {
@@ -115,6 +127,11 @@ final class ThreadPostView: UIView {
                             replies: thread?.replyCount ?? 0,
                             locked: thread?.isLocked ?? false)
         dateLabel.text = thread?.sinceString ?? ""
+
+        let canInteract = !(thread?.isLocked ?? false) && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        likeButton.setFilled(thread?.isLiked ?? false)
+        likeButton.isEnabled = canInteract && thread != nil
+        replyButton.isEnabled = canInteract && thread != nil
 
         bodyHost.arrangedSubviews.forEach { view in
             bodyHost.removeArrangedSubview(view)
@@ -152,5 +169,13 @@ final class ThreadPostView: UIView {
         badge.clipsToBounds = true
         badge.textAlignment = .center
         return badge
+    }
+
+    @objc private func likeTapped() {
+        onLike?()
+    }
+
+    @objc private func replyTapped() {
+        onReply?()
     }
 }

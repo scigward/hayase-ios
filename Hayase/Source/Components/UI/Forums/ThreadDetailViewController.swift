@@ -127,9 +127,18 @@ final class ThreadDetailViewController: UIViewController {
         contentStack.addArrangedSubview(makeHeader(title: thread?.title ?? threadTitle))
 
         let postView = ThreadPostView()
-        postView.configure(thread: thread, fallbackTitle: threadTitle, accentColor: accentColor) { [weak self] path in
+        postView.configure(thread: thread,
+                           fallbackTitle: threadTitle,
+                           accentColor: accentColor,
+                           onNavigatePath: { [weak self] path in
             self?.navigate(path: path)
-        }
+        }, onLike: { [weak self] in
+            guard let thread else { return }
+            self?.toggleThreadLike(thread)
+        }, onReply: { [weak self] in
+            guard let thread else { return }
+            self?.presentWriter(threadID: thread.id)
+        })
         contentStack.addArrangedSubview(postView)
         contentStack.setCustomSpacing(40, after: postView)
 
@@ -147,9 +156,20 @@ final class ThreadDetailViewController: UIViewController {
             contentStack.addArrangedSubview(makeEmptyState())
         } else {
             for comment in comments {
-                let view = ThreadCommentView(comment: comment, isLocked: thread?.isLocked ?? false, threadID: threadID) { [weak self] path in
+                let view = ThreadCommentView(comment: comment,
+                                             isLocked: thread?.isLocked ?? false,
+                                             threadID: threadID,
+                                             onNavigatePath: { [weak self] path in
                     self?.navigate(path: path)
-                }
+                }, onLike: { [weak self] comment in
+                    self?.toggleCommentLike(comment)
+                }, onReply: { [weak self] comment, _ in
+                    self?.presentWriter(threadID: self?.threadID, parentCommentID: comment.id)
+                }, onEdit: { [weak self] comment, _ in
+                    self?.presentWriter(threadID: self?.threadID, id: comment.id, value: comment.comment)
+                }, onDelete: { [weak self] comment, _ in
+                    self?.deleteComment(comment)
+                })
                 contentStack.addArrangedSubview(view)
             }
         }
@@ -288,6 +308,80 @@ final class ThreadDetailViewController: UIViewController {
             stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
         ])
         return container
+    }
+
+
+    // MARK: - Actions
+    private func toggleThreadLike(_ thread: AniListThread) {
+        guard !thread.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        AniListForumClient.shared.toggleLikeResult(id: thread.id,
+                                                   type: "THREAD",
+                                                   wasLiked: thread.isLiked ?? false) { [weak self] result in
+            switch result {
+            case .success:
+                self?.fetchThread()
+            case .failure(let error):
+                self?.showActionError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func toggleCommentLike(_ comment: AniListThreadComment) {
+        guard !(currentThread?.isLocked ?? false), !comment.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        AniListForumClient.shared.toggleLikeResult(id: comment.id,
+                                                   type: "THREAD_COMMENT",
+                                                   wasLiked: comment.isLiked ?? false) { [weak self] result in
+            switch result {
+            case .success:
+                self?.fetchComments(page: self?.currentPage ?? 1)
+            case .failure(let error):
+                self?.showActionError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func presentWriter(threadID: Int?, id: Int? = nil, parentCommentID: Int? = nil, value: String = "") {
+        guard let threadID,
+              !(currentThread?.isLocked ?? false),
+              TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        let writer = ThreadWriteViewController(value: value)
+        writer.onSend = { [weak self] comment in
+            self?.saveComment(id: id, threadID: threadID, parentCommentID: parentCommentID, comment: comment)
+        }
+        present(writer, animated: true)
+    }
+
+    private func saveComment(id: Int?, threadID: Int, parentCommentID: Int?, comment: String) {
+        AniListForumClient.shared.commentResult(id: id,
+                                                threadID: threadID,
+                                                parentCommentID: parentCommentID,
+                                                comment: comment,
+                                                rootCommentID: threadID) { [weak self] result in
+            switch result {
+            case .success:
+                self?.fetchThread()
+            case .failure(let error):
+                self?.showActionError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func deleteComment(_ comment: AniListThreadComment) {
+        guard !(currentThread?.isLocked ?? false), !comment.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        AniListForumClient.shared.deleteCommentResult(id: comment.id, rootCommentID: threadID) { [weak self] result in
+            switch result {
+            case .success:
+                self?.fetchThread()
+            case .failure(let error):
+                self?.showActionError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func showActionError(_ message: String) {
+        let alert = UIAlertController(title: "Ooops!", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Close", style: .default))
+        present(alert, animated: true)
     }
 
     @objc private func goBack() {

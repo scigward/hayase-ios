@@ -12,7 +12,12 @@ final class ThreadCommentView: UIView {
     private let isLocked: Bool
     private let threadID: Int
     private let depth: Int
+    private let rootCommentID: Int
     private let onNavigatePath: (String) -> Void
+    private let onLike: (AniListThreadComment) -> Void
+    private let onReply: (AniListThreadComment, Int) -> Void
+    private let onEdit: (AniListThreadComment, Int) -> Void
+    private let onDelete: (AniListThreadComment, Int) -> Void
 
     private let rootStack = UIStackView()
     private let headerRow = UIStackView()
@@ -22,6 +27,10 @@ final class ThreadCommentView: UIView {
     private let likeStack = UIStackView()
     private let bodyHost = UIStackView()
     private let footerRow = UIStackView()
+    private let likeButton = ThreadForumIconButton(iconName: "heart")
+    private let replyButton = ThreadForumIconButton(iconName: "reply")
+    private let editButton = ThreadForumIconButton(iconName: "pen-line")
+    private let deleteButton = ThreadForumIconButton(iconName: "trash-2")
     private let dateLabel = UILabel()
     private var bodyHeightConstraint: NSLayoutConstraint?
 
@@ -29,12 +38,22 @@ final class ThreadCommentView: UIView {
          isLocked: Bool,
          threadID: Int,
          depth: Int = 0,
-         onNavigatePath: @escaping (String) -> Void) {
+         rootCommentID: Int? = nil,
+         onNavigatePath: @escaping (String) -> Void,
+         onLike: @escaping (AniListThreadComment) -> Void,
+         onReply: @escaping (AniListThreadComment, Int) -> Void,
+         onEdit: @escaping (AniListThreadComment, Int) -> Void,
+         onDelete: @escaping (AniListThreadComment, Int) -> Void) {
         self.comment = comment
         self.isLocked = isLocked
         self.threadID = threadID
         self.depth = depth
+        self.rootCommentID = rootCommentID ?? comment.id
         self.onNavigatePath = onNavigatePath
+        self.onLike = onLike
+        self.onReply = onReply
+        self.onEdit = onEdit
+        self.onDelete = onDelete
         super.init(frame: .zero)
         setup()
         configure()
@@ -107,8 +126,18 @@ final class ThreadCommentView: UIView {
         footerRow.isLayoutMarginsRelativeArrangement = true
         rootStack.addArrangedSubview(footerRow)
 
-        footerRow.addArrangedSubview(ThreadForumIconButton(iconName: "heart"))
-        footerRow.addArrangedSubview(ThreadForumIconButton(iconName: "reply"))
+        likeButton.addTarget(self, action: #selector(likeTapped), for: .touchUpInside)
+        footerRow.addArrangedSubview(likeButton)
+
+        replyButton.addTarget(self, action: #selector(replyTapped), for: .touchUpInside)
+        footerRow.addArrangedSubview(replyButton)
+
+        editButton.addTarget(self, action: #selector(editTapped), for: .touchUpInside)
+        footerRow.addArrangedSubview(editButton)
+
+        deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+        footerRow.addArrangedSubview(deleteButton)
+
         dateLabel.font = .nunito(ofSize: 9.6)
         dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
         footerRow.addArrangedSubview(dateLabel)
@@ -131,6 +160,17 @@ final class ThreadCommentView: UIView {
         (likeStack.arrangedSubviews.compactMap { $0 as? UILabel }.first { $0.tag == 88 })?.text = "\(comment.likeCount)"
         dateLabel.text = comment.sinceString
 
+        let viewerID = Int(TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "")
+        let canInteract = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        let isOwner = viewerID == comment.user?.id
+        likeButton.setFilled(comment.isLiked ?? false)
+        likeButton.isEnabled = canInteract
+        replyButton.isEnabled = canInteract
+        editButton.isHidden = !isOwner
+        deleteButton.isHidden = !isOwner
+        editButton.isEnabled = canInteract
+        deleteButton.isEnabled = canInteract
+
         let shadow = AniListShadowView(html: comment.comment, kind: .comment)
         shadow.onNavigatePath = onNavigatePath
         shadow.translatesAutoresizingMaskIntoConstraints = false
@@ -150,7 +190,12 @@ final class ThreadCommentView: UIView {
                                               isLocked: isLocked || comment.isLocked,
                                               threadID: threadID,
                                               depth: depth + 1,
-                                              onNavigatePath: onNavigatePath)
+                                              rootCommentID: rootCommentID,
+                                              onNavigatePath: onNavigatePath,
+                                              onLike: onLike,
+                                              onReply: onReply,
+                                              onEdit: onEdit,
+                                              onDelete: onDelete)
             childView.translatesAutoresizingMaskIntoConstraints = false
             wrapper.addSubview(childView)
             NSLayoutConstraint.activate([
@@ -162,28 +207,62 @@ final class ThreadCommentView: UIView {
             rootStack.insertArrangedSubview(wrapper, at: max(rootStack.arrangedSubviews.count - 1, 0))
         }
     }
+
+    @objc private func likeTapped() {
+        onLike(comment)
+    }
+
+    @objc private func replyTapped() {
+        onReply(comment, rootCommentID)
+    }
+
+    @objc private func editTapped() {
+        onEdit(comment, rootCommentID)
+    }
+
+    @objc private func deleteTapped() {
+        onDelete(comment, rootCommentID)
+    }
 }
 
 final class ThreadForumIconButton: UIButton {
-    init(iconName: String) {
+    private let iconName: String
+    private let pointSize: CGFloat
+
+    init(iconName: String, pointSize: CGFloat = 14) {
+        self.iconName = iconName
+        self.pointSize = pointSize
         super.init(frame: .zero)
-        setup(iconName: iconName)
+        setup()
     }
 
     required init?(coder: NSCoder) {
+        self.iconName = "circle-question-mark"
+        self.pointSize = 14
         super.init(coder: coder)
-        setup(iconName: "circle-question-mark")
+        setup()
     }
 
-    private func setup(iconName: String) {
+    private func setup() {
         backgroundColor = .clear
         tintColor = UIColor.HayaseTheme.foreground
-        setImage(UIImage.hayaseIcon(iconName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)), for: .normal)
-        isUserInteractionEnabled = false
+        adjustsImageWhenHighlighted = true
         translatesAutoresizingMaskIntoConstraints = false
+        setFilled(false)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 28),
             heightAnchor.constraint(equalToConstant: 28),
         ])
+    }
+
+    func setFilled(_ filled: Bool) {
+        let image = filled
+            ? HayaseIcon.filledImage(iconName, pointSize: pointSize)
+            : UIImage.hayaseIcon(iconName, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
+        setImage(image, for: .normal)
+    }
+
+    override var isEnabled: Bool {
+        didSet { alpha = isEnabled ? 1 : 0.4 }
     }
 }

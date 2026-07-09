@@ -1,0 +1,119 @@
+//
+//  ThreadWriteViewController.swift
+//  Hayase
+//
+//  Native bottom-sheet writer for AniList forum comments.
+//
+
+import UIKit
+
+final class ThreadWriteViewController: UIViewController, UITextViewDelegate {
+    private let initialValue: String
+    private let placeholder = "Write a comment on AniList \n\nDO NOT ASK FOR HELP HERE!\n\nAsking questions such as \"why isnt X playing\" or \"why cant i find any torrents\" !__WILL GET YOU BANNED__!\n\nTHIS IS A 3RD PARTY FORUM!"
+    var onSend: ((String) -> Void)?
+
+    private let textView = UITextView()
+    private let placeholderLabel = UILabel()
+
+    init(value: String = "") {
+        self.initialValue = value
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .pageSheet
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupView()
+        textView.text = initialValue
+        placeholderLabel.isHidden = !initialValue.isEmpty
+    }
+
+    private func setupView() {
+        view.backgroundColor = UIColor.HayaseTheme.background
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        textView.backgroundColor = UIColor.HayaseTheme.background
+        textView.textColor = UIColor.HayaseTheme.foreground
+        textView.font = .nunito(ofSize: 16)
+        textView.delegate = self
+        textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.addArrangedSubview(textView)
+
+        placeholderLabel.text = placeholder
+        placeholderLabel.font = .nunito(ofSize: 16)
+        placeholderLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        placeholderLabel.numberOfLines = 0
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        textView.addSubview(placeholderLabel)
+
+        let footer = UIStackView()
+        footer.axis = .horizontal
+        footer.alignment = .center
+        footer.spacing = 8
+        footer.layoutMargins = UIEdgeInsets(top: 8, left: 16, bottom: 16, right: 16)
+        footer.isLayoutMarginsRelativeArrangement = true
+        stack.addArrangedSubview(footer)
+
+        footer.addArrangedSubview(UIView())
+
+        let closeButton = makeTextButton("Close", background: UIColor.HayaseTheme.secondary)
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        footer.addArrangedSubview(closeButton)
+
+        let sendButton = makeTextButton("Send", background: UIColor.HayaseTheme.primary)
+        sendButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
+        sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+        footer.addArrangedSubview(sendButton)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 224),
+
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 24),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 21),
+            placeholderLabel.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -21),
+        ])
+
+        if let sheet = sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = false
+        }
+    }
+
+    private func makeTextButton(_ title: String, background: UIColor) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
+        button.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
+        button.backgroundColor = background
+        button.layer.cornerRadius = 6
+        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        return button
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        placeholderLabel.isHidden = !textView.text.isEmpty
+    }
+
+    @objc private func closeTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func sendTapped() {
+        let value = textView.text ?? ""
+        dismiss(animated: true) { [onSend] in
+            onSend?(value)
+        }
+    }
+}
