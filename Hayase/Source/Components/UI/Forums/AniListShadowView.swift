@@ -94,6 +94,7 @@ final class AniListShadowView: UIView {
             body.thread { padding: 12px 0; }
             body.comment { padding: 0; }
             p, details { margin-block-start: .5em; margin-block-end: .5em; white-space: pre-wrap; }
+            br { display: none; }
             img, video { max-width: 100%; -webkit-user-drag: none; }
             iframe { max-width: 100%; }
             summary { font-weight: bold; cursor: pointer; list-style: none; background: #0003; display: inline-block; padding: 0.4em 0.8em; border-radius: 0.5em; margin-block-end: .5em; }

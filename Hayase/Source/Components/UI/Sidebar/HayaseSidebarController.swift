@@ -667,7 +667,19 @@ final class HayaseSidebarController: UIViewController {
         guard let threadID else { return }
         if let thread = navigationController.topViewController as? ThreadDetailViewController,
            thread.routeThreadID == threadID { return }
-        let thread = ThreadDetailViewController(threadID: threadID, title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread")
+        let animeID: Int?
+        if case .animeThread(let id, _) = router.currentRoute {
+            animeID = id
+        } else {
+            animeID = nil
+        }
+        let accentColor = animeID.flatMap { router.cachedAnimeItem(for: $0) }.flatMap {
+            ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "")
+        }
+        let thread = ThreadDetailViewController(threadID: threadID,
+                                                animeID: animeID,
+                                                title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread",
+                                                accentColor: accentColor)
         navigationController.pushViewController(thread, animated: animated)
         restoreScrollPositionIfNeeded(for: router.currentRoute)
     }

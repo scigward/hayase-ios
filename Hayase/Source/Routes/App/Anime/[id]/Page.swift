@@ -281,7 +281,12 @@ extension AnimeDetailViewController: UITableViewDelegate {
                 Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
                                                    hostTabIndex: tabBarController?.selectedIndex)
             } else {
-                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                let accentColor = animeItem.flatMap { item in
+                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
+                let threadVC = ThreadDetailViewController(threadID: thread.id,
+                                                                  animeID: routeAnimeID,
+                                                                  title: thread.title,
+                                                                  accentColor: accentColor)
                 navigationController?.pushViewController(threadVC, animated: true)
             }
         case .themes:

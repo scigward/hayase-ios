@@ -39,16 +39,19 @@ final class ThreadWriteViewController: UIViewController, UITextViewDelegate {
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
 
-        textView.backgroundColor = UIColor.HayaseTheme.background
-        textView.textColor = UIColor.HayaseTheme.foreground
-        textView.font = .nunito(ofSize: 16)
+        textView.backgroundColor = UIColor(red: 40/255, green: 44/255, blue: 52/255, alpha: 1)
+        textView.textColor = UIColor(red: 171/255, green: 178/255, blue: 191/255, alpha: 1)
+        textView.font = .nunito(ofSize: 14)
+        textView.layer.borderWidth = 1
+        textView.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        textView.layer.cornerRadius = 0
         textView.delegate = self
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.addArrangedSubview(textView)
 
         placeholderLabel.text = placeholder
-        placeholderLabel.font = .nunito(ofSize: 16)
-        placeholderLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        placeholderLabel.font = .nunito(ofSize: 14)
+        placeholderLabel.textColor = UIColor(red: 171/255, green: 178/255, blue: 191/255, alpha: 0.65)
         placeholderLabel.numberOfLines = 0
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         textView.addSubview(placeholderLabel)
@@ -86,8 +89,12 @@ final class ThreadWriteViewController: UIViewController, UITextViewDelegate {
         ])
 
         if let sheet = sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            sheet.detents = [.custom { [weak self] context in
+                let ratio: CGFloat = self?.traitCollection.horizontalSizeClass == .regular ? 0.5 : 0.9
+                return context.maximumDetentValue * ratio
+            }]
             sheet.prefersGrabberVisible = false
+            sheet.preferredCornerRadius = 0
         }
     }
 

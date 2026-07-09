@@ -12,6 +12,7 @@ final class ThreadDetailViewController: UIViewController {
 
     // MARK: - Init
     private let threadID: Int
+    private let animeID: Int?
     private let threadTitle: String
     private let accentColor: UIColor
     private let perPage = 15
@@ -20,10 +21,14 @@ final class ThreadDetailViewController: UIViewController {
     private var currentCommentsPage: AniListCommentPage?
     var routeThreadID: Int { threadID }
 
-    init(threadID: Int, title: String, accentColor: UIColor? = nil) {
+    init(threadID: Int, animeID: Int? = nil, title: String, accentColor: UIColor? = nil) {
         self.threadID = threadID
+        self.animeID = animeID
         self.threadTitle = title
-        self.accentColor = accentColor ?? UIColor.HayaseTheme.secondary
+        let cachedAccent = animeID
+            .flatMap { Router.shared.cachedAnimeItem(for: $0) }
+            .flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
+        self.accentColor = accentColor ?? cachedAccent ?? UIColor.HayaseTheme.secondary
         super.init(nibName: nil, bundle: nil)
         self.title = title
     }
@@ -142,7 +147,7 @@ final class ThreadDetailViewController: UIViewController {
         contentStack.setCustomSpacing(40, after: postView)
 
         let repliesLabel = UILabel()
-        repliesLabel.font = .nunito(ofSize: 20, weight: .bold)
+        repliesLabel.font = .nunito(ofSize: threadTitleFontSize, weight: .bold)
         repliesLabel.textColor = UIColor.HayaseTheme.foreground
         repliesLabel.text = "\(thread?.replyCount ?? currentCommentsPage?.total ?? 0) Replies"
         repliesLabel.numberOfLines = 1
@@ -169,6 +174,7 @@ final class ThreadDetailViewController: UIViewController {
                     self?.deleteComment(comment)
                 })
                 contentStack.addArrangedSubview(view)
+                contentStack.setCustomSpacing(0, after: view)
             }
         }
         contentStack.addArrangedSubview(makePaginationView(commentsPage: commentsPage))
@@ -177,7 +183,9 @@ final class ThreadDetailViewController: UIViewController {
     private func renderLoadingComments() {
         renderBase(thread: currentThread)
         for _ in 0..<4 {
-            contentStack.addArrangedSubview(ThreadCommentSkeletonView())
+            let skeleton = ThreadCommentSkeletonView()
+            contentStack.addArrangedSubview(skeleton)
+            contentStack.setCustomSpacing(0, after: skeleton)
         }
         if let currentCommentsPage {
             contentStack.addArrangedSubview(makePaginationView(commentsPage: currentCommentsPage))
@@ -215,7 +223,7 @@ final class ThreadDetailViewController: UIViewController {
         row.addArrangedSubview(backButton)
 
         let titleLabel = UILabel()
-        titleLabel.font = .nunito(ofSize: 20, weight: .bold)
+        titleLabel.font = .nunito(ofSize: threadTitleFontSize, weight: .bold)
         titleLabel.textColor = UIColor.HayaseTheme.foreground
         titleLabel.text = title.isEmpty ? "No thread title..." : title
         titleLabel.numberOfLines = 1
@@ -382,8 +390,16 @@ final class ThreadDetailViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    private var threadTitleFontSize: CGFloat {
+        UIScreen.main.bounds.width >= 768 ? 24 : 20
+    }
+
     @objc private func goBack() {
-        navigationController?.popViewController(animated: true)
+        if let animeID {
+            _ = Router.shared.navigate(path: "/app/anime/\(animeID)", hostTabIndex: tabBarController?.selectedIndex)
+        } else {
+            navigationController?.popViewController(animated: true)
+        }
     }
 
     private func navigate(path: String) {

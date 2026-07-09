@@ -31,6 +31,7 @@ final class ThreadCommentView: UIView {
     private let editButton = ThreadForumIconButton(iconName: "pen-line")
     private let deleteButton = ThreadForumIconButton(iconName: "trash-2")
     private let dateLabel = UILabel()
+    private let dateContainer = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
 
     init(comment: AniListThreadComment,
@@ -135,9 +136,13 @@ final class ThreadCommentView: UIView {
         deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
         footerRow.addArrangedSubview(deleteButton)
 
+        dateContainer.axis = .horizontal
+        dateContainer.layoutMargins = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        dateContainer.isLayoutMarginsRelativeArrangement = true
         dateLabel.font = .nunito(ofSize: 9.6)
         dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        footerRow.addArrangedSubview(dateLabel)
+        dateContainer.addArrangedSubview(dateLabel)
+        footerRow.addArrangedSubview(dateContainer)
         footerRow.addArrangedSubview(UIView())
 
         NSLayoutConstraint.activate([
@@ -158,7 +163,7 @@ final class ThreadCommentView: UIView {
         dateLabel.text = comment.sinceString
 
         let viewerID = Int(TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "")
-        let canInteract = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        let canInteract = !isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
         let isOwner = viewerID == comment.user?.id
         likeButton.setFilled(comment.isLiked ?? false)
         likeButton.isEnabled = canInteract
@@ -184,7 +189,7 @@ final class ThreadCommentView: UIView {
             let wrapper = UIView()
             wrapper.translatesAutoresizingMaskIntoConstraints = false
             let childView = ThreadCommentView(comment: child,
-                                              isLocked: isLocked || comment.isLocked,
+                                              isLocked: isLocked,
                                               depth: depth + 1,
                                               rootCommentID: rootCommentID,
                                               onNavigatePath: onNavigatePath,
@@ -225,7 +230,7 @@ final class ThreadForumIconButton: UIButton {
     private let iconName: String
     private let pointSize: CGFloat
 
-    init(iconName: String, pointSize: CGFloat = 14) {
+    init(iconName: String, pointSize: CGFloat = 11.2) {
         self.iconName = iconName
         self.pointSize = pointSize
         super.init(frame: .zero)
@@ -234,7 +239,7 @@ final class ThreadForumIconButton: UIButton {
 
     required init?(coder: NSCoder) {
         self.iconName = "circle-question-mark"
-        self.pointSize = 14
+        self.pointSize = 11.2
         super.init(coder: coder)
         setup()
     }
@@ -246,8 +251,8 @@ final class ThreadForumIconButton: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
         setFilled(false)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 28),
-            heightAnchor.constraint(equalToConstant: 28),
+            widthAnchor.constraint(equalToConstant: 25.6),
+            heightAnchor.constraint(equalToConstant: 25.6),
         ])
     }
 

@@ -20,6 +20,7 @@ final class ThreadPostView: UIView {
     private let likeButton = ThreadForumIconButton(iconName: "heart")
     private let replyButton = ThreadForumIconButton(iconName: "reply")
     private let dateLabel = UILabel()
+    private let dateContainer = UIStackView()
     private let badgeStack = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
     private var onLike: (() -> Void)?
@@ -88,9 +89,13 @@ final class ThreadPostView: UIView {
         replyButton.addTarget(self, action: #selector(replyTapped), for: .touchUpInside)
         footerLeading.addArrangedSubview(replyButton)
 
+        dateContainer.axis = .horizontal
+        dateContainer.layoutMargins = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        dateContainer.isLayoutMarginsRelativeArrangement = true
         dateLabel.font = .nunito(ofSize: 9.6)
         dateLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        footerLeading.addArrangedSubview(dateLabel)
+        dateContainer.addArrangedSubview(dateLabel)
+        footerLeading.addArrangedSubview(dateContainer)
 
         footerRow.addArrangedSubview(UIView())
 
@@ -124,7 +129,9 @@ final class ThreadPostView: UIView {
         statsView.configure(likes: thread?.likeCount ?? 0,
                             views: thread?.viewCount ?? 0,
                             replies: thread?.replyCount ?? 0,
-                            locked: thread?.isLocked ?? false)
+                            locked: thread?.isLocked ?? false,
+                            liked: thread?.isLiked ?? false,
+                            fontSize: 12.8)
         dateLabel.text = thread?.sinceString ?? ""
 
         let canInteract = !(thread?.isLocked ?? false) && TrackerAccountManager.shared.isLoggedIn(.anilist)

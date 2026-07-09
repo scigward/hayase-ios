@@ -329,9 +329,8 @@ struct AniListThread {
         self.isLocked = dict["isLocked"] as? Bool ?? false
         self.isSubscribed = dict["isSubscribed"] as? Bool
         self.isLiked = dict["isLiked"] as? Bool
-        let repliedAt = (dict["repliedAt"] as? NSNumber)?.doubleValue ?? dict["repliedAt"] as? TimeInterval
         let createdAt = (dict["createdAt"] as? NSNumber)?.doubleValue ?? dict["createdAt"] as? TimeInterval
-        self.createdAt = repliedAt ?? createdAt ?? 0
+        self.createdAt = createdAt ?? 0
         let user = dict["user"] as? [String: Any]
         self.user = user.flatMap { AniListUserSummary(dict: $0) }
         self.userName = user?["name"] as? String

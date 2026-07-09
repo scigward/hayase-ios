@@ -25,6 +25,7 @@ final class ThreadBadgeLabel: UILabel {
 
 final class ThreadStatsView: UIView {
     private let stack = UIStackView()
+    private let likesIconView = UIImageView()
     private let likesLabel = UILabel()
     private let viewsLabel = UILabel()
     private let repliesLabel = UILabel()
@@ -47,7 +48,7 @@ final class ThreadStatsView: UIView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        stack.addArrangedSubview(makeItem(icon: "heart", label: likesLabel))
+        stack.addArrangedSubview(makeItem(icon: "heart", label: likesLabel, imageView: likesIconView))
         stack.addArrangedSubview(makeItem(icon: "eye", label: viewsLabel))
         stack.addArrangedSubview(makeItem(icon: "messages-square", label: repliesLabel))
 
@@ -69,8 +70,8 @@ final class ThreadStatsView: UIView {
         ])
     }
 
-    private func makeItem(icon: String, label: UILabel) -> UIStackView {
-        let imageView = UIImageView(image: UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)))
+    private func makeItem(icon: String, label: UILabel, imageView: UIImageView = UIImageView()) -> UIStackView {
+        imageView.image = UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular))
         imageView.tintColor = UIColor(white: 0.6, alpha: 1)
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -90,7 +91,11 @@ final class ThreadStatsView: UIView {
         return item
     }
 
-    func configure(likes: Int, views: Int, replies: Int, locked: Bool) {
+    func configure(likes: Int, views: Int, replies: Int, locked: Bool, liked: Bool = false, fontSize: CGFloat = 9.6) {
+        likesIconView.image = liked
+            ? HayaseIcon.filledImage("heart", pointSize: 12)
+            : UIImage.hayaseIcon("heart", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular))
+        [likesLabel, viewsLabel, repliesLabel].forEach { $0.font = .nunito(ofSize: fontSize) }
         likesLabel.text = "\(likes)"
         viewsLabel.text = "\(views)"
         repliesLabel.text = "\(replies)"
@@ -408,7 +413,12 @@ extension AnimeDetailViewController {
                     Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
                                                        hostTabIndex: self.tabBarController?.selectedIndex)
                 } else {
-                    let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                    let accentColor = self.animeItem.flatMap { item in
+                        ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
+                    let threadVC = ThreadDetailViewController(threadID: thread.id,
+                                                                      animeID: self.routeAnimeID,
+                                                                      title: thread.title,
+                                                                      accentColor: accentColor)
                     self.navigationController?.pushViewController(threadVC, animated: true)
                 }
             }
@@ -436,7 +446,12 @@ extension AnimeDetailViewController {
                 Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
                                                    hostTabIndex: self.tabBarController?.selectedIndex)
             } else {
-                let threadVC = ThreadDetailViewController(threadID: thread.id, title: thread.title)
+                let accentColor = self.animeItem.flatMap { item in
+                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
+                let threadVC = ThreadDetailViewController(threadID: thread.id,
+                                                                      animeID: self.routeAnimeID,
+                                                                      title: thread.title,
+                                                                      accentColor: accentColor)
                 self.navigationController?.pushViewController(threadVC, animated: true)
             }
         }

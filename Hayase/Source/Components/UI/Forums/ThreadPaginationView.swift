@@ -10,6 +10,8 @@ import UIKit
 final class ThreadPaginationView: UIView {
     private let row = UIStackView()
     private let rangeLabel = UILabel()
+    private let mobileRangeLabel = UILabel()
+    private let spacerView = UIView()
     private let buttonsRow = UIStackView()
     private var onPageSelected: ((Int) -> Void)?
     private var currentPage = 1
@@ -38,11 +40,18 @@ final class ThreadPaginationView: UIView {
         rangeLabel.numberOfLines = 1
         row.addArrangedSubview(rangeLabel)
 
-        row.addArrangedSubview(UIView())
+        row.addArrangedSubview(spacerView)
+
+        mobileRangeLabel.font = .nunito(ofSize: 13)
+        mobileRangeLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        mobileRangeLabel.textAlignment = .center
+        mobileRangeLabel.numberOfLines = 1
+        mobileRangeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         buttonsRow.axis = .horizontal
         buttonsRow.alignment = .center
         buttonsRow.spacing = 8
+        buttonsRow.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(buttonsRow)
 
         NSLayoutConstraint.activate([
@@ -58,12 +67,18 @@ final class ThreadPaginationView: UIView {
                    currentPage: Int,
                    onPageSelected: @escaping (Int) -> Void) {
         self.currentPage = currentPage
-        self.totalPages = max(1, Int(ceil(Double(count) / Double(perPage))))
+        self.totalPages = Int(ceil(Double(count) / Double(perPage)))
         self.onPageSelected = onPageSelected
 
-        let start = count == 0 ? 0 : ((currentPage - 1) * perPage) + 1
+        let start = ((currentPage - 1) * perPage)
         let end = min(currentPage * perPage, count)
-        rangeLabel.attributedText = rangeText(start: start, end: end, count: count)
+        let text = rangeText(start: start + 1, end: end, count: count)
+        rangeLabel.attributedText = text
+        mobileRangeLabel.attributedText = text
+
+        let isWide = UIScreen.main.bounds.width >= 768
+        rangeLabel.isHidden = !isWide
+        spacerView.isHidden = !isWide
 
         buttonsRow.arrangedSubviews.forEach { view in
             buttonsRow.removeArrangedSubview(view)
@@ -74,7 +89,7 @@ final class ThreadPaginationView: UIView {
         previousButton.addTarget(self, action: #selector(previousPage), for: .touchUpInside)
         buttonsRow.addArrangedSubview(previousButton)
 
-        if UIScreen.main.bounds.width >= 768 {
+        if isWide {
             for item in paginationItems(currentPage: currentPage, totalPages: totalPages) {
                 switch item.type {
                 case .ellipsis:
@@ -86,6 +101,8 @@ final class ThreadPaginationView: UIView {
                     buttonsRow.addArrangedSubview(button)
                 }
             }
+        } else {
+            buttonsRow.addArrangedSubview(mobileRangeLabel)
         }
 
         let nextButton = pageIconButton(iconName: "chevron-right", enabled: currentPage < totalPages)
@@ -123,12 +140,10 @@ final class ThreadPaginationView: UIView {
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .nunito(ofSize: 14)
         button.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
-        button.backgroundColor = selected ? UIColor.HayaseTheme.accent : .clear
+        button.backgroundColor = selected ? UIColor.HayaseTheme.muted : .clear
         button.layer.cornerRadius = 6
-        if selected {
-            button.layer.borderWidth = 1
-            button.layer.borderColor = UIColor.HayaseTheme.border.cgColor
-        }
+        button.layer.borderWidth = selected ? 1 : 0
+        button.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: 36),
@@ -191,10 +206,12 @@ final class ThreadPaginationView: UIView {
     }
 
     @objc private func previousPage() {
+        guard totalPages > 0 else { return }
         onPageSelected?(max(1, currentPage - 1))
     }
 
     @objc private func nextPage() {
+        guard totalPages > 0 else { return }
         onPageSelected?(min(totalPages, currentPage + 1))
     }
 
