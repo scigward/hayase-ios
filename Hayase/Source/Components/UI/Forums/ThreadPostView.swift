@@ -108,7 +108,6 @@ final class ThreadPostView: UIView {
     }
 
     func configure(thread: AniListThread?,
-                   fallbackTitle: String,
                    accentColor: UIColor,
                    onNavigatePath: @escaping (String) -> Void,
                    onLike: @escaping () -> Void,

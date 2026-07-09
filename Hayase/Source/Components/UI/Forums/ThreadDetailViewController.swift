@@ -128,7 +128,6 @@ final class ThreadDetailViewController: UIViewController {
 
         let postView = ThreadPostView()
         postView.configure(thread: thread,
-                           fallbackTitle: threadTitle,
                            accentColor: accentColor,
                            onNavigatePath: { [weak self] path in
             self?.navigate(path: path)
@@ -158,7 +157,6 @@ final class ThreadDetailViewController: UIViewController {
             for comment in comments {
                 let view = ThreadCommentView(comment: comment,
                                              isLocked: thread?.isLocked ?? false,
-                                             threadID: threadID,
                                              onNavigatePath: { [weak self] path in
                     self?.navigate(path: path)
                 }, onLike: { [weak self] comment in

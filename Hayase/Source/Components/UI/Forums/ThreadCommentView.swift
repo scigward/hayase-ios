@@ -10,7 +10,6 @@ import UIKit
 final class ThreadCommentView: UIView {
     private let comment: AniListThreadComment
     private let isLocked: Bool
-    private let threadID: Int
     private let depth: Int
     private let rootCommentID: Int
     private let onNavigatePath: (String) -> Void
@@ -36,7 +35,6 @@ final class ThreadCommentView: UIView {
 
     init(comment: AniListThreadComment,
          isLocked: Bool,
-         threadID: Int,
          depth: Int = 0,
          rootCommentID: Int? = nil,
          onNavigatePath: @escaping (String) -> Void,
@@ -46,7 +44,6 @@ final class ThreadCommentView: UIView {
          onDelete: @escaping (AniListThreadComment, Int) -> Void) {
         self.comment = comment
         self.isLocked = isLocked
-        self.threadID = threadID
         self.depth = depth
         self.rootCommentID = rootCommentID ?? comment.id
         self.onNavigatePath = onNavigatePath
@@ -188,7 +185,6 @@ final class ThreadCommentView: UIView {
             wrapper.translatesAutoresizingMaskIntoConstraints = false
             let childView = ThreadCommentView(comment: child,
                                               isLocked: isLocked || comment.isLocked,
-                                              threadID: threadID,
                                               depth: depth + 1,
                                               rootCommentID: rootCommentID,
                                               onNavigatePath: onNavigatePath,
