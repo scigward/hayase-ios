@@ -23,6 +23,7 @@ final class ThreadPostView: UIView {
     private let dateContainer = UIStackView()
     private let badgeStack = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
+    var onContentHeightChange: (() -> Void)?
     private var onLike: (() -> Void)?
     private var onReply: (() -> Void)?
 
@@ -153,6 +154,7 @@ final class ThreadPostView: UIView {
         shadow.onHeightChange = { [weak self] height in
             self?.bodyHeightConstraint?.constant = height
             self?.setNeedsLayout()
+            self?.onContentHeightChange?()
         }
 
         badgeStack.arrangedSubviews.forEach { view in

@@ -12,6 +12,7 @@ final class ThreadCommentView: UIView {
     private let isLocked: Bool
     private let depth: Int
     private let rootCommentID: Int
+    private let onContentHeightChange: (() -> Void)?
     private let onNavigatePath: (String) -> Void
     private let onLike: (AniListThreadComment) -> Void
     private let onReply: (AniListThreadComment, Int) -> Void
@@ -38,6 +39,7 @@ final class ThreadCommentView: UIView {
          isLocked: Bool,
          depth: Int = 0,
          rootCommentID: Int? = nil,
+         onContentHeightChange: (() -> Void)? = nil,
          onNavigatePath: @escaping (String) -> Void,
          onLike: @escaping (AniListThreadComment) -> Void,
          onReply: @escaping (AniListThreadComment, Int) -> Void,
@@ -47,6 +49,7 @@ final class ThreadCommentView: UIView {
         self.isLocked = isLocked
         self.depth = depth
         self.rootCommentID = rootCommentID ?? comment.id
+        self.onContentHeightChange = onContentHeightChange
         self.onNavigatePath = onNavigatePath
         self.onLike = onLike
         self.onReply = onReply
@@ -183,6 +186,7 @@ final class ThreadCommentView: UIView {
         shadow.onHeightChange = { [weak self] height in
             self?.bodyHeightConstraint?.constant = height
             self?.setNeedsLayout()
+            self?.onContentHeightChange?()
         }
 
         for child in comment.childCommentItems {
@@ -192,6 +196,7 @@ final class ThreadCommentView: UIView {
                                               isLocked: isLocked,
                                               depth: depth + 1,
                                               rootCommentID: rootCommentID,
+                                              onContentHeightChange: onContentHeightChange,
                                               onNavigatePath: onNavigatePath,
                                               onLike: onLike,
                                               onReply: onReply,

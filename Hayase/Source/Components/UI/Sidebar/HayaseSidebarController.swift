@@ -611,14 +611,14 @@ final class HayaseSidebarController: UIViewController {
 
         if let detail = nav.topViewController as? AnimeDetailViewController,
            detail.routeAnimeID == id {
-            showThreadRoute(threadID: threadID, title: nil, in: nav, animated: animated)
+            detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
             return
         }
 
         if let detail = nav.viewControllers.compactMap({ $0 as? AnimeDetailViewController }).last,
            detail.routeAnimeID == id {
             nav.popToViewController(detail, animated: false)
-            showThreadRoute(threadID: threadID, title: nil, in: nav, animated: animated)
+            detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
             return
         }
 
@@ -656,31 +656,7 @@ final class HayaseSidebarController: UIViewController {
         guard let detail = storyboard.instantiateViewController(withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
         detail.animeItem = item
         navigationController.pushViewController(detail, animated: animated)
-        showThreadRoute(threadID: threadID, title: nil, in: navigationController, animated: animated)
-        restoreScrollPositionIfNeeded(for: router.currentRoute)
-    }
-
-    private func showThreadRoute(threadID: Int?,
-                                 title: String?,
-                                 in navigationController: UINavigationController,
-                                 animated: Bool) {
-        guard let threadID else { return }
-        if let thread = navigationController.topViewController as? ThreadDetailViewController,
-           thread.routeThreadID == threadID { return }
-        let animeID: Int?
-        if case .animeThread(let id, _) = router.currentRoute {
-            animeID = id
-        } else {
-            animeID = nil
-        }
-        let accentColor = animeID.flatMap { router.cachedAnimeItem(for: $0) }.flatMap {
-            ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "")
-        }
-        let thread = ThreadDetailViewController(threadID: threadID,
-                                                animeID: animeID,
-                                                title: title ?? router.cachedThreadTitle(for: threadID) ?? "Thread",
-                                                accentColor: accentColor)
-        navigationController.pushViewController(thread, animated: animated)
+        detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
         restoreScrollPositionIfNeeded(for: router.currentRoute)
     }
 

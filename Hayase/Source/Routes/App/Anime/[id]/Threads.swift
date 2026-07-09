@@ -385,7 +385,85 @@ extension AnimeDetailViewController {
         }
     }
 
+
+    func applyEmbeddedThreadRoute(threadID: Int?, title: String?) {
+        loadViewIfNeeded()
+        if embeddedThreadID == threadID, embeddedThreadTitle == title { return }
+        embeddedThreadID = threadID
+        embeddedThreadTitle = title
+        if threadID == nil {
+            activeSection = .episodes
+            embeddedThreadViewController?.willMove(toParent: nil)
+            embeddedThreadViewController?.view.removeFromSuperview()
+            embeddedThreadViewController?.removeFromParent()
+            embeddedThreadViewController = nil
+        }
+        applyTabBarLayoutForSizeClass()
+        tableView.reloadData()
+    }
+
+    private func makeEmbeddedThreadCell() -> UITableViewCell {
+        guard let threadID = embeddedThreadID else { return UITableViewCell() }
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.contentView.backgroundColor = .clear
+        cell.selectionStyle = .none
+
+        let accentColor = animeItem.flatMap { item in
+            ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
+        let threadVC: ThreadDetailViewController
+        let didCreateThreadController: Bool
+        if let existing = embeddedThreadViewController, existing.routeThreadID == threadID {
+            threadVC = existing
+            didCreateThreadController = false
+        } else {
+            embeddedThreadViewController?.willMove(toParent: nil)
+            embeddedThreadViewController?.view.removeFromSuperview()
+            embeddedThreadViewController?.removeFromParent()
+            threadVC = ThreadDetailViewController(threadID: threadID,
+                                                  animeID: routeAnimeID,
+                                                  title: embeddedThreadTitle ?? Router.shared.cachedThreadTitle(for: threadID) ?? "Thread",
+                                                  accentColor: accentColor,
+                                                  embeddedInAnimePage: true)
+            threadVC.onContentHeightChange = { [weak self] in
+                self?.invalidateEmbeddedThreadHeight()
+            }
+            addChild(threadVC)
+            embeddedThreadViewController = threadVC
+            didCreateThreadController = true
+        }
+
+        threadVC.view.removeFromSuperview()
+        threadVC.view.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(threadVC.view)
+
+        let sidePad = traitCollection.horizontalSizeClass == .regular
+            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
+            : CGFloat(16)
+        NSLayoutConstraint.activate([
+            threadVC.view.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+            threadVC.view.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -32),
+            threadVC.view.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            threadVC.view.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+        ])
+        if didCreateThreadController {
+            threadVC.didMove(toParent: self)
+        }
+        return cell
+    }
+
+    private func invalidateEmbeddedThreadHeight() {
+        guard embeddedThreadID != nil else { return }
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
+    }
+
     func makeThreadCell(for indexPath: IndexPath) -> UITableViewCell {
+        if embeddedThreadID != nil {
+            return makeEmbeddedThreadCell()
+        }
         if threadsLoading {
             return makeThreadsSkeletonCell()
         }

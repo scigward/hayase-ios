@@ -15,13 +15,19 @@ final class ThreadDetailViewController: UIViewController {
     private let animeID: Int?
     private let threadTitle: String
     private let accentColor: UIColor
+    private let isEmbeddedInAnimePage: Bool
     private let perPage = 15
+    var onContentHeightChange: (() -> Void)?
     private var currentPage = 1
     private var currentThread: AniListThread?
     private var currentCommentsPage: AniListCommentPage?
     var routeThreadID: Int { threadID }
 
-    init(threadID: Int, animeID: Int? = nil, title: String, accentColor: UIColor? = nil) {
+    init(threadID: Int,
+         animeID: Int? = nil,
+         title: String,
+         accentColor: UIColor? = nil,
+         embeddedInAnimePage: Bool = false) {
         self.threadID = threadID
         self.animeID = animeID
         self.threadTitle = title
@@ -29,6 +35,7 @@ final class ThreadDetailViewController: UIViewController {
             .flatMap { Router.shared.cachedAnimeItem(for: $0) }
             .flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
         self.accentColor = accentColor ?? cachedAccent ?? UIColor.HayaseTheme.secondary
+        self.isEmbeddedInAnimePage = embeddedInAnimePage
         super.init(nibName: nil, bundle: nil)
         self.title = title
     }
@@ -54,35 +61,48 @@ final class ThreadDetailViewController: UIViewController {
 
     // MARK: - Setup
     private func setupView() {
-        view.backgroundColor = UIColor.HayaseTheme.background
-
-        scrollView.backgroundColor = .clear
-        scrollView.alwaysBounceVertical = true
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(scrollView)
+        view.backgroundColor = isEmbeddedInAnimePage ? .clear : UIColor.HayaseTheme.background
 
         contentStack.axis = .vertical
         contentStack.spacing = 16
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.addSubview(contentStack)
 
         view.addSubview(spinner)
 
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        if isEmbeddedInAnimePage {
+            view.addSubview(contentStack)
+            NSLayoutConstraint.activate([
+                contentStack.topAnchor.constraint(equalTo: view.topAnchor),
+                contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
-            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -32),
-            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+                spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            ])
+        } else {
+            scrollView.backgroundColor = .clear
+            scrollView.alwaysBounceVertical = true
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(scrollView)
+            scrollView.addSubview(contentStack)
 
-            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
+            NSLayoutConstraint.activate([
+                scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+                contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+                contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+                contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+                contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -32),
+                contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+
+                spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            ])
+        }
     }
 
     // MARK: - Fetch
@@ -132,6 +152,9 @@ final class ThreadDetailViewController: UIViewController {
         contentStack.addArrangedSubview(makeHeader(title: thread?.title ?? threadTitle))
 
         let postView = ThreadPostView()
+        postView.onContentHeightChange = { [weak self] in
+            self?.notifyContentHeightChanged()
+        }
         postView.configure(thread: thread,
                            accentColor: accentColor,
                            onNavigatePath: { [weak self] path in
@@ -162,7 +185,9 @@ final class ThreadDetailViewController: UIViewController {
             for comment in comments {
                 let view = ThreadCommentView(comment: comment,
                                              isLocked: thread?.isLocked ?? false,
-                                             onNavigatePath: { [weak self] path in
+                                             onContentHeightChange: { [weak self] in
+                    self?.notifyContentHeightChanged()
+                }, onNavigatePath: { [weak self] path in
                     self?.navigate(path: path)
                 }, onLike: { [weak self] comment in
                     self?.toggleCommentLike(comment)
@@ -178,6 +203,7 @@ final class ThreadDetailViewController: UIViewController {
             }
         }
         contentStack.addArrangedSubview(makePaginationView(commentsPage: commentsPage))
+        notifyContentHeightChanged()
     }
 
     private func renderLoadingComments() {
@@ -190,6 +216,7 @@ final class ThreadDetailViewController: UIViewController {
         if let currentCommentsPage {
             contentStack.addArrangedSubview(makePaginationView(commentsPage: currentCommentsPage))
         }
+        notifyContentHeightChanged()
     }
 
 
@@ -209,6 +236,7 @@ final class ThreadDetailViewController: UIViewController {
         if let currentCommentsPage {
             contentStack.addArrangedSubview(makePaginationView(commentsPage: currentCommentsPage))
         }
+        notifyContentHeightChanged()
     }
 
     private func makeHeader(title: String) -> UIView {
@@ -273,6 +301,7 @@ final class ThreadDetailViewController: UIViewController {
         }
         contentStack.addArrangedSubview(makeHeader(title: threadTitle))
         contentStack.addArrangedSubview(makeErrorState(message))
+        notifyContentHeightChanged()
     }
 
     private func makeErrorState(_ message: String) -> UIView {
@@ -392,6 +421,13 @@ final class ThreadDetailViewController: UIViewController {
 
     private var threadTitleFontSize: CGFloat {
         UIScreen.main.bounds.width >= 768 ? 24 : 20
+    }
+
+    private func notifyContentHeightChanged() {
+        guard isEmbeddedInAnimePage else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onContentHeightChange?()
+        }
     }
 
     @objc private func goBack() {

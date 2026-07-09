@@ -1797,6 +1797,9 @@ class AnimeDetailViewController: UIViewController {
     private var hasStartedInitialAnimeLoads = false
 
     var activeSection: Section = .episodes
+    var embeddedThreadID: Int?
+    var embeddedThreadTitle: String?
+    var embeddedThreadViewController: ThreadDetailViewController?
 
     lazy var tabBar: HTabBar = {
         let bar = HTabBar(titles: ["Episodes", "Relations", "Threads", "Themes", "Recommendations"])

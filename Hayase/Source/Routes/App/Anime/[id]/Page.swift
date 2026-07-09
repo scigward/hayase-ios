@@ -130,6 +130,10 @@ extension AnimeDetailViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .header:    return 1
+        case .threads where embeddedThreadID != nil:
+            return 1
+        case _ where embeddedThreadID != nil:
+            return 0
         case .episodes:
             if activeSection != .episodes { return 0 }
             let cols = usesSingleEpisodeGridTrack ? 1 : episodeColumnCount
@@ -161,6 +165,28 @@ extension AnimeDetailViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch Section(rawValue: indexPath.section) {
         case .header:
+            if embeddedThreadID != nil {
+                let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+                cell.backgroundColor = .clear
+                cell.contentView.backgroundColor = .clear
+                cell.selectionStyle = .none
+                cell.clipsToBounds = false
+                cell.contentView.clipsToBounds = false
+                headerView.removeFromSuperview()
+                tabBarContainer.removeFromSuperview()
+                headerView.clipsToBounds = false
+                headerView.translatesAutoresizingMaskIntoConstraints = false
+                cell.contentView.addSubview(headerView)
+                NSLayoutConstraint.activate([
+                    headerView.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+                    headerView.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+                    headerView.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+                    headerView.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+                ])
+                headerView.updateLabelWidths(forContainerWidth: tableView.frame.width)
+                return cell
+            }
+
             let cell = tableView.dequeueReusableCell(withIdentifier: "HeaderCell", for: indexPath)
             cell.backgroundColor = .clear
             cell.contentView.backgroundColor = .clear
@@ -268,6 +294,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        if embeddedThreadID != nil { return }
         switch Section(rawValue: indexPath.section) {
         case .episodes:
             if episodeColumnCount >= 2 { break }
