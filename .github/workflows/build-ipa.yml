@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 1
 
       - name: Update LibTorrent-Swift to latest upstream
-        run: git submodule update --init --remote --recursive Component/LibTorrent-Swift
+        run: git submodule update --init --recursive Component/LibTorrent-Swift
 
       - name: Cache SPM packages
         uses: actions/cache@v4
