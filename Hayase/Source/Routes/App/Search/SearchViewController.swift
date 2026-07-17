@@ -78,6 +78,11 @@ class SearchViewController: UIViewController {
     private var isTracing = false
     private var lastFilterLayoutSignature = ""
     private let searchFlipDuration: TimeInterval = 0.4
+    /// Frames of the currently displayed result cells, captured immediately before a reset
+    /// fetch swaps them for skeleton placeholders. `applySearchResults` consumes this so the
+    /// flip animation still has something to interpolate from once results land — by then the
+    /// on-screen cells are skeletons, not the `AnimeCollectionViewCell`s it needs to measure.
+    private var pendingFlipFrames: [Int: CGRect]?
 
     // MARK: - Views
     private var headerView: UIView!
@@ -938,6 +943,10 @@ class SearchViewController: UIViewController {
         guard !isFetching, hasNextPage else { return }
         isFetching = true
         if reset {
+            // Snapshot current cell positions before we swap to skeletons below; once
+            // isShowingSkeleton flips, visibleSearchItemFrames() can no longer see them.
+            let frames = visibleSearchItemFrames()
+            pendingFlipFrames = frames.isEmpty ? nil : frames
             // Show skeleton placeholders instead of spinner (matches web fetching → SkeletonCard)
             isShowingSkeleton = true
             collectionView.reloadData()
@@ -1025,7 +1034,17 @@ class SearchViewController: UIViewController {
     }
 
     private func applySearchResults(_ results: [AnimeItem], animated: Bool = true) {
-        let previousFrames = animated ? visibleSearchItemFrames() : [:]
+        // A reset fetch snapshots frames before switching to skeletons (see fetchResults);
+        // consume that snapshot here since the live collection view is showing skeletons by
+        // now. Once consumed it's cleared, so a later call within the same fetch (e.g. the
+        // network leg after a cache-hit already redrew real cells) reads live frames instead.
+        let previousFrames: [Int: CGRect]
+        if let pendingFlipFrames {
+            previousFrames = animated ? pendingFlipFrames : [:]
+            self.pendingFlipFrames = nil
+        } else {
+            previousFrames = animated ? visibleSearchItemFrames() : [:]
+        }
         let shouldFlip = !previousFrames.isEmpty &&
             !animeResults.isEmpty &&
             !results.isEmpty &&
@@ -1182,6 +1201,10 @@ class SearchViewController: UIViewController {
     private func fetchResultsByIds(_ ids: [Int]) {
         guard !isFetching else { return }
         isFetching = true
+        // See fetchResults(reset:) — snapshot before the skeleton wipe so applySearchResults
+        // still has real prior frames to flip from once these results land.
+        let frames = visibleSearchItemFrames()
+        pendingFlipFrames = frames.isEmpty ? nil : frames
         isShowingSkeleton = true
         collectionView.reloadData()
         emptyLabel.isHidden = true
