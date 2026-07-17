@@ -17,7 +17,7 @@ workflows:
           set -euo pipefail
 
           git submodule update --init --recursive
-          git submodule update --remote --recursive Component/LibTorrent-Swift
+          git submodule update --init --remote --recursive Component/LibTorrent-Swift
 
       - name: Install dependencies
         script: |

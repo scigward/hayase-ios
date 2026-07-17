@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 1
 
       - name: Update LibTorrent-Swift
-        run: git submodule update --remote --recursive Component/LibTorrent-Swift
+        run: git submodule update --init --remote --recursive Component/LibTorrent-Swift
 
       - name: Install build tools
         run: brew install xcodegen boost openssl@3 node
