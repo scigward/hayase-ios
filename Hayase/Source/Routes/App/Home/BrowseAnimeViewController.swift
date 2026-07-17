@@ -2354,8 +2354,15 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func canFlipHomeSectionUpdate(from previous: HomeSectionData, to next: HomeSectionData) -> Bool {
-        guard isLoadedHomeSection(previous.contentState),
-              isLoadedHomeSection(next.contentState),
+        // `previous` is frequently mid-refetch (contentState == .fetching) while still
+        // holding the last-loaded items: PageQuery.resume()/setFetching(previous:) and
+        // AniListClient.fetchHomeSectionResult always emit `.fetching` between two
+        // `.success` values, and applyHomeSectionState(_:for:) persists that transient
+        // state into `sections` before the follow-up success lands. Requiring
+        // `previous.contentState == .loaded` here therefore never holds for a
+        // network-driven update, and the flip animation is permanently skipped.
+        // Non-empty `previous.items` already proves it was genuinely on screen.
+        guard isLoadedHomeSection(next.contentState),
               !previous.items.isEmpty,
               !next.items.isEmpty else { return false }
         return previous.items.map(\.id) != next.items.map(\.id)
