@@ -135,12 +135,12 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.connectionLimit = maxConns
 
         // Streamed download mode (Hayase: torrentStreamedDownload).
-        settings.isStreamingMode = ud.bool(forKey: "pref_streamedDownload")
+        settings.isStreamingMode = Settings.streamedDownload
 
         // Persist files preference — read here so it participates in settings
         // change notifications.  The actual cleanup logic lives in
         // cleanupOtherTorrentsIfNeeded() which reads this key directly.
-        let persistFiles = ud.bool(forKey: "pref_persistFiles")
+        let persistFiles = Settings.persistFiles
 
         // PeX / Persist: these prefs are read and included so that changing them
         // triggers applyUserSettings().  Once LibTorrent-Swift exposes setters for
@@ -292,7 +292,7 @@ public class TorrentService: NSObject, SessionDelegate {
     /// the given handle hash. Called after the torrent is successfully added
     /// or reused, guaranteeing the hash matches the `handles` dict key.
     private func cleanupOtherTorrentsIfNeeded(keepingHash hash: String) {
-        let persistFiles = UserDefaults.standard.bool(forKey: "pref_persistFiles")
+        let persistFiles = Settings.persistFiles
         if !persistFiles {
             removeOtherTorrents(exceptHash: hash)
         }

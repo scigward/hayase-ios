@@ -330,7 +330,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func shouldHideScore(for media: AnimeItem) -> Bool {
-        guard UserDefaults.standard.bool(forKey: "pref_hideSpoilers") else { return false }
+        guard Settings.hideSpoilers else { return false }
         return media.mediaListEntry?.status == "CURRENT" || media.mediaListEntry?.status == "PLANNING"
     }
 

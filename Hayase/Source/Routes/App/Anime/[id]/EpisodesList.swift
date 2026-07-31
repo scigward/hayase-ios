@@ -1238,7 +1238,7 @@ extension AnimeDetailViewController {
         let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
         let isCompleted = currentListStatus == "COMPLETED"
         let isRepeating = currentListStatus == "REPEATING"
-        let hideSpoilers = UserDefaults.standard.bool(forKey: "pref_hideSpoilers")
+        let hideSpoilers = Settings.hideSpoilers
         if cols >= 2 {
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: EpisodePairCell.reuseID, for: indexPath) as? EpisodePairCell else {

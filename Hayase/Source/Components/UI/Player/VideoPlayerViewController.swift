@@ -1129,8 +1129,7 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Returns the seek duration (seconds) from user settings (pref_seekDuration), defaulting to 2.
     private var seekDurationSeconds: Double {
-        let stored = UserDefaults.standard.string(forKey: "pref_seekDuration") ?? "2"
-        return Double(stored) ?? 2
+        Double(Settings.seekDuration) ?? 2
     }
 
     /// Mirrors player.svelte mobile overlay: left/right quarter double-taps seek,
@@ -1597,8 +1596,8 @@ final class VideoPlayerViewController: UIViewController {
     /// When the user is within max(180s, 10% of duration) of the end,
     /// automatically update AniList progress for this episode.
     private func checkCompletion() {
-        // Desktop defaults playerAutocomplete to true — mirror with object(forKey:) ?? true
-        let autocomplete = UserDefaults.standard.object(forKey: "pref_autocomplete") as? Bool ?? true
+        // Desktop defaults playerAutocomplete to true — see Settings.autocomplete
+        let autocomplete = Settings.autocomplete
         guard !trackingCompleted, autocomplete,
               anilistID > 0, episodeNumber > 0,
               duration > 0, currentTime > 0 else { return }
@@ -1874,7 +1873,7 @@ final class VideoPlayerViewController: UIViewController {
                                           mediaID: Int,
                                           completion: @escaping (Int?) -> Void) {
         let rawTarget = currentEpisode + delta
-        guard UserDefaults.standard.bool(forKey: "pref_skipFiller"), mediaID > 0 else {
+        guard Settings.skipFiller, mediaID > 0 else {
             completion(canNavigate(to: rawTarget) ? rawTarget : nil)
             return
         }
@@ -2288,7 +2287,7 @@ final class VideoPlayerViewController: UIViewController {
         optionsVC.chapters = chapters
         optionsVC.currentSpeed = playbackRate
         optionsVC.subtitleDelay = subtitleDelay
-        optionsVC.isDebandActive = UserDefaults.standard.bool(forKey: "pref_deband")
+        optionsVC.isDebandActive = Settings.deband
         optionsVC.isFullscreenActive = isFullscreenPresentation
         optionsVC.allVideos = playlistVideos
         optionsVC.currentVideoEntity = videoEntity
@@ -2336,9 +2335,8 @@ final class VideoPlayerViewController: UIViewController {
         }
 
         optionsVC.onToggleDeband = { [weak self] in
-            let current = UserDefaults.standard.bool(forKey: "pref_deband")
-            let newValue = !current
-            UserDefaults.standard.set(newValue, forKey: "pref_deband")
+            let newValue = !Settings.deband
+            Settings.deband = newValue
             self?.surface.mpv.setDeband(newValue)
         }
 
@@ -2684,9 +2682,8 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     /// track codes from MPV may be 2-letter ISO 639-1 ("en", "ja") or
     /// 3-letter. We normalise both sides via `Locale` for reliable matching.
     private func applyPreferredLanguages(renderer: MPVWrapper, tracks: [MPVTrack]) {
-        let defaults = UserDefaults.standard
-        let prefAudio = defaults.string(forKey: "pref_audioLanguage") ?? "jpn"
-        let prefSub   = defaults.string(forKey: "pref_subtitleLanguage") ?? "eng"
+        let prefAudio = Settings.audioLanguage
+        let prefSub   = Settings.subtitleLanguage
 
         // Audio — pick first track whose language matches the preference
         if !prefAudio.isEmpty {

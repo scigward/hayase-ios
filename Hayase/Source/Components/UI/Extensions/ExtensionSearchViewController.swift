@@ -858,7 +858,7 @@ final class ExtensionSearchViewController: UIViewController {
     /// Ranks: low accuracy → 3, low seeders → 2, quality(best/alt with pref) → 0, normal → 1.
     /// Within rank 1: accuracy (high first), then by preference (size or seeders).
     private func filterAndSortResults(_ results: [TorrentResult]) -> [TorrentResult] {
-        let preference = UserDefaults.standard.string(forKey: "pref_lookupPreference") ?? "quality"
+        let preference = Settings.lookupPreference
         return results.sorted { a, b in
             func getRank(_ res: TorrentResult) -> Int {
                 if res.accuracy == "low" { return 3 }
@@ -960,7 +960,7 @@ final class ExtensionSearchViewController: UIViewController {
             guard let self, let value = values.first else { return }
             guard value != self.currentResolution else { return }
             self.currentResolution = value
-            UserDefaults.standard.set(value, forKey: "pref_searchQuality")
+            Settings.searchQuality = value
             self.resolutionComboBox.configure(text: self.labelForResolution(value),
                                               placeholder: false)
             self.triggerSearch()
@@ -1003,7 +1003,7 @@ final class ExtensionSearchViewController: UIViewController {
     private func startProgressAnimation() {
         guard !filteredResults.isEmpty else { return }
         // Check the searchAutoSelect setting (default true, matches web)
-        let autoSelectEnabled = UserDefaults.standard.object(forKey: "pref_searchAutoSelect") as? Bool ?? true
+        let autoSelectEnabled = Settings.searchAutoSelect
         guard autoSelectEnabled else { return }
         progressOverlay.isHidden = false
         // Web: overlay starts at translateX(0%) covering the button, slides to translateX(100%) off-right.

@@ -1595,7 +1595,7 @@ final class AnimeInfoHeaderView: UIView {
 
     private func setGenres(_ genres: [String], tags: [AnimeTag] = []) {
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let showHentai = UserDefaults.standard.object(forKey: "pref_showHentai") as? Bool ?? false
+        let showHentai = Settings.showHentai
         let sortedTags = tags
             .filter { !$0.isAdult || showHentai }
             .sorted {

@@ -55,7 +55,7 @@ enum AniListUtil {
     }
 
     static var titlePreference: TitlePreference {
-        let raw = UserDefaults.standard.string(forKey: "pref_titleType") ?? TitlePreference.anilist.rawValue
+        let raw = Settings.titleType
         return TitlePreference(rawValue: raw) ?? .anilist
     }
 
@@ -163,7 +163,7 @@ enum AniListUtil {
     /// NSFW genre filter — returns `["Hentai"]` when user hasn't enabled "Show Hentai".
     /// Matches settings.ts: `nsfw = showHentai ? null : ['Hentai']`.
     static var nsfwGenreFilter: [String]? {
-        let show = UserDefaults.standard.object(forKey: "pref_showHentai") as? Bool ?? false
+        let show = Settings.showHentai
         return show ? nil : ["Hentai"]
     }
 

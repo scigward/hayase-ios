@@ -191,10 +191,10 @@ class SettingsViewController: UIViewController {
         Section(header: "Language Settings", rows: [
             Row(title: "Preferred Subtitle Language",
                 description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
-                kind: .selectable(userDefaultsKey: "pref_subtitleLanguage", options: Self.languageCodes, defaultKey: "eng")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.subtitleLanguage, options: Self.languageCodes, defaultKey: Settings.Defaults.subtitleLanguage)),
             Row(title: "Preferred Audio Language",
                 description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
-                kind: .selectable(userDefaultsKey: "pref_audioLanguage", options: Self.languageCodes, defaultKey: "jpn")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.audioLanguage, options: Self.languageCodes, defaultKey: Settings.Defaults.audioLanguage)),
         ], tab: .player),
 
         Section(header: "Playback Settings", rows: [
@@ -209,19 +209,19 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_autoPiP", defaultValue: false)),
             Row(title: "Auto-Complete Episodes",
                 description: "Automatically marks episodes as complete when you finish watching them. Requires AniList login.",
-                kind: .toggle(userDefaultsKey: "pref_autocomplete", defaultValue: true)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.autocomplete, defaultValue: Settings.Defaults.autocomplete)),
             Row(title: "Deband Video",
                 description: "Reduces banding (compression artifacts) on dark and compressed videos. High performance impact. Recommended for seasonal web releases, not recommended for high quality blu-ray videos.",
-                kind: .toggle(userDefaultsKey: "pref_deband", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.deband, defaultValue: Settings.Defaults.deband)),
             Row(title: "Seek Duration",
                 description: "Seconds to skip forward or backward when using the seek buttons. Higher values might negatively impact buffering speeds.",
-                kind: .editableNumber(userDefaultsKey: "pref_seekDuration", defaultValue: "2", suffix: "sec", min: 1, max: 50)),
+                kind: .editableNumber(userDefaultsKey: Settings.Keys.seekDuration, defaultValue: Settings.Defaults.seekDuration, suffix: "sec", min: 1, max: 50)),
             Row(title: "Auto-Skip Intro/Outro",
                 description: "Attempt to automatically skip intro and outro sections. This WILL sometimes skip incorrect chapters, as some of the chapter data is community sourced.",
                 kind: .toggle(userDefaultsKey: "pref_skipIntro", defaultValue: false)),
             Row(title: "Auto-Skip Filler",
                 description: "Automatically skip filler episodes. This WILL skip ENTIRE episodes.",
-                kind: .toggle(userDefaultsKey: "pref_skipFiller", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.skipFiller, defaultValue: Settings.Defaults.skipFiller)),
         ], tab: .player),
 
         Section(header: "Interface Settings", rows: [
@@ -253,10 +253,10 @@ class SettingsViewController: UIViewController {
                 kind: .selectable(userDefaultsKey: TorrentBackendKind.userDefaultsKey, options: Self.torrentBackends, defaultKey: TorrentBackendKind.defaultKind.rawValue)),
             Row(title: "Persist Files",
                 description: "Keeps torrent files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
-                kind: .toggle(userDefaultsKey: "pref_persistFiles", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.persistFiles, defaultValue: Settings.Defaults.persistFiles)),
             Row(title: "Streamed Download",
                 description: "Only downloads the data that's directly needed for playback, down to the minute, instead of downloading an entire batch of episodes. Will not buffer ahead more than a few seconds, and will stop downloading once the few second buffer is filled. Saves bandwidth and reduces strain on the peer swarm.",
-                kind: .toggle(userDefaultsKey: "pref_streamedDownload", defaultValue: true)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.streamedDownload, defaultValue: Settings.Defaults.streamedDownload)),
             Row(title: "Transfer Speed Limit",
                 description: "Download/Upload speed limit for torrents, higher values increase CPU usage, and values higher than your storage write speeds will quickly fill up RAM.",
                 kind: .editableNumber(userDefaultsKey: "pref_torrentSpeed", defaultValue: "40", suffix: "Mb/s", min: 1, max: 999)),
@@ -282,16 +282,16 @@ class SettingsViewController: UIViewController {
         Section(header: "Display Preferences", rows: [
             Row(title: "Title Language",
                 description: "What language should anime titles be displayed in.",
-                kind: .selectable(userDefaultsKey: "pref_titleType", options: Self.titleTypes, defaultKey: "ANILIST")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.titleType, options: Self.titleTypes, defaultKey: Settings.Defaults.titleType)),
         ], tab: .interface_),
 
         Section(header: "Visibility Settings", rows: [
             Row(title: "Show Hentai",
                 description: "Shows hentai content throughout the app. If disabled all hentai content will be hidden and not shown in search results, but shown if present in your list.\n\nThis is also an AniList account setting, so make sure it is enabled in account settings as well to avoid inconsistencies.",
-                kind: .toggle(userDefaultsKey: "pref_showHentai", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.showHentai, defaultValue: Settings.Defaults.showHentai)),
             Row(title: "Hide Spoilers",
                 description: "Hides potential spoilers such as titles, descriptions, episode images and ratings throughout the app.",
-                kind: .toggle(userDefaultsKey: "pref_hideSpoilers", defaultValue: false)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.hideSpoilers, defaultValue: Settings.Defaults.hideSpoilers)),
         ], tab: .interface_),
 
         // ── Extensions tab (Hayase /app/settings/extensions/) ──
@@ -299,13 +299,13 @@ class SettingsViewController: UIViewController {
         Section(header: "Lookup Settings", rows: [
             Row(title: "Torrent Quality",
                 description: "What quality to use when trying to find torrents. This doesn't exclude other qualities from being found. Non-1080p resolutions might not be available for all shows, or find way less results.",
-                kind: .selectable(userDefaultsKey: "pref_searchQuality", options: Self.videoResolutions, defaultKey: "1080")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.searchQuality, options: Self.videoResolutions, defaultKey: Settings.Defaults.searchQuality)),
             Row(title: "Auto-Select Torrents",
                 description: "Automatically selects torrents based on quality and amount of seeders. Disable this to have more precise control over played torrents.",
-                kind: .toggle(userDefaultsKey: "pref_searchAutoSelect", defaultValue: true)),
+                kind: .toggle(userDefaultsKey: Settings.Keys.searchAutoSelect, defaultValue: Settings.Defaults.searchAutoSelect)),
             Row(title: "Lookup Preference",
                 description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available, Size will focus on the smallest file size, and Availability will pick results with the most peers.",
-                kind: .selectable(userDefaultsKey: "pref_lookupPreference", options: Self.lookupPreferences, defaultKey: "quality")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.lookupPreference, options: Self.lookupPreferences, defaultKey: Settings.Defaults.lookupPreference)),
         ], tab: .extensions),
 
         Section(header: "Extension Settings", rows: [
@@ -629,7 +629,7 @@ class SettingsViewController: UIViewController {
         "pref_disableDHT", "pref_disablePeX",
         "pref_torrentPort", "pref_dhtPort",
         "pref_torrentSpeed", "pref_maxConns",
-        "pref_streamedDownload", "pref_persistFiles",
+        Settings.Keys.streamedDownload, Settings.Keys.persistFiles,
     ]
 
     /// If `key` is a torrent-session setting, re-apply settings to the live session.
@@ -652,7 +652,7 @@ class SettingsViewController: UIViewController {
 
         for option in options {
             let action = UIAlertAction(title: option.label, style: .default) { [weak self] _ in
-                UserDefaults.standard.set(option.key, forKey: key)
+                Settings.write(option.key, forKey: key)
                 self?.tableView.reloadData()
                 self?.applyTorrentSettingsIfNeeded(forKey: key)
             }
@@ -699,9 +699,9 @@ class SettingsViewController: UIViewController {
             // Validate numeric range if applicable
             if min > 0 || max > 0, let num = Int(text) {
                 let clamped = Swift.min(Swift.max(num, min), max)
-                UserDefaults.standard.set(String(clamped), forKey: key)
+                Settings.write(String(clamped), forKey: key)
             } else {
-                UserDefaults.standard.set(text, forKey: key)
+                Settings.write(text, forKey: key)
             }
             self?.tableView.reloadData()
             self?.applyTorrentSettingsIfNeeded(forKey: key)
@@ -994,7 +994,7 @@ final class HayaseSettingToggleCell: UITableViewCell {
     }
 
     @objc private func toggled(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: udKey)
+        Settings.write(sender.isOn, forKey: udKey)
         onToggled?(udKey)
     }
 }

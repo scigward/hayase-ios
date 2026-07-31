@@ -457,7 +457,7 @@ final class TorrentDetailViewController: UIViewController {
         setDot(pexDot, enabled: snap.isPexEnabled)
         setDot(natDot, enabled: true)   // UPnP/NAT-PMP is always enabled in settings
         setDot(forwardDot, enabled: snap.hasIncomingConnections)
-        setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
+        setDot(persistDot, enabled: Settings.persistFiles)
 
         // Streaming: downloading + sequential mode enabled (TorrentStreamer enables this)
         let isStreaming = snap.state == .downloading && snap.isSequential

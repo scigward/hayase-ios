@@ -984,7 +984,7 @@ class DownloadsViewController: UIViewController {
         setDot(pexDot, enabled: snap.isPexEnabled)
         setDot(natDot, enabled: true)
         setDot(forwardDot, enabled: snap.hasIncomingConnections)
-        setDot(persistDot, enabled: UserDefaults.standard.bool(forKey: "pref_persistFiles"))
+        setDot(persistDot, enabled: Settings.persistFiles)
 
         setDot(streamingDot, enabled: isStreaming)
 
@@ -1171,7 +1171,7 @@ class DownloadsViewController: UIViewController {
         setDot(pexDot, enabled: resolvedProtocol?.pex ?? resolvedStatus?.pex ?? false)
         setDot(natDot, enabled: resolvedProtocol?.nat ?? false)
         setDot(forwardDot, enabled: resolvedProtocol?.forwarding ?? false)
-        setDot(persistDot, enabled: resolvedProtocol?.persisting ?? UserDefaults.standard.bool(forKey: "pref_persistFiles"))
+        setDot(persistDot, enabled: resolvedProtocol?.persisting ?? Settings.persistFiles)
         setDot(streamingDot, enabled: resolvedProtocol?.streaming ?? false)
 
         if selectedTabIndex == 1 { refreshFiles() }

@@ -260,7 +260,7 @@ final class TorrentStreamer {
         isActive = true
 
         // Read streamed download mode at start time.
-        streamedDownloadMode = UserDefaults.standard.bool(forKey: "pref_streamedDownload")
+        streamedDownloadMode = Settings.streamedDownload
 
         let setupState: (TorrentHandle.Snapshot, FileEntry)? = withTorrentHandle(nil) { activeHandle in
             activeHandle.updateSnapshot()

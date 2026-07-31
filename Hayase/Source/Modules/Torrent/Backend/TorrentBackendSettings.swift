@@ -26,9 +26,17 @@ struct TorrentBackendSettings: Encodable {
     let path: String
 
     init(defaults: UserDefaults = .standard) {
-        torrentPersist = defaults.bool(forKey: "pref_persistFiles")
+        // torrentPersist/torrentStreamedDownload read their key string and
+        // default from `Settings` (the single source of truth shared with
+        // SettingsViewController's row declarations), but still go through
+        // the injected `defaults` — not the `Settings.persistFiles`/
+        // `Settings.streamedDownload` computed properties, which always read
+        // `.standard` and would silently ignore a non-standard `defaults`
+        // passed in here. This keeps the constructor's injectability honest
+        // for every field, not just most of them.
+        torrentPersist = defaults.object(forKey: Settings.Keys.persistFiles) as? Bool ?? Settings.Defaults.persistFiles
         torrentDHT = defaults.bool(forKey: "pref_disableDHT")
-        torrentStreamedDownload = defaults.object(forKey: "pref_streamedDownload") as? Bool ?? true
+        torrentStreamedDownload = defaults.object(forKey: Settings.Keys.streamedDownload) as? Bool ?? Settings.Defaults.streamedDownload
         torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 80, min: 1, max: 999)
         maxConns = Self.clampedInt(defaults.string(forKey: "pref_maxConns"), defaultValue: 55, min: 1, max: 512)
         torrentPort = Self.clampedInt(defaults.string(forKey: "pref_torrentPort"), defaultValue: 0, min: 0, max: 65535)
