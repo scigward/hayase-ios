@@ -57,6 +57,7 @@ final class HayaseSidebarListView: UIView {
 
     func refreshDynamicState() {
         routeButtons[.w2g]?.setStatusDotVisible(W2GLobby.shared.client != nil)
+        routeButtons[.chat]?.setStatusDotVisible(IRCLobby.shared.client != nil)
         refreshProfileButton()
     }
 
@@ -92,6 +93,10 @@ final class HayaseSidebarListView: UIView {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(dynamicStateChanged),
                                                name: W2GLobby.didChange,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(dynamicStateChanged),
+                                               name: IRCLobby.didChange,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(dynamicStateChanged),

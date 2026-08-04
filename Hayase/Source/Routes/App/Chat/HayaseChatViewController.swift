@@ -7,13 +7,52 @@
 //  Mirrors: src/routes/app/chat/+page.svelte,
 //           src/lib/components/ui/irc/irc.svelte + interface.svelte
 //
-//  Scope note: the userlist is presented as a simple alert-style list rather
-//  than a dedicated sidebar panel (interface's `UserList` component), and
-//  there's no keyboard "Enter-to-send / Shift+Enter-for-newline" shortcut —
+//  Fixed in this pass:
+//  - The connection now lives in `IRCLobby.shared` (mirrors `$irc` in
+//    modules/irc/lobby.ts) instead of a private property on this class, so
+//    it persists across navigation and the sidebar's status dot
+//    (HayaseSidebarListView) can actually observe it — matching
+//    sidebarlist.svelte's `{#if $irc}<StatusDot .../>{/if}` on the chat
+//    button.
+//  - The userlist is now an always-visible side panel on wide layouts
+//    (mirrors `UserList.svelte`) and hidden entirely on narrow ones,
+//    matching `W2GViewController`'s existing wide/narrow constraint-set
+//    pattern exactly (600pt breakpoint, hide-on-narrow rather than a
+//    stacked variant — W2G already made that same simplification, so this
+//    matches established precedent instead of inventing a new one).
+//  - The message input no longer grows to a fixed 120pt on first layout:
+//    `UITextView` needs `isScrollEnabled = false` plus a manually-updated
+//    height constraint to size itself from its content.
+//  - Messages now use the same flipped-table-view + bubble-cell + grouping
+//    technique as `W2GChatCell` (`W2GViewController.swift`), instead of a
+//    plain one-row-per-message list with a manual scroll-to-bottom. This
+//    also closes a gap flagged earlier and left unfixed: interface's shared
+//    `Messages.svelte` (used by both W2G and IRC chat) visually clusters
+//    consecutive messages from the same user under one avatar/header;
+//    W2G's Swift port already implements that grouping, this now does too.
+//  - Tapping a user in the userlist opens their AniList profile
+//    (`https://anilist.co/user/<id>` via `UIApplication.shared.open`),
+//    mirroring `W2GUserCell`'s `openProfile()` — a pragmatic, already-
+//    established substitute for interface's in-app `ChatProfile` popup.
+//    Hidden for guests, matching `ChatProfile.svelte`'s `!user.guest` check.
+//
+//  On literally sharing UI code with W2G (asked about directly): not
+//  practical without extracting shared generic types out of
+//  `W2GViewController.swift` first — its chat/user cells are `private` and
+//  typed against `W2GChatMessage`/`W2GChatUser`, not something IRC's
+//  `IRCChatMessage`/`IRCUser` can drop into as-is, and that file is already
+//  one of the largest in the app; refactoring it for this felt like the
+//  wrong risk to take on working code. What's practical, and done here
+//  instead, is copying the same *techniques* (flip-scroll, grouping,
+//  wide/narrow constraint sets, profile-link cell) so the result looks and
+//  behaves the same without touching W2G at all. Worth revisiting later as
+//  a real shared component if you want the two to stay in sync by
+//  construction rather than by two people copying the same pattern.
+//
+//  Still not included: keyboard "Enter-to-send / Shift+Enter-for-newline" —
 //  physical-keyboard modifier detection is nontrivial on iOS and low-value
 //  for a touch-first app; the Send button is the primary (and only)
-//  submission path here, which is the actual feature, just without that one
-//  desktop-specific nicety.
+//  submission path here.
 
 import UIKit
 
@@ -26,16 +65,31 @@ final class HayaseChatViewController: UIViewController {
 
     private let messagesTableView = UITableView()
     private var messages: [IRCChatMessage] = []
+    /// Newest-first, matching the flipped table (row 0 = visually at the
+    /// bottom = newest). Mirrors W2GViewController's `reversedMessages`.
+    private var reversedMessages: [IRCChatMessage] { messages.reversed() }
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingLabel = UILabel()
 
+    private let userListTableView = UITableView()
+    private var users: [IRCUser] = []
+
     private let inputTextView = UITextView()
+    private var inputTextViewHeightConstraint: NSLayoutConstraint!
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
     private let exitButton = UIButton(type: .system)
-    private let userCountButton = UIButton(type: .system)
+    private let userCountLabel = UILabel()
 
-    private var ircClient: IRCClient?
+    private static let minInputHeight: CGFloat = 36
+    private static let maxInputHeight: CGFloat = 120
+
+    // Wide/narrow adaptive layout for the userlist panel — mirrors
+    // W2GViewController's wideLayoutConstraints/narrowLayoutConstraints/
+    // isWideLayout/updateLayoutForCurrentWidth pattern exactly.
+    private var wideLayoutConstraints: [NSLayoutConstraint] = []
+    private var narrowLayoutConstraints: [NSLayoutConstraint] = []
+    private var isWideLayout: Bool?
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
@@ -58,6 +112,38 @@ final class HayaseChatViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if !chatContainer.isHidden {
+            updateLayoutForCurrentWidth()
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.updateLayoutForCurrentWidth()
+        })
+    }
+
+    /// Mirrors W2GViewController's `updateLayoutForCurrentWidth()`. Web
+    /// breakpoint: `md:` = 768px; treated as 600pt on iOS, same as W2G.
+    private func updateLayoutForCurrentWidth() {
+        let wide = view.bounds.width >= 600
+        guard wide != isWideLayout else { return }
+        isWideLayout = wide
+
+        if wide {
+            NSLayoutConstraint.deactivate(narrowLayoutConstraints)
+            NSLayoutConstraint.activate(wideLayoutConstraints)
+            userListTableView.isHidden = false
+        } else {
+            NSLayoutConstraint.deactivate(wideLayoutConstraints)
+            NSLayoutConstraint.activate(narrowLayoutConstraints)
+            userListTableView.isHidden = true
+        }
     }
 
     private func configureTabBarItem() {
@@ -92,7 +178,7 @@ final class HayaseChatViewController: UIViewController {
         stack.isHidden = agreed
         chatContainer.isHidden = !agreed
         if agreed {
-            connectIfNeeded()
+            attachToLobby()
         } else {
             renderWarning()
         }
@@ -183,7 +269,8 @@ final class HayaseChatViewController: UIViewController {
 
     // MARK: - Chat panel
     // Mirrors interface.svelte's layout: title + description, a message
-    // list, and a bottom input bar with an exit button and a send button.
+    // list with a userlist side panel, and a bottom input bar with an exit
+    // button and a send button.
 
     private func setupChatContainer() {
         chatContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -207,13 +294,11 @@ final class HayaseChatViewController: UIViewController {
         descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
         descriptionLabel.numberOfLines = 0
 
-        userCountButton.setTitle("0 online", for: .normal)
-        userCountButton.titleLabel?.font = .nunito(ofSize: 13, weight: .semibold)
-        userCountButton.tintColor = UIColor.HayaseTheme.mutedForeground
-        userCountButton.contentHorizontalAlignment = .leading
-        userCountButton.addTarget(self, action: #selector(userCountTapped), for: .touchUpInside)
+        userCountLabel.text = "0 online"
+        userCountLabel.font = .nunito(ofSize: 13, weight: .semibold)
+        userCountLabel.textColor = UIColor.HayaseTheme.mutedForeground
 
-        let headerStack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel, userCountButton])
+        let headerStack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel, userCountLabel])
         headerStack.axis = .vertical
         headerStack.spacing = 4
         headerStack.translatesAutoresizingMaskIntoConstraints = false
@@ -233,7 +318,28 @@ final class HayaseChatViewController: UIViewController {
         messagesTableView.keyboardDismissMode = .interactive
         messagesTableView.estimatedRowHeight = 56
         messagesTableView.rowHeight = UITableView.automaticDimension
+        // Flip trick for "always anchored to newest message" auto-scroll,
+        // matching W2GViewController's chatTableView exactly — avoids the
+        // fragile "call scrollToRow after every reload" approach the first
+        // pass used.
+        messagesTableView.transform = CGAffineTransform(scaleX: 1, y: -1)
         chatContainer.addSubview(messagesTableView)
+
+        // Mirrors UserList.svelte's side panel on wide layouts; hidden
+        // entirely on narrow ones (see updateLayoutForCurrentWidth).
+        let userListSeparator = UIView()
+        userListSeparator.backgroundColor = UIColor.HayaseTheme.border
+        userListSeparator.translatesAutoresizingMaskIntoConstraints = false
+        chatContainer.addSubview(userListSeparator)
+
+        userListTableView.translatesAutoresizingMaskIntoConstraints = false
+        userListTableView.backgroundColor = .clear
+        userListTableView.separatorStyle = .none
+        userListTableView.dataSource = self
+        userListTableView.register(IRCUserCell.self, forCellReuseIdentifier: IRCUserCell.reuseID)
+        userListTableView.estimatedRowHeight = 40
+        userListTableView.rowHeight = UITableView.automaticDimension
+        chatContainer.addSubview(userListTableView)
 
         // Mirrors irc.svelte's `{#await $irc}` loading state, shown until
         // both registration and our own channel join complete.
@@ -258,6 +364,12 @@ final class HayaseChatViewController: UIViewController {
         exitButton.addTarget(self, action: #selector(exitTapped), for: .touchUpInside)
         exitButton.translatesAutoresizingMaskIntoConstraints = false
 
+        // isScrollEnabled = false is required for a UITextView to size
+        // itself from its content under Auto Layout — with it left at the
+        // default `true`, the `>=36 / <=120` height constraints below had
+        // nothing driving them toward a natural size and settled on 120pt
+        // on first layout, producing an oversized input box.
+        inputTextView.isScrollEnabled = false
         inputTextView.font = .nunito(ofSize: 15)
         inputTextView.textColor = UIColor.HayaseTheme.foreground
         inputTextView.backgroundColor = UIColor.HayaseTheme.input
@@ -282,6 +394,8 @@ final class HayaseChatViewController: UIViewController {
         inputBar.addSubview(exitButton)
         inputBar.addSubview(sendButton)
 
+        inputTextViewHeightConstraint = inputTextView.heightAnchor.constraint(equalToConstant: Self.minInputHeight)
+
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: chatContainer.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 16),
@@ -292,16 +406,17 @@ final class HayaseChatViewController: UIViewController {
             separator.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
 
-            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             messagesTableView.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor),
-            messagesTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
-            messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -8),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: messagesTableView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: messagesTableView.centerYAnchor, constant: -12),
             loadingLabel.centerXAnchor.constraint(equalTo: messagesTableView.centerXAnchor),
             loadingLabel.topAnchor.constraint(equalTo: loadingIndicator.bottomAnchor, constant: 8),
 
+            // Input bar always spans the full width, under both the chat
+            // and userlist columns — mirrors W2GViewController's bottomBar,
+            // which is likewise constrained to the safe area directly
+            // rather than to chatTableView.
             inputBar.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 16),
             inputBar.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -16),
             inputBar.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor, constant: -12),
@@ -314,8 +429,7 @@ final class HayaseChatViewController: UIViewController {
             inputTextView.leadingAnchor.constraint(equalTo: exitButton.trailingAnchor, constant: 8),
             inputTextView.topAnchor.constraint(equalTo: inputBar.topAnchor),
             inputTextView.bottomAnchor.constraint(equalTo: inputBar.bottomAnchor),
-            inputTextView.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
-            inputTextView.heightAnchor.constraint(lessThanOrEqualToConstant: 120),
+            inputTextViewHeightConstraint,
 
             placeholderLabel.leadingAnchor.constraint(equalTo: inputTextView.leadingAnchor, constant: 12),
             placeholderLabel.topAnchor.constraint(equalTo: inputTextView.topAnchor, constant: 9),
@@ -326,18 +440,43 @@ final class HayaseChatViewController: UIViewController {
             sendButton.widthAnchor.constraint(equalToConstant: 36),
             sendButton.heightAnchor.constraint(equalToConstant: 36),
         ])
+
+        // Wide layout: messages left, userlist right (md:w-72 = 288pt on
+        // web; kept at 180pt here as before). Narrow layout: messages fill
+        // the width, userlist hidden. Mirrors W2GViewController exactly.
+        wideLayoutConstraints = [
+            userListSeparator.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            userListSeparator.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
+            userListSeparator.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor),
+            userListSeparator.widthAnchor.constraint(equalToConstant: 1),
+
+            userListTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            userListTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
+            userListTableView.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor),
+            userListTableView.widthAnchor.constraint(equalToConstant: 180),
+
+            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            messagesTableView.trailingAnchor.constraint(equalTo: userListSeparator.leadingAnchor),
+            messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -8),
+        ]
+
+        narrowLayoutConstraints = [
+            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            messagesTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
+            messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -8),
+        ]
+
+        updateLayoutForCurrentWidth()
     }
 
-    private func connectIfNeeded() {
-        guard ircClient == nil else { return }
-        loadingIndicator.startAnimating()
-        loadingIndicator.isHidden = false
-        loadingLabel.isHidden = false
-        messagesTableView.isHidden = true
-
-        let identity = IRCIdentity.current()
-        let client = IRCClient(identity: identity)
-        ircClient = client
+    /// Mirrors `$irc ??= MessageClient.new(ident)`: reuses the shared lobby
+    /// session if one is already connected/connecting, otherwise starts a
+    /// new one. Wires this screen's callbacks either way, and immediately
+    /// reflects current state if reattaching to a session that's already
+    /// past `onReady` (rather than showing a loading screen for a
+    /// connection that finished before this screen was even visible).
+    private func attachToLobby() {
+        let client = IRCLobby.shared.connect()
 
         client.onReady = { [weak self] in
             guard let self else { return }
@@ -350,48 +489,72 @@ final class HayaseChatViewController: UIViewController {
             guard let self, let client else { return }
             self.messages = client.messages
             self.messagesTableView.reloadData()
-            self.scrollToBottom()
+            self.scrollToNewestMessage()
         }
         client.onUsersChanged = { [weak client, weak self] in
             guard let client, let self else { return }
-            self.userCountButton.setTitle("\(client.users.count) online", for: .normal)
+            self.users = client.users.values.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            self.userCountLabel.text = "\(client.users.count) online"
+            self.userListTableView.reloadData()
         }
         client.onDisconnected = { [weak self] _ in
-            self?.userCountButton.setTitle("Disconnected", for: .normal)
+            self?.userCountLabel.text = "Disconnected"
         }
-        client.connect()
+
+        if client.isReady {
+            loadingIndicator.stopAnimating()
+            loadingIndicator.isHidden = true
+            loadingLabel.isHidden = true
+            messagesTableView.isHidden = false
+            messages = client.messages
+            users = client.users.values.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            userCountLabel.text = "\(client.users.count) online"
+            messagesTableView.reloadData()
+            userListTableView.reloadData()
+            scrollToNewestMessage()
+        } else {
+            loadingIndicator.startAnimating()
+            loadingIndicator.isHidden = false
+            loadingLabel.isHidden = false
+            messagesTableView.isHidden = true
+        }
     }
 
-    private func scrollToBottom() {
+    /// Mirrors W2GViewController's `w2gClientMessagesDidChange`: in the
+    /// flipped table, row 0 is visually at the bottom (newest), so scrolling
+    /// "to" row 0 is scrolling to the newest message.
+    private func scrollToNewestMessage() {
         guard !messages.isEmpty else { return }
-        let indexPath = IndexPath(row: messages.count - 1, section: 0)
-        messagesTableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+        messagesTableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
     }
 
     @objc private func sendTapped() {
         let text = inputTextView.text ?? ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        ircClient?.say(text)
+        IRCLobby.shared.client?.say(text)
         inputTextView.text = ""
         textViewDidChange(inputTextView)
     }
 
     @objc private func exitTapped() {
-        ircClient?.disconnect()
-        ircClient = nil
+        IRCLobby.shared.leave()
         messages = []
+        users = []
         messagesTableView.reloadData()
+        userListTableView.reloadData()
         UserDefaults.standard.set(false, forKey: agreedKey)
         render()
     }
 
-    @objc private func userCountTapped() {
-        guard let client = ircClient else { return }
-        let names = client.users.values.map(\.name).sorted()
-        let message = names.isEmpty ? "No one else is here yet." : names.joined(separator: "\n")
-        let alert = UIAlertController(title: "\(names.count) online", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+    private func updateInputHeight() {
+        let width = inputTextView.bounds.width
+        guard width > 0 else { return }
+        let fittingSize = inputTextView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let clamped = min(max(fittingSize.height, Self.minInputHeight), Self.maxInputHeight)
+        inputTextView.isScrollEnabled = fittingSize.height > Self.maxInputHeight
+        guard inputTextViewHeightConstraint.constant != clamped else { return }
+        inputTextViewHeightConstraint.constant = clamped
+        UIView.animate(withDuration: 0.15) { self.view.layoutIfNeeded() }
     }
 }
 
@@ -399,15 +562,49 @@ final class HayaseChatViewController: UIViewController {
 
 extension HayaseChatViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        messages.count
+        tableView == messagesTableView ? messages.count : users.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: IRCMessageCell.reuseID, for: indexPath) as? IRCMessageCell else {
-            return UITableViewCell()
+        if tableView == messagesTableView {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: IRCMessageCell.reuseID, for: indexPath) as? IRCMessageCell else {
+                return UITableViewCell()
+            }
+            let msgs = reversedMessages
+            if let msg = msgs[safe: indexPath.row] {
+                // Message grouping (mirrors web Messages.svelte groupMessages,
+                // same technique as W2GChatCell): in the flipped table, row 0
+                // = newest. The visual "above" is row+1. Show the header
+                // (name+time) when this is the first message in a group (the
+                // message visually above is from a different user or doesn't
+                // exist). Show the avatar when this is the last message in a
+                // group (the message visually below is from a different user
+                // or doesn't exist).
+                let prevSameUser = msgs[safe: indexPath.row + 1]?.user.id == msg.user.id
+                let nextSameUser = indexPath.row > 0 && msgs[safe: indexPath.row - 1]?.user.id == msg.user.id
+                let showHeader = !prevSameUser
+                let showAvatar = !nextSameUser
+                cell.configure(with: msg, showHeader: showHeader, showAvatar: showAvatar)
+            }
+            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
+            return cell
+        } else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: IRCUserCell.reuseID, for: indexPath) as? IRCUserCell else {
+                return UITableViewCell()
+            }
+            if let user = users[safe: indexPath.row] {
+                cell.configure(with: user)
+            }
+            return cell
         }
-        cell.configure(with: messages[indexPath.row])
-        return cell
+    }
+}
+
+private extension Array {
+    /// Matches the `[safe:]` convention already used elsewhere in this
+    /// codebase (e.g. `W2GViewController.swift`).
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -416,6 +613,7 @@ extension HayaseChatViewController: UITableViewDataSource {
 extension HayaseChatViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         placeholderLabel.isHidden = !(textView.text?.isEmpty ?? true)
+        updateInputHeight()
     }
 
     /// Mirrors the web textarea's `maxlength={256}`.
@@ -425,71 +623,251 @@ extension HayaseChatViewController: UITextViewDelegate {
     }
 }
 
-// MARK: - IRCMessageCell
+// MARK: - IRCMessageCell (mirrors Messages.svelte, same technique as W2GChatCell)
+//
+// Web layout per message group:
+//   <div class='flex flex-row mt-3' [flex-row-reverse if outgoing]>
+//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />     ← avatar at bottom of group
+//     <div class='flex flex-col px-2 items-start [items-end]'>
+//       <div class='pb-1 flex flex-row items-center px-1'>
+//         <div class='font-bold text-sm'>{name}</div>         ← 14px bold
+//         <div class='text-muted-foreground pl-2 text-[10px]'>{time}</div>
+//       </div>
+//       {#each _messages as message}
+//         <div class='bg-muted py-2 px-3 rounded-t-xl rounded-r-xl mb-1 text-xs'>  ← 12px
+//           {message}
+//         </div>
+//       {/each}
+//     </div>
+//   </div>
+//
+// This was a plain one-row-per-message list with no bubble/grouping in the
+// first pass. `Messages.svelte` is shared between W2G and IRC chat, so IRC
+// messages should look like this too — not just "for consistency with W2G"
+// but because that's what interface's own shared component actually does.
 
 private final class IRCMessageCell: UITableViewCell {
     static let reuseID = "IRCMessageCell"
 
     private let avatarImageView = UIImageView()
+    private let headerRow = UIView()
     private let nameLabel = UILabel()
     private let timeLabel = UILabel()
-    private let messageLabel = UILabel()
+    private let bubbleBackground = UIView()
+    private let bubbleLabel = UILabel()
+
+    private var incomingConstraints: [NSLayoutConstraint] = []
+    private var outgoingConstraints: [NSLayoutConstraint] = []
+    private var headerVisibleConstraint: NSLayoutConstraint!
+    private var headerHiddenConstraint: NSLayoutConstraint!
+    private var headerTopConstraint: NSLayoutConstraint!
+
     private var currentAvatarURLString: String?
     private var avatarTask: URLSessionDataTask?
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter
-    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
 
-        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
-        avatarImageView.layer.cornerRadius = 16
+        let cv = contentView
+        let avatarSize: CGFloat = 32
+
+        avatarImageView.layer.cornerRadius = avatarSize / 2
         avatarImageView.clipsToBounds = true
-        avatarImageView.backgroundColor = UIColor.HayaseTheme.accent
         avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.backgroundColor = UIColor.HayaseTheme.accent
+        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(avatarImageView)
 
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.font = .nunito(ofSize: 13, weight: .bold)
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(headerRow)
+
+        nameLabel.font = .nunito(ofSize: 14, weight: .bold)
         nameLabel.textColor = UIColor.HayaseTheme.foreground
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(nameLabel)
 
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.font = .nunito(ofSize: 10)
         timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        timeLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addSubview(timeLabel)
 
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
-        messageLabel.font = .nunito(ofSize: 14)
-        messageLabel.textColor = UIColor.HayaseTheme.foreground
-        messageLabel.numberOfLines = 0
+        bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(bubbleBackground)
+
+        bubbleLabel.font = .nunito(ofSize: 12)
+        bubbleLabel.textColor = UIColor.HayaseTheme.foreground
+        bubbleLabel.numberOfLines = 0
+        bubbleLabel.translatesAutoresizingMaskIntoConstraints = false
+        bubbleBackground.addSubview(bubbleLabel)
+
+        NSLayoutConstraint.activate([
+            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
+
+            nameLabel.topAnchor.constraint(equalTo: headerRow.topAnchor),
+            nameLabel.bottomAnchor.constraint(equalTo: headerRow.bottomAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
+            timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
+            timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
+
+            bubbleLabel.topAnchor.constraint(equalTo: bubbleBackground.topAnchor, constant: 8),
+            bubbleLabel.leadingAnchor.constraint(equalTo: bubbleBackground.leadingAnchor, constant: 12),
+            bubbleLabel.trailingAnchor.constraint(equalTo: bubbleBackground.trailingAnchor, constant: -12),
+            bubbleLabel.bottomAnchor.constraint(equalTo: bubbleBackground.bottomAnchor, constant: -8),
+
+            bubbleBackground.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
+        ])
+
+        headerTopConstraint = headerRow.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12)
+        headerVisibleConstraint = bubbleBackground.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 4)
+        headerHiddenConstraint = bubbleBackground.topAnchor.constraint(equalTo: cv.topAnchor, constant: 2)
+
+        incomingConstraints = [
+            avatarImageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
+            headerRow.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            bubbleBackground.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -100),
+        ]
+
+        outgoingConstraints = [
+            avatarImageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
+            headerRow.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
+            bubbleBackground.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
+            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 100),
+        ]
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        NSLayoutConstraint.deactivate(incomingConstraints)
+        NSLayoutConstraint.deactivate(outgoingConstraints)
+        headerVisibleConstraint.isActive = false
+        headerHiddenConstraint.isActive = false
+        headerTopConstraint.isActive = false
+        avatarTask?.cancel()
+        avatarTask = nil
+        currentAvatarURLString = nil
+        avatarImageView.image = nil
+        avatarImageView.alpha = 1
+    }
+
+    func configure(with message: IRCChatMessage, showHeader: Bool, showAvatar: Bool) {
+        nameLabel.text = message.user.name
+        timeLabel.text = DateFormatter.localizedString(from: message.date, dateStyle: .none, timeStyle: .short)
+        bubbleLabel.text = message.message
+
+        let isOutgoing = message.kind == .outgoing
+
+        NSLayoutConstraint.activate(isOutgoing ? outgoingConstraints : incomingConstraints)
+
+        headerRow.isHidden = !showHeader
+        headerTopConstraint.isActive = showHeader
+        headerVisibleConstraint.isActive = showHeader
+        headerHiddenConstraint.isActive = !showHeader
+
+        avatarImageView.alpha = showAvatar ? 1 : 0
+        if showAvatar { loadAvatar(urlString: message.user.avatarURL) }
+
+        bubbleBackground.backgroundColor = isOutgoing ? UIColor.HayaseTheme.primary : UIColor.HayaseTheme.accent
+        bubbleBackground.layer.cornerRadius = 12
+        bubbleBackground.layer.maskedCorners = isOutgoing
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+    }
+
+    private func loadAvatar(urlString: String) {
+        guard currentAvatarURLString != urlString else { return }
+        currentAvatarURLString = urlString
+        avatarTask?.cancel()
+        avatarImageView.image = nil
+
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            avatarImageView.image = cached
+            return
+        }
+        guard let url = URL(string: urlString) else { return }
+
+        avatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+            DispatchQueue.main.async {
+                guard let self, self.currentAvatarURLString == urlString else { return }
+                self.avatarImageView.image = image
+            }
+        }
+        avatarTask?.resume()
+    }
+}
+
+// MARK: - IRCUserCell (mirrors UserList.svelte, same technique as W2GUserCell)
+//
+// Web layout per user:
+//   <div class='flex items-center pb-2'>
+//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />   ← 32pt visible avatar
+//     <div class='text-md pl-2'>{name}</div>                ← 16px, 8pt left margin
+//     <ExternalLink size='18' class='ml-auto text-blue-600' /> ← AniList link (non-guests only)
+//   </div>
+
+private final class IRCUserCell: UITableViewCell {
+    static let reuseID = "IRCUserCell"
+
+    private let avatarImageView = UIImageView()
+    private let nameLabel = UILabel()
+    private let linkButton = UIButton(type: .system)
+    private var currentAvatarURLString: String?
+    private var avatarTask: URLSessionDataTask?
+    private var userID: String = ""
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        let avatarSize: CGFloat = 32
+
+        avatarImageView.layer.cornerRadius = avatarSize / 2
+        avatarImageView.clipsToBounds = true
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.backgroundColor = UIColor.HayaseTheme.accent
+        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+
+        nameLabel.font = .nunito(ofSize: 16)
+        nameLabel.textColor = UIColor.HayaseTheme.foreground
+        nameLabel.numberOfLines = 1
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        linkButton.setImage(UIImage.hayaseIcon("external-link", withConfiguration: linkConfig), for: .normal)
+        linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
+        linkButton.translatesAutoresizingMaskIntoConstraints = false
+        linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
 
         contentView.addSubview(avatarImageView)
         contentView.addSubview(nameLabel)
-        contentView.addSubview(timeLabel)
-        contentView.addSubview(messageLabel)
+        contentView.addSubview(linkButton)
 
         NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            avatarImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 32),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 32),
-            avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -6),
+            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            avatarImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            avatarImageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
 
             nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            nameLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: linkButton.leadingAnchor, constant: -8),
 
-            timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 6),
-            timeLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
-            timeLabel.firstBaselineAnchor.constraint(equalTo: nameLabel.firstBaselineAnchor),
-
-            messageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            messageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
-            messageLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            linkButton.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
+            linkButton.widthAnchor.constraint(equalToConstant: 24),
+            linkButton.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
@@ -505,15 +883,19 @@ private final class IRCMessageCell: UITableViewCell {
         avatarImageView.image = nil
     }
 
-    func configure(with message: IRCChatMessage) {
-        nameLabel.text = message.user.name
-        nameLabel.textColor = message.kind == .outgoing ? UIColor.HayaseTheme.primary : UIColor.HayaseTheme.foreground
-        timeLabel.text = Self.timeFormatter.string(from: message.date)
-        messageLabel.text = message.message
-        loadAvatar(urlString: message.user.avatarURL)
+    @objc private func openProfile() {
+        guard !userID.isEmpty, let url = URL(string: "https://anilist.co/user/" + userID) else { return }
+        UIApplication.shared.open(url)
     }
 
-    private func loadAvatar(urlString: String) {
+    func configure(with user: IRCUser) {
+        nameLabel.text = user.name
+        userID = user.id
+        // Mirrors ChatProfile.svelte's `!user.guest` check — guests have no
+        // real AniList account to link to.
+        linkButton.isHidden = user.isGuest
+
+        let urlString = user.avatarURL
         guard currentAvatarURLString != urlString else { return }
         currentAvatarURLString = urlString
         avatarTask?.cancel()

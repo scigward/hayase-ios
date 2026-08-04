@@ -124,7 +124,15 @@ final class IRCClient {
     private let connection = IRCConnection()
 
     private var didRegister = false
-    private var didJoinChannel = false
+    /// True once registration and our own channel join have both completed
+    /// — i.e. once `onReady` has already fired. Exposed so a caller
+    /// reattaching to an already-connected `IRCLobby.shared.client` (e.g.
+    /// navigating back to the chat screen without having exited) can check
+    /// current state immediately instead of assuming it needs to wait for
+    /// `onReady` again, which — since `onReady` only fires once per
+    /// connection — would otherwise leave that caller stuck on a loading
+    /// state forever.
+    private(set) var isReady = false
     private var currentNick: String
     private var pendingNamesMembers: [IRCRawUser] = []
 
@@ -156,7 +164,7 @@ final class IRCClient {
     /// paste or a Shift+Enter'd message), then byte-chunks each resulting
     /// line so no single PRIVMSG exceeds `messageMaxLength`.
     func say(_ text: String) {
-        guard didJoinChannel else { return }
+        guard isReady else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -236,7 +244,7 @@ final class IRCClient {
 
     private func handleClose(_ error: Error?) {
         didRegister = false
-        didJoinChannel = false
+        isReady = false
         onDisconnected?(error)
     }
 
@@ -338,8 +346,8 @@ final class IRCClient {
 
     private func handleJoin(_ message: IRCMessage) {
         guard message.params.first == Self.channelName else { return }
-        if message.nick == currentNick, !didJoinChannel {
-            didJoinChannel = true
+        if message.nick == currentNick, !isReady {
+            isReady = true
             onReady?()
             return
         }
