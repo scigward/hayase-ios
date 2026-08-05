@@ -3,11 +3,13 @@ import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
+import { randomUUID } from 'node:crypto'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v5'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v6'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
+const sessionID = randomUUID()
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -475,7 +477,7 @@ async function handleRPC (payload) {
       setPhase('adding-torrent')
       try {
         const files = await withTimeout(
-          activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0),
+          activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0, sessionID, false),
           METADATA_TIMEOUT_MS,
           () => `Timed out while fetching torrent metadata (${shortStatus()})`
         )
