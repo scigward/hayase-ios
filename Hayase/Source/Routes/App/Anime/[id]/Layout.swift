@@ -366,6 +366,7 @@ final class AnimeTagChipButton: UIButton {
         for dashLayer in dashLayers {
             dashContainer.addSublayer(dashLayer)
             dashLayer.fillColor = UIColor.clear.cgColor
+            dashLayer.isHidden = false
             dashLayer.lineCap = .butt
             dashLayer.lineDashPattern = [6, 4]
             dashLayer.contentsScale = UIScreen.main.scale
