@@ -333,6 +333,7 @@ final class AnimeTagChipButton: UIButton {
         didSet { updateSpoilerRendering() }
     }
 
+    private let dashContainer = CALayer()
     private let dashLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
     private static let blurContext = CIContext(options: nil)
 
@@ -360,8 +361,10 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
+        dashContainer.masksToBounds = true
+        layer.addSublayer(dashContainer)
         for dashLayer in dashLayers {
-            layer.addSublayer(dashLayer)
+            dashContainer.addSublayer(dashLayer)
             dashLayer.fillColor = UIColor.clear.cgColor
             dashLayer.lineCap = .butt
             dashLayer.lineDashPattern = [6, 4]
@@ -389,32 +392,34 @@ final class AnimeTagChipButton: UIButton {
         defer { CATransaction.commit() }
 
         let shouldHide = !dashedBorder || bounds.isEmpty
-        for dashLayer in dashLayers {
-            dashLayer.isHidden = shouldHide
-        }
+        dashContainer.isHidden = shouldHide
         guard dashedBorder, !bounds.isEmpty else { return }
 
         let lineWidth: CGFloat = 2
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let rect = pixelAligned(bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), scale: scale)
-        let cornerRadius = min(layer.cornerRadius, rect.width / 2, rect.height / 2)
-        let r = max(cornerRadius, 0)
 
+        // Clip to rounded rect — mirrors CSS border-radius clipping of dashed borders
+        dashContainer.frame = bounds
+        dashContainer.cornerRadius = layer.cornerRadius
+
+        // Each edge drawn corner-to-corner with independent dash pattern (phase 0),
+        // matching CSS per-edge dash reset behavior.
         let topPath = UIBezierPath()
-        topPath.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
-        topPath.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        topPath.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        topPath.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
 
         let rightPath = UIBezierPath()
-        rightPath.move(to: CGPoint(x: rect.maxX, y: rect.minY + r))
-        rightPath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        rightPath.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        rightPath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
 
         let bottomPath = UIBezierPath()
-        bottomPath.move(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
-        bottomPath.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        bottomPath.move(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        bottomPath.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
 
         let leftPath = UIBezierPath()
-        leftPath.move(to: CGPoint(x: rect.minX, y: rect.maxY - r))
-        leftPath.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        leftPath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        leftPath.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
 
         let edgePaths = [topPath, rightPath, bottomPath, leftPath]
         for (i, dashLayer) in dashLayers.enumerated() {
