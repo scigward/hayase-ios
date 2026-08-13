@@ -333,7 +333,7 @@ final class AnimeTagChipButton: UIButton {
         didSet { updateSpoilerRendering() }
     }
 
-    private let dashLayer = CAShapeLayer()
+    private let dashLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
     private static let blurContext = CIContext(options: nil)
 
     private let blurredTitleView = UIImageView()
@@ -360,13 +360,14 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
-        layer.addSublayer(dashLayer)
-        dashLayer.fillColor = UIColor.clear.cgColor
-        dashLayer.lineCap = .butt
-        dashLayer.lineJoin = .round
-        dashLayer.lineDashPattern = [6, 4]
-        dashLayer.contentsScale = UIScreen.main.scale
-        dashLayer.isHidden = true
+        for dashLayer in dashLayers {
+            layer.addSublayer(dashLayer)
+            dashLayer.fillColor = UIColor.clear.cgColor
+            dashLayer.lineCap = .butt
+            dashLayer.lineDashPattern = [6, 4]
+            dashLayer.contentsScale = UIScreen.main.scale
+            dashLayer.isHidden = true
+        }
 
         blurredTitleView.isUserInteractionEnabled = false
         blurredTitleView.contentMode = .center
@@ -387,21 +388,44 @@ final class AnimeTagChipButton: UIButton {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        dashLayer.isHidden = !dashedBorder || bounds.isEmpty
+        let shouldHide = !dashedBorder || bounds.isEmpty
+        for dashLayer in dashLayers {
+            dashLayer.isHidden = shouldHide
+        }
         guard dashedBorder, !bounds.isEmpty else { return }
 
         let lineWidth: CGFloat = 2
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let rect = pixelAligned(bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), scale: scale)
         let cornerRadius = min(layer.cornerRadius, rect.width / 2, rect.height / 2)
+        let r = max(cornerRadius, 0)
 
-        dashLayer.frame = bounds
-        dashLayer.path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius).cgPath
-        dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-        dashLayer.lineWidth = lineWidth
-        dashLayer.lineDashPattern = [6, 4]
-        dashLayer.lineDashPhase = 0
-        dashLayer.contentsScale = scale
+        let topPath = UIBezierPath()
+        topPath.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+        topPath.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+
+        let rightPath = UIBezierPath()
+        rightPath.move(to: CGPoint(x: rect.maxX, y: rect.minY + r))
+        rightPath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+
+        let bottomPath = UIBezierPath()
+        bottomPath.move(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
+        bottomPath.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+
+        let leftPath = UIBezierPath()
+        leftPath.move(to: CGPoint(x: rect.minX, y: rect.maxY - r))
+        leftPath.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+
+        let edgePaths = [topPath, rightPath, bottomPath, leftPath]
+        for (i, dashLayer) in dashLayers.enumerated() {
+            dashLayer.frame = bounds
+            dashLayer.path = edgePaths[i].cgPath
+            dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
+            dashLayer.lineWidth = lineWidth
+            dashLayer.lineDashPattern = [6, 4]
+            dashLayer.lineDashPhase = 0
+            dashLayer.contentsScale = scale
+        }
     }
 
     private func pixelAligned(_ rect: CGRect, scale: CGFloat) -> CGRect {
