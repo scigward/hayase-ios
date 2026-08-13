@@ -333,8 +333,8 @@ final class AnimeTagChipButton: UIButton {
         didSet { updateSpoilerRendering() }
     }
 
-    private let dashContainer = CALayer()
-    private let dashLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
+    private let dashClip = CALayer()
+    private let dashEdges: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
     private static let blurContext = CIContext(options: nil)
 
     private let blurredTitleView = UIImageView()
@@ -361,16 +361,11 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
-        dashContainer.masksToBounds = true
-        layer.addSublayer(dashContainer)
-        for dashLayer in dashLayers {
-            dashContainer.addSublayer(dashLayer)
-            dashLayer.fillColor = UIColor.clear.cgColor
-            dashLayer.isHidden = false
-            dashLayer.lineCap = .butt
-            dashLayer.lineDashPattern = [6, 4]
-            dashLayer.contentsScale = UIScreen.main.scale
-            dashLayer.isHidden = true
+        dashClip.masksToBounds = true
+        dashClip.isHidden = true
+        layer.addSublayer(dashClip)
+        for edge in dashEdges {
+            dashClip.addSublayer(edge)
         }
 
         blurredTitleView.isUserInteractionEnabled = false
@@ -392,45 +387,52 @@ final class AnimeTagChipButton: UIButton {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let shouldHide = !dashedBorder || bounds.isEmpty
-        dashContainer.isHidden = shouldHide
+        dashClip.isHidden = !dashedBorder || bounds.isEmpty
         guard dashedBorder, !bounds.isEmpty else { return }
 
         let lineWidth: CGFloat = 2
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let rect = pixelAligned(bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), scale: scale)
 
-        // Clip to rounded rect — mirrors CSS border-radius clipping of dashed borders
-        dashContainer.frame = bounds
-        dashContainer.cornerRadius = layer.cornerRadius
+        dashClip.frame = bounds
+        dashClip.cornerRadius = layer.cornerRadius
 
-        // Each edge drawn corner-to-corner with independent dash pattern (phase 0),
-        // matching CSS per-edge dash reset behavior.
-        let topPath = UIBezierPath()
-        topPath.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        topPath.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        let edgePaths: [CGPath] = [
+            {
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+                p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+                return p.cgPath
+            }(),
+            {
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+                p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+                return p.cgPath
+            }(),
+            {
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: rect.maxX, y: rect.maxY))
+                p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+                return p.cgPath
+            }(),
+            {
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+                p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+                return p.cgPath
+            }(),
+        ]
 
-        let rightPath = UIBezierPath()
-        rightPath.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-        rightPath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-
-        let bottomPath = UIBezierPath()
-        bottomPath.move(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        bottomPath.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-
-        let leftPath = UIBezierPath()
-        leftPath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        leftPath.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-
-        let edgePaths = [topPath, rightPath, bottomPath, leftPath]
-        for (i, dashLayer) in dashLayers.enumerated() {
-            dashLayer.frame = bounds
-            dashLayer.path = edgePaths[i].cgPath
-            dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-            dashLayer.lineWidth = lineWidth
-            dashLayer.lineDashPattern = [6, 4]
-            dashLayer.lineDashPhase = 0
-            dashLayer.contentsScale = scale
+        for (i, edge) in dashEdges.enumerated() {
+            edge.frame = bounds
+            edge.path = edgePaths[i]
+            edge.strokeColor = UIColor.HayaseTheme.secondary.cgColor
+            edge.lineWidth = lineWidth
+            edge.lineCap = .butt
+            edge.lineDashPattern = [6, 4]
+            edge.lineDashPhase = 0
+            edge.contentsScale = scale
         }
     }
 
