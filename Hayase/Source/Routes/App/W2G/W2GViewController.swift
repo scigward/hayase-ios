@@ -305,7 +305,7 @@ final class W2GViewController: UIViewController {
         // User list table
         userListTableView.backgroundColor = .clear
         userListTableView.separatorStyle = .none
-        userListTableView.register(W2GUserCell.self, forCellReuseIdentifier: W2GUserCell.reuseID)
+        userListTableView.register(ChatUserListCell.self, forCellReuseIdentifier: ChatUserListCell.reuseID)
         userListTableView.dataSource = self
         userListTableView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(userListTableView)
@@ -569,7 +569,7 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
         } else {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GUserCell.reuseID, for: indexPath) as? W2GUserCell else { return UITableViewCell() }
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatUserListCell.reuseID, for: indexPath) as? ChatUserListCell else { return UITableViewCell() }
             let users = sortedUsers
             if let user = users[safe: indexPath.row] {
                 cell.configure(with: user)
@@ -1372,98 +1372,6 @@ private final class W2GChatCell: UITableViewCell {
         avatarImageView.image = nil
         let urlStr = url ?? W2GChatUser.defaultAvatarURL
         guard let url = URL(string: urlStr) else {
-            avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
-            return
-        }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async { self?.avatarImageView.image = img }
-        }.resume()
-    }
-}
-
-// MARK: - W2GUserCell (mirrors UserList.svelte)
-//
-// Web layout per user:
-//   <div class='flex items-center pb-2'>
-//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />   ← 32pt visible avatar
-//     <div class='text-md pl-2'>{name}</div>                ← 16px, 8pt left margin
-//     <ExternalLink size='18' class='ml-auto text-blue-600' /> ← AniList link
-//   </div>
-
-private final class W2GUserCell: UITableViewCell {
-    static let reuseID = "W2GUserCell"
-
-    private let avatarImageView = UIImageView()
-    private let nameLabel = UILabel()
-    private let linkButton = UIButton(type: .system)
-
-    private var userID: String = ""
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        let avatarSize: CGFloat = 32  // w-10 h-10 p-1 → 32pt visible
-
-        // Avatar: rounded-full
-        avatarImageView.layer.cornerRadius = avatarSize / 2
-        avatarImageView.clipsToBounds = true
-        avatarImageView.contentMode = .scaleAspectFill
-        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Name: text-md (16px), pl-2 (8pt)
-        nameLabel.font = .nunito(ofSize: 16)
-        nameLabel.textColor = .white
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        // External link button: ml-auto text-blue-600, ExternalLink size=18
-        let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        linkButton.setImage(UIImage.hayaseIcon("external-link", withConfiguration: linkConfig), for: .normal)
-        linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
-        linkButton.translatesAutoresizingMaskIntoConstraints = false
-        linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
-
-        contentView.addSubview(avatarImageView)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(linkButton)
-
-        NSLayoutConstraint.activate([
-            // Avatar: left with padding, pb-2 = 8pt bottom, px-5 = 20pt from web
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), // px-5
-            avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 4),
-            avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8), // pb-2
-
-            // Name: pl-2 = 8pt
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-            // Link button: ml-auto (trailing), match px-5 padding
-            linkButton.leadingAnchor.constraint(greaterThanOrEqualTo: nameLabel.trailingAnchor, constant: 8),
-            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20), // px-5
-            linkButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            linkButton.widthAnchor.constraint(equalToConstant: 28),
-            linkButton.heightAnchor.constraint(equalToConstant: 28),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    @objc private func openProfile() {
-        guard !userID.isEmpty,
-              let url = URL(string: "https://anilist.co/user/" + userID) else { return }
-        UIApplication.shared.open(url)
-    }
-
-    func configure(with user: W2GChatUser) {
-        nameLabel.text = user.name
-        userID = user.id
-        avatarImageView.image = nil
-        guard let url = URL(string: user.resolvedAvatarURL) else {
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
             return
         }

@@ -85,6 +85,10 @@ struct W2GChatUser: Codable, Equatable {
     }
 }
 
+/// `isGuest` uses `ChatListUser`'s default (`false`) — W2G has no guest
+/// concept distinct from a regular participant the way IRC does.
+extension W2GChatUser: ChatListUser {}
+
 // MARK: - ChatMessage
 
 /// A single chat message.

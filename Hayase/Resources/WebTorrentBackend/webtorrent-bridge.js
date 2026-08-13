@@ -3,13 +3,30 @@ import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
-import { randomUUID } from 'node:crypto'
 
 const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v6'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
-const sessionID = randomUUID()
+
+// torrent-client's playTorrent() now requires a sessionID (added alongside
+// a background-download/session-priority system: see sessions Map,
+// torrentState Map, updateTorrentPriority(), evictOrphan() in index.ts).
+// Each bridge process is always exactly one Hayase playback session, so one
+// stable ID for the whole process lifetime is the correct mapping — this
+// is NOT a per-request or per-torrent value. Without this, the previous
+// bridge version silently passed `undefined` as the sessionID; that mostly
+// happened to work for evicting the previous torrent when switching
+// episodes (since torrent-client's `sessions` Map treats `undefined` as a
+// valid, if unintended, key), but doesn't correctly participate in the new
+// priority system that governs which torrent's pieces actually get
+// selected for download — which is what streaming depends on.
+//
+// No crypto dependency here on purpose: this value only needs to be a
+// stable, distinct key within this one process's lifetime, not
+// cryptographically random or globally unique, so there's no reason to
+// depend on node:crypto for it.
+const sessionID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -477,6 +494,11 @@ async function handleRPC (payload) {
       setPhase('adding-torrent')
       try {
         const files = await withTimeout(
+          // 4th arg is torrent-client's new required sessionID (see note at
+          // top of file); 5th is `background`, left false — this bridge only
+          // ever plays one thing at a time in the foreground, there's no
+          // Hayase-side concept of a background download to route through
+          // here yet.
           activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0, sessionID, false),
           METADATA_TIMEOUT_MS,
           () => `Timed out while fetching torrent metadata (${shortStatus()})`

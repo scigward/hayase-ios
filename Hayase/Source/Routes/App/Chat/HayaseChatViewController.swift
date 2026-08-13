@@ -32,22 +32,30 @@
 //    W2G's Swift port already implements that grouping, this now does too.
 //  - Tapping a user in the userlist opens their AniList profile
 //    (`https://anilist.co/user/<id>` via `UIApplication.shared.open`),
-//    mirroring `W2GUserCell`'s `openProfile()` — a pragmatic, already-
-//    established substitute for interface's in-app `ChatProfile` popup.
-//    Hidden for guests, matching `ChatProfile.svelte`'s `!user.guest` check.
+//    mirroring the pragmatic substitute W2G already uses for interface's
+//    in-app `ChatProfile` popup. Hidden for guests, matching
+//    `ChatProfile.svelte`'s `!user.guest` check.
 //
-//  On literally sharing UI code with W2G (asked about directly): not
-//  practical without extracting shared generic types out of
-//  `W2GViewController.swift` first — its chat/user cells are `private` and
-//  typed against `W2GChatMessage`/`W2GChatUser`, not something IRC's
-//  `IRCChatMessage`/`IRCUser` can drop into as-is, and that file is already
-//  one of the largest in the app; refactoring it for this felt like the
-//  wrong risk to take on working code. What's practical, and done here
-//  instead, is copying the same *techniques* (flip-scroll, grouping,
-//  wide/narrow constraint sets, profile-link cell) so the result looks and
-//  behaves the same without touching W2G at all. Worth revisiting later as
-//  a real shared component if you want the two to stay in sync by
-//  construction rather than by two people copying the same pattern.
+//  On literally sharing UI code with W2G (asked about directly, initially
+//  answered "not practical" — revisited after that answer turned out to be
+//  wrong in practice): the userlist row is now `ChatUserListCell`
+//  (`Components/UI/Chat/ChatUserListCell.swift`), a single implementation
+//  used by both this screen and `W2GViewController`, behind a small
+//  `ChatListUser` protocol both `IRCUser` and `W2GChatUser` conform to.
+//  This replaced a hand-copied `IRCUserCell` that had already drifted from
+//  the `W2GUserCell` it was copied from in three visible ways: an extra
+//  vertical divider between the message list and userlist that W2G's
+//  layout never had, a narrower fixed width (180pt vs W2G's 288pt /
+//  `md:w-72`) that truncated usernames, and 0pt top padding below the
+//  header separator instead of W2G's 8pt. All three were real, reported
+//  bugs, not style preferences — copying the *technique* instead of the
+//  *implementation* (the approach originally taken here) still leaves room
+//  for exactly this kind of drift between two hand-maintained copies.
+//  Messages remain two separate cells (`IRCMessageCell` /`W2GChatCell`) —
+//  their underlying message types diverge more (IRC has no encryption
+//  concept, W2G's `type`/`date` handling differs) and nothing has been
+//  reported wrong with them, so that extraction is left for if/when it's
+//  actually needed rather than done speculatively here.
 //
 //  Still not included: keyboard "Enter-to-send / Shift+Enter-for-newline" —
 //  physical-keyboard modifier detection is nontrivial on iOS and low-value
@@ -326,18 +334,18 @@ final class HayaseChatViewController: UIViewController {
         chatContainer.addSubview(messagesTableView)
 
         // Mirrors UserList.svelte's side panel on wide layouts; hidden
-        // entirely on narrow ones (see updateLayoutForCurrentWidth).
-        let userListSeparator = UIView()
-        userListSeparator.backgroundColor = UIColor.HayaseTheme.border
-        userListSeparator.translatesAutoresizingMaskIntoConstraints = false
-        chatContainer.addSubview(userListSeparator)
-
+        // entirely on narrow ones (see updateLayoutForCurrentWidth). No
+        // separator between the two columns — W2GViewController's
+        // equivalent panel doesn't have one either (its userListTableView
+        // sits directly against chatTableView's trailing edge), and this
+        // used to add one that didn't match, which is what looked like a
+        // stray vertical line.
         userListTableView.translatesAutoresizingMaskIntoConstraints = false
         userListTableView.backgroundColor = .clear
         userListTableView.separatorStyle = .none
         userListTableView.dataSource = self
-        userListTableView.register(IRCUserCell.self, forCellReuseIdentifier: IRCUserCell.reuseID)
-        userListTableView.estimatedRowHeight = 40
+        userListTableView.register(ChatUserListCell.self, forCellReuseIdentifier: ChatUserListCell.reuseID)
+        userListTableView.estimatedRowHeight = 44
         userListTableView.rowHeight = UITableView.automaticDimension
         chatContainer.addSubview(userListTableView)
 
@@ -441,27 +449,23 @@ final class HayaseChatViewController: UIViewController {
             sendButton.heightAnchor.constraint(equalToConstant: 36),
         ])
 
-        // Wide layout: messages left, userlist right (md:w-72 = 288pt on
-        // web; kept at 180pt here as before). Narrow layout: messages fill
-        // the width, userlist hidden. Mirrors W2GViewController exactly.
+        // Wide layout: messages left, userlist right — now matches
+        // W2GViewController exactly (288pt width, 8pt top padding below the
+        // header separator, no divider between the two columns).
+        // Narrow layout: messages fill the width, userlist hidden.
         wideLayoutConstraints = [
-            userListSeparator.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            userListSeparator.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
-            userListSeparator.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor),
-            userListSeparator.widthAnchor.constraint(equalToConstant: 1),
-
-            userListTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            userListTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
             userListTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
             userListTableView.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor),
-            userListTableView.widthAnchor.constraint(equalToConstant: 180),
+            userListTableView.widthAnchor.constraint(equalToConstant: 288),
 
-            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            messagesTableView.trailingAnchor.constraint(equalTo: userListSeparator.leadingAnchor),
+            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            messagesTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
             messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -8),
         ]
 
         narrowLayoutConstraints = [
-            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
             messagesTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
             messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -8),
         ]
@@ -589,7 +593,7 @@ extension HayaseChatViewController: UITableViewDataSource {
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
         } else {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: IRCUserCell.reuseID, for: indexPath) as? IRCUserCell else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatUserListCell.reuseID, for: indexPath) as? ChatUserListCell else {
                 return UITableViewCell()
             }
             if let user = users[safe: indexPath.row] {
@@ -806,115 +810,3 @@ private final class IRCMessageCell: UITableViewCell {
     }
 }
 
-// MARK: - IRCUserCell (mirrors UserList.svelte, same technique as W2GUserCell)
-//
-// Web layout per user:
-//   <div class='flex items-center pb-2'>
-//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />   ← 32pt visible avatar
-//     <div class='text-md pl-2'>{name}</div>                ← 16px, 8pt left margin
-//     <ExternalLink size='18' class='ml-auto text-blue-600' /> ← AniList link (non-guests only)
-//   </div>
-
-private final class IRCUserCell: UITableViewCell {
-    static let reuseID = "IRCUserCell"
-
-    private let avatarImageView = UIImageView()
-    private let nameLabel = UILabel()
-    private let linkButton = UIButton(type: .system)
-    private var currentAvatarURLString: String?
-    private var avatarTask: URLSessionDataTask?
-    private var userID: String = ""
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        let avatarSize: CGFloat = 32
-
-        avatarImageView.layer.cornerRadius = avatarSize / 2
-        avatarImageView.clipsToBounds = true
-        avatarImageView.contentMode = .scaleAspectFill
-        avatarImageView.backgroundColor = UIColor.HayaseTheme.accent
-        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
-
-        nameLabel.font = .nunito(ofSize: 16)
-        nameLabel.textColor = UIColor.HayaseTheme.foreground
-        nameLabel.numberOfLines = 1
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        linkButton.setImage(UIImage.hayaseIcon("external-link", withConfiguration: linkConfig), for: .normal)
-        linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
-        linkButton.translatesAutoresizingMaskIntoConstraints = false
-        linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
-
-        contentView.addSubview(avatarImageView)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(linkButton)
-
-        NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            avatarImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            avatarImageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
-
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-            nameLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: linkButton.leadingAnchor, constant: -8),
-
-            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            linkButton.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
-            linkButton.widthAnchor.constraint(equalToConstant: 24),
-            linkButton.heightAnchor.constraint(equalToConstant: 24),
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        avatarTask?.cancel()
-        avatarTask = nil
-        currentAvatarURLString = nil
-        avatarImageView.image = nil
-    }
-
-    @objc private func openProfile() {
-        guard !userID.isEmpty, let url = URL(string: "https://anilist.co/user/" + userID) else { return }
-        UIApplication.shared.open(url)
-    }
-
-    func configure(with user: IRCUser) {
-        nameLabel.text = user.name
-        userID = user.id
-        // Mirrors ChatProfile.svelte's `!user.guest` check — guests have no
-        // real AniList account to link to.
-        linkButton.isHidden = user.isGuest
-
-        let urlString = user.avatarURL
-        guard currentAvatarURLString != urlString else { return }
-        currentAvatarURLString = urlString
-        avatarTask?.cancel()
-        avatarImageView.image = nil
-
-        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
-            avatarImageView.image = cached
-            return
-        }
-        guard let url = URL(string: urlString) else { return }
-
-        avatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
-            DispatchQueue.main.async {
-                guard let self, self.currentAvatarURLString == urlString else { return }
-                self.avatarImageView.image = image
-            }
-        }
-        avatarTask?.resume()
-    }
-}

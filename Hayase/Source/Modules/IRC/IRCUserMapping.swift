@@ -38,6 +38,10 @@ struct IRCUser: Equatable {
     let isGuest: Bool
 }
 
+extension IRCUser: ChatListUser {
+    var resolvedAvatarURL: String { avatarURL }
+}
+
 /// The identity Hayase presents to the IRC network before connecting.
 /// Mirrors interface's `IRCChatUser`.
 struct IRCIdentity: Equatable {
