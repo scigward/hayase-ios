@@ -1,4 +1,4 @@
-name: Build Unsigned IPA
+name: Build IPA
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build Unsigned IPA
+    name: Build IPA
     runs-on: macos-latest
 
     steps:
@@ -21,7 +21,7 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Update LibTorrent-Swift to latest upstream
+      - name: Update LibTorrent to latest upstream
         run: git submodule update --init --recursive Component/LibTorrent-Swift
 
       - name: Cache SPM packages
@@ -101,7 +101,7 @@ jobs:
             exit 1
           fi
 
-      - name: Build Hayase (Release, no signing)
+      - name: Build Hayase
         run: |
           xcodebuild \
             -workspace Hayase.xcworkspace \
@@ -116,7 +116,7 @@ jobs:
             SYMROOT=${{ github.workspace }}/build/app \
             clean build
 
-      - name: Package as unsigned IPA
+      - name: Package IPA
         run: |
           APP_PATH=$(find build/app -name "Hayase.app" -not -path "*/Build/*" | head -1)
           echo "Found app at: $APP_PATH"

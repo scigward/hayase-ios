@@ -1,6 +1,6 @@
 workflows:
   hayase_unsigned_ipa:
-    name: Build Hayase Unsigned IPA
+    name: Build IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
 
@@ -17,7 +17,6 @@ workflows:
           set -euo pipefail
 
           git submodule update --init --recursive
-          git submodule update --init --remote --recursive Component/LibTorrent-Swift
 
       - name: Install dependencies
         script: |
@@ -112,7 +111,7 @@ workflows:
             exit 1
           fi
 
-      - name: Build Hayase unsigned
+      - name: Build Hayase
         script: |
           set -euo pipefail
 
@@ -129,7 +128,7 @@ workflows:
             SYMROOT="$CM_BUILD_DIR/build/app" \
             clean build
 
-      - name: Package unsigned IPA
+      - name: Package IPA
         script: |
           set -euo pipefail
 
