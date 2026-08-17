@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TORRENT_CLIENT_REPO="https://github.com/hayase-app/torrent-client.git"
-TORRENT_CLIENT_COMMIT="f953c72d851073d00a1d4c665bad531ce6d7170e"
+TORRENT_CLIENT_BRANCH="main"
 PNPM_VERSION="10.28.0"
 ESBUILD_VERSION="0.25.12"
 REQUIRE_BANNER="import { createRequire as __hayaseCreateRequire } from 'node:module'; const require = __hayaseCreateRequire(import.meta.url);"
@@ -42,14 +42,16 @@ mkdir -p "${BUILD_DIR}"
 
 git init --initial-branch=hayase-build "${SOURCE_DIR}"
 git -C "${SOURCE_DIR}" remote add origin "${TORRENT_CLIENT_REPO}"
-git -C "${SOURCE_DIR}" fetch --depth 1 origin "${TORRENT_CLIENT_COMMIT}"
+git -C "${SOURCE_DIR}" fetch --depth 1 origin "${TORRENT_CLIENT_BRANCH}"
 git -C "${SOURCE_DIR}" checkout --detach FETCH_HEAD
 
+# No commit to verify against anymore since this always tracks whatever's
+# newest — but still record exactly what got built. This is the one line
+# to check first if a build behaves differently than a previous one: paste
+# this hash into https://github.com/hayase-app/torrent-client/commit/<hash>
+# to see what actually changed.
 ACTUAL_COMMIT="$(git -C "${SOURCE_DIR}" rev-parse HEAD)"
-if [ "${ACTUAL_COMMIT}" != "${TORRENT_CLIENT_COMMIT}" ]; then
-  echo "error: expected torrent-client ${TORRENT_CLIENT_COMMIT}, got ${ACTUAL_COMMIT}." >&2
-  exit 1
-fi
+echo "torrent-client: building ${TORRENT_CLIENT_BRANCH} @ ${ACTUAL_COMMIT}"
 
 export COREPACK_ENABLE_PROJECT_SPEC=0
 
@@ -163,4 +165,4 @@ if grep -Eq "node_datachannel\.node|build/Release/node_datachannel" "${OUTPUT_DI
   exit 1
 fi
 
-echo "WebTorrent backend bundle generated at ${OUTPUT_DIR}."
+echo "WebTorrent backend bundle generated at ${OUTPUT_DIR} (torrent-client @ ${ACTUAL_COMMIT})."
