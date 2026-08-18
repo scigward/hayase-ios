@@ -1023,6 +1023,19 @@ final class PaginationBarView: UIView {
     private var renderedInfoText: NSAttributedString?
     private var lastAppliedCompactMode: Bool?
 
+    /// Explicit width used to pick the compact/expanded pagination layout.
+    ///
+    /// `effectivePaginationWidth` normally prefers the window width because the
+    /// anime page always spans the whole window. The player's episode sheet is a
+    /// narrow (≤550pt) container inside a potentially very wide window, so it sets
+    /// this to its own width to keep the compact layout.
+    var responsiveWidthOverride: CGFloat? {
+        didSet {
+            guard responsiveWidthOverride != oldValue else { return }
+            applyResponsiveModeIfNeeded(force: true)
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -1205,6 +1218,7 @@ final class PaginationBarView: UIView {
     }
 
     private var effectivePaginationWidth: CGFloat {
+        if let responsiveWidthOverride, responsiveWidthOverride > 1 { return responsiveWidthOverride }
         if let window, window.bounds.width > 1 { return window.bounds.width }
         if bounds.width > 1 { return bounds.width }
         if let superview, superview.bounds.width > 1 { return superview.bounds.width }
@@ -1458,7 +1472,9 @@ extension AnimeDetailViewController {
         return episodes == 1 || (movie && episodes == nil)
     }
 
-    private func episodeByAirDate(
+    // `static` so the extracted `buildEpisodeList(from:...)` can call it without a
+    // view controller instance (the player's episode sheet has none).
+    private static func episodeByAirDate(
         alDate: Date?,
         filtered: [String: FilteredEpisode],
         episode: Int
@@ -1502,8 +1518,19 @@ extension AnimeDetailViewController {
         return result
     }
 
-    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
-                                        alSchedule: [Int: Date]? = nil) {
+    /// Maps an AniZip `/episodes` payload into the `AniZipEpisode` list rendered by
+    /// `EpisodeCardView`, without touching any view state.
+    ///
+    /// Extracted from `processEpisodeResponse` so the player's episode sheet can reuse
+    /// the exact same mapping: the interface does the same thing by rendering
+    /// `EpisodesList.svelte` inside `ui/player/episodesmodal.svelte`.
+    ///
+    /// - Parameter fallbackRuntime: media duration used when AniZip has no per-episode
+    ///   runtime (detail page passes `animeItem?.duration`).
+    static func buildEpisodeList(from response: AniZipEpisodesResponse,
+                                 anilistEpisodes: Int?,
+                                 alSchedule: [Int: Date]? = nil,
+                                 fallbackRuntime: Int? = nil) -> [AniZipEpisode] {
         let episodesDict = response.episodes ?? [:]
         let episodesResCount = response.episodeCount
         let specialCount = response.specialCount ?? 0
@@ -1535,15 +1562,7 @@ extension AnimeDetailViewController {
         let now = Date().timeIntervalSince1970 * 1000
 
         var parsed: [AniZipEpisode] = []
-        guard count > 0 else {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.episodes = []
-                self.currentEpisodePage = 1
-                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
-            }
-            return
-        }
+        guard count > 0 else { return parsed }
 
         for episode in 1...count {
             let hasEpisode = episodesDict["\(episode)"] != nil
@@ -1553,7 +1572,7 @@ extension AnimeDetailViewController {
             let resolvedEntry: FilteredEpisode?
             if needsValidation {
                 let alDate = alSchedule?[episode]
-                resolvedEntry = self.episodeByAirDate(alDate: alDate, filtered: filtered, episode: episode)
+                resolvedEntry = episodeByAirDate(alDate: alDate, filtered: filtered, episode: episode)
 
                 if let resolved = resolvedEntry {
                     var keysToRemove: [String] = []
@@ -1574,7 +1593,7 @@ extension AnimeDetailViewController {
 
             let ep = resolvedEntry?.entry
             let title = ep?.title?["en"] ?? "Episode \(episode)"
-            let overview = Self.sanitizedEpisodeNotes(ep?.summary ?? ep?.overview ?? "")
+            let overview = sanitizedEpisodeNotes(ep?.summary ?? ep?.overview ?? "")
             let imageURL = ep?.image
             let airDateRaw = ep?.airdate
             let airDate: Date? = {
@@ -1589,7 +1608,7 @@ extension AnimeDetailViewController {
                 // Fallback to AniList airing schedule date (matches web's airingAt ?? airdate)
                 return alSchedule?[episode]
             }()
-            let runtime = ep?.length ?? ep?.runtime ?? animeItem?.duration ?? 0
+            let runtime = ep?.length ?? ep?.runtime ?? fallbackRuntime ?? 0
             let rating = ep?.rating
 
             parsed.append(AniZipEpisode(
@@ -1597,6 +1616,27 @@ extension AnimeDetailViewController {
                 title: title,
                 overview: overview, imageURL: imageURL, airDate: airDate,
                 runtime: runtime, rating: rating, isFiller: false))
+        }
+
+        return parsed
+    }
+
+    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
+                                        alSchedule: [Int: Date]? = nil) {
+        let parsed = AnimeDetailViewController.buildEpisodeList(
+            from: response,
+            anilistEpisodes: anilistEpisodes,
+            alSchedule: alSchedule,
+            fallbackRuntime: animeItem?.duration)
+
+        guard !parsed.isEmpty else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.episodes = []
+                self.currentEpisodePage = 1
+                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
+            }
+            return
         }
 
         AnimeDetailViewController.loadFillerSet(for: anilistId) { fillerSet in

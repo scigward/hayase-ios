@@ -923,6 +923,11 @@ final class VideoPlayerViewController: UIViewController {
         titleLabel.layer.shadowOffset = .zero
         titleLabel.layer.shadowOpacity = 0.8
         titleLabel.layer.shadowRadius = 3
+        // Hayase episodesmodal.svelte: the title is a link back to the anime page —
+        // `<button class='... hover:text-muted-foreground hover:underline'
+        //          onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>`
+        titleLabel.isUserInteractionEnabled = true
+        titleLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(titleTapped)))
         bottomBar.addSubview(titleLabel)
 
         // Hayase episodesmodal.svelte: session.description (text-sm font-light rgba(217,217,217,0.6))
@@ -936,6 +941,10 @@ final class VideoPlayerViewController: UIViewController {
         episodeLabel.layer.shadowOffset = .zero
         episodeLabel.layer.shadowOpacity = 0.8
         episodeLabel.layer.shadowRadius = 3
+        // Hayase episodesmodal.svelte: the description is the `Sheet.Trigger` that
+        // opens the episode list — `<Sheet.Trigger class='... hover:underline'>`.
+        episodeLabel.isUserInteractionEnabled = true
+        episodeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(episodeLabelTapped)))
         bottomBar.addSubview(episodeLabel)
 
         chapterLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2116,6 +2125,111 @@ final class VideoPlayerViewController: UIViewController {
     /// The callback performs the web-equivalent `searchStore.set({ media, episode })`.
     private func requestEpisodeChange(_ episode: Int, media: AnimeItem?) {
         onEpisodeChange?(episode, media ?? currentBatchFile?.media ?? currentResolvedVideo?.media)
+    }
+
+    // MARK: - Title / episode navigation (Hayase episodesmodal.svelte)
+
+    /// interface episodesmodal.svelte:
+    /// ```
+    /// <button class='text-lg ... hover:text-muted-foreground hover:underline'
+    ///         onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>
+    ///   {mediaInfo.session.title}
+    /// </button>
+    /// ```
+    @objc private func titleTapped() {
+        flashInteractiveLabel(titleLabel)
+        openAnimeDetailFromTitle()
+    }
+
+    /// interface episodesmodal.svelte: the description doubles as the `Sheet.Trigger`
+    /// that reveals the full episode list.
+    @objc private func episodeLabelTapped() {
+        flashInteractiveLabel(episodeLabel)
+        presentEpisodeListSheet()
+    }
+
+    /// Touch equivalent of Tailwind's `hover:text-muted-foreground hover:underline` —
+    /// a brief muted + underlined flash so the tap is acknowledged.
+    private func flashInteractiveLabel(_ label: UILabel) {
+        guard let text = label.text, !text.isEmpty else { return }
+        let font = label.font ?? .nunito(ofSize: 14)
+        let color = label.textColor ?? .white
+        let highlight = UIColor.HayaseTheme.mutedForeground
+        label.attributedText = NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: highlight,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: highlight,
+        ])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak label] in
+            guard let label else { return }
+            label.attributedText = nil
+            label.font = font
+            label.textColor = color
+            label.text = text
+        }
+    }
+
+    /// Leaves the player and opens `/app/anime/[id]` for the anime being watched,
+    /// mirroring the web title button's `goto()`.
+    private func openAnimeDetailFromTitle() {
+        let mediaID = currentMediaID
+        guard mediaID > 0 else { return }
+
+        saveProgress()
+
+        // The fullscreen portal reparents the player's view into a window overlay;
+        // undo it first so the route change is actually visible underneath.
+        if isFullscreenPresentation {
+            toggleFullscreenPresentation()
+        }
+
+        if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
+            Router.shared.cacheAnimeItem(media)
+        }
+
+        // Keep playback alive in the mini-player, matching the web app where
+        // navigating away from the player keeps the media session running.
+        // A player hosted in the shell's navigation stack is already minimized by
+        // `HayaseSidebarController.minimizeVisiblePlayerIfNeeded()` while the route
+        // is applied, so only the modally presented case needs handling here.
+        let isHostedInNavigationStack = navigationController?.viewControllers.contains(self) ?? false
+        if !isHostedInNavigationStack {
+            MiniPlayerManager.shared.minimize(self)
+        }
+
+        Router.shared.navigate(.anime(id: mediaID))
+    }
+
+    /// interface episodesmodal.svelte: `<Sheet.Content class='w-full sm:w-[550px] ...'>`
+    /// hosting `<EpisodesList {eps} media={media.data.Media} />`.
+    private func presentEpisodeListSheet() {
+        let mediaID = currentMediaID
+        guard mediaID > 0 else { return }
+
+        let playingEpisode = currentEpisodeForNavigation ?? episodeNumber
+
+        let sheet = PlayerEpisodeListViewController()
+        sheet.anilistID = mediaID
+        sheet.currentEpisode = playingEpisode
+        sheet.media = currentBatchFile?.media ?? currentResolvedVideo?.media
+        sheet.totalEpisodesHint = currentEpisodeLimit
+        // interface EpisodesList.svelte card click: `playEp(media, episode)`.
+        sheet.onSelectEpisode = { [weak self] episode, media in
+            guard let self else { return }
+            let current = self.currentEpisodeForNavigation ?? self.episodeNumber
+            guard episode != current else { return }
+            self.saveProgress()
+            self.playEpisode(episode, media: media)
+        }
+        sheet.onDismiss = { [weak self] in
+            self?.scheduleHide()
+        }
+
+        // Keep the controls up for as long as the sheet is open.
+        hideWork?.cancel()
+        sheet.prepareSheetPresentation(from: self)
+        present(sheet, animated: true)
     }
 
     @objc private func toggleTimeFormat() {
