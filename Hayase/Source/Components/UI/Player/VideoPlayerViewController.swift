@@ -44,12 +44,24 @@ private final class SegmentedSeekBar: UIControl {
     private let segmentGap: CGFloat = 2
     /// Corner radius per segment (rounded-[2px] in interface CSS).
     private let segmentRadius: CGFloat = 2
+    /// Real vertical padding on each side (py-4 = 16px in interface CSS).
+    /// The touch target IS the padded frame — no invisible hit-test override needed.
+    private let verticalPadding: CGFloat = 16
     /// Background color: rgba(217,217,217,0.4) from interface.
     private let bgColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.4)
     /// Progress fill color: white from interface.
     private let fillColor = UIColor.white
 
     private var barHeight: CGFloat = 2
+
+    // MARK: - Intrinsic size
+
+    /// Returns the natural height: real padding on each side + the active bar height.
+    /// This makes the layout system aware of the full touch-target frame,
+    /// matching interface seekbar.svelte's py-4 padded container architecture.
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: verticalPadding * 2 + activeHeight)
+    }
 
     // MARK: - Init
 
@@ -127,6 +139,8 @@ private final class SegmentedSeekBar: UIControl {
         let totalWidth = bounds.width
         let gaps = segmentGap * CGFloat(max(0, segments.count - 1))
         let usable = totalWidth - gaps
+        // Center the thin visual bar within the real padded frame,
+        // just like interface's py-4 + flex items-center.
         let cy = bounds.midY
 
         var x: CGFloat = 0
@@ -192,11 +206,6 @@ private final class SegmentedSeekBar: UIControl {
         isSeeking = false
         animateHeight(normalHeight)
         sendActions(for: .touchCancel)
-    }
-
-    /// Expand the hit area vertically for easier touch targeting (matching FatSlider's 20pt).
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        bounds.insetBy(dx: 0, dy: -20).contains(point)
     }
 
     private func fractionForTouch(_ touch: UITouch) -> CGFloat {
@@ -1052,11 +1061,11 @@ final class VideoPlayerViewController: UIViewController {
             timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             timeLabel.centerYAnchor.constraint(equalTo: episodeLabel.centerYAnchor),
 
-            // Row 2: seekbar
+            // Row 2: seekbar (real padded frame: py-4 16pt × 2 + active bar 4pt = 36pt)
             seekBar.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
             seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
-            seekBar.heightAnchor.constraint(equalToConstant: 32),
+            seekBar.heightAnchor.constraint(equalToConstant: 36),
         ]
 
         bottomControlConstraints = [
