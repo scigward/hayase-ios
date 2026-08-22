@@ -893,6 +893,30 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
         return false
     }
 
+    /// Confirmed root cause of Settings' tab-grid buttons being untappable
+    /// on iPhone: this pan gesture lives on the app-wide root view, and
+    /// `edgeWidth` (32pt) is measured from the true screen edge — but on a
+    /// 2-column layout with 16pt outer margins, the second column's own
+    /// right edge sits well inside that 32pt zone (worked out to ~16pt from
+    /// the screen edge on a ~390pt-wide iPhone). `gestureRecognizerShouldBegin`
+    /// alone isn't enough: it only governs whether *this* gesture begins,
+    /// not whether it competes for the touch in the first place, and a plain
+    /// UIButton's own touch tracking can still lose that competition to a
+    /// sibling gesture recognizer on an ancestor view. Excluding touches
+    /// that land on any UIControl (or one of its subviews) here means this
+    /// gesture never contends for them at all — fixes this specific case
+    /// and protects every other button/switch near a screen edge elsewhere
+    /// in the app from the same class of bug.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is UIPanGestureRecognizer else { return true }
+        var candidate: UIView? = touch.view
+        while let view = candidate {
+            if view is UIControl { return false }
+            candidate = view.superview
+        }
+        return true
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         gestureRecognizer is UIPanGestureRecognizer

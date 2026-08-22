@@ -367,6 +367,11 @@ class SettingsViewController: UIViewController {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = bgColor
         tableView.separatorStyle = .none
+        // Default (true) delays delivering touches to content views by
+        // ~150ms while UIScrollView decides if this is a scroll — a common,
+        // well-known contributor to buttons inside a scrolling container
+        // feeling unresponsive or requiring an unnaturally precise tap.
+        tableView.delaysContentTouches = false
         tableView.delegate   = self
         tableView.dataSource = self
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 24, right: 0)
@@ -401,7 +406,19 @@ class SettingsViewController: UIViewController {
         let size = header.systemLayoutSizeFitting(target,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel)
-        if header.frame.size.height != size.height {
+        // Was an exact CGFloat equality check. systemLayoutSizeFitting over
+        // nested stack views can return a fractionally different height
+        // across otherwise-identical calls (Auto Layout constraint-solver
+        // rounding), and reassigning tableHeaderView itself triggers another
+        // layout pass — so an exact check could reassign the header
+        // repeatedly across consecutive passes. isUpdatingHeader only
+        // guards a *synchronous* re-entrant call, not a follow-up pass on
+        // the next run-loop cycle, so this could keep re-triggering.
+        // Repeated reassignment breaks touch-tracking continuity for any
+        // button inside the header, since UIKit ties touchesBegan/Ended to
+        // the specific view instance mid-gesture. A 0.5pt tolerance is far
+        // below anything visually meaningful here.
+        if abs(header.frame.size.height - size.height) > 0.5 {
             isUpdatingHeader = true
             header.frame.size.height = size.height
             tableView.tableHeaderView = header
