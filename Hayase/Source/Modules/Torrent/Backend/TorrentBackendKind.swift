@@ -12,14 +12,14 @@ enum TorrentBackendKind: String, CaseIterable {
     case webtorrent = "webtorrent"
 
     static let userDefaultsKey = "pref_torrentBackend"
-    static let defaultKind: TorrentBackendKind = .native
+    static let defaultKind: TorrentBackendKind = .webtorrent
 
     var label: String {
         switch self {
         case .native:
             return "Native (libtorrent)"
         case .webtorrent:
-            return "Hayase WebTorrent"
+            return "WebTorrent"
         }
     }
 
