@@ -42,7 +42,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   torrentPersist: false,
   torrentDHT: false,
   torrentStreamedDownload: true,
-  torrentSpeed: 80,
+  torrentSpeed: 40,
   maxConns: 55,
   torrentPort: 0,
   dhtPort: 0,
