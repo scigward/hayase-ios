@@ -554,11 +554,11 @@ final class MiniPlayerManager {
     }
 
     @objc private func playPauseTapped() {
-        // Any button interaction resets the auto-hide timer.
-        resetAutoHideTimer()
         activePlayer?.togglePlayPause()
-        let icon = activePlayer?.isPaused == true ? "play" : "pause"
-        playPauseButton?.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
+        // Routes through the same function the player's didChangePause
+        // delegate uses, so this gets identical timer/tuck handling instead
+        // of a second, separately-drifting copy of the same logic.
+        updatePlayPauseIcon(isPaused: activePlayer?.isPaused == true)
     }
 
     // MARK: - Corner snapping (Hayase endDragging)
@@ -665,8 +665,17 @@ final class MiniPlayerManager {
 
     /// (Re)starts the auto-hide timer. After `autoHideDelay` seconds the
     /// mini-player tucks to the edge.
+    ///
+    /// Refuses to arm while the video is actually playing, regardless of
+    /// which caller asked — several call sites (button taps, drag-end snap
+    /// completions) used to call this unconditionally, so checking here
+    /// once covers all of them instead of requiring every call site to
+    /// remember to check first. `tuck()`'s own doc comment already called
+    /// this ".paused / idle behavior"; this just makes that actually true.
     private func resetAutoHideTimer() {
         autoHideTimer?.invalidate()
+        autoHideTimer = nil
+        guard activePlayer?.isPaused == true else { return }
         autoHideTimer = Timer.scheduledTimer(
             withTimeInterval: autoHideDelay, repeats: false
         ) { [weak self] _ in
@@ -703,9 +712,25 @@ final class MiniPlayerManager {
 
     /// Updates the play/pause icon in the mini-player. Called from the
     /// player's didChangePause delegate.
+    ///
+    /// Also governs the auto-hide/tuck timer here, since this is the only
+    /// place play/pause state actually reaches this class. Previously the
+    /// timer was armed unconditionally whenever the mini-player was shown
+    /// (see the "Start auto-hide timer" call right after minimizing) with
+    /// no regard for play state at all — so it would tuck itself away
+    /// during active playback despite the tuck() code being explicitly
+    /// commented as ".paused / idle behavior". Matches interface, which
+    /// doesn't hide/shrink its mini-player while a video is playing.
     func updatePlayPauseIcon(isPaused: Bool) {
         let icon = isPaused ? "play" : "pause"
         playPauseButton?.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
+
+        if isPaused {
+            resetAutoHideTimer()
+        } else {
+            if isTucked { reveal() }
+            cancelAutoHideTimer()
+        }
     }
 
     // MARK: - Session State Persistence
