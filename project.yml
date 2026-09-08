@@ -18,7 +18,7 @@ packages:
     from: "3.1.5004"
   MPVKit:
     url: https://github.com/streamyfin/MPVKit.git
-    from: "0.40.0-av"
+    from: "0.41.0-av5"
   matroska-swift:
     url: https://github.com/Smearedo/matroska-swift.git
     branch: main
