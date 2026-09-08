@@ -136,27 +136,6 @@ final class MPVWrapper {
         }
     }
     
-    private func flushDisplayLayer(removingDisplayedImage: Bool) {
-        if #available(iOS 18.0, *) {
-            displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: removingDisplayedImage, completionHandler: nil)
-        } else if removingDisplayedImage {
-            displayLayer.flushAndRemoveImage()
-        } else {
-            displayLayer.flush()
-        }
-    }
-
-    private func clearDisplayedFrameBeforeSeek() {
-        let flush = { [weak self] in
-            self?.flushDisplayLayer(removingDisplayedImage: true)
-        }
-        if Thread.isMainThread {
-            flush()
-        } else {
-            DispatchQueue.main.sync(execute: flush)
-        }
-    }
-
     private func performDecoderReset() {
         guard let handle = mpv else { return }
         if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)") }
@@ -195,8 +174,6 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
         checkError(mpv_set_option_string(handle, "force-seekable", "yes"))
-        checkError(mpv_set_option_string(handle, "hr-seek", "yes"))
-        checkError(mpv_set_option_string(handle, "hr-seek-framedrop", "yes"))
         checkError(mpv_set_option_string(handle, "demuxer-mkv-subtitle-preroll", "yes"))
 
         let initStatus = mpv_initialize(handle)
@@ -231,7 +208,12 @@ final class MPVWrapper {
         }
         
         DispatchQueue.main.async { [weak self] in
-            self?.flushDisplayLayer(removingDisplayedImage: true)
+            guard let self else { return }
+            if #available(iOS 18.0, *) {
+                self.displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+            } else {
+                self.displayLayer.flushAndRemoveImage()
+            }
         }
         
         isStopping = false
@@ -613,18 +595,16 @@ final class MPVWrapper {
     func seek(to seconds: Double) {
         let clamped = max(0, seconds)
         cachedPosition = clamped
-        clearDisplayedFrameBeforeSeek()
         withHandle(()) { handle in
-            commandSync(handle, ["seek", String(clamped), "absolute+exact"])
+            commandSync(handle, ["seek", String(clamped), "absolute"])
         }
     }
 
     func seek(by seconds: Double) {
         let newPosition = max(0, cachedPosition + seconds)
         cachedPosition = newPosition
-        clearDisplayedFrameBeforeSeek()
         withHandle(()) { handle in
-            commandSync(handle, ["seek", String(newPosition), "absolute+exact"])
+            commandSync(handle, ["seek", String(seconds), "relative"])
         }
     }
     
