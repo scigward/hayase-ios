@@ -180,6 +180,7 @@ final class PlayerOptionsController: UIViewController {
     var onToggleFullscreen: (() -> Void)?
     var onScreenshot: (() -> Void)?
     var onSubtitleDelayChanged: ((Double) -> Void)?
+    var onSelectDisplay: ((WebTorrentDisplay) -> Void)?
     var onDismiss: (() -> Void)?
 
     // MARK: - Input data
@@ -195,6 +196,10 @@ final class PlayerOptionsController: UIViewController {
     var isFullscreenActive: Bool = false
     var allVideos: [Videos] = []
     var currentVideoEntity: Videos?
+    /// Cast/DLNA displays discovered via the WebTorrent bridge.
+    /// Mirrors options.svelte: `{#if $displays.length}` — the "Cast" item
+    /// only appears at all once at least one display has been found.
+    var displays: [WebTorrentDisplay] = []
 
     // MARK: - UI
 
@@ -424,6 +429,19 @@ final class PlayerOptionsController: UIViewController {
                 }
             }
             items.append(.expandable(title: "Playlist", children: playlistItems))
+        }
+
+        // Cast (options.svelte: `{#if $displays.length}` Cast tree item, listing
+        // each discovered display by friendlyName — no active/selected state
+        // shown for the list items on web either).
+        if !displays.isEmpty {
+            let castItems: [OptionItem] = displays.map { display in
+                .action(title: display.friendlyName) { [weak self] in
+                    self?.onSelectDisplay?(display)
+                    self?.dismissSelf()
+                }
+            }
+            items.append(.expandable(title: "Cast", children: castItems))
         }
 
         // Screenshot (options.svelte: plain action item, does not close menu)

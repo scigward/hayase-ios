@@ -459,6 +459,25 @@ final class VideoPlayerViewController: UIViewController {
     private let speedLabel      = UILabel()
     private let optionsButton   = UIButton(type: .system)
     private let airPlayPicker   = AVRoutePickerView()
+    // Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
+    // (non-miniplayer branch — VideoPlayerViewController is always the full
+    // player, never the mini-player). `class='... h-full px-8'` when not mini:
+    // full-screen takeover, not a banner.
+    private let nowCastingContainer = UIView()
+    private let nowCastingTitleLabel = UILabel()          // "Now Casting" — text-2xl font-bold leading-none mb-2
+    private let nowCastingAnimeTitleButton = UIButton(type: .system)   // EpisodesModal title button
+    private let nowCastingEpisodeButton = UIButton(type: .system)      // EpisodesModal description/Sheet.Trigger
+    private let nowCastingTimeLabel = UILabel()            // text-sm leading-none font-light
+    private let nowCastingProgressTrack = UIView()          // bg-[rgba(217,217,217,0.4)] h-0.5
+    private let nowCastingProgressFill = UIView()            // bg-primary h-0.5
+    private var nowCastingProgressFillWidth: NSLayoutConstraint?
+    private let nowCastingStopButton = UIButton(type: .system)     // variant='destructive'
+    private let nowCastingPrevButton = UIButton(type: .system)     // SkipBack
+    private let nowCastingPlaylistButton = UIButton(type: .system) // opens the same Playlist list as Options
+    private let nowCastingNextButton = UIButton(type: .system)     // SkipForward
+    private var castElapsedTimer: Timer?
+    private var castStartTime: Date?
+    private var castDuration: Double = 0
     private let bottomLeftControls = UIStackView()
     private let bottomRightControls = UIStackView()
     private var bottomControlConstraints: [NSLayoutConstraint] = []
@@ -501,6 +520,13 @@ final class VideoPlayerViewController: UIViewController {
     private var longPressRecognizer: UILongPressGestureRecognizer?
     private var statsTimer: Timer?
     private var webStatsUpdateInFlight = false
+    // Hayase castplayer.svelte / native.getDisplays — Chromecast/DLNA discovery
+    // is push-based on the bridge side (mDNS/SSDP), but our RPC transport is
+    // plain request/response, so we poll for the current snapshot instead of
+    // subscribing. WebTorrent backend only, same as interface.
+    private var castDisplaysTimer: Timer?
+    private var webTorrentDisplays: [WebTorrentDisplay] = []
+    private var activeCastDisplay: WebTorrentDisplay?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
     /// Pending playback position (seconds) to restore once MPV reports a valid
@@ -679,6 +705,13 @@ final class VideoPlayerViewController: UIViewController {
             pipController?.stopPictureInPicture()
         }
         statsTimer?.invalidate()
+        // Polling and the local elapsed clock stop with the player, but an
+        // active cast session is left running — same as a real Chromecast/
+        // AirPlay session, the display keeps playing independently of this
+        // screen. The user stops it via the Now Casting screen's Stop
+        // button, not by navigating away.
+        castDisplaysTimer?.invalidate()
+        castElapsedTimer?.invalidate()
         ExternalDisplayManager.shared.unregister(self)
         streamServer?.stop()
         streamer?.stop()
@@ -1009,6 +1042,8 @@ final class VideoPlayerViewController: UIViewController {
         nextButton.isEnabled  = canNavigateToNextEpisode
         mobilePrevButton.isEnabled = prevButton.isEnabled
         mobileNextButton.isEnabled = nextButton.isEnabled
+        nowCastingPrevButton.isEnabled = prevButton.isEnabled
+        nowCastingNextButton.isEnabled = nextButton.isEnabled
 
         bottomLeftControls.translatesAutoresizingMaskIntoConstraints = false
         bottomLeftControls.axis = .horizontal
@@ -1042,6 +1077,8 @@ final class VideoPlayerViewController: UIViewController {
         bottomRightControls.addArrangedSubview(optionsButton)
         bottomRightControls.addArrangedSubview(airPlayPicker)
         bottomBar.addSubview(bottomRightControls)
+
+        setupNowCastingView()
 
         let pad: CGFloat = 24
         let baseConstraints = [
@@ -1095,6 +1132,117 @@ final class VideoPlayerViewController: UIViewController {
         mobileSeekBarBottomConstraint = seekBar.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -12)
         NSLayoutConstraint.activate(baseConstraints + bottomControlConstraints)
         applyInterfaceMobilePlayerLayout()
+    }
+
+    /// Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
+    /// (non-miniplayer branch: `class='... h-full px-8'`, `{#if !isMiniplayer}`
+    /// controls row). Full-screen takeover replacing the whole player, not a
+    /// banner — matches web exactly, since castplayer.svelte isn't itself
+    /// gated by SUPPORTS.isIOS the way the row-3 toolbar is.
+    private func setupNowCastingView() {
+        nowCastingContainer.translatesAutoresizingMaskIntoConstraints = false
+        nowCastingContainer.backgroundColor = UIColor.HayaseTheme.background   // bg-background
+        nowCastingContainer.isHidden = true
+        view.addSubview(nowCastingContainer)
+
+        nowCastingTitleLabel.text = "Now Casting"
+        nowCastingTitleLabel.textColor = UIColor.HayaseTheme.foreground
+        nowCastingTitleLabel.font = .nunito(ofSize: 24, weight: .bold)   // text-2xl font-bold
+        nowCastingTitleLabel.numberOfLines = 1
+
+        nowCastingAnimeTitleButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
+        nowCastingAnimeTitleButton.titleLabel?.font = .nunito(ofSize: 18, weight: .regular)   // text-lg, matches titleLabel
+        nowCastingAnimeTitleButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        nowCastingAnimeTitleButton.contentHorizontalAlignment = .leading
+        nowCastingAnimeTitleButton.addTarget(self, action: #selector(titleTapped), for: .touchUpInside)
+
+        nowCastingEpisodeButton.setTitleColor(UIColor.HayaseTheme.mutedForeground, for: .normal)
+        nowCastingEpisodeButton.titleLabel?.font = .nunito(ofSize: 14, weight: .light)   // matches episodeLabel
+        nowCastingEpisodeButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        nowCastingEpisodeButton.contentHorizontalAlignment = .leading
+        nowCastingEpisodeButton.addTarget(self, action: #selector(episodeLabelTapped), for: .touchUpInside)
+
+        nowCastingTimeLabel.textColor = UIColor.HayaseTheme.foreground
+        nowCastingTimeLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm leading-none font-light
+        nowCastingTimeLabel.textAlignment = .right
+
+        nowCastingProgressTrack.backgroundColor = UIColor(white: 217.0 / 255.0, alpha: 0.4)   // rgba(217,217,217,0.4)
+        nowCastingProgressFill.backgroundColor = UIColor.HayaseTheme.primary
+
+        nowCastingStopButton.setImage(UIImage.hayaseFilledIcon("square", pointSize: 16), for: .normal)   // size='16px' fill='currentColor'
+        nowCastingStopButton.tintColor = UIColor.HayaseTheme.destructiveForeground
+        nowCastingStopButton.backgroundColor = UIColor.HayaseTheme.destructive   // variant='destructive'
+        nowCastingStopButton.layer.cornerRadius = 6   // rounded-md
+        nowCastingStopButton.addTarget(self, action: #selector(stopCastingTapped), for: .touchUpInside)
+
+        nowCastingPrevButton.setImage(UIImage.hayaseFilledIcon("skip-back", pointSize: 16), for: .normal)
+        nowCastingPrevButton.tintColor = UIColor.HayaseTheme.foreground
+        nowCastingPrevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
+
+        nowCastingNextButton.setImage(UIImage.hayaseFilledIcon("skip-forward", pointSize: 16), for: .normal)
+        nowCastingNextButton.tintColor = UIColor.HayaseTheme.foreground
+        nowCastingNextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+
+        nowCastingPlaylistButton.setTitle("Playlist", for: .normal)   // px-4 h-8 text-sm font-bold
+        nowCastingPlaylistButton.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        nowCastingPlaylistButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
+        nowCastingPlaylistButton.addTarget(self, action: #selector(nowCastingPlaylistTapped), for: .touchUpInside)
+
+        let controlsRow = UIStackView(arrangedSubviews: [
+            nowCastingStopButton, nowCastingPrevButton, nowCastingPlaylistButton, nowCastingNextButton,
+        ])
+        controlsRow.axis = .horizontal
+        controlsRow.spacing = 8   // gap-2
+        controlsRow.alignment = .center
+
+        let column = UIStackView(arrangedSubviews: [
+            nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton,
+            nowCastingTimeLabel, nowCastingProgressTrack, controlsRow,
+        ])
+        column.axis = .vertical
+        column.spacing = 2   // gap-2, mb-2 already on title via extra top spacing below
+        column.setCustomSpacing(8, after: nowCastingTitleLabel)
+        column.alignment = .fill
+        column.translatesAutoresizingMaskIntoConstraints = false
+        nowCastingContainer.addSubview(column)
+
+        nowCastingProgressTrack.addSubview(nowCastingProgressFill)
+        [nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton, nowCastingTimeLabel,
+         nowCastingProgressTrack, nowCastingProgressFill, controlsRow, nowCastingStopButton,
+         nowCastingPrevButton, nowCastingPlaylistButton, nowCastingNextButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+        }
+
+        let fillWidth = nowCastingProgressFill.widthAnchor.constraint(equalTo: nowCastingProgressTrack.widthAnchor, multiplier: 0)
+        nowCastingProgressFillWidth = fillWidth
+
+        NSLayoutConstraint.activate([
+            column.centerXAnchor.constraint(equalTo: nowCastingContainer.centerXAnchor),
+            column.centerYAnchor.constraint(equalTo: nowCastingContainer.centerYAnchor),
+            column.widthAnchor.constraint(lessThanOrEqualToConstant: 320),   // max-w-[320px]
+            column.leadingAnchor.constraint(greaterThanOrEqualTo: nowCastingContainer.leadingAnchor, constant: 32),   // px-8
+            column.trailingAnchor.constraint(lessThanOrEqualTo: nowCastingContainer.trailingAnchor, constant: -32),
+
+            nowCastingProgressTrack.heightAnchor.constraint(equalToConstant: 2),   // h-0.5
+            nowCastingProgressFill.leadingAnchor.constraint(equalTo: nowCastingProgressTrack.leadingAnchor),
+            nowCastingProgressFill.topAnchor.constraint(equalTo: nowCastingProgressTrack.topAnchor),
+            nowCastingProgressFill.bottomAnchor.constraint(equalTo: nowCastingProgressTrack.bottomAnchor),
+            fillWidth,
+
+            nowCastingStopButton.widthAnchor.constraint(equalToConstant: 32),   // size-8
+            nowCastingStopButton.heightAnchor.constraint(equalToConstant: 32),
+            nowCastingPrevButton.widthAnchor.constraint(equalToConstant: 32),
+            nowCastingPrevButton.heightAnchor.constraint(equalToConstant: 32),
+            nowCastingNextButton.widthAnchor.constraint(equalToConstant: 32),
+            nowCastingNextButton.heightAnchor.constraint(equalToConstant: 32),
+            nowCastingPlaylistButton.heightAnchor.constraint(equalToConstant: 32),   // h-8
+        ])
+        NSLayoutConstraint.activate([
+            nowCastingContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            nowCastingContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            nowCastingContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            nowCastingContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
     }
 
     private func setupGestures() {
@@ -1366,8 +1514,17 @@ final class VideoPlayerViewController: UIViewController {
         nextButton.isEnabled = canGoNext
         mobilePrevButton.isEnabled = canGoPrev
         mobileNextButton.isEnabled = canGoNext
+        nowCastingPrevButton.isEnabled = canGoPrev
+        nowCastingNextButton.isEnabled = canGoNext
         restoreProgress(path: path)
         startStatsTimer()
+
+        // castplayer.svelte's prev/next are the same functions the normal
+        // player uses, so skipping episodes while casting re-sends the new
+        // file to the same display rather than leaving the TV on the old one.
+        if let display = activeCastDisplay {
+            startCasting(to: display)
+        }
     }
 
     private func restoreProgress(path: String) {
@@ -1466,6 +1623,7 @@ final class VideoPlayerViewController: UIViewController {
 
     private func startStatsTimer() {
         statsTimer?.invalidate()
+        startCastDisplaysTimer()
         guard torrentHandle != nil || isWebTorrentPlayback else { return }
         statsHUD.isHidden = false
         updateStats()
@@ -1560,6 +1718,179 @@ final class VideoPlayerViewController: UIViewController {
         return "\(bps) b"
     }
 
+    // MARK: - Casting (Hayase castplayer.svelte / native.getDisplays / castPlay / castClose)
+
+    /// Starts polling the WebTorrent bridge for Chromecast/DLNA displays.
+    /// Mirrors `native.getDisplays(cb)` in native.ts, which on interface's
+    /// real (non-browser) desktop build is backed by the same
+    /// listenDisplay()/chromecasts+dlnas discovery this bridge now exposes —
+    /// polled here since our transport is request/response, not push.
+    private func startCastDisplaysTimer() {
+        castDisplaysTimer?.invalidate()
+        guard isWebTorrentPlayback else { return }
+        updateCastDisplays()
+        let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.updateCastDisplays()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        castDisplaysTimer = timer
+    }
+
+    private func updateCastDisplays() {
+        TorrentBackendManager.shared.webTorrentListDisplays { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, case .success(let displays) = result else { return }
+                self.webTorrentDisplays = displays
+            }
+        }
+    }
+
+    /// MIME type for the cast receiver's `contentType`. Hayase doesn't have
+    /// a shared extension→MIME helper elsewhere yet, so this stays local and
+    /// narrow — it only needs to cover the containers WebTorrent playback
+    /// actually serves.
+    private func castContentType(forPath path: String) -> String {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "mkv": return "video/x-matroska"
+        case "webm": return "video/webm"
+        case "mp4", "m4v": return "video/mp4"
+        default: return "application/octet-stream"
+        }
+    }
+
+    /// Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
+    /// `actualMedia` (lines 76-99) — same field set, same source per field:
+    /// contentId/contentType/customData come from the file being cast, not
+    /// from AniList; metadata.title/subtitle come from the session (anime
+    /// title/episode description), duration is intentionally the anime's
+    /// AniList-reported duration, not the actual file's real duration (see
+    /// castDurationSeconds below).
+    private func castMediaPayload() -> [String: Any]? {
+        guard let entity = videoEntity,
+              let contentId = entity.videoLanPath ?? entity.videoPath else { return nil }
+
+        let metadata: [String: Any] = [
+            "metadataType": 2,
+            "posterUrl": entity.torrents?.animes?.animeImgL ?? "",
+            "title": animeTitleText(),
+            "seriesTitle": animeTitleText(),
+            "subtitle": episodeDescriptionText(),
+            "episodeTitle": episodeDescriptionText(),
+            "episode": episodeNumber,
+            "episodeNumber": episodeNumber,
+        ]
+
+        return [
+            "contentId": contentId,
+            "contentType": castContentType(forPath: entity.videoName ?? contentId),
+            "metadata": metadata,
+            "customData": [
+                "hash": entity.torrents?.torrentHashString ?? "",
+                "id": entity.videoIndex?.intValue ?? Int(fileIndex),
+                "audioLanguage": Settings.audioLanguage,
+                "subtitleLanguage": Settings.subtitleLanguage,
+            ],
+            "streamType": "BUFFERED",
+            "mediaCategory": "VIDEO",
+        ]
+    }
+
+    /// `(mediaInfo.media.duration ?? 24) * 60` — the anime's AniList duration
+    /// in minutes, not the real file duration. The cast device reports no
+    /// position back to us, so this — like web — is a fiction used only to
+    /// size the progress bar and to feed checkCompletion's threshold.
+    private func castDurationSeconds() -> Double {
+        let media = currentBatchFile?.media ?? currentResolvedVideo?.media
+        return Double((media?.duration ?? 24) * 60)
+    }
+
+    private func startCasting(to display: WebTorrentDisplay) {
+        guard let media = castMediaPayload() else { return }
+        let hash = videoEntity?.torrents?.torrentHashString ?? ""
+        let id = videoEntity?.videoIndex?.intValue ?? Int(fileIndex)
+
+        activeCastDisplay = display
+        nowCastingAnimeTitleButton.setTitle(animeTitleText(), for: .normal)
+        nowCastingEpisodeButton.setTitle(episodeDescriptionText(), for: .normal)
+        nowCastingPrevButton.isEnabled = prevButton.isEnabled
+        nowCastingNextButton.isEnabled = nextButton.isEnabled
+        nowCastingContainer.isHidden = false
+        userRequestedPause = true
+        surface.mpv.pausePlayback()
+        startCastElapsedTimer()
+
+        TorrentBackendManager.shared.webTorrentPlayDisplay(host: display.host, hash: hash, id: id, media: media) { [weak self] result in
+            guard let self, case .failure(let error) = result else { return }
+            DispatchQueue.main.async {
+                // Casting never started (e.g. the display went away between
+                // selection and the RPC call) — revert to local playback
+                // rather than leaving the takeover screen up for a dead session.
+                guard self.activeCastDisplay == display else { return }
+                self.stopCasting()
+                StreamingLogger.shared.error("Cast to \(display.friendlyName) failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// `const elapsed = writable(0, set => setInterval(() => set((Date.now() -
+    /// startTime) / 1000), 1000))` — reuses currentTime/duration/
+    /// checkCompletion so AniList progress tracking behaves identically to
+    /// local playback (see checkCompletion above), just fed a clock instead
+    /// of MPV's real position.
+    private func startCastElapsedTimer() {
+        castElapsedTimer?.invalidate()
+        castStartTime = Date()
+        castDuration = castDurationSeconds()
+        updateCastElapsedUI()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateCastElapsedUI()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        castElapsedTimer = timer
+    }
+
+    private func updateCastElapsedUI() {
+        guard let castStartTime else { return }
+        let elapsed = min(Date().timeIntervalSince(castStartTime), castDuration)
+        nowCastingTimeLabel.text = "\(fmtTime(elapsed)) / \(fmtTime(castDuration))"
+        let progress = castDuration > 0 ? CGFloat(elapsed / castDuration) : 0
+        nowCastingProgressFillWidth?.isActive = false
+        nowCastingProgressFillWidth = nowCastingProgressFill.widthAnchor.constraint(
+            equalTo: nowCastingProgressTrack.widthAnchor, multiplier: min(max(progress, 0), 1))
+        nowCastingProgressFillWidth?.isActive = true
+        checkCompletion(currentTime: elapsed, duration: castDuration, persistProgress: false)
+    }
+
+    @objc private func stopCastingTapped() {
+        stopCasting()
+    }
+
+    private func stopCasting() {
+        guard let display = activeCastDisplay else { return }
+        activeCastDisplay = nil
+        castElapsedTimer?.invalidate()
+        castElapsedTimer = nil
+        castStartTime = nil
+        nowCastingContainer.isHidden = true
+        userRequestedPause = false
+        surface.mpv.play()
+        TorrentBackendManager.shared.webTorrentCloseDisplay(host: display.host) { _ in }
+    }
+
+    /// Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
+    /// Dialog.Root/Dialog.Content (lines 131-144) via CastPlaylistDialog.
+    @objc private func nowCastingPlaylistTapped() {
+        let videos = playlistVideos
+        guard !videos.isEmpty else { return }
+        let items = videos.map { video in
+            CastPlaylistDialog.Item(title: video.videoName ?? "Untitled") { [weak self] in
+                self?.selectPlaylistVideo(video)
+            }
+        }
+        let dialog = CastPlaylistDialog(items: items)
+        present(dialog, animated: true)
+    }
+
     // MARK: - Title helpers (Hayase episodesmodal.svelte / mediahandler.svelte)
 
     /// Returns the anime title for the title label.
@@ -1612,8 +1943,15 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Matches Hayase player.svelte checkCompletion():
     /// When the user is within max(180s, 10% of duration) of the end,
-    /// automatically update AniList progress for this episode.
-    private func checkCompletion() {
+    /// automatically update AniList progress for this episode. Takes
+    /// explicit time/duration so the cast elapsed-clock (castplayer.svelte's
+    /// own local `elapsed`/`duration`) can reuse this without touching local
+    /// playback's real currentTime/duration — otherwise stopping a cast and
+    /// resuming local playback would resume against the anime's estimated
+    /// duration instead of the actual file's.
+    private func checkCompletion(currentTime: Double? = nil, duration: Double? = nil, persistProgress: Bool = true) {
+        let currentTime = currentTime ?? self.currentTime
+        let duration = duration ?? self.duration
         // Desktop defaults playerAutocomplete to true — see Settings.autocomplete
         let autocomplete = Settings.autocomplete
         guard !trackingCompleted, autocomplete,
@@ -1623,7 +1961,7 @@ final class VideoPlayerViewController: UIViewController {
         let fromEnd = max(180.0, duration / 10.0)
         if duration - fromEnd < currentTime {
             trackingCompleted = true
-            saveProgress()
+            if persistProgress { saveProgress() }
             AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber)
         }
     }
@@ -2055,6 +2393,21 @@ final class VideoPlayerViewController: UIViewController {
         return allVideos
     }
 
+    /// options.svelte Playlist item and castplayer.svelte's Playlist dialog
+    /// both call `selectFile(file)` — same underlying switch either way.
+    private func selectPlaylistVideo(_ video: Videos) {
+        if let fileIndex = video.videoIndex?.uintValue,
+           let file = batchFiles.first(where: { matchesFileIndex($0, fileIndex) }) {
+            switchToBatchFile(file)
+            return
+        }
+
+        if let idx = allVideos.firstIndex(of: video), idx != currentVideoIndex {
+            let targetEpisode = episodeNumber + (idx - currentVideoIndex)
+            switchToVideo((video: video, index: idx), episode: targetEpisode)
+        }
+    }
+
     private func fileIndex(for file: TorrentBatchResolver.ResolvedFile) -> UInt? {
         UInt(exactly: file.entry.index)
     }
@@ -2414,6 +2767,7 @@ final class VideoPlayerViewController: UIViewController {
         optionsVC.isFullscreenActive = isFullscreenPresentation
         optionsVC.allVideos = playlistVideos
         optionsVC.currentVideoEntity = videoEntity
+        optionsVC.displays = webTorrentDisplays
 
         if #available(iOS 15.0, *) {
             optionsVC.isPiPActive = pipController?.isPictureInPictureActive ?? false
@@ -2444,17 +2798,7 @@ final class VideoPlayerViewController: UIViewController {
         }
 
         optionsVC.onSwitchVideo = { [weak self] video in
-            guard let self else { return }
-            if let fileIndex = video.videoIndex?.uintValue,
-               let file = self.batchFiles.first(where: { self.matchesFileIndex($0, fileIndex) }) {
-                self.switchToBatchFile(file)
-                return
-            }
-
-            if let idx = self.allVideos.firstIndex(of: video), idx != self.currentVideoIndex {
-                let targetEpisode = self.episodeNumber + (idx - self.currentVideoIndex)
-                self.switchToVideo((video: video, index: idx), episode: targetEpisode)
-            }
+            self?.selectPlaylistVideo(video)
         }
 
         optionsVC.onToggleDeband = { [weak self] in
@@ -2485,6 +2829,10 @@ final class VideoPlayerViewController: UIViewController {
         optionsVC.onSubtitleDelayChanged = { [weak self] delay in
             self?.subtitleDelay = delay
             self?.surface.mpv.setSubtitleDelay(delay)
+        }
+
+        optionsVC.onSelectDisplay = { [weak self] display in
+            self?.startCasting(to: display)
         }
 
         optionsVC.onDismiss = { [weak self] in

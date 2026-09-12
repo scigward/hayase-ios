@@ -146,6 +146,9 @@ enum HayaseIcon {
             strokeLine(from: CGPoint(x: 22, y: 9), to: CGPoint(x: 16, y: 15), width: 2)
         case "volume-2":
             drawVolumeIcon(waves: true)
+        case "square":
+            // lucide `<rect width='18' height='18' x='3' y='3' rx='2'/>`, filled.
+            UIBezierPath(roundedRect: CGRect(x: 3, y: 3, width: 18, height: 18), cornerRadius: 2).fill()
         case "bookmark":
             let bookmark = UIBezierPath()
             bookmark.move(to: CGPoint(x: 5, y: 21))

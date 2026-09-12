@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v6'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v7'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -473,6 +473,20 @@ async function loadTorrentClient () {
   }
 }
 
+// Casting (Chromecast/DLNA) — mirrors interface's native.getDisplays /
+// native.castPlay / native.castClose contract (see chromecast.ts + native.ts
+// in the "interface" reference). torrent-client's TorrentClient already does
+// real mDNS/SSDP discovery and Chromecast/DLNA playback internally
+// (listenDisplay/playDisplay/closeDisplay); this bridge just exposes a
+// request/response-shaped snapshot of that over RPC, since our transport is
+// plain HTTP rather than a push channel.
+function listCurrentDisplays (client) {
+  return [
+    ...Object.values(client.chromecasts?.casts ?? {}),
+    ...Object.values(client.dlnas?.displays ?? {})
+  ]
+}
+
 async function handleRPC (payload) {
   const params = payload.params ?? {}
 
@@ -539,6 +553,27 @@ async function handleRPC (payload) {
       return {}
     case 'cachedTorrents':
       return await activeClient.cached()
+    case 'listDisplays':
+      return listCurrentDisplays(activeClient)
+    case 'playDisplay': {
+      const { host, hash, id, media } = params
+      if (!host || !media) throw new Error('playDisplay requires a host and media payload')
+      // Deliberately not awaited: torrent-client's playDisplay() (chromecasts.play)
+      // only resolves once the cast session itself ends, which on a plain
+      // request/response HTTP transport would hold this call open for the
+      // entire watch session. The bridge fires it and keeps running in the
+      // background; the client is expected to call closeDisplay explicitly
+      // to end the session, same as interface's Stop button does via
+      // native.castClose (castplayer.svelte).
+      activeClient.playDisplay(host, hash ?? '', id ?? 0, media)
+        .catch(error => record('warning', `Cast session for ${host} ended: ${error?.message ?? error}`))
+      return {}
+    }
+    case 'closeDisplay': {
+      if (!params.host) throw new Error('closeDisplay requires a host')
+      await activeClient.closeDisplay(params.host)
+      return {}
+    }
     default:
       throw new Error(`Unknown WebTorrent bridge method: ${payload.method}`)
   }

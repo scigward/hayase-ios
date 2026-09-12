@@ -400,6 +400,7 @@ public class VideoService: NSObject {
             v.videoSize = NSNumber(value: Double(file.size) / 1024.0 / 1024.0)
             v.videoIndex = NSNumber(value: file.id)
             v.videoPath = file.url
+            v.videoLanPath = file.lan
             v.torrents = torrentEntity
         }
 

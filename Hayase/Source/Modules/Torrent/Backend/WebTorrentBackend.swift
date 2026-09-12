@@ -147,6 +147,36 @@ final class WebTorrentBackend {
         }
     }
 
+    // MARK: - Casting
+
+    func listDisplays(completion: @escaping (Result<[WebTorrentDisplay], Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.listDisplays(completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func playDisplay(host: String,
+                     hash: String,
+                     id: Int,
+                     media: [String: Any],
+                     completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.playDisplay(host: host, hash: hash, id: id, media: media, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func closeDisplay(host: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.closeDisplay(host: host, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
     func playTorrent(torrentEntity: Torrents,
                      mediaID: Int,
                      episode: Int,

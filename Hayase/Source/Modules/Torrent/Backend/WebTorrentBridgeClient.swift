@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v6"
+    static let expectedVersion = "hayase-webtorrent-bridge-v7"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -163,6 +163,33 @@ final class WebTorrentBridgeClient {
 
     func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         call(method: "deleteTorrents", params: ["hashes": hashes]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
+    }
+
+    // MARK: - Casting (mirrors interface's native.getDisplays / castPlay / castClose)
+
+    func listDisplays(completion: @escaping (Result<[WebTorrentDisplay], Error>) -> Void) {
+        call(method: "listDisplays", params: [:], completion: completion)
+    }
+
+    func playDisplay(host: String,
+                     hash: String,
+                     id: Int,
+                     media: [String: Any],
+                     completion: @escaping (Result<Void, Error>) -> Void) {
+        call(method: "playDisplay", params: [
+            "host": host,
+            "hash": hash,
+            "id": id,
+            "media": media,
+        ]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
+    }
+
+    func closeDisplay(host: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        call(method: "closeDisplay", params: ["host": host]) { (result: Result<EmptyResult, Error>) in
             completion(result.map { _ in () })
         }
     }

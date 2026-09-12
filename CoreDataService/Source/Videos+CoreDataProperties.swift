@@ -16,6 +16,11 @@ extension Videos {
 
     @NSManaged var videoName: String?
     @NSManaged var videoPath: String?
+    /// LAN-reachable stream URL (torrent-client's `file.lan`, same path as
+    /// `videoPath` but addressed to this device's Wi-Fi IP instead of
+    /// localhost). `videoPath` stays loopback-only for local MPV playback;
+    /// this is what a Chromecast/DLNA display fetches the stream from.
+    @NSManaged var videoLanPath: String?
     @NSManaged var videoDownloadPercent: NSNumber?
     @NSManaged var videoIndex: NSNumber?
     @NSManaged var videoSize: NSNumber?

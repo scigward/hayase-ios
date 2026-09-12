@@ -30,5 +30,9 @@ extension UIColor {
         static let primary = UIColor(white: 0.98, alpha: 1)
         /// interface theme-default: --primary-foreground hsl(0 0% 10%).
         static let primaryForeground = UIColor(white: 0.10, alpha: 1)
+        /// interface theme-default: --destructive hsl(0 62.8% 30.6%).
+        static let destructive = UIColor(red: 0.498, green: 0.114, blue: 0.114, alpha: 1)
+        /// interface theme-default: --destructive-foreground hsl(0 0% 98%).
+        static let destructiveForeground = UIColor(white: 0.98, alpha: 1)
     }
 }

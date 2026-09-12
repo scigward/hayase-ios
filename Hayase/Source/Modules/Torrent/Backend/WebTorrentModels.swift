@@ -91,6 +91,16 @@ struct WebTorrentTrackerInfo: Decodable {
     let failed: Bool
 }
 
+/// A discovered Chromecast or DLNA display, mirroring interface's
+/// `{ friendlyName, host }` shape (native.ts / chromecast.ts). `host` carries
+/// the `cast://` or `dlna://` scheme prefix, matching torrent-client's own
+/// convention (see TorrentClient.playDisplay/closeDisplay in index.ts) — pass
+/// it back verbatim to playDisplay/closeDisplay.
+struct WebTorrentDisplay: Decodable, Equatable {
+    let friendlyName: String
+    let host: String
+}
+
 struct WebTorrentProtocolStatus: Decodable {
     let dht: Bool
     let lsd: Bool

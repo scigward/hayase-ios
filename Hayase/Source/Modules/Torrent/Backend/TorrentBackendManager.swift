@@ -83,4 +83,22 @@ final class TorrentBackendManager {
     func deleteWebTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         webTorrentBackend.deleteTorrents(hashes: hashes, completion: completion)
     }
+
+    // MARK: - Casting (Chromecast/DLNA — WebTorrent backend only, same as interface)
+
+    func webTorrentListDisplays(completion: @escaping (Result<[WebTorrentDisplay], Error>) -> Void) {
+        webTorrentBackend.listDisplays(completion: completion)
+    }
+
+    func webTorrentPlayDisplay(host: String,
+                               hash: String,
+                               id: Int,
+                               media: [String: Any],
+                               completion: @escaping (Result<Void, Error>) -> Void) {
+        webTorrentBackend.playDisplay(host: host, hash: hash, id: id, media: media, completion: completion)
+    }
+
+    func webTorrentCloseDisplay(host: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        webTorrentBackend.closeDisplay(host: host, completion: completion)
+    }
 }
