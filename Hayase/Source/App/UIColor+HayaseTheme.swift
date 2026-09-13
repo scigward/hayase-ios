@@ -34,5 +34,9 @@ extension UIColor {
         static let destructive = UIColor(red: 0.498, green: 0.114, blue: 0.114, alpha: 1)
         /// interface theme-default: --destructive-foreground hsl(0 0% 98%).
         static let destructiveForeground = UIColor(white: 0.98, alpha: 1)
+        /// interface literal (castplayer.svelte progress track): rgba(217,217,217,0.4).
+        static let castProgressTrack = UIColor(red: 217.0 / 255, green: 217.0 / 255, blue: 217.0 / 255, alpha: 0.4)
+        /// interface literal (episodesmodal.svelte Sheet.Trigger): rgba(217,217,217,0.6).
+        static let castMutedText = UIColor(red: 217.0 / 255, green: 217.0 / 255, blue: 217.0 / 255, alpha: 0.6)
     }
 }

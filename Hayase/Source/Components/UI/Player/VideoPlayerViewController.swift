@@ -460,21 +460,24 @@ final class VideoPlayerViewController: UIViewController {
     private let optionsButton   = UIButton(type: .system)
     private let airPlayPicker   = AVRoutePickerView()
     // Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
-    // (non-miniplayer branch — VideoPlayerViewController is always the full
-    // player, never the mini-player). `class='... h-full px-8'` when not mini:
-    // full-screen takeover, not a banner.
+    // (non-miniplayer branch; VideoPlayerViewController is always the full
+    // player — the miniplayer branch is built separately in
+    // MiniPlayerManager, which owns its own container/window).
     private let nowCastingContainer = UIView()
-    private let nowCastingTitleLabel = UILabel()          // "Now Casting" — text-2xl font-bold leading-none mb-2
-    private let nowCastingAnimeTitleButton = UIButton(type: .system)   // EpisodesModal title button
-    private let nowCastingEpisodeButton = UIButton(type: .system)      // EpisodesModal description/Sheet.Trigger
-    private let nowCastingTimeLabel = UILabel()            // text-sm leading-none font-light
-    private let nowCastingProgressTrack = UIView()          // bg-[rgba(217,217,217,0.4)] h-0.5
-    private let nowCastingProgressFill = UIView()            // bg-primary h-0.5
+    private let nowCastingColumn = UIStackView()
+    private let nowCastingTitleLabel = UILabel()                       // "Now Casting"
+    private let nowCastingAnimeTitleButton = UIButton(type: .system)   // episodesmodal.svelte title div
+    private let nowCastingEpisodeButton = UIButton(type: .system)      // episodesmodal.svelte Sheet.Trigger
+    private let nowCastingTimeLabel = UILabel()
+    private let nowCastingProgressContainer = UIView()   // h-1 rounded-[2px] overflow-clip
+    private let nowCastingProgressTrack = UIView()       // h-0.5
+    private let nowCastingProgressFill = UIView()        // h-0.5
     private var nowCastingProgressFillWidth: NSLayoutConstraint?
-    private let nowCastingStopButton = UIButton(type: .system)     // variant='destructive'
-    private let nowCastingPrevButton = UIButton(type: .system)     // SkipBack
-    private let nowCastingPlaylistButton = UIButton(type: .system) // opens the same Playlist list as Options
-    private let nowCastingNextButton = UIButton(type: .system)     // SkipForward
+    private let nowCastingControlsRow = UIStackView()
+    private let nowCastingStopButton = UIButton(type: .system)
+    private let nowCastingPrevButton = UIButton(type: .system)
+    private let nowCastingPlaylistButton = UIButton(type: .system)
+    private let nowCastingNextButton = UIButton(type: .system)
     private var castElapsedTimer: Timer?
     private var castStartTime: Date?
     private var castDuration: Double = 0
@@ -526,7 +529,17 @@ final class VideoPlayerViewController: UIViewController {
     // subscribing. WebTorrent backend only, same as interface.
     private var castDisplaysTimer: Timer?
     private var webTorrentDisplays: [WebTorrentDisplay] = []
-    private var activeCastDisplay: WebTorrentDisplay?
+    private var activeCastDisplay: WebTorrentDisplay? {
+        didSet { onCastStateChanged?() }
+    }
+    /// MiniPlayerManager reads these to build the miniplayer's own
+    /// castplayer.svelte `isMiniplayer` branch — it can't reuse this VC's
+    /// view once minimized (reparented into a different window), so it
+    /// needs the state and a tick callback instead.
+    var isCasting: Bool { activeCastDisplay != nil }
+    var activeCastDisplayName: String? { activeCastDisplay?.friendlyName }
+    var onCastStateChanged: (() -> Void)?
+    var onCastTick: ((_ elapsed: Double, _ duration: Double) -> Void)?
     private var isEOFTriggered = false // Used to emulate the missing MPV_EVENT_END_FILE
     private var lastSeekTime: Date?    // Tracks last seek to prevent false EOF triggers
     /// Pending playback position (seconds) to restore once MPV reports a valid
@@ -1135,10 +1148,10 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     /// Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte
-    /// (non-miniplayer branch: `class='... h-full px-8'`, `{#if !isMiniplayer}`
-    /// controls row). Full-screen takeover replacing the whole player, not a
-    /// banner — matches web exactly, since castplayer.svelte isn't itself
-    /// gated by SUPPORTS.isIOS the way the row-3 toolbar is.
+    /// (non-miniplayer branch) and episodesmodal.svelte. `$breakpoints['4xs']`
+    /// is `(min-width: 280px)` — true on every iOS device — so the buttons
+    /// always use the 4xs-true sizing (size-12/24px icons/h-12 text-lg), never
+    /// the non-4xs fallback.
     private func setupNowCastingView() {
         nowCastingContainer.translatesAutoresizingMaskIntoConstraints = false
         nowCastingContainer.backgroundColor = UIColor.HayaseTheme.background   // bg-background
@@ -1148,94 +1161,131 @@ final class VideoPlayerViewController: UIViewController {
         nowCastingTitleLabel.text = "Now Casting"
         nowCastingTitleLabel.textColor = UIColor.HayaseTheme.foreground
         nowCastingTitleLabel.font = .nunito(ofSize: 24, weight: .bold)   // text-2xl font-bold
-        nowCastingTitleLabel.numberOfLines = 1
+        nowCastingTitleLabel.numberOfLines = 1   // line-clamp-1
 
+        // episodesmodal.svelte title div: text-lg font-normal, text-shadow-lg —
+        // shadow parameters match Hayase's existing titleLabel approximation
+        // of the same three-layer text-shadow-lg (same component, same look).
         nowCastingAnimeTitleButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
-        nowCastingAnimeTitleButton.titleLabel?.font = .nunito(ofSize: 18, weight: .regular)   // text-lg, matches titleLabel
+        nowCastingAnimeTitleButton.titleLabel?.font = .nunito(ofSize: 18, weight: .regular)   // text-lg font-normal
+        nowCastingAnimeTitleButton.titleLabel?.numberOfLines = 1   // line-clamp-1
         nowCastingAnimeTitleButton.titleLabel?.lineBreakMode = .byTruncatingTail
         nowCastingAnimeTitleButton.contentHorizontalAlignment = .leading
+        nowCastingAnimeTitleButton.titleLabel?.layer.shadowColor = UIColor.black.cgColor
+        nowCastingAnimeTitleButton.titleLabel?.layer.shadowOffset = .zero
+        nowCastingAnimeTitleButton.titleLabel?.layer.shadowOpacity = 0.8
+        nowCastingAnimeTitleButton.titleLabel?.layer.shadowRadius = 3
         nowCastingAnimeTitleButton.addTarget(self, action: #selector(titleTapped), for: .touchUpInside)
 
-        nowCastingEpisodeButton.setTitleColor(UIColor.HayaseTheme.mutedForeground, for: .normal)
-        nowCastingEpisodeButton.titleLabel?.font = .nunito(ofSize: 14, weight: .light)   // matches episodeLabel
+        // episodesmodal.svelte Sheet.Trigger: text-[rgba(217,217,217,0.6)]
+        // text-sm font-light, text-shadow-lg — not muted-foreground, a
+        // distinct literal color (see UIColor.HayaseTheme.castMutedText).
+        nowCastingEpisodeButton.setTitleColor(UIColor.HayaseTheme.castMutedText, for: .normal)
+        nowCastingEpisodeButton.titleLabel?.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
+        nowCastingEpisodeButton.titleLabel?.numberOfLines = 1   // line-clamp-1
         nowCastingEpisodeButton.titleLabel?.lineBreakMode = .byTruncatingTail
         nowCastingEpisodeButton.contentHorizontalAlignment = .leading
+        nowCastingEpisodeButton.titleLabel?.layer.shadowColor = UIColor.black.cgColor
+        nowCastingEpisodeButton.titleLabel?.layer.shadowOffset = .zero
+        nowCastingEpisodeButton.titleLabel?.layer.shadowOpacity = 0.8
+        nowCastingEpisodeButton.titleLabel?.layer.shadowRadius = 3
         nowCastingEpisodeButton.addTarget(self, action: #selector(episodeLabelTapped), for: .touchUpInside)
 
+        // `ml-auto self-end ... mt-3` — right-aligned within the full-width
+        // column, no text-shadow-lg here (only the two episodesmodal lines get it).
         nowCastingTimeLabel.textColor = UIColor.HayaseTheme.foreground
-        nowCastingTimeLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm leading-none font-light
+        nowCastingTimeLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
         nowCastingTimeLabel.textAlignment = .right
 
-        nowCastingProgressTrack.backgroundColor = UIColor(white: 217.0 / 255.0, alpha: 0.4)   // rgba(217,217,217,0.4)
-        nowCastingProgressFill.backgroundColor = UIColor.HayaseTheme.primary
+        // `relative w-full h-1 ... rounded-[2px]` wrapping two absolutely
+        // positioned h-0.5 bars; absolute children with no top/bottom ignore
+        // the parent's items-center, keeping their static (top) position.
+        nowCastingProgressContainer.clipsToBounds = true
+        nowCastingProgressContainer.layer.cornerRadius = 2   // rounded-[2px]
+        nowCastingProgressTrack.backgroundColor = UIColor.HayaseTheme.castProgressTrack
+        nowCastingProgressFill.backgroundColor = UIColor.HayaseTheme.primary   // bg-primary
+        nowCastingProgressContainer.addSubview(nowCastingProgressTrack)
+        nowCastingProgressContainer.addSubview(nowCastingProgressFill)
 
-        nowCastingStopButton.setImage(UIImage.hayaseFilledIcon("square", pointSize: 16), for: .normal)   // size='16px' fill='currentColor'
+        nowCastingStopButton.setImage(UIImage.hayaseFilledIcon("square", pointSize: 24), for: .normal)   // size='24px' fill='currentColor'
         nowCastingStopButton.tintColor = UIColor.HayaseTheme.destructiveForeground
         nowCastingStopButton.backgroundColor = UIColor.HayaseTheme.destructive   // variant='destructive'
         nowCastingStopButton.layer.cornerRadius = 6   // rounded-md
         nowCastingStopButton.addTarget(self, action: #selector(stopCastingTapped), for: .touchUpInside)
 
-        nowCastingPrevButton.setImage(UIImage.hayaseFilledIcon("skip-back", pointSize: 16), for: .normal)
+        nowCastingPrevButton.setImage(UIImage.hayaseFilledIcon("skip-back", pointSize: 24), for: .normal)   // fill='currentColor' strokeWidth='1'
         nowCastingPrevButton.tintColor = UIColor.HayaseTheme.foreground
+        nowCastingPrevButton.layer.cornerRadius = 6   // rounded-md (ghost variant base)
         nowCastingPrevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
 
-        nowCastingNextButton.setImage(UIImage.hayaseFilledIcon("skip-forward", pointSize: 16), for: .normal)
+        nowCastingNextButton.setImage(UIImage.hayaseFilledIcon("skip-forward", pointSize: 24), for: .normal)
         nowCastingNextButton.tintColor = UIColor.HayaseTheme.foreground
+        nowCastingNextButton.layer.cornerRadius = 6   // rounded-md
         nowCastingNextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
 
-        nowCastingPlaylistButton.setTitle("Playlist", for: .normal)   // px-4 h-8 text-sm font-bold
-        nowCastingPlaylistButton.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        nowCastingPlaylistButton.setTitle("Playlist", for: .normal)   // px-8 h-12 text-lg font-bold py-0
+        nowCastingPlaylistButton.titleLabel?.font = .nunito(ofSize: 18, weight: .bold)
         nowCastingPlaylistButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
+        nowCastingPlaylistButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 32, bottom: 0, right: 32)
+        nowCastingPlaylistButton.layer.cornerRadius = 6   // rounded-md
+        nowCastingPlaylistButton.setContentHuggingPriority(.required, for: .horizontal)   // don't stretch — only the trailing spacer does
         nowCastingPlaylistButton.addTarget(self, action: #selector(nowCastingPlaylistTapped), for: .touchUpInside)
 
-        let controlsRow = UIStackView(arrangedSubviews: [
-            nowCastingStopButton, nowCastingPrevButton, nowCastingPlaylistButton, nowCastingNextButton,
-        ])
-        controlsRow.axis = .horizontal
-        controlsRow.spacing = 8   // gap-2
-        controlsRow.alignment = .center
+        // `flex w-full pt-3 gap-2` — left-packed, not stretched or spread;
+        // a trailing spacer (low hugging) absorbs the rest of the row's width.
+        let trailingSpacer = UIView()
+        nowCastingControlsRow.axis = .horizontal
+        nowCastingControlsRow.spacing = 8   // gap-2
+        nowCastingControlsRow.alignment = .center
+        nowCastingControlsRow.distribution = .fill
+        [nowCastingStopButton, nowCastingPrevButton, nowCastingPlaylistButton, nowCastingNextButton, trailingSpacer]
+            .forEach { nowCastingControlsRow.addArrangedSubview($0) }
 
-        let column = UIStackView(arrangedSubviews: [
-            nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton,
-            nowCastingTimeLabel, nowCastingProgressTrack, controlsRow,
-        ])
-        column.axis = .vertical
-        column.spacing = 2   // gap-2, mb-2 already on title via extra top spacing below
-        column.setCustomSpacing(8, after: nowCastingTitleLabel)
-        column.alignment = .fill
-        column.translatesAutoresizingMaskIntoConstraints = false
-        nowCastingContainer.addSubview(column)
+        nowCastingColumn.axis = .vertical
+        nowCastingColumn.spacing = 8   // gap-2
+        nowCastingColumn.alignment = .fill   // text-left; flex-col default align-items:stretch
+        [nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton,
+         nowCastingTimeLabel, nowCastingProgressContainer, nowCastingControlsRow].forEach {
+            nowCastingColumn.addArrangedSubview($0)
+        }
+        nowCastingColumn.setCustomSpacing(16, after: nowCastingTitleLabel)          // gap-2 + mb-2
+        nowCastingColumn.setCustomSpacing(20, after: nowCastingEpisodeButton)       // gap-2 + mt-3 (on the label after)
+        nowCastingColumn.setCustomSpacing(20, after: nowCastingProgressContainer)   // gap-2 + pt-3 (on the row after)
+        nowCastingContainer.addSubview(nowCastingColumn)
 
-        nowCastingProgressTrack.addSubview(nowCastingProgressFill)
-        [nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton, nowCastingTimeLabel,
-         nowCastingProgressTrack, nowCastingProgressFill, controlsRow, nowCastingStopButton,
-         nowCastingPrevButton, nowCastingPlaylistButton, nowCastingNextButton].forEach {
+        [nowCastingColumn, nowCastingProgressContainer, nowCastingProgressTrack, nowCastingProgressFill,
+         nowCastingControlsRow, nowCastingStopButton, nowCastingPrevButton, nowCastingPlaylistButton,
+         nowCastingNextButton, trailingSpacer].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
-        let fillWidth = nowCastingProgressFill.widthAnchor.constraint(equalTo: nowCastingProgressTrack.widthAnchor, multiplier: 0)
+        let fillWidth = nowCastingProgressFill.widthAnchor.constraint(equalTo: nowCastingProgressContainer.widthAnchor, multiplier: 0)
         nowCastingProgressFillWidth = fillWidth
 
         NSLayoutConstraint.activate([
-            column.centerXAnchor.constraint(equalTo: nowCastingContainer.centerXAnchor),
-            column.centerYAnchor.constraint(equalTo: nowCastingContainer.centerYAnchor),
-            column.widthAnchor.constraint(lessThanOrEqualToConstant: 320),   // max-w-[320px]
-            column.leadingAnchor.constraint(greaterThanOrEqualTo: nowCastingContainer.leadingAnchor, constant: 32),   // px-8
-            column.trailingAnchor.constraint(lessThanOrEqualTo: nowCastingContainer.trailingAnchor, constant: -32),
+            nowCastingColumn.centerXAnchor.constraint(equalTo: nowCastingContainer.centerXAnchor),
+            nowCastingColumn.centerYAnchor.constraint(equalTo: nowCastingContainer.centerYAnchor),
+            nowCastingColumn.widthAnchor.constraint(lessThanOrEqualToConstant: 320),   // max-w-[320px]
+            nowCastingColumn.leadingAnchor.constraint(greaterThanOrEqualTo: nowCastingContainer.leadingAnchor, constant: 32),   // px-8
+            nowCastingColumn.trailingAnchor.constraint(lessThanOrEqualTo: nowCastingContainer.trailingAnchor, constant: -32),
 
+            nowCastingProgressContainer.heightAnchor.constraint(equalToConstant: 4),   // h-1
+            nowCastingProgressTrack.leadingAnchor.constraint(equalTo: nowCastingProgressContainer.leadingAnchor),
+            nowCastingProgressTrack.trailingAnchor.constraint(equalTo: nowCastingProgressContainer.trailingAnchor),
+            nowCastingProgressTrack.topAnchor.constraint(equalTo: nowCastingProgressContainer.topAnchor),
             nowCastingProgressTrack.heightAnchor.constraint(equalToConstant: 2),   // h-0.5
-            nowCastingProgressFill.leadingAnchor.constraint(equalTo: nowCastingProgressTrack.leadingAnchor),
-            nowCastingProgressFill.topAnchor.constraint(equalTo: nowCastingProgressTrack.topAnchor),
-            nowCastingProgressFill.bottomAnchor.constraint(equalTo: nowCastingProgressTrack.bottomAnchor),
+            nowCastingProgressFill.leadingAnchor.constraint(equalTo: nowCastingProgressContainer.leadingAnchor),
+            nowCastingProgressFill.topAnchor.constraint(equalTo: nowCastingProgressContainer.topAnchor),
+            nowCastingProgressFill.heightAnchor.constraint(equalToConstant: 2),   // h-0.5
             fillWidth,
 
-            nowCastingStopButton.widthAnchor.constraint(equalToConstant: 32),   // size-8
-            nowCastingStopButton.heightAnchor.constraint(equalToConstant: 32),
-            nowCastingPrevButton.widthAnchor.constraint(equalToConstant: 32),
-            nowCastingPrevButton.heightAnchor.constraint(equalToConstant: 32),
-            nowCastingNextButton.widthAnchor.constraint(equalToConstant: 32),
-            nowCastingNextButton.heightAnchor.constraint(equalToConstant: 32),
-            nowCastingPlaylistButton.heightAnchor.constraint(equalToConstant: 32),   // h-8
+            nowCastingStopButton.widthAnchor.constraint(equalToConstant: 48),   // size-12
+            nowCastingStopButton.heightAnchor.constraint(equalToConstant: 48),
+            nowCastingPrevButton.widthAnchor.constraint(equalToConstant: 48),
+            nowCastingPrevButton.heightAnchor.constraint(equalToConstant: 48),
+            nowCastingNextButton.widthAnchor.constraint(equalToConstant: 48),
+            nowCastingNextButton.heightAnchor.constraint(equalToConstant: 48),
+            nowCastingPlaylistButton.heightAnchor.constraint(equalToConstant: 48),   // h-12
         ])
         NSLayoutConstraint.activate([
             nowCastingContainer.topAnchor.constraint(equalTo: view.topAnchor),
@@ -1856,9 +1906,10 @@ final class VideoPlayerViewController: UIViewController {
         let progress = castDuration > 0 ? CGFloat(elapsed / castDuration) : 0
         nowCastingProgressFillWidth?.isActive = false
         nowCastingProgressFillWidth = nowCastingProgressFill.widthAnchor.constraint(
-            equalTo: nowCastingProgressTrack.widthAnchor, multiplier: min(max(progress, 0), 1))
+            equalTo: nowCastingProgressContainer.widthAnchor, multiplier: min(max(progress, 0), 1))
         nowCastingProgressFillWidth?.isActive = true
         checkCompletion(currentTime: elapsed, duration: castDuration, persistProgress: false)
+        onCastTick?(elapsed, castDuration)
     }
 
     @objc private func stopCastingTapped() {
@@ -1892,6 +1943,12 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     // MARK: - Title helpers (Hayase episodesmodal.svelte / mediahandler.svelte)
+
+    /// MiniPlayerManager's own copy of the Now Casting overlay reads these —
+    /// it can't call the private version below (different file), and can't
+    /// reuse this VC's view once minimized (reparented into another window).
+    func animeTitleForDisplay() -> String { animeTitleText() }
+    func episodeDescriptionForDisplay() -> String { episodeDescriptionText() }
 
     /// Returns the anime title for the title label.
     /// Hayase: `mediaInfo.session.title = title(media)` — the anime name.

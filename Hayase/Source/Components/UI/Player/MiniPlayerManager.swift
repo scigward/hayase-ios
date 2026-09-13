@@ -80,6 +80,11 @@ final class MiniPlayerManager {
     private var pendingWebTorrentRestoreTimeout: DispatchWorkItem?
     private let webTorrentRestoreTimeout: TimeInterval = 120
     private let innerContainerTag = 100
+    private let overlayTag = 101
+    private var miniCastTimeLabel: UILabel?
+    private var miniCastProgressFill: UIView?
+    private var miniCastProgressFillWidth: NSLayoutConstraint?
+    private var miniCastProgressContainer: UIView?
 
     private static let bannerBackdropDidChange = Notification.Name("HayaseHomeBannerBackdropDidChange")
     private static let bannerBackdropRouteKey = "route"
@@ -203,6 +208,14 @@ final class MiniPlayerManager {
         addOverlay(to: container)
         updateExternalStripeOverlay(animated: false)
 
+        player.onCastStateChanged = { [weak self] in
+            guard let self, let container = self.containerView else { return }
+            self.addOverlay(to: container)
+        }
+        player.onCastTick = { [weak self] elapsed, duration in
+            self?.updateMiniCastProgress(elapsed: elapsed, duration: duration)
+        }
+
         // Position and show immediately — don't start invisible and don't
         // depend on the dismiss completion to make the container visible.
         // The dismiss cross-dissolve reveals the mini-player underneath.
@@ -256,6 +269,13 @@ final class MiniPlayerManager {
         guard let presenter = topViewController(), presenter !== player else { return }
         isRestoring = true
 
+        player.onCastStateChanged = nil
+        player.onCastTick = nil
+        miniCastTimeLabel = nil
+        miniCastProgressFill = nil
+        miniCastProgressFillWidth = nil
+        miniCastProgressContainer = nil
+
         // Reparent the surface back into the player VC's view.
         let surface = player.surfaceView
         surface.translatesAutoresizingMaskIntoConstraints = false
@@ -294,6 +314,12 @@ final class MiniPlayerManager {
         cancelPendingWebTorrentRestore()
         isRestoring = false
         isTucked = false
+        player.onCastStateChanged = nil
+        player.onCastTick = nil
+        miniCastTimeLabel = nil
+        miniCastProgressFill = nil
+        miniCastProgressFillWidth = nil
+        miniCastProgressContainer = nil
 
         // Clear persisted session so it won't auto-restore on next launch.
         clearSessionState()
@@ -483,13 +509,18 @@ final class MiniPlayerManager {
         return v
     }
 
-    /// Adds the controls overlay (play/pause) to the mini-player.
+    /// Adds the controls overlay to the mini-player: play/pause normally, or
+    /// (Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte,
+    /// `isMiniplayer` branch) the Now Casting display while actively casting.
+    /// Re-callable: removes any existing overlay first so cast state changes
+    /// while already minimized can rebuild it in place.
     private func addOverlay(to container: UIView) {
         guard let inner = container.viewWithTag(innerContainerTag) else { return }
+        inner.viewWithTag(overlayTag)?.removeFromSuperview()
 
         let overlay = UIView()
+        overlay.tag = overlayTag
         overlay.translatesAutoresizingMaskIntoConstraints = false
-        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
         inner.addSubview(overlay)
         NSLayoutConstraint.activate([
             overlay.topAnchor.constraint(equalTo: inner.topAnchor),
@@ -498,7 +529,16 @@ final class MiniPlayerManager {
             overlay.trailingAnchor.constraint(equalTo: inner.trailingAnchor),
         ])
 
-        // Play/Pause button — center.
+        if activePlayer?.isCasting == true {
+            overlay.backgroundColor = UIColor.HayaseTheme.background   // bg-background (opaque, unlike the 0.3-alpha play/pause overlay)
+            buildCastOverlay(in: overlay)
+        } else {
+            overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+            buildPlayPauseOverlay(in: overlay)
+        }
+    }
+
+    private func buildPlayPauseOverlay(in overlay: UIView) {
         let ppBtn = UIButton(type: .system)
         ppBtn.translatesAutoresizingMaskIntoConstraints = false
         let icon = activePlayer?.isPaused == true ? "play" : "pause"
@@ -513,6 +553,117 @@ final class MiniPlayerManager {
             ppBtn.widthAnchor.constraint(equalToConstant: 36),
             ppBtn.heightAnchor.constraint(equalToConstant: 36),
         ])
+    }
+
+    /// `isMiniplayer` branch: no max-w-[320px] cap, no `{#if !isMiniplayer}`
+    /// controls row, otherwise the same title/EpisodesModal/progress content
+    /// as the full player. Not shared code with VideoPlayerViewController's
+    /// copy (different files, different owning types) — kept in sync by
+    /// value, flagged here rather than silently duplicated unremarked.
+    private func buildCastOverlay(in overlay: UIView) {
+        guard let player = activePlayer else { return }
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Now Casting"
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.font = .nunito(ofSize: 24, weight: .bold)   // text-2xl font-bold
+        titleLabel.numberOfLines = 1
+
+        let animeTitleLabel = UILabel()
+        animeTitleLabel.textColor = UIColor.HayaseTheme.foreground
+        animeTitleLabel.font = .nunito(ofSize: 18, weight: .regular)   // text-lg font-normal
+        animeTitleLabel.numberOfLines = 1
+        animeTitleLabel.text = player.animeTitleForDisplay()
+        animeTitleLabel.layer.shadowColor = UIColor.black.cgColor
+        animeTitleLabel.layer.shadowOffset = .zero
+        animeTitleLabel.layer.shadowOpacity = 0.8
+        animeTitleLabel.layer.shadowRadius = 3
+
+        let episodeLabel = UILabel()
+        episodeLabel.textColor = UIColor.HayaseTheme.castMutedText
+        episodeLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
+        episodeLabel.numberOfLines = 1
+        episodeLabel.text = player.episodeDescriptionForDisplay()
+        episodeLabel.layer.shadowColor = UIColor.black.cgColor
+        episodeLabel.layer.shadowOffset = .zero
+        episodeLabel.layer.shadowOpacity = 0.8
+        episodeLabel.layer.shadowRadius = 3
+
+        let timeLabel = UILabel()
+        timeLabel.textColor = UIColor.HayaseTheme.foreground
+        timeLabel.font = .nunito(ofSize: 14, weight: .light)
+        timeLabel.textAlignment = .right
+
+        let progressContainer = UIView()
+        progressContainer.clipsToBounds = true
+        progressContainer.layer.cornerRadius = 2
+        let progressTrack = UIView()
+        progressTrack.backgroundColor = UIColor.HayaseTheme.castProgressTrack
+        let progressFill = UIView()
+        progressFill.backgroundColor = UIColor.HayaseTheme.primary
+        progressContainer.addSubview(progressTrack)
+        progressContainer.addSubview(progressFill)
+
+        let column = UIStackView(arrangedSubviews: [titleLabel, animeTitleLabel, episodeLabel, timeLabel, progressContainer])
+        column.axis = .vertical
+        column.spacing = 8   // gap-2
+        column.alignment = .fill
+        column.setCustomSpacing(16, after: titleLabel)          // gap-2 + mb-2
+        column.setCustomSpacing(20, after: episodeLabel)        // gap-2 + mt-3
+        overlay.addSubview(column)
+
+        [column, progressContainer, progressTrack, progressFill].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+        }
+
+        let fillWidth = progressFill.widthAnchor.constraint(equalTo: progressContainer.widthAnchor, multiplier: 0)
+        NSLayoutConstraint.activate([
+            column.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            column.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            column.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.leadingAnchor, constant: 32),   // px-8
+            column.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -32),
+
+            progressContainer.heightAnchor.constraint(equalToConstant: 4),   // h-1
+            progressTrack.leadingAnchor.constraint(equalTo: progressContainer.leadingAnchor),
+            progressTrack.trailingAnchor.constraint(equalTo: progressContainer.trailingAnchor),
+            progressTrack.topAnchor.constraint(equalTo: progressContainer.topAnchor),
+            progressTrack.heightAnchor.constraint(equalToConstant: 2),
+            progressFill.leadingAnchor.constraint(equalTo: progressContainer.leadingAnchor),
+            progressFill.topAnchor.constraint(equalTo: progressContainer.topAnchor),
+            progressFill.heightAnchor.constraint(equalToConstant: 2),
+            fillWidth,
+        ])
+
+        miniCastTimeLabel = timeLabel
+        miniCastProgressFill = progressFill
+        miniCastProgressFillWidth = fillWidth
+        miniCastProgressContainer = progressContainer
+    }
+
+    /// `on:click={openPlayer}` on castplayer.svelte's outer wrapper — the
+    /// existing container-level tap gesture (handleTap, unchanged) already
+    /// restores the fullscreen player for any tap that isn't consumed by a
+    /// subview first, so the cast overlay above uses plain labels rather
+    /// than its own buttons: there's nothing here that should navigate
+    /// anywhere other than back to the full player.
+    private func updateMiniCastProgress(elapsed: Double, duration: Double) {
+        guard let timeLabel = miniCastTimeLabel,
+              let fill = miniCastProgressFill,
+              let container = miniCastProgressContainer,
+              let oldWidth = miniCastProgressFillWidth else { return }
+        timeLabel.text = "\(fmtDisplayTime(elapsed)) / \(fmtDisplayTime(duration))"
+        let progress = duration > 0 ? CGFloat(elapsed / duration) : 0
+        oldWidth.isActive = false
+        let newWidth = fill.widthAnchor.constraint(equalTo: container.widthAnchor, multiplier: min(max(progress, 0), 1))
+        newWidth.isActive = true
+        miniCastProgressFillWidth = newWidth
+    }
+
+    private func fmtDisplayTime(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds))
+        let h = s / 3600; let m = (s % 3600) / 60; let sec = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec)
+                     : String(format: "%d:%02d", m, sec)
     }
 
     // MARK: - Gesture handlers (Hayase wrapper.svelte pointer events)
@@ -1197,6 +1348,14 @@ final class MiniPlayerManager {
         inner.insertSubview(surface, at: 0)
 
         addOverlay(to: container)
+
+        player.onCastStateChanged = { [weak self] in
+            guard let self, let container = self.containerView else { return }
+            self.addOverlay(to: container)
+        }
+        player.onCastTick = { [weak self] elapsed, duration in
+            self?.updateMiniCastProgress(elapsed: elapsed, duration: duration)
+        }
 
         // Start tucked to the right edge (Hayase: mini-player appears
         // at the edge on launch, user taps to reveal).
