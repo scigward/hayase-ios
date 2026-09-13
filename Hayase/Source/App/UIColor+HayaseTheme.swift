@@ -38,5 +38,7 @@ extension UIColor {
         static let castProgressTrack = UIColor(red: 217.0 / 255, green: 217.0 / 255, blue: 217.0 / 255, alpha: 0.4)
         /// interface literal (episodesmodal.svelte Sheet.Trigger): rgba(217,217,217,0.6).
         static let castMutedText = UIColor(red: 217.0 / 255, green: 217.0 / 255, blue: 217.0 / 255, alpha: 0.6)
+        /// interface literal: Tailwind red-500 (#ef4444), castplayer.svelte's {:catch} error text.
+        static let castError = UIColor(red: 0xEF / 255.0, green: 0x44 / 255.0, blue: 0x44 / 255.0, alpha: 1)
     }
 }

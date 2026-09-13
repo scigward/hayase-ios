@@ -469,6 +469,7 @@ final class VideoPlayerViewController: UIViewController {
     private let nowCastingAnimeTitleButton = UIButton(type: .system)   // episodesmodal.svelte title div
     private let nowCastingEpisodeButton = UIButton(type: .system)      // episodesmodal.svelte Sheet.Trigger
     private let nowCastingTimeLabel = UILabel()
+    private let nowCastingErrorLabel = UILabel()   // {:catch error} — error.stack, replaces time+progress on failure
     private let nowCastingProgressContainer = UIView()   // h-1 rounded-[2px] overflow-clip
     private let nowCastingProgressTrack = UIView()       // h-0.5
     private let nowCastingProgressFill = UIView()        // h-0.5
@@ -1207,6 +1208,11 @@ final class VideoPlayerViewController: UIViewController {
         nowCastingProgressContainer.addSubview(nowCastingProgressTrack)
         nowCastingProgressContainer.addSubview(nowCastingProgressFill)
 
+        nowCastingErrorLabel.textColor = UIColor.HayaseTheme.castError   // text-red-500
+        nowCastingErrorLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
+        nowCastingErrorLabel.numberOfLines = 0   // whitespace-pre-wrap — a stack trace can wrap multiple lines
+        nowCastingErrorLabel.isHidden = true
+
         nowCastingStopButton.setImage(UIImage.hayaseFilledIcon("square", pointSize: 24), for: .normal)   // size='24px' fill='currentColor'
         nowCastingStopButton.addTarget(self, action: #selector(stopCastingTapped), for: .touchUpInside)
 
@@ -1239,12 +1245,13 @@ final class VideoPlayerViewController: UIViewController {
         nowCastingColumn.spacing = 8   // gap-2
         nowCastingColumn.alignment = .fill   // text-left; flex-col default align-items:stretch
         [nowCastingTitleLabel, nowCastingAnimeTitleButton, nowCastingEpisodeButton,
-         nowCastingTimeLabel, nowCastingProgressContainer, nowCastingControlsRow].forEach {
+         nowCastingTimeLabel, nowCastingProgressContainer, nowCastingErrorLabel, nowCastingControlsRow].forEach {
             nowCastingColumn.addArrangedSubview($0)
         }
         nowCastingColumn.setCustomSpacing(16, after: nowCastingTitleLabel)          // gap-2 + mb-2
         nowCastingColumn.setCustomSpacing(20, after: nowCastingEpisodeButton)       // gap-2 + mt-3 (on the label after)
         nowCastingColumn.setCustomSpacing(20, after: nowCastingProgressContainer)   // gap-2 + pt-3 (on the row after)
+        nowCastingColumn.setCustomSpacing(20, after: nowCastingErrorLabel)          // same, when {:catch} replaces time+progress
         nowCastingContainer.addSubview(nowCastingColumn)
 
         [nowCastingColumn, nowCastingProgressContainer, nowCastingProgressTrack, nowCastingProgressFill,
@@ -1769,11 +1776,15 @@ final class VideoPlayerViewController: UIViewController {
     /// real (non-browser) desktop build is backed by the same
     /// listenDisplay()/chromecasts+dlnas discovery this bridge now exposes —
     /// polled here since our transport is request/response, not push.
+    /// Interval matches the actual rescan cadence in torrent-client's
+    /// ChromeCasts/DLNAs classes (`setInterval(() => this.update(), 1 * 60 *
+    /// 1000)` in both) — polling faster than the source itself refreshes
+    /// would just re-fetch the same list.
     private func startCastDisplaysTimer() {
         castDisplaysTimer?.invalidate()
         guard isWebTorrentPlayback else { return }
         updateCastDisplays()
-        let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 60.0, repeats: true) { [weak self] _ in
             self?.updateCastDisplays()
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -1858,6 +1869,9 @@ final class VideoPlayerViewController: UIViewController {
         nowCastingEpisodeButton.setTitle(episodeDescriptionText(), for: .normal)
         nowCastingPrevButton.isEnabled = prevButton.isEnabled
         nowCastingNextButton.isEnabled = nextButton.isEnabled
+        nowCastingErrorLabel.isHidden = true
+        nowCastingTimeLabel.isHidden = false
+        nowCastingProgressContainer.isHidden = false
         nowCastingContainer.isHidden = false
         userRequestedPause = true
         surface.mpv.pausePlayback()
@@ -1866,12 +1880,15 @@ final class VideoPlayerViewController: UIViewController {
         TorrentBackendManager.shared.webTorrentPlayDisplay(host: display.host, hash: hash, id: id, media: media) { [weak self] result in
             guard let self, case .failure(let error) = result else { return }
             DispatchQueue.main.async {
-                // Casting never started (e.g. the display went away between
-                // selection and the RPC call) — revert to local playback
-                // rather than leaving the takeover screen up for a dead session.
                 guard self.activeCastDisplay == display else { return }
-                self.stopCasting()
-                StreamingLogger.shared.error("Cast to \(display.friendlyName) failed: \(error.localizedDescription)")
+                // {:catch error} — the time/progress area is replaced by the
+                // error text; the rest of the screen (title, EpisodesModal,
+                // Stop/Prev/Playlist/Next) stays exactly as-is, no auto-dismiss.
+                self.castElapsedTimer?.invalidate()
+                self.nowCastingTimeLabel.isHidden = true
+                self.nowCastingProgressContainer.isHidden = true
+                self.nowCastingErrorLabel.isHidden = false
+                self.nowCastingErrorLabel.text = error.localizedDescription
             }
         }
     }
