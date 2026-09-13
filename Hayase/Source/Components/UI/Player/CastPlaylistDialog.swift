@@ -10,7 +10,8 @@
 // Dialog.Root/Dialog.Content (lines 131-144) and button/index.ts's `ghost`
 // button variant for each row. Scoped to this one call site — Hayase has no
 // general-purpose ui/dialog port yet, and building one wasn't what this
-// feature needed.
+// feature needed. Backdrop reuses HayaseStripeLayer.swift's existing
+// custom-bg implementation rather than a new one.
 
 import UIKit
 
@@ -23,27 +24,26 @@ final class CastPlaylistDialog: UIViewController {
     private let items: [Item]
     private var itemActions: [() -> Void] = []
 
-    // dialog-overlay.svelte: `custom-bg` + `backdrop-blur-sm`. custom-bg is a
-    // repeating 40deg diagonal hatch (`repeating-linear-gradient(40deg, #1114
-    // 0, #5554 1px, #5554 5px, #1114 6px, #1114 10px)`) whose own comment
-    // says it exists only to hide banding in the CSS backdrop-filter blur —
-    // a rendering workaround with no equivalent problem in UIKit's blur.
-    // Reproduced anyway via a tiled pattern image rather than approximated
-    // as a flat tint, per "match exactly, don't substitute close-enough."
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
-    private let hatchView = UIView()
+    // dialog-overlay.svelte: `custom-bg` + `backdrop-blur-sm`, no extra dim
+    // tint in that CSS — HayaseStripeLayer.swift already implements the
+    // exact `custom-bg` gradient (and bundles the blur with it), reused here
+    // rather than rebuilt.
+    private let backdrop = HayaseStripedBackdropView()
     private let dismissGestureView = UIView()
 
     // dialog-content.svelte base classes merged with castplayer.svelte's
     // override: bg-background (base bg-popover overridden), border-4
     // (base border overridden), p-10 py-6, max-w-5xl (base max-w-lg
-    // overridden), w-auto (base w-full overridden), rounded-xl, gap-4,
-    // items-center flex flex-col, max-h-[calc(100%-1rem)], overflow-y-auto.
+    // overridden), w-auto below md/w-full at md: and up (base w-full,
+    // not overridden), rounded-xl, gap-4, items-center flex flex-col,
+    // max-h-[calc(100%-1rem)], overflow-y-auto, shadow-lg (base, not
+    // overridden).
     private let card = UIView()
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
     // Dialog.Close: `absolute right-4 top-4 rounded-sm`, Cross2 `size-4`.
     private let closeButton = UIButton(type: .system)
+    private var cardStretchWidth: NSLayoutConstraint?
 
     private var cardTransform: CGAffineTransform {
         CGAffineTransform(scaleX: 0.95, y: 0.95).translatedBy(x: 0, y: -8)   // flyAndScale defaults: start 0.95, y -8
@@ -78,6 +78,20 @@ final class CastPlaylistDialog: UIViewController {
         }
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // `md:w-full` (base, not overridden by castplayer.svelte): at >=768px
+        // the card stretches to fill its container (capped by max-w-5xl)
+        // instead of hugging content.
+        let shouldStretch = view.bounds.width >= 768
+        if cardStretchWidth == nil {
+            let constraint = card.widthAnchor.constraint(greaterThanOrEqualTo: view.widthAnchor, constant: -16)
+            constraint.priority = .required
+            cardStretchWidth = constraint
+        }
+        cardStretchWidth?.isActive = shouldStretch
+    }
+
     private func dismiss(animated: Bool) {
         guard animated else {
             dismiss(animated: false, completion: nil)
@@ -86,27 +100,22 @@ final class CastPlaylistDialog: UIViewController {
         UIView.animate(withDuration: 0.15, animations: {   // dialog-overlay.svelte fade: duration 150
             self.card.alpha = 0
             self.card.transform = self.cardTransform
-            self.blurView.alpha = 0
-            self.hatchView.alpha = 0
+            self.backdrop.alpha = 0
         }, completion: { _ in
             self.dismiss(animated: false, completion: nil)
         })
     }
 
     private func setupBackdrop() {
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(blurView)
-
-        hatchView.translatesAutoresizingMaskIntoConstraints = false
-        hatchView.backgroundColor = UIColor(patternImage: Self.hatchPatternImage())
-        view.addSubview(hatchView)
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(backdrop)
 
         dismissGestureView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(dismissGestureView)
         let tap = UITapGestureRecognizer(target: self, action: #selector(backdropTapped))
         dismissGestureView.addGestureRecognizer(tap)
 
-        for v in [blurView, hatchView, dismissGestureView] {
+        for v in [backdrop, dismissGestureView] {
             NSLayoutConstraint.activate([
                 v.topAnchor.constraint(equalTo: view.topAnchor),
                 v.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -120,46 +129,25 @@ final class CastPlaylistDialog: UIViewController {
         dismiss(animated: true)
     }
 
-    /// `repeating-linear-gradient(40deg, #1114 0, #5554 1px, #5554 5px,
-    /// #1114 6px, #1114 10px)` — CSS 4-digit hex shorthand: #1114 =
-    /// rgba(17,17,17,0.267), #5554 = rgba(85,85,85,0.267). One 10pt-tall
-    /// repeat unit, rotated 40deg, tiled as a UIColor pattern image.
-    private static func hatchPatternImage() -> UIImage {
-        let tileSize: CGFloat = 10
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: tileSize, height: tileSize))
-        let dark = UIColor(red: 17.0 / 255, green: 17.0 / 255, blue: 17.0 / 255, alpha: 68.0 / 255)
-        let light = UIColor(red: 85.0 / 255, green: 85.0 / 255, blue: 85.0 / 255, alpha: 68.0 / 255)
-        let tile = renderer.image { ctx in
-            dark.setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: tileSize, height: 1))
-            light.setFill()
-            ctx.fill(CGRect(x: 0, y: 1, width: tileSize, height: 4))
-            // 5-6pt band interpolates light->dark; a hard edge here is an
-            // invisible-at-runtime simplification of a 1pt antialiasing seam.
-            dark.setFill()
-            ctx.fill(CGRect(x: 0, y: 5, width: tileSize, height: 5))
-        }
-        guard let cgImage = tile.cgImage else { return tile }
-        let rotated = UIGraphicsImageRenderer(size: CGSize(width: tileSize, height: tileSize))
-        return rotated.image { ctx in
-            ctx.cgContext.translateBy(x: tileSize / 2, y: tileSize / 2)
-            ctx.cgContext.rotate(by: 40 * .pi / 180)
-            ctx.cgContext.translateBy(x: -tileSize / 2, y: -tileSize / 2)
-            ctx.cgContext.draw(cgImage, in: CGRect(x: 0, y: 0, width: tileSize, height: tileSize))
-        }
-    }
-
     private func setupCard() {
         card.translatesAutoresizingMaskIntoConstraints = false
         card.backgroundColor = UIColor.HayaseTheme.background   // bg-background
         card.layer.borderWidth = 4   // border-4
         card.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         card.layer.cornerRadius = 12   // rounded-xl
-        card.clipsToBounds = true
+        card.layer.masksToBounds = false
+        // shadow-lg (base, not overridden): approximated as one CALayer
+        // shadow — CSS's two-layer box-shadow has no direct CALayer
+        // equivalent, so this uses the dominant (larger) of the two.
+        card.layer.shadowColor = UIColor.black.cgColor
+        card.layer.shadowOpacity = 0.1
+        card.layer.shadowRadius = 7.5
+        card.layer.shadowOffset = CGSize(width: 0, height: 10)
         view.addSubview(card)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.showsVerticalScrollIndicator = false   // *::-webkit-scrollbar { display: none }
+        scrollView.clipsToBounds = true
         card.addSubview(scrollView)
 
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -221,20 +209,16 @@ final class CastPlaylistDialog: UIViewController {
 
     private func populateItems() {
         for item in items {
-            // button/index.ts `ghost` variant: base h-9 px-4 py-2 rounded-md
-            // text-sm font-medium; select:bg-secondary-foreground/20 for the
-            // pressed state (`.isHighlighted` here — iOS has no hover).
-            // Plain UIButton target-actions rather than UIButton.Configuration/
-            // UIAction (iOS 15+) to match this codebase's actual minimum
-            // target and its existing button style throughout the player.
-            let button = GhostListButton(type: .system)
+            // button/index.ts `ghost` variant: base h-9 px-4 py-2 text-sm
+            // font-medium (GhostButton handles rounded-md + the select:
+            // press state + disabled:opacity-50; only the size-specific
+            // bits are set here).
+            let button = GhostButton(type: .system)
             button.setTitle(item.title, for: .normal)
             button.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
             button.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)   // text-sm font-medium
             button.titleLabel?.lineBreakMode = .byTruncatingTail   // text-ellipsis text-nowrap overflow-clip
             button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)   // py-2 px-4
-            button.layer.cornerRadius = 6   // rounded-md
-            button.clipsToBounds = true
             button.heightAnchor.constraint(equalToConstant: 36).isActive = true   // h-9
             button.addTarget(self, action: #selector(playlistItemTapped(_:)), for: .touchUpInside)
             itemActions.append(item.action)
@@ -248,17 +232,5 @@ final class CastPlaylistDialog: UIViewController {
         let action = itemActions[sender.tag]
         dismiss(animated: true)
         action()
-    }
-}
-
-/// select:bg-secondary-foreground/20 — the only interaction state a plain
-/// ghost `Button` has on web, translated to iOS's highlighted/pressed state.
-private final class GhostListButton: UIButton {
-    override var isHighlighted: Bool {
-        didSet {
-            backgroundColor = isHighlighted
-                ? UIColor.HayaseTheme.foreground.withAlphaComponent(0.2)
-                : .clear
-        }
     }
 }

@@ -474,10 +474,10 @@ final class VideoPlayerViewController: UIViewController {
     private let nowCastingProgressFill = UIView()        // h-0.5
     private var nowCastingProgressFillWidth: NSLayoutConstraint?
     private let nowCastingControlsRow = UIStackView()
-    private let nowCastingStopButton = UIButton(type: .system)
-    private let nowCastingPrevButton = UIButton(type: .system)
-    private let nowCastingPlaylistButton = UIButton(type: .system)
-    private let nowCastingNextButton = UIButton(type: .system)
+    private let nowCastingStopButton = DestructiveButton(type: .system)
+    private let nowCastingPrevButton = GhostButton(type: .system)
+    private let nowCastingPlaylistButton = GhostButton(type: .system)
+    private let nowCastingNextButton = GhostButton(type: .system)
     private var castElapsedTimer: Timer?
     private var castStartTime: Date?
     private var castDuration: Double = 0
@@ -1208,26 +1208,20 @@ final class VideoPlayerViewController: UIViewController {
         nowCastingProgressContainer.addSubview(nowCastingProgressFill)
 
         nowCastingStopButton.setImage(UIImage.hayaseFilledIcon("square", pointSize: 24), for: .normal)   // size='24px' fill='currentColor'
-        nowCastingStopButton.tintColor = UIColor.HayaseTheme.destructiveForeground
-        nowCastingStopButton.backgroundColor = UIColor.HayaseTheme.destructive   // variant='destructive'
-        nowCastingStopButton.layer.cornerRadius = 6   // rounded-md
         nowCastingStopButton.addTarget(self, action: #selector(stopCastingTapped), for: .touchUpInside)
 
         nowCastingPrevButton.setImage(UIImage.hayaseFilledIcon("skip-back", pointSize: 24), for: .normal)   // fill='currentColor' strokeWidth='1'
         nowCastingPrevButton.tintColor = UIColor.HayaseTheme.foreground
-        nowCastingPrevButton.layer.cornerRadius = 6   // rounded-md (ghost variant base)
         nowCastingPrevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
 
         nowCastingNextButton.setImage(UIImage.hayaseFilledIcon("skip-forward", pointSize: 24), for: .normal)
         nowCastingNextButton.tintColor = UIColor.HayaseTheme.foreground
-        nowCastingNextButton.layer.cornerRadius = 6   // rounded-md
         nowCastingNextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
 
         nowCastingPlaylistButton.setTitle("Playlist", for: .normal)   // px-8 h-12 text-lg font-bold py-0
         nowCastingPlaylistButton.titleLabel?.font = .nunito(ofSize: 18, weight: .bold)
         nowCastingPlaylistButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
         nowCastingPlaylistButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 32, bottom: 0, right: 32)
-        nowCastingPlaylistButton.layer.cornerRadius = 6   // rounded-md
         nowCastingPlaylistButton.setContentHuggingPriority(.required, for: .horizontal)   // don't stretch — only the trailing spacer does
         nowCastingPlaylistButton.addTarget(self, action: #selector(nowCastingPlaylistTapped), for: .touchUpInside)
 
