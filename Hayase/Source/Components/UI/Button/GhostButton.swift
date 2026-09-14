@@ -28,7 +28,7 @@ final class GhostButton: UIButton {
 
     override var isHighlighted: Bool {
         didSet {
-            backgroundColor = isHighlighted ? UIColor.HayaseTheme.foreground.withAlphaComponent(0.2) : .clear
+            backgroundColor = isHighlighted ? UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2) : .clear
         }
     }
 

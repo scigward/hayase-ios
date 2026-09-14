@@ -2602,7 +2602,10 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Leaves the player and opens `/app/anime/[id]` for the anime being watched,
     /// mirroring the web title button's `goto()`.
-    private func openAnimeDetailFromTitle() {
+    /// Also called from MiniPlayerManager's cast overlay title tap — the
+    /// player is already minimized in that case, so don't minimize it again
+    /// (minimize() isn't designed to be re-run against its own active player).
+    func openAnimeDetailFromTitle() {
         let mediaID = currentMediaID
         guard mediaID > 0 else { return }
 
@@ -2624,7 +2627,7 @@ final class VideoPlayerViewController: UIViewController {
         // `HayaseSidebarController.minimizeVisiblePlayerIfNeeded()` while the route
         // is applied, so only the modally presented case needs handling here.
         let isHostedInNavigationStack = navigationController?.viewControllers.contains(self) ?? false
-        if !isHostedInNavigationStack {
+        if !isHostedInNavigationStack, MiniPlayerManager.shared.activePlayer !== self {
             MiniPlayerManager.shared.minimize(self)
         }
 
@@ -2633,7 +2636,10 @@ final class VideoPlayerViewController: UIViewController {
 
     /// interface episodesmodal.svelte: `<Sheet.Content class='w-full sm:w-[550px] ...'>`
     /// hosting `<EpisodesList {eps} media={media.data.Media} />`.
-    private func presentEpisodeListSheet() {
+    /// `presenter` defaults to self; MiniPlayerManager's cast overlay passes
+    /// the actual top view controller instead, since a minimized player's
+    /// own view isn't part of the visible hierarchy and can't present.
+    func presentEpisodeListSheet(from presenter: UIViewController? = nil) {
         let mediaID = currentMediaID
         guard mediaID > 0 else { return }
 
@@ -2656,10 +2662,11 @@ final class VideoPlayerViewController: UIViewController {
             self?.scheduleHide()
         }
 
+        let host = presenter ?? self
         // Keep the controls up for as long as the sheet is open.
         hideWork?.cancel()
-        sheet.prepareSheetPresentation(from: self)
-        present(sheet, animated: true)
+        sheet.prepareSheetPresentation(from: host)
+        host.present(sheet, animated: true)
     }
 
     @objc private func toggleTimeFormat() {

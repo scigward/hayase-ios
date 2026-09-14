@@ -569,25 +569,39 @@ final class MiniPlayerManager {
         titleLabel.font = .nunito(ofSize: 24, weight: .bold)   // text-2xl font-bold
         titleLabel.numberOfLines = 1
 
-        let animeTitleLabel = UILabel()
-        animeTitleLabel.textColor = UIColor.HayaseTheme.foreground
-        animeTitleLabel.font = .nunito(ofSize: 18, weight: .regular)   // text-lg font-normal
-        animeTitleLabel.numberOfLines = 1
-        animeTitleLabel.text = player.animeTitleForDisplay()
-        animeTitleLabel.layer.shadowColor = UIColor.black.cgColor
-        animeTitleLabel.layer.shadowOffset = .zero
-        animeTitleLabel.layer.shadowOpacity = 0.8
-        animeTitleLabel.layer.shadowRadius = 3
+        let animeTitleButton = UIButton(type: .system)
+        animeTitleButton.setTitleColor(UIColor.HayaseTheme.foreground, for: .normal)
+        animeTitleButton.titleLabel?.font = .nunito(ofSize: 18, weight: .regular)   // text-lg font-normal
+        animeTitleButton.titleLabel?.numberOfLines = 1
+        animeTitleButton.contentHorizontalAlignment = .leading
+        animeTitleButton.setTitle(player.animeTitleForDisplay(), for: .normal)
+        animeTitleButton.titleLabel?.layer.shadowColor = UIColor.black.cgColor
+        animeTitleButton.titleLabel?.layer.shadowOffset = .zero
+        animeTitleButton.titleLabel?.layer.shadowOpacity = 0.8
+        animeTitleButton.titleLabel?.layer.shadowRadius = 3
+        // episodesmodal.svelte's title uses `use:click`, which calls
+        // e.stopPropagation() — the tap navigates to the anime page and does
+        // NOT also trigger the outer wrapper's openPlayer(). A real button
+        // here gets that for free (it consumes the touch before the
+        // container's own tap gesture sees it).
+        animeTitleButton.addAction(UIAction { [weak self] _ in
+            self?.activePlayer?.openAnimeDetailFromTitle()
+        }, for: .touchUpInside)
 
-        let episodeLabel = UILabel()
-        episodeLabel.textColor = UIColor.HayaseTheme.castMutedText
-        episodeLabel.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
-        episodeLabel.numberOfLines = 1
-        episodeLabel.text = player.episodeDescriptionForDisplay()
-        episodeLabel.layer.shadowColor = UIColor.black.cgColor
-        episodeLabel.layer.shadowOffset = .zero
-        episodeLabel.layer.shadowOpacity = 0.8
-        episodeLabel.layer.shadowRadius = 3
+        let episodeButton = UIButton(type: .system)
+        episodeButton.setTitleColor(UIColor.HayaseTheme.castMutedText, for: .normal)
+        episodeButton.titleLabel?.font = .nunito(ofSize: 14, weight: .light)   // text-sm font-light
+        episodeButton.titleLabel?.numberOfLines = 1
+        episodeButton.contentHorizontalAlignment = .leading
+        episodeButton.setTitle(player.episodeDescriptionForDisplay(), for: .normal)
+        episodeButton.titleLabel?.layer.shadowColor = UIColor.black.cgColor
+        episodeButton.titleLabel?.layer.shadowOffset = .zero
+        episodeButton.titleLabel?.layer.shadowOpacity = 0.8
+        episodeButton.titleLabel?.layer.shadowRadius = 3
+        episodeButton.addAction(UIAction { [weak self] _ in
+            guard let self, let player = self.activePlayer, let presenter = self.topViewController() else { return }
+            player.presentEpisodeListSheet(from: presenter)
+        }, for: .touchUpInside)
 
         let timeLabel = UILabel()
         timeLabel.textColor = UIColor.HayaseTheme.foreground
@@ -604,12 +618,12 @@ final class MiniPlayerManager {
         progressContainer.addSubview(progressTrack)
         progressContainer.addSubview(progressFill)
 
-        let column = UIStackView(arrangedSubviews: [titleLabel, animeTitleLabel, episodeLabel, timeLabel, progressContainer])
+        let column = UIStackView(arrangedSubviews: [titleLabel, animeTitleButton, episodeButton, timeLabel, progressContainer])
         column.axis = .vertical
         column.spacing = 8   // gap-2
         column.alignment = .fill
         column.setCustomSpacing(16, after: titleLabel)          // gap-2 + mb-2
-        column.setCustomSpacing(20, after: episodeLabel)        // gap-2 + mt-3
+        column.setCustomSpacing(20, after: episodeButton)        // gap-2 + mt-3
         overlay.addSubview(column)
 
         [column, progressContainer, progressTrack, progressFill].forEach {
@@ -640,12 +654,11 @@ final class MiniPlayerManager {
         miniCastProgressContainer = progressContainer
     }
 
-    /// `on:click={openPlayer}` on castplayer.svelte's outer wrapper — the
-    /// existing container-level tap gesture (handleTap, unchanged) already
-    /// restores the fullscreen player for any tap that isn't consumed by a
-    /// subview first, so the cast overlay above uses plain labels rather
-    /// than its own buttons: there's nothing here that should navigate
-    /// anywhere other than back to the full player.
+    /// `on:click={openPlayer}` on castplayer.svelte's outer wrapper —
+    /// the existing container-level tap gesture (handleTap, unchanged)
+    /// restores the fullscreen player for any tap not consumed by the title/
+    /// episode buttons above (which stop their own touches from reaching it,
+    /// matching `use:click`'s stopPropagation on web).
     private func updateMiniCastProgress(elapsed: Double, duration: Double) {
         guard let timeLabel = miniCastTimeLabel,
               let fill = miniCastProgressFill,
