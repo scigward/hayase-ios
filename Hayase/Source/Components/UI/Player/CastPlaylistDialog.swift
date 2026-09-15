@@ -185,8 +185,8 @@ final class CastPlaylistDialog: UIViewController {
 
             closeButton.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),   // top-4
             closeButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),   // right-4
-            closeButton.widthAnchor.constraint(equalToConstant: 24),
-            closeButton.heightAnchor.constraint(equalToConstant: 24),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
 
             scrollView.topAnchor.constraint(equalTo: card.topAnchor, constant: 24),   // py-6
             scrollView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 40),   // p-10 (horizontal)

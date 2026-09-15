@@ -2567,14 +2567,25 @@ final class VideoPlayerViewController: UIViewController {
     /// </button>
     /// ```
     @objc private func titleTapped() {
-        flashInteractiveLabel(titleLabel)
+        // Same episodesmodal.svelte component, same hover:underline touch
+        // equivalent — the Now Casting screen's own title button needs the
+        // same flash, not the (now-hidden) main player's titleLabel.
+        if activeCastDisplay != nil {
+            flashInteractiveButton(nowCastingAnimeTitleButton)
+        } else {
+            flashInteractiveLabel(titleLabel)
+        }
         openAnimeDetailFromTitle()
     }
 
     /// interface episodesmodal.svelte: the description doubles as the `Sheet.Trigger`
     /// that reveals the full episode list.
     @objc private func episodeLabelTapped() {
-        flashInteractiveLabel(episodeLabel)
+        if activeCastDisplay != nil {
+            flashInteractiveButton(nowCastingEpisodeButton)
+        } else {
+            flashInteractiveLabel(episodeLabel)
+        }
         presentEpisodeListSheet()
     }
 
@@ -2597,6 +2608,31 @@ final class VideoPlayerViewController: UIViewController {
             label.font = font
             label.textColor = color
             label.text = text
+        }
+    }
+
+    /// Same flash, for the Now Casting screen's title/episode `UIButton`s —
+    /// mutating `titleLabel` directly on a button fights its own state-based
+    /// title management, so this goes through setAttributedTitle instead.
+    /// Not private: MiniPlayerManager's own cast overlay buttons reuse this
+    /// rather than duplicating the same logic in a second file.
+    func flashInteractiveButton(_ button: UIButton) {
+        guard let text = button.title(for: .normal), !text.isEmpty else { return }
+        let font = button.titleLabel?.font ?? .nunito(ofSize: 14)
+        let color = button.titleColor(for: .normal) ?? .white
+        let highlight = UIColor.HayaseTheme.mutedForeground
+        button.setAttributedTitle(NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: highlight,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: highlight,
+        ]), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak button] in
+            guard let button else { return }
+            button.setAttributedTitle(nil, for: .normal)
+            button.setTitle(text, for: .normal)
+            button.setTitleColor(color, for: .normal)
+            button.titleLabel?.font = font
         }
     }
 

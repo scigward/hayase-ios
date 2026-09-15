@@ -585,7 +585,9 @@ final class MiniPlayerManager {
         // here gets that for free (it consumes the touch before the
         // container's own tap gesture sees it).
         animeTitleButton.addAction(UIAction { [weak self] _ in
-            self?.activePlayer?.openAnimeDetailFromTitle()
+            guard let self, let player = self.activePlayer else { return }
+            player.flashInteractiveButton(animeTitleButton)
+            player.openAnimeDetailFromTitle()
         }, for: .touchUpInside)
 
         let episodeButton = UIButton(type: .system)
@@ -600,6 +602,7 @@ final class MiniPlayerManager {
         episodeButton.titleLabel?.layer.shadowRadius = 3
         episodeButton.addAction(UIAction { [weak self] _ in
             guard let self, let player = self.activePlayer, let presenter = self.topViewController() else { return }
+            player.flashInteractiveButton(episodeButton)
             player.presentEpisodeListSheet(from: presenter)
         }, for: .touchUpInside)
 
