@@ -40,5 +40,9 @@ extension UIColor {
         static let castMutedText = UIColor(red: 217.0 / 255, green: 217.0 / 255, blue: 217.0 / 255, alpha: 0.6)
         /// interface literal: Tailwind red-500 (#ef4444), castplayer.svelte's {:catch} error text.
         static let castError = UIColor(red: 0xEF / 255.0, green: 0x44 / 255.0, blue: 0x44 / 255.0, alpha: 1)
+        /// interface literal (tailwind.config.ts `colors.theme`): hsl(346.6 79.12% 51.18%),
+        /// a fixed accent color (not a `--variable`, so it doesn't change with the
+        /// selected theme). Used by outgoing IRC/W2G chat bubbles (`!bg-theme`).
+        static let theme = UIColor(red: 229.0 / 255.0, green: 32.0 / 255.0, blue: 76.0 / 255.0, alpha: 1)
     }
 }

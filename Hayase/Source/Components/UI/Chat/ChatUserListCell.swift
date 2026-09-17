@@ -20,6 +20,25 @@
 //  behind a small protocol, so there is exactly one implementation from
 //  here on.
 //
+//  Fixed in this pass: the avatar used to be a plain `UIImageView` with an
+//  "open AniList in the browser" button next to it (`ExternalLink`,
+//  `openProfile()`). Neither exists in the actual web source — the real
+//  `UserList.svelte` has no such button at all; each user's avatar is a
+//  `ChatProfile.svelte`, which wraps a `Popover` that opens an in-app
+//  profile card on tap. That card is already built natively
+//  (`ProfileCardViewController` in Profile.swift, reached through the
+//  public `FollowerAvatarStackView` façade), so this now reuses it directly
+//  instead of the browser-opening stand-in — which also gets the avatar its
+//  real `ring-4 ring-background` ring (`Profile.svelte`'s default avatar
+//  class) for free. `Profile.swift` renders whatever `AniListUserSummary`
+//  it's given rather than fetching by ID itself, and chat only has a
+//  user's id/name/avatar, so the card's bio/banner/stats sit at their
+//  built-in empty-state fallback here (see HayaseChatViewController.swift's
+//  header comment for the reasoning on not adding a fetch-by-id call for
+//  this pass). The real `Popover.Trigger` isn't guest-gated either — it
+//  opens for every user, just with sparse data for ones the store can't
+//  resolve — so this drops the previous `isGuest`-based hiding too.
+//
 
 import UIKit
 
@@ -43,93 +62,65 @@ extension ChatListUser {
 
 // Web layout per user:
 //   <div class='flex items-center pb-2'>
-//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />   ← 32pt visible avatar
-//     <div class='text-md pl-2'>{name}</div>                ← 16px, 8pt left margin
-//     <ExternalLink size='18' class='ml-auto text-blue-600' /> ← AniList link
+//     <ChatProfile {user} />                  ← Profile.svelte avatar, size-8
+//                                                (32pt) + ring-4 ring-background,
+//                                                tap opens a Popover profile card
+//     <div class='text-md pl-2'>{name}</div>  ← 16px, 8pt left margin
 //   </div>
 
 final class ChatUserListCell: UITableViewCell {
     static let reuseID = "ChatUserListCell"
+    private static let avatarSize: CGFloat = 32 // size-8
 
-    private let avatarImageView = UIImageView()
+    private let profileStack = FollowerAvatarStackView()
     private let nameLabel = UILabel()
-    private let linkButton = UIButton(type: .system)
-
-    private var userID: String = ""
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
 
-        let avatarSize: CGFloat = 32  // w-10 h-10 p-1 → 32pt visible
-
-        // Avatar: rounded-full
-        avatarImageView.layer.cornerRadius = avatarSize / 2
-        avatarImageView.clipsToBounds = true
-        avatarImageView.contentMode = .scaleAspectFill
-        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        profileStack.translatesAutoresizingMaskIntoConstraints = false
 
         // Name: text-md (16px), pl-2 (8pt)
         nameLabel.font = .nunito(ofSize: 16)
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // External link button: ml-auto text-blue-600, ExternalLink size=18
-        let linkConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        linkButton.setImage(UIImage.hayaseIcon("external-link", withConfiguration: linkConfig), for: .normal)
-        linkButton.tintColor = UIColor(red: 0.22, green: 0.42, blue: 0.93, alpha: 1.0) // blue-600
-        linkButton.translatesAutoresizingMaskIntoConstraints = false
-        linkButton.addTarget(self, action: #selector(openProfile), for: .touchUpInside)
-
-        contentView.addSubview(avatarImageView)
+        contentView.addSubview(profileStack)
         contentView.addSubview(nameLabel)
-        contentView.addSubview(linkButton)
 
         NSLayoutConstraint.activate([
             // Avatar: left with padding, pb-2 = 8pt bottom, px-5 = 20pt from web
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), // px-5
-            avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 4),
-            avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8), // pb-2
+            profileStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), // px-5
+            profileStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            profileStack.widthAnchor.constraint(equalToConstant: Self.avatarSize),
+            profileStack.heightAnchor.constraint(equalToConstant: Self.avatarSize),
+            profileStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 4),
+            profileStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8), // pb-2
 
             // Name: pl-2 = 8pt
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            nameLabel.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-            // Link button: ml-auto (trailing), match px-5 padding
-            linkButton.leadingAnchor.constraint(greaterThanOrEqualTo: nameLabel.trailingAnchor, constant: 8),
-            linkButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20), // px-5
-            linkButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            linkButton.widthAnchor.constraint(equalToConstant: 28),
-            linkButton.heightAnchor.constraint(equalToConstant: 28),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20), // px-5
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func openProfile() {
-        guard !userID.isEmpty,
-              let url = URL(string: "https://anilist.co/user/" + userID) else { return }
-        UIApplication.shared.open(url)
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        profileStack.reset()
     }
 
-    /// Guests (IRC only — W2G's `isGuest` always defaults to `false`) get no
-    /// profile link, mirroring `ChatProfile.svelte`'s `!user.guest` check.
     func configure(with user: ChatListUser) {
         nameLabel.text = user.name
-        userID = user.id
-        linkButton.isHidden = user.isGuest
-        avatarImageView.image = nil
-        guard let url = URL(string: user.resolvedAvatarURL) else {
-            avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
-            return
-        }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async { self?.avatarImageView.image = img }
-        }.resume()
+        let summary = AniListUserSummary(id: Int(user.id) ?? 0,
+                                         name: user.name,
+                                         avatarURL: user.resolvedAvatarURL)
+        profileStack.configure(users: [summary],
+                                avatarSize: Self.avatarSize,
+                                ringWidth: 4,
+                                ringColor: UIColor.HayaseTheme.background)
     }
 }

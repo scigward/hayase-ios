@@ -23,6 +23,19 @@ import Foundation
 final class IRCLobby {
     static let shared = IRCLobby()
 
+    /// Mirrors `export const prevAgreed = writable(false)` in
+    /// `modules/irc/index.ts`. Deliberately an in-memory flag, not
+    /// `UserDefaults` — the web store is a plain in-memory `writable`, so it
+    /// resets on every fresh page load and the content-warning page reappears
+    /// each session. An earlier version of this port persisted the
+    /// agreement to `UserDefaults`, which meant it was never reset once
+    /// set — after agreeing once, every later app launch skipped straight
+    /// to a live connection the moment the chat tab was opened, with no
+    /// warning page at all. That's a real behavioral divergence from
+    /// upstream, not a Swift necessity, so it's fixed by matching the web
+    /// store's actual (session-only) lifetime instead.
+    static var prevAgreed = false
+
     /// Posted on the main queue whenever `client` changes.
     static let didChange = Notification.Name("IRCLobbyDidChange")
 
