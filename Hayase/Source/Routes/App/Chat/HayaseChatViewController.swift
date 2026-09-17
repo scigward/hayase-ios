@@ -42,21 +42,29 @@
 //    `ring-4 ring-background` ring `Profile.svelte`'s default avatar class
 //    has, and, more importantly, a tap opens the actual native profile
 //    card, replacing the earlier "open AniList in the browser" stand-in for
-//    `ChatProfile.svelte`'s in-app popover. `Profile.swift` doesn't fetch by
-//    ID itself — it renders whatever `AniListUserSummary` it's given —  and
-//    chat only ever has a user's id/name/avatar (no bio/banner/stats), so
-//    the card shows those fields at their existing empty-state fallback
-//    ("No user description", etc.) rather than the richer data
-//    `ChatProfile.svelte` fetches asynchronously on open. Building a
-//    fetch-by-id AniList query to close that last gap felt like a
-//    meaningfully separate task from wiring up the existing card, so it's
-//    flagged here rather than done speculatively.
-//  - The userlist is now an always-visible side panel on wide layouts
-//    (mirrors `UserList.svelte`) and hidden entirely on narrow ones,
-//    matching `W2GViewController`'s existing wide/narrow constraint-set
-//    pattern exactly (600pt breakpoint, hide-on-narrow rather than a
-//    stacked variant — W2G already made that same simplification, so this
-//    matches established precedent instead of inventing a new one).
+//    `ChatProfile.svelte`'s in-app popover, and, since this pass, fetching
+//    the tapped user's full profile first via the new
+//    `AniListClient.fetchUserProfileResult(id:)` and `Profile.swift`'s new
+//    optional `detailFetcher` — mirroring `client.user(Number(user.id))` —
+//    so the card's bio/banner/stats are populated rather than stuck at
+//    their built-in empty-state fallback (see ChatUserListCell.swift and
+//    Profile.swift's own header comments for why this fetches-then-presents
+//    instead of presenting immediately and patching the card in place once
+//    data arrives).
+//  - The userlist is now an always-visible panel: a 288pt side panel on
+//    wide layouts (mirrors `UserList.svelte`), and, on narrow ones, a
+//    strip above the chat column instead of hidden entirely — matching
+//    `flex md:flex-row flex-col-reverse`, which renders the row's last DOM
+//    child (`UserList`) first on narrow widths rather than removing it.
+//    An earlier pass hid it on narrow specifically to match
+//    `W2GViewController`'s existing wide/narrow pattern. Checked directly
+//    this time rather than assumed: `w2g/[id]/+page.svelte` has this exact
+//    same `flex-col-reverse` structure, and `W2GViewController.swift`
+//    really does hide its own userlist on narrow the same way — so that
+//    was a real precedent, just a shared copy of the same gap rather than
+//    a considered simplification, and W2G's copy is still unfixed. Out of
+//    scope for this pass (this file is about Chat), but worth fixing
+//    there too via the same `rowContainer` approach.
 //  - The message input no longer grows to a fixed 120pt on first layout:
 //    `UITextView` needs `isScrollEnabled = false` plus a manually-updated
 //    height constraint to size itself from its content.
@@ -173,6 +181,9 @@ final class HayaseChatViewController: UIViewController {
     private let chatContainer = UIView()
 
     private let messagesTableView = UITableView()
+    /// Mirrors `<div class='flex md:flex-row flex-col-reverse size-full
+    /// min-h-0'>` — the row wrapping the chat column and the userlist.
+    private let rowContainer = UIView()
     private var messages: [IRCChatMessage] = []
     /// Newest-first, matching the flipped table (row 0 = visually at the
     /// bottom = newest). Mirrors W2GViewController's `reversedMessages`.
@@ -246,11 +257,9 @@ final class HayaseChatViewController: UIViewController {
         if wide {
             NSLayoutConstraint.deactivate(narrowLayoutConstraints)
             NSLayoutConstraint.activate(wideLayoutConstraints)
-            userListTableView.isHidden = false
         } else {
             NSLayoutConstraint.deactivate(wideLayoutConstraints)
             NSLayoutConstraint.activate(narrowLayoutConstraints)
-            userListTableView.isHidden = true
         }
     }
 
@@ -411,6 +420,9 @@ final class HayaseChatViewController: UIViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         chatContainer.addSubview(separator)
 
+        rowContainer.translatesAutoresizingMaskIntoConstraints = false
+        chatContainer.addSubview(rowContainer)
+
         messagesTableView.translatesAutoresizingMaskIntoConstraints = false
         messagesTableView.backgroundColor = .clear
         messagesTableView.separatorStyle = .none
@@ -424,15 +436,21 @@ final class HayaseChatViewController: UIViewController {
         // fragile "call scrollToRow after every reload" approach the first
         // pass used.
         messagesTableView.transform = CGAffineTransform(scaleX: 1, y: -1)
-        chatContainer.addSubview(messagesTableView)
+        rowContainer.addSubview(messagesTableView)
 
-        // Mirrors UserList.svelte's side panel on wide layouts; hidden
-        // entirely on narrow ones (see updateLayoutForCurrentWidth). No
-        // separator between the two columns — W2GViewController's
-        // equivalent panel doesn't have one either (its userListTableView
-        // sits directly against chatTableView's trailing edge), and this
-        // used to add one that didn't match, which is what looked like a
-        // stray vertical line.
+        // Mirrors UserList.svelte's side panel on wide layouts (288pt,
+        // trailing edge, full row height) and, on narrow ones, the same
+        // component sitting above the chat column instead of beside it —
+        // `flex-col-reverse` renders UserList (the row's last DOM child)
+        // first, so it's on top, capped at 40% of the row's height
+        // (`max-h-[40%] overflow-y-auto`, matched here as a flat 40% of
+        // rowContainer rather than a true self-sizing-with-cap height; see
+        // the narrowLayoutConstraints comment below). No separator between
+        // the two on wide layouts — W2GViewController's equivalent panel
+        // doesn't have one either (its userListTableView sits directly
+        // against chatTableView's trailing edge), and this used to add one
+        // that didn't match, which is what looked like a stray vertical
+        // line.
         userListTableView.translatesAutoresizingMaskIntoConstraints = false
         userListTableView.backgroundColor = .clear
         userListTableView.separatorStyle = .none
@@ -440,21 +458,21 @@ final class HayaseChatViewController: UIViewController {
         userListTableView.register(ChatUserListCell.self, forCellReuseIdentifier: ChatUserListCell.reuseID)
         userListTableView.estimatedRowHeight = 44
         userListTableView.rowHeight = UITableView.automaticDimension
-        chatContainer.addSubview(userListTableView)
+        rowContainer.addSubview(userListTableView)
 
         // Mirrors irc.svelte's `{#await $irc}` loading state, shown until
         // both registration and our own channel join complete.
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.color = UIColor.HayaseTheme.mutedForeground
         loadingIndicator.isHidden = true
-        chatContainer.addSubview(loadingIndicator)
+        rowContainer.addSubview(loadingIndicator)
 
         loadingLabel.text = "Loading..."
         loadingLabel.font = .nunito(ofSize: 16)
         loadingLabel.textColor = UIColor.HayaseTheme.mutedForeground
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
         loadingLabel.isHidden = true
-        chatContainer.addSubview(loadingLabel)
+        rowContainer.addSubview(loadingLabel)
 
         let inputBar = UIView()
         inputBar.translatesAutoresizingMaskIntoConstraints = false
@@ -511,8 +529,16 @@ final class HayaseChatViewController: UIViewController {
             separator.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 24),
             separator.heightAnchor.constraint(equalToConstant: 1),
 
+            // rowContainer's own position never depends on the breakpoint —
+            // only how messagesTableView/userListTableView arrange
+            // *within* it does (set in wide/narrowLayoutConstraints below).
+            rowContainer.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
+            rowContainer.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor),
+            rowContainer.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
+            rowContainer.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -16), // mt-4
+
             // px-4, unconditional (no `md:` variant on the message column).
-            messagesTableView.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 16),
+            messagesTableView.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor, constant: 16),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: messagesTableView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: messagesTableView.centerYAnchor, constant: -12),
@@ -550,14 +576,24 @@ final class HayaseChatViewController: UIViewController {
             sendButton.heightAnchor.constraint(equalToConstant: 36),
         ])
 
-        // Wide layout: messages left, userlist right (288pt width, matching
-        // W2GViewController's equivalent panel, no divider between the two
-        // columns). Narrow layout: messages fill the width, userlist hidden
-        // (see the file header comment on the narrow-layout userlist gap).
         // Header/separator get p-3 (12pt) narrow / md:p-10 (40pt) wide, on
         // top/leading/trailing alike; the separator's own bottom margin
-        // (!my-6, 24pt, set above) is what actually separates it from the
-        // row below, matching pb-0 on the padded header container.
+        // (!my-6, 24pt, set above) is what actually separates it from
+        // rowContainer, matching pb-0 on the padded header container.
+        //
+        // Wide (`md:flex-row`): messages left, userlist right — 288pt,
+        // full rowContainer height, no divider.
+        //
+        // Narrow (`flex-col-reverse`): userlist ABOVE messages, not hidden
+        // — `flex-col-reverse` renders the row's last DOM child (UserList)
+        // first. Its height here is a flat 40% of rowContainer rather than
+        // true `max-h-[40%]` (a cap that shrinks below 40% for a short
+        // list, via `overflow-y-auto`) — a self-sizing-with-cap UITableView
+        // height is a materially bigger, separate piece of Auto Layout
+        // work than the rest of this pass, and a fixed reserved box that
+        // scrolls internally when it overflows is the same trade-off the
+        // wide-layout column already makes (its height is "however much
+        // space is left," not "however many rows there are" either).
         wideLayoutConstraints = [
             headerStack.topAnchor.constraint(equalTo: chatContainer.topAnchor, constant: 40),
             headerStack.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 40),
@@ -565,14 +601,14 @@ final class HayaseChatViewController: UIViewController {
             separator.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 40),
             separator.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -40),
 
-            userListTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
-            userListTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
-            userListTableView.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor),
+            userListTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
+            userListTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
+            userListTableView.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor),
             userListTableView.widthAnchor.constraint(equalToConstant: 288),
 
-            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
+            messagesTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
             messagesTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
-            messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -16), // mt-4
+            messagesTableView.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor),
         ]
 
         narrowLayoutConstraints = [
@@ -582,9 +618,14 @@ final class HayaseChatViewController: UIViewController {
             separator.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 12),
             separator.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -12),
 
-            messagesTableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
-            messagesTableView.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
-            messagesTableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -16), // mt-4
+            userListTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
+            userListTableView.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor),
+            userListTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
+            userListTableView.heightAnchor.constraint(equalTo: rowContainer.heightAnchor, multiplier: 0.4), // max-h-[40%]
+
+            messagesTableView.topAnchor.constraint(equalTo: userListTableView.bottomAnchor),
+            messagesTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
+            messagesTableView.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor),
         ]
 
         updateLayoutForCurrentWidth()
@@ -888,10 +929,19 @@ private final class IRCMessageCell: UITableViewCell {
             let summary = AniListUserSummary(id: Int(message.user.id) ?? 0,
                                              name: message.user.name,
                                              avatarURL: message.user.avatarURL)
+            let isGuest = message.user.isGuest
             profileStack.configure(users: [summary],
                                     avatarSize: Self.avatarSize,
                                     ringWidth: 4,
-                                    ringColor: UIColor.HayaseTheme.background)
+                                    ringColor: UIColor.HayaseTheme.background) { id, completion in
+                guard !isGuest else {
+                    completion(nil)
+                    return
+                }
+                AniListClient.shared.fetchUserProfileResult(id: id) { result in
+                    completion(try? result.get())
+                }
+            }
         } else {
             profileStack.reset()
         }

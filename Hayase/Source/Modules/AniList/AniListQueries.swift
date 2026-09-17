@@ -114,6 +114,16 @@ enum AniListQueries {
     }
     """
 
+    /// A standalone single-user fetch, reusing `userFields` (previously only
+    /// ever nested inside other queries — following lists, thread comments).
+    static let user = """
+    query User($id: Int) {
+      User(id: $id) {
+        \(userFields)
+      }
+    }
+    """
+
     static let threadFields = """
           id
           title

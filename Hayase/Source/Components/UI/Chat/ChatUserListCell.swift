@@ -30,14 +30,16 @@
 //  public `FollowerAvatarStackView` façade), so this now reuses it directly
 //  instead of the browser-opening stand-in — which also gets the avatar its
 //  real `ring-4 ring-background` ring (`Profile.svelte`'s default avatar
-//  class) for free. `Profile.swift` renders whatever `AniListUserSummary`
-//  it's given rather than fetching by ID itself, and chat only has a
-//  user's id/name/avatar, so the card's bio/banner/stats sit at their
-//  built-in empty-state fallback here (see HayaseChatViewController.swift's
-//  header comment for the reasoning on not adding a fetch-by-id call for
-//  this pass). The real `Popover.Trigger` isn't guest-gated either — it
-//  opens for every user, just with sparse data for ones the store can't
-//  resolve — so this drops the previous `isGuest`-based hiding too.
+//  class) for free. On tap, this now fetches the user's full profile via
+//  the new `AniListClient.fetchUserProfileResult(id:)` and hands the
+//  popover the enriched result, mirroring `client.user(Number(user.id))` —
+//  the card's bio/banner/stats are no longer stuck at their empty-state
+//  fallback. Guests skip the fetch (chat guests aren't real AniList
+//  accounts, so it would just fail), matching the real store never
+//  resolving for `user.guest`, but the popover itself isn't guest-gated —
+//  `Popover.Trigger` opens for every user regardless — so this still
+//  doesn't hide the button for guests the way the old external-link button
+//  did.
 //
 
 import UIKit
@@ -118,9 +120,20 @@ final class ChatUserListCell: UITableViewCell {
         let summary = AniListUserSummary(id: Int(user.id) ?? 0,
                                          name: user.name,
                                          avatarURL: user.resolvedAvatarURL)
+        let isGuest = user.isGuest
         profileStack.configure(users: [summary],
                                 avatarSize: Self.avatarSize,
                                 ringWidth: 4,
-                                ringColor: UIColor.HayaseTheme.background)
+                                ringColor: UIColor.HayaseTheme.background) { id, completion in
+            // `(open && !user.guest) ? client.user(...) : undefined` — a guest
+            // store never resolves, so the popover just shows the bare user.
+            guard !isGuest else {
+                completion(nil)
+                return
+            }
+            AniListClient.shared.fetchUserProfileResult(id: id) { result in
+                completion(try? result.get())
+            }
+        }
     }
 }

@@ -540,6 +540,35 @@ public final class AniListClient: NSObject {
         }
     }
 
+    /// Fetches a single user's full profile by ID — bio, banner, stats,
+    /// follow state — via the standalone `AniListQueries.user` query.
+    /// Reuses `parseUserSummary`, which already expects exactly this shape
+    /// (it was written for `userFields` nested in the following-list
+    /// response, and a `User(id:)` response nests the same fields the
+    /// same way).
+    func fetchUserProfileResult(id: Int,
+                                completion: @escaping (Result<AniListUserSummary, AniListRequestError>) -> Void) -> AniListRequestToken? {
+        let variables: [String: Any] = ["id": id]
+        return requestExecutor.execute(query: AniListQueries.user,
+                                       variables: variables,
+                                       authorized: true,
+                                       dedupeKey: cacheKey(prefix: "user", variables: variables)) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let graphQLResult):
+                guard let data = graphQLResult.json["data"] as? [String: Any],
+                      let userObject = data["User"] as? [String: Any],
+                      let summary = self.parseUserSummary(userObject) else {
+                    DispatchQueue.main.async { completion(.failure(.emptyData)) }
+                    return
+                }
+                DispatchQueue.main.async { completion(.success(summary)) }
+            case .failure(let error):
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
     private func parseFollowingMany(json: [String: Any], viewerID: Int) -> Result<[Int: [AniListUserSummary]], AniListRequestError> {
         if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
             let messages = errors.compactMap { $0["message"] as? String }

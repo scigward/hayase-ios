@@ -5,6 +5,19 @@
 //  Created by scigward.
 //  Mirrors: lib/components/ui/profile/Profile.svelte
 //
+//  Added in this pass: an optional `detailFetcher` on
+//  `FollowerAvatarStackView.configure`/`ProfileButton`, for callers whose
+//  `AniListUserSummary` is only partially populated (chat's userlist/message
+//  avatars, which only ever have id/name/avatar) to fetch the full profile
+//  on tap before presenting, mirroring `ChatProfile.svelte`'s
+//  `client.user(Number(user.id))`. Fetch-then-present rather than
+//  present-then-refresh, since this view is built once in `viewDidLoad` from
+//  whatever `user` it's handed — reworking it to patch itself in place as
+//  data streams in would be a much larger, riskier change to a view that
+//  already works correctly for its four existing callers (EpisodesList,
+//  Layout's followers row, ThreadCommentView, ThreadPostView), none of which
+//  pass this parameter and so see no behavior change at all.
+//
 
 import UIKit
 
@@ -28,10 +41,17 @@ final class FollowerAvatarStackView: UIStackView {
         isHidden = true
     }
 
+    /// `detailFetcher`, when provided, is called with a tapped user's id on
+    /// tap; its result (or `nil` on failure) replaces the summary passed
+    /// here for that presentation only. For callers whose `users` are
+    /// already fully populated (the existing four call sites), leave this
+    /// nil — the card presents the given summary as-is, unchanged from
+    /// before this parameter existed.
     func configure(users: [AniListUserSummary],
                    avatarSize: CGFloat = 32,
                    ringWidth: CGFloat = 4,
-                   ringColor: UIColor = UIColor.HayaseTheme.background) {
+                   ringColor: UIColor = UIColor.HayaseTheme.background,
+                   detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         reset()
         let visibleUsers = users.filter { !$0.name.isEmpty }
         isHidden = visibleUsers.isEmpty
@@ -39,7 +59,8 @@ final class FollowerAvatarStackView: UIStackView {
             let button = ProfileButton(user: user,
                                        avatarSize: avatarSize,
                                        ringWidth: ringWidth,
-                                       ringColor: ringColor)
+                                       ringColor: ringColor,
+                                       detailFetcher: detailFetcher)
             button.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: avatarSize),
@@ -64,12 +85,15 @@ final class FollowerAvatarStackView: UIStackView {
 private final class ProfileButton: UIControl {
     private let user: AniListUserSummary
     private let avatarView: ProfileAvatarView
+    private let detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)?
 
     init(user: AniListUserSummary,
          avatarSize: CGFloat,
          ringWidth: CGFloat,
-         ringColor: UIColor) {
+         ringColor: UIColor,
+         detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         self.user = user
+        self.detailFetcher = detailFetcher
         self.avatarView = ProfileAvatarView(user: user,
                                             avatarSize: avatarSize,
                                             ringWidth: ringWidth,
@@ -103,6 +127,22 @@ private final class ProfileButton: UIControl {
 
     @objc private func showProfile() {
         guard let presenter = nearestViewController else { return }
+        guard let detailFetcher else {
+            present(user, from: presenter)
+            return
+        }
+        // Fetch first, present once — a card that resized itself around
+        // arriving data a moment after appearing would read as broken in a
+        // modal presentation, unlike a reactively-laid-out web popover.
+        isUserInteractionEnabled = false
+        detailFetcher(user.id) { [weak self] detailed in
+            guard let self else { return }
+            self.isUserInteractionEnabled = true
+            self.present(detailed ?? self.user, from: presenter)
+        }
+    }
+
+    private func present(_ user: AniListUserSummary, from presenter: UIViewController) {
         let card = ProfileCardViewController(user: user, sourceView: self)
         card.modalPresentationStyle = .overFullScreen
         card.modalTransitionStyle = .crossDissolve
@@ -110,7 +150,6 @@ private final class ProfileButton: UIControl {
             card.animateIn()
         }
     }
-
 }
 
 private final class ProfileAvatarView: UIView {
