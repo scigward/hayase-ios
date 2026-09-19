@@ -185,7 +185,7 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_missingFont", defaultValue: true)),
             Row(title: "Subtitle Render Resolution Limit",
                 description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled linearly. This will GREATLY improve rendering speeds for complex typesetting for slower devices.",
-                kind: .selectable(userDefaultsKey: "pref_subtitleRenderHeight", options: Self.subtitleResolutions, defaultKey: "0")),
+                kind: .selectable(userDefaultsKey: Settings.Keys.subtitleRenderHeight, options: Self.subtitleResolutions, defaultKey: Settings.Defaults.subtitleRenderHeight)),
         ], tab: .player),
 
         Section(header: "Language Settings", rows: [

@@ -46,6 +46,7 @@ enum Settings {
         static let seekDuration = "pref_seekDuration"
         static let subtitleLanguage = "pref_subtitleLanguage"
         static let audioLanguage = "pref_audioLanguage"
+        static let subtitleRenderHeight = "pref_subtitleRenderHeight"
         static let searchQuality = "pref_searchQuality"
         static let searchAutoSelect = "pref_searchAutoSelect"
         static let lookupPreference = "pref_lookupPreference"
@@ -66,6 +67,7 @@ enum Settings {
         static let seekDuration = "2"
         static let subtitleLanguage = "eng"
         static let audioLanguage = "jpn"
+        static let subtitleRenderHeight = "1440"
         static let searchQuality = "1080"
         static let searchAutoSelect = true
         static let lookupPreference = "quality"
@@ -127,6 +129,12 @@ enum Settings {
     static var audioLanguage: String {
         get { UserDefaults.standard.string(forKey: Keys.audioLanguage) ?? Defaults.audioLanguage }
         set { write(newValue, forKey: Keys.audioLanguage) }
+    }
+
+    /// Subtitle render height in pixels as a string, `"0"` to follow the video size.
+    static var subtitleRenderHeight: String {
+        get { UserDefaults.standard.string(forKey: Keys.subtitleRenderHeight) ?? Defaults.subtitleRenderHeight }
+        set { write(newValue, forKey: Keys.subtitleRenderHeight) }
     }
 
     // MARK: - Search / Extensions

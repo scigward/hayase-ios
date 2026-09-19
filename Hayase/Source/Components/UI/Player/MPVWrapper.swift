@@ -1,3 +1,5 @@
+// Mirrors: hayase-app/interface/src/lib/components/ui/player/subtitles.ts (initSubtitleRenderer, maxRenderHeight)
+
 import UIKit
 import MPVKit
 import CoreMedia
@@ -162,6 +164,9 @@ final class MPVWrapper {
 
         checkError(mpv_set_option_string(handle, "vo", "avfoundation"))
         checkError(mpv_set_option_string(handle, "avfoundation-composite-osd", "yes"))
+        // Read once at start; a changed setting applies from the next player.
+        let subtitleRenderHeight = Int(Settings.subtitleRenderHeight) ?? 0
+        checkError(mpv_set_option_string(handle, "avfoundation-osd-render-height", String(subtitleRenderHeight)))
 
         #if targetEnvironment(simulator)
         checkError(mpv_set_option_string(handle, "hwdec", "no"))
