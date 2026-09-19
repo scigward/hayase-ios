@@ -56,6 +56,16 @@ final class HayaseSidebarController: UIViewController {
     private var lastAppliedRoute: Route?
     private var routeScrollPositions: [Route: CGPoint] = [:]
 
+    // Root pages that routes need to reach into (sub-tab selection etc.).
+    // Held directly instead of being looked up through
+    // `selectedViewController.viewControllers.first`: on compact widths the
+    // hidden UITabBarController has more tabs than fit (7), so UIKit moves the
+    // overflow tabs (Chat, Client, Settings) under its "More" navigation
+    // controller and that lookup stops finding them.
+    private weak var searchPage: SearchViewController?
+    private weak var downloadsPage: DownloadsViewController?
+    private weak var settingsPage: SettingsViewController?
+
     init(tabBarController: UITabBarController) {
         self.tabBarControllerHost = tabBarController
         super.init(nibName: nil, bundle: nil)
@@ -190,6 +200,7 @@ final class HayaseSidebarController: UIViewController {
             }
             return controller
         }
+        captureRootPages(from: controllers)
         guard controllers.count == 6 else {
             tabBarControllerHost.setViewControllers(controllers, animated: false)
             return
@@ -197,6 +208,28 @@ final class HayaseSidebarController: UIViewController {
         let chat = HayaseInterfaceNavigationController(rootViewController: HayaseChatViewController())
         controllers.insert(chat, at: 4)
         tabBarControllerHost.setViewControllers(controllers, animated: false)
+    }
+
+    private func captureRootPages(from controllers: [UIViewController]) {
+        for controller in controllers {
+            guard let root = (controller as? UINavigationController)?.viewControllers.first else { continue }
+            if let page = root as? SearchViewController {
+                searchPage = page
+            } else if let page = root as? DownloadsViewController {
+                downloadsPage = page
+            } else if let page = root as? SettingsViewController {
+                settingsPage = page
+            }
+        }
+    }
+
+    private func rootPage(for route: Route) -> UIViewController? {
+        switch route {
+        case .search: return searchPage
+        case .client: return downloadsPage
+        case .settings, .profile: return settingsPage
+        default: return nil
+        }
     }
 
     private func hideHostedNavigationBars() {
@@ -545,11 +578,21 @@ final class HayaseSidebarController: UIViewController {
             case .player:
                 self.showPlayerRoute(animated: animated)
             default:
-                if route.resetsTabStack,
-                   let nav = self.tabBarControllerHost.selectedViewController as? UINavigationController {
+                guard route.resetsTabStack else { break }
+                if let page = self.rootPage(for: route) {
+                    // Pop whichever navigation controller actually holds the
+                    // page (the tab's own nav, or UIKit's More nav on compact
+                    // widths) back to it. Never popToRoot on the More nav:
+                    // its root is the system "More" list.
+                    if let host = page.navigationController,
+                       host.viewControllers.contains(page),
+                       host.topViewController !== page {
+                        host.popToViewController(page, animated: false)
+                    }
+                } else if let nav = self.tabBarControllerHost.selectedViewController as? UINavigationController {
                     nav.popToRootViewController(animated: false)
-                    self.applyRouteState(route, to: nav)
                 }
+                self.applyRouteState(route)
             }
 
             self.hideHostedNavigationBars()
@@ -588,16 +631,16 @@ final class HayaseSidebarController: UIViewController {
         RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
     }
 
-    private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
+    private func applyRouteState(_ route: Route) {
         switch route {
         case .search(let state):
-            (navigationController.viewControllers.first as? SearchViewController)?.applyRouteState(state)
+            searchPage?.applyRouteState(state)
         case .client(let clientRoute):
-            (navigationController.viewControllers.first as? DownloadsViewController)?.applyRoute(clientRoute)
+            downloadsPage?.applyRoute(clientRoute)
         case .settings(let settingsRoute):
-            (navigationController.viewControllers.first as? SettingsViewController)?.applyRoute(settingsRoute)
+            settingsPage?.applyRoute(settingsRoute)
         case .profile:
-            (navigationController.viewControllers.first as? SettingsViewController)?.openAccountsTab()
+            settingsPage?.openAccountsTab()
         default:
             break
         }
