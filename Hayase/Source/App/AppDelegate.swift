@@ -53,9 +53,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private func installSidebarShellIfNeeded() {
         guard let tabBarController = window?.rootViewController as? UITabBarController else { return }
-        let rootControllers = tabBarController.viewControllers ?? []
-        tabBarController.setViewControllers([], animated: false)
-        window?.rootViewController = HayaseSidebarController(viewControllers: rootControllers)
+        // Preserve the storyboard tab controller and its relationship-owned
+        // navigation stacks. Rebuilding this graph caused destination roots
+        // that had never appeared (Schedule, Client and Settings) to crash on
+        // their first lifecycle transition.
+        window?.rootViewController = HayaseSidebarController(tabBarController: tabBarController)
         window?.makeKeyAndVisible()
     }
 

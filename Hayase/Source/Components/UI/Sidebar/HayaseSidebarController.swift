@@ -22,7 +22,7 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropAnimeRoute = "anime"
     private static let homeBannerBackdropPlayerRoute = "player"
 
-    private let tabHost: HayaseTabHostController
+    private let tabHost: UITabBarController
     private let router = Router.shared
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
@@ -48,6 +48,8 @@ final class HayaseSidebarController: UIViewController {
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
+    private var selectedIndexObservation: NSKeyValueObservation?
+    private var isApplyingRoute = false
     private var routeObservationID: UUID?
     private var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
     private var historySwipe: HayaseHistorySwipe?
@@ -57,8 +59,8 @@ final class HayaseSidebarController: UIViewController {
     private var routeScrollPositions: [Route: CGPoint] = [:]
     private var isNavigationLoading = false
 
-    init(viewControllers: [UIViewController]) {
-        self.tabHost = HayaseTabHostController(viewControllers: HayaseSidebarController.interfaceRoutes(from: viewControllers))
+    init(tabBarController: UITabBarController) {
+        self.tabHost = tabBarController
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -69,12 +71,14 @@ final class HayaseSidebarController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
+        installInterfaceRoutes()
         router.reset(to: Route(tabIndex: tabHost.selectedIndex) ?? .home, hostTabIndex: tabHost.selectedIndex)
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
         configureActions()
         observeBannerBackdrop()
+        observeTabSelection()
         observeRouteChanges()
         apply(route: router.currentRoute, kind: .replace, options: .init(), animated: false)
         updateLayoutForCurrentWidth()
@@ -132,6 +136,9 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func setupContentHost() {
+        hideNativeTabNavigation()
+        tabHost.delegate = self
+
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.backgroundColor = UIColor.HayaseTheme.background
         view.addSubview(contentContainer)
@@ -255,15 +262,17 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
+    private func installInterfaceRoutes() {
+        guard let viewControllers = tabHost.viewControllers else { return }
+        tabHost.setViewControllers(Self.interfaceRoutes(from: viewControllers), animated: false)
+    }
+
     private static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
         // Keep the storyboard-created navigation controllers intact. Moving
         // their root controllers into replacement navigation controllers here
         // changes UIKit ownership before the destination views have loaded.
         // That rewrite is unnecessary for Schedule, Client and Settings/Profile
         // and makes their storyboard relationship ownership invalid.
-        // HayaseTabHostController already avoids UITabBarController's "More"
-        // behavior, while hideHostedNavigationBars() supplies the interface's
-        // hidden navigation chrome without replacing either controller.
         var controllers = viewControllers
         guard controllers.count == 6 else { return controllers }
         let chat = UINavigationController(rootViewController: HayaseChatViewController())
@@ -273,11 +282,30 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func hideHostedNavigationBars() {
+        hideNativeTabNavigation()
         hideNavigationChrome(in: tabHost)
+    }
+
+    private func hideNativeTabNavigation() {
+        tabHost.tabBar.isHidden = true
+        tabHost.tabBar.alpha = 0
+        tabHost.tabBar.isUserInteractionEnabled = false
+
+        if #available(iOS 18.0, *) {
+            tabHost.mode = .tabBar
+            tabHost.setTabBarHidden(true, animated: false)
+            tabHost.sidebar.isHidden = true
+        }
+        tabHost.view.setNeedsLayout()
     }
 
     private func hideNavigationChrome(in viewController: UIViewController?) {
         guard let viewController else { return }
+        if let tab = viewController as? UITabBarController {
+            tab.tabBar.isHidden = true
+            tab.tabBar.alpha = 0
+            tab.tabBar.isUserInteractionEnabled = false
+        }
         if let nav = viewController as? UINavigationController {
             nav.setNavigationBarHidden(true, animated: false)
             nav.isToolbarHidden = true
@@ -566,6 +594,18 @@ final class HayaseSidebarController: UIViewController {
                                                object: nil)
     }
 
+    private func observeTabSelection() {
+        selectedIndexObservation = tabHost.observe(\.selectedIndex, options: [.new]) { [weak self] tab, _ in
+            DispatchQueue.main.async {
+                guard let self,
+                      !self.isApplyingRoute,
+                      self.router.currentRoute.tabIndex != tab.selectedIndex,
+                      let route = Route(tabIndex: tab.selectedIndex) else { return }
+                self.router.sync(route, hostTabIndex: tab.selectedIndex)
+            }
+        }
+    }
+
     @objc private func animeNavigationWillLoad() {
         beginNavigationProgress()
     }
@@ -722,7 +762,11 @@ final class HayaseSidebarController: UIViewController {
                 self.applyRouteState(route, to: navigationController)
             }
             if let targetIndex {
-                self.tabHost.select(targetIndex)
+                self.isApplyingRoute = true
+                if self.tabHost.selectedIndex != targetIndex {
+                    self.tabHost.selectedIndex = targetIndex
+                }
+                self.isApplyingRoute = false
             }
 
             switch route {
@@ -929,6 +973,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateLayoutForCurrentWidth() {
+        hideNativeTabNavigation()
         let isDesktop = view.bounds.width >= 768  // Tailwind md = 48rem = 768px
         guard isDesktopMode != isDesktop else { return }
         isDesktopMode = isDesktop
@@ -1099,7 +1144,11 @@ private final class SidebarBackdropGradientView: UIView {
     }
 }
 
-extension HayaseSidebarController: UIGestureRecognizerDelegate {
+extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecognizerDelegate {
+    func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+        hideHostedNavigationBars()
+    }
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
 
