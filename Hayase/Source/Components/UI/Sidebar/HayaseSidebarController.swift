@@ -599,6 +599,11 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func apply(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool) {
+        // Router notifications are delivered on the next main-queue turn.
+        // Ignore an older queued destination if a redirect or a second sidebar
+        // selection has already replaced it.
+        guard router.currentRoute == route else { return }
+
         saveScrollPositionBeforeRouteChange(to: route)
         if animated {
             captureSnapshotBeforeRouteChange(to: route)
@@ -607,7 +612,7 @@ final class HayaseSidebarController: UIViewController {
             beginNavigationProgress()
         }
         loadRoute(route) { [weak self] preloaded in
-            guard let self else { return }
+            guard let self, self.router.currentRoute == route else { return }
             self.commit(route: route, kind: kind, options: options, animated: animated, preloaded: preloaded) { [weak self] in
                 if animated {
                     self?.finishNavigationProgress()

@@ -42,27 +42,24 @@ final class HayaseTabHostController: UIViewController {
         guard viewControllers.indices.contains(index), index != selectedIndex else { return }
         let outgoing = selectedViewController
         let incoming = viewControllers[index]
-        selectedIndex = index
-        guard isViewLoaded else { return }
-
-        guard let outgoing else {
-            embed(incoming)
+        guard isViewLoaded else {
+            selectedIndex = index
             return
         }
 
-        outgoing.willMove(toParent: nil)
-        addChild(incoming)
-        prepareView(incoming.view)
-
-        transition(from: outgoing,
-                   to: incoming,
-                   duration: 0,
-                   options: [.transitionCrossDissolve, .allowAnimatedContent],
-                   animations: nil) { [weak self, weak outgoing, weak incoming] _ in
-            guard let self, let outgoing, let incoming else { return }
+        // HayaseRouteTransition already supplies the interface's full-screen
+        // crossfade. Do not wrap the child swap in UIViewController.transition:
+        // even with a zero duration it creates a UIKit transition transaction,
+        // and first-load collection/table reloads can then trip UIKit's update
+        // consistency assertions (Schedule, Client and Settings/Profile).
+        if let outgoing {
+            outgoing.willMove(toParent: nil)
+            outgoing.viewIfLoaded?.removeFromSuperview()
             outgoing.removeFromParent()
-            incoming.didMove(toParent: self)
         }
+
+        selectedIndex = index
+        embed(incoming)
     }
 
     private func embed(_ child: UIViewController) {
