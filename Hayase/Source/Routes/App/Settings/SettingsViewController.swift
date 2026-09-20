@@ -2,7 +2,7 @@
 //  SettingsViewController.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/settings/+layout.svelte, src/routes/app/settings/+page.svelte, src/lib/components/SettingsNav.svelte
+//  Mirrors: src/routes/app/settings/+layout.svelte, src/routes/app/settings/+page.ts, src/routes/app/settings/+page.svelte, src/lib/components/SettingsNav.svelte
 //
 //
 //  Navigation shell mirrors the responsive SettingsNav structure. The settings
@@ -116,7 +116,9 @@ class SettingsViewController: UIViewController {
     /// Cached snapshot of sections for the currently selected tab.
     /// Stored (not computed) so that UIKit's data-source calls always see
     /// a stable row/section count between reloadData() calls.
-    private lazy var visibleSections: [Section] = allSections.filter { $0.tab == selectedTab }
+    private lazy var visibleSections: [Section] = settingsRoute == .root
+        ? []
+        : allSections.filter { $0.tab == selectedTab }
 
     /// Re-caches `visibleSections` from `selectedTab`.
     /// Call this right before every `reloadData()` / `reloadRows(…)`.
@@ -497,13 +499,6 @@ class SettingsViewController: UIViewController {
         let medium = width >= 768  // Tailwind md = 48rem = 768px
         let wide = width >= 1024   // Tailwind lg = 64rem = 1024px
 
-        if settingsRoute == .root, medium, Router.shared.currentRoute == .settings(.root) {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, Router.shared.currentRoute == .settings(.root) else { return }
-                Router.shared.replace(.settings(.player), hostTabIndex: self.hayaseTabIndex)
-            }
-        }
-
         // SettingsNav.svelte: flex-col md:flex-row lg:flex-col. Compact child routes hide the aside.
         stack.isHidden = !medium && settingsRoute != .root
         stack.axis = (medium && !wide) ? .horizontal : .vertical
@@ -518,18 +513,6 @@ class SettingsViewController: UIViewController {
             button.backgroundColor = medium ? .clear : UIColor.HayaseTheme.muted  // bg-muted md:bg-transparent
         }
 
-        if settingsRoute == .root && !medium {
-            if !visibleSections.isEmpty {
-                visibleSections = []
-                tableView.reloadData()
-            }
-        } else {
-            let next = allSections.filter { $0.tab == selectedTab }
-            if next.count != visibleSections.count {
-                visibleSections = next
-                tableView.reloadData()
-            }
-        }
     }
 
     /// Creates a single tab button matching Hayase SettingsNav.svelte ghost button style.
@@ -555,14 +538,33 @@ class SettingsViewController: UIViewController {
     }
 
     func applyRoute(_ route: Route.SettingsRoute) {
-        loadViewIfNeeded()
         settingsRoute = route
+        let targetTab = settingsTab(for: route)
+
+        guard isViewLoaded else {
+            selectedTab = targetTab
+            return
+        }
+
         if route == .root {
+            selectedTab = targetTab
+            visibleSections = []
             HayaseNavTabButton.select(tag: -1, in: tabButtons, animated: true)
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+            }
             updateResponsiveSettingsNavigation()
             return
         }
-        setSelectedTab(settingsTab(for: route))
+
+        if targetTab == selectedTab {
+            refreshVisibleSections()
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+            }
+        } else {
+            setSelectedTab(targetTab)
+        }
         updateResponsiveSettingsNavigation()
     }
 

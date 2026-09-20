@@ -2,7 +2,7 @@
 //  DownloadsViewController.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/client/+layout.svelte, src/routes/app/client/+page.svelte, src/lib/components/SettingsNav.svelte
+//  Mirrors: src/routes/app/client/+layout.svelte, src/routes/app/client/+page.ts, src/routes/app/client/+page.svelte, src/lib/components/SettingsNav.svelte
 //
 
 import UIKit
@@ -307,14 +307,22 @@ class DownloadsViewController: UIViewController {
         installTabPages()
         setupNotifications()
 
-        autoSelectFirstTorrent()
-        showTab(0)
-        update()
+        if clientRoute == .root {
+            tabContentViews.forEach { $0.isHidden = true }
+            emptyLabel.isHidden = true
+        } else {
+            autoSelectFirstTorrent()
+            showTab(selectedTabIndex)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.navigationBar.prefersLargeTitles = false
+        guard clientRoute != .root else {
+            stopTimer()
+            return
+        }
         autoSelectFirstTorrent()
         startTimer()
     }
@@ -620,13 +628,6 @@ class DownloadsViewController: UIViewController {
         let wide = TorrentClientStyle.isWideClientLayout(width: width)  // Tailwind lg = 64rem = 1024px
         lastWideClientLayout = wide
 
-        if clientRoute == .root, medium, Router.shared.currentRoute == .client(.root) {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, Router.shared.currentRoute == .client(.root) else { return }
-                Router.shared.replace(.client(.overview), hostTabIndex: self.hayaseTabIndex)
-            }
-        }
-
         let compactRoot = !medium && clientRoute == .root
         tabBarContainer.isHidden = !medium && !compactRoot
         containerView.isHidden = compactRoot
@@ -695,19 +696,27 @@ class DownloadsViewController: UIViewController {
     }
 
     func applyRoute(_ route: Route.ClientRoute) {
-        loadViewIfNeeded()
         clientRoute = route
+        if let index = tabIndex(for: route) {
+            selectedTabIndex = index
+        }
+        guard isViewLoaded else { return }
+
         if route == .root {
+            stopTimer()
             HayaseNavTabButton.select(tag: -1, in: tabButtons, animated: true)
+            tabContentViews.forEach { $0.isHidden = true }
+            emptyLabel.isHidden = true
             updateResponsiveClientLayoutIfNeeded()
             return
         }
-        guard let index = tabIndex(for: route) else { return }
-        if index != selectedTabIndex {
-            selectedTabIndex = index
-            HayaseNavTabButton.select(tag: index, in: tabButtons, animated: true)
-            showTab(index)
+
+        autoSelectFirstTorrent()
+        if view.window != nil {
+            startTimer()
         }
+        HayaseNavTabButton.select(tag: selectedTabIndex, in: tabButtons, animated: true)
+        showTab(selectedTabIndex)
         updateResponsiveClientLayoutIfNeeded()
     }
 

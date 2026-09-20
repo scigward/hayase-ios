@@ -127,6 +127,7 @@ final class ScheduleViewController: UIViewController {
     private var displayedMonth = Date()   // first moment of the displayed month
     private var airingEpisodes: [ScheduleAiringEpisode] = []
     private var isFetching = false
+    private var didPrepareInitialCalendar = false
 
     // Cached day grid: array of (date, dayNumber, isCurrentMonth) sorted Mon–Sun
     private var calendarDays: [(date: Date, number: Int, isCurrentMonth: Bool)] = []
@@ -242,6 +243,12 @@ final class ScheduleViewController: UIViewController {
 
         // Start at current month
         displayedMonth = startOfMonth(for: Date())
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !didPrepareInitialCalendar, calendarCV.bounds.width > 0 else { return }
+        didPrepareInitialCalendar = true
         reloadCalendar()
         fetchAiringForMonth(displayedMonth)
     }
@@ -484,8 +491,8 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
 
     func collectionView(_ cv: UICollectionView, layout cvLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let w = cv.bounds.width / 7
-        return CGSize(width: floor(w), height: 96)
+        let width = max(floor(cv.bounds.width / 7), 1)
+        return CGSize(width: width, height: 96)
     }
 
     func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {

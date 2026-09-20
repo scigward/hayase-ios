@@ -604,6 +604,11 @@ final class HayaseSidebarController: UIViewController {
         // selection has already replaced it.
         guard router.currentRoute == route else { return }
 
+        if let redirectedRoute = responsiveIndexRedirect(for: route) {
+            router.replace(redirectedRoute, hostTabIndex: redirectedRoute.tabIndex, noScroll: options.noScroll)
+            return
+        }
+
         saveScrollPositionBeforeRouteChange(to: route)
         if animated {
             captureSnapshotBeforeRouteChange(to: route)
@@ -709,6 +714,12 @@ final class HayaseSidebarController: UIViewController {
             }
 
             let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
+            if route.resetsTabStack,
+               let targetIndex,
+               let navigationController = self.tabHost.viewControllers[safe: targetIndex] as? UINavigationController {
+                navigationController.popToRootViewController(animated: false)
+                self.applyRouteState(route, to: navigationController)
+            }
             if let targetIndex {
                 self.tabHost.select(targetIndex)
             }
@@ -721,11 +732,7 @@ final class HayaseSidebarController: UIViewController {
             case .player:
                 self.showPlayerRoute(animated: uiAnimated)
             default:
-                if route.resetsTabStack,
-                   let nav = self.tabHost.selectedViewController as? UINavigationController {
-                    nav.popToRootViewController(animated: false)
-                    self.applyRouteState(route, to: nav)
-                }
+                break
             }
 
             self.hideHostedNavigationBars()
@@ -930,6 +937,26 @@ final class HayaseSidebarController: UIViewController {
             closeMobileMenu(animated: false)
         }
         updateSidebarBackground()
+
+        if responsiveIndexRedirect(for: router.currentRoute) != nil {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let redirectedRoute = self.responsiveIndexRedirect(for: self.router.currentRoute) else { return }
+                self.router.replace(redirectedRoute, hostTabIndex: redirectedRoute.tabIndex)
+            }
+        }
+    }
+
+    private func responsiveIndexRedirect(for route: Route) -> Route? {
+        guard view.bounds.width >= 768 else { return nil }  // Tailwind md = 48rem = 768px
+        switch route {
+        case .client(.root):
+            return .client(.overview)
+        case .settings(.root):
+            return .settings(.player)
+        default:
+            return nil
+        }
     }
 
     private func updateSidebarBackground() {
