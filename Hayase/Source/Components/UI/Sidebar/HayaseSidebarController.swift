@@ -256,17 +256,18 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
-        var controllers = viewControllers.map { controller -> UIViewController in
-            if let nav = controller as? HayaseInterfaceNavigationController {
-                return nav
-            }
-            if let nav = controller as? UINavigationController {
-                return HayaseInterfaceNavigationController(wrapping: nav)
-            }
-            return controller
-        }
+        // Keep the storyboard-created navigation controllers intact. Moving
+        // their root controllers into replacement navigation controllers here
+        // changes UIKit ownership before the destination views have loaded.
+        // That rewrite is unnecessary for Schedule, Client and Settings/Profile
+        // and makes their storyboard relationship ownership invalid.
+        // HayaseTabHostController already avoids UITabBarController's "More"
+        // behavior, while hideHostedNavigationBars() supplies the interface's
+        // hidden navigation chrome without replacing either controller.
+        var controllers = viewControllers
         guard controllers.count == 6 else { return controllers }
-        let chat = HayaseInterfaceNavigationController(rootViewController: HayaseChatViewController())
+        let chat = UINavigationController(rootViewController: HayaseChatViewController())
+        chat.setNavigationBarHidden(true, animated: false)
         controllers.insert(chat, at: 4)
         return controllers
     }

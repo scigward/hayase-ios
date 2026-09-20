@@ -306,7 +306,11 @@ final class MiniPlayerManager {
         // to the app shell route so the sidebar remains visible.
         publishPlayerSidebarBackdropClear()
         player.isMinimizing = true          // prevent tearDownPlayer on restore too
-        presenter.presentHayasePlayer(player) { [weak self] in
+        // wrapper.svelte keeps the same player mounted and the root layout
+        // explicitly skips a view transition when entering /app/player on
+        // mobile. Reattach in-place without UIKit's cross-dissolve/push so a
+        // mini-player tap has the same immediate expansion semantics.
+        presenter.presentHayasePlayer(player, animated: false) { [weak self] in
             player.isMinimizing = false
             self?.isRestoring = false
         }

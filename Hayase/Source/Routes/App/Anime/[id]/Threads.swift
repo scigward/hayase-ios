@@ -447,8 +447,12 @@ extension AnimeDetailViewController {
         let sidePad = traitCollection.horizontalSizeClass == .regular
             ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
             : CGFloat(16)
+        // +layout.svelte's outer column is gap-4 / md:gap-6. The genres and
+        // tags row is the item immediately before <slot />, so preserve that
+        // exact gap before the embedded thread route begins.
+        let topGap: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
         NSLayoutConstraint.activate([
-            threadVC.view.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+            threadVC.view.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: topGap),
             threadVC.view.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -32),
             threadVC.view.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             threadVC.view.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
