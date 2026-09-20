@@ -26,9 +26,9 @@ final class HayaseAccountCardCell: UITableViewCell {
     static let reuseID = "HayaseAccountCardCell"
 
     // MARK: - Colors
-    private static let headerBg = UIColor(red: 23/255, green: 23/255, blue: 23/255, alpha: 1)   // #171717
-    private static let footerBg = UIColor(red: 10/255, green: 10/255, blue: 10/255, alpha: 1)   // #0a0a0a
-    private static let mutedFg  = UIColor(red: 161/255, green: 161/255, blue: 170/255, alpha: 1) // text-muted-foreground
+    private static let headerBg = UIColor.HayaseTheme.accent
+    private static let footerBg = UIColor.HayaseTheme.muted
+    private static let mutedFg = UIColor.HayaseTheme.mutedForeground
 
     // MARK: - Subviews
 
@@ -70,7 +70,7 @@ final class HayaseAccountCardCell: UITableViewCell {
     private let nameLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 14) // text-sm
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.foreground
         l.numberOfLines = 1
         return l
     }()
@@ -91,8 +91,8 @@ final class HayaseAccountCardCell: UITableViewCell {
         let b = UIButton(type: .system)
         b.setTitle("Login", for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 13, weight: .medium)
-        b.setTitleColor(.white, for: .normal)
-        b.backgroundColor = UIColor(red: 38/255, green: 38/255, blue: 38/255, alpha: 1) // Hayase variant='secondary'
+        b.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
+        b.backgroundColor = UIColor.HayaseTheme.secondary
         b.layer.cornerRadius = 6
         b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         b.translatesAutoresizingMaskIntoConstraints = false
@@ -102,7 +102,7 @@ final class HayaseAccountCardCell: UITableViewCell {
     private let settingsButton: UIButton = {
         let b = UIButton(type: .system)
         b.setImage(UIImage.hayaseIcon("settings"), for: .normal)
-        b.tintColor = .white
+        b.tintColor = UIColor.HayaseTheme.foreground
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true // Only shown for AniList and MAL
         return b
@@ -110,7 +110,8 @@ final class HayaseAccountCardCell: UITableViewCell {
 
     private let syncToggle: UISwitch = {
         let s = UISwitch()
-        s.onTintColor = .systemIndigo
+        s.onTintColor = UIColor.HayaseTheme.primary
+        s.thumbTintColor = UIColor.HayaseTheme.primaryForeground
         s.transform = CGAffineTransform(scaleX: 0.75, y: 0.75) // Smaller to match Hayase
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
@@ -120,7 +121,7 @@ final class HayaseAccountCardCell: UITableViewCell {
         let l = UILabel()
         l.text = "Enable Sync"
         l.font = .nunito(ofSize: 13)
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.foreground
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -154,8 +155,8 @@ final class HayaseAccountCardCell: UITableViewCell {
         // Card container margins (same as existing setting cards)
         NSLayoutConstraint.activate([
             cardContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            cardContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             cardContainer.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
         ])
 
@@ -237,7 +238,7 @@ final class HayaseAccountCardCell: UITableViewCell {
 
             leftStack.trailingAnchor.constraint(lessThanOrEqualTo: rightStack.leadingAnchor, constant: -8),
 
-            footerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60), // Hayase ~68px
+            footerView.heightAnchor.constraint(equalToConstant: 68),
         ])
 
         loginButton.addTarget(self, action: #selector(loginTapped), for: .touchUpInside)
@@ -312,12 +313,12 @@ final class HayaseAccountCardCell: UITableViewCell {
                 }.resume()
             }
             loginButton.setTitle("Logout", for: .normal)
-            loginButton.backgroundColor = UIColor(red: 38/255, green: 38/255, blue: 38/255, alpha: 1)
+            loginButton.backgroundColor = UIColor.HayaseTheme.secondary
         } else {
             nameLabel.text = "Not logged in"
             avatarView.isHidden = true
             loginButton.setTitle("Login", for: .normal)
-            loginButton.backgroundColor = UIColor(red: 38/255, green: 38/255, blue: 38/255, alpha: 1)
+            loginButton.backgroundColor = UIColor.HayaseTheme.secondary
         }
     }
 

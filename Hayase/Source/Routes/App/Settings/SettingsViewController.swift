@@ -2,17 +2,23 @@
 //  SettingsViewController.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/settings/+layout.svelte, src/routes/app/settings/+page.ts, src/routes/app/settings/+page.svelte, src/lib/components/SettingsNav.svelte
+//  Mirrors: src/routes/app/settings/+layout.svelte, src/routes/app/settings/+page.ts,
+//  src/routes/app/settings/+page.svelte, src/lib/components/SettingsNav.svelte,
+//  src/lib/components/SettingCard.svelte
 //
-//
-//  Navigation shell mirrors the responsive SettingsNav structure. The settings
-//  controls themselves predate this navigation audit and are intentionally not
-//  described here as source-identical.
+//  Native visual port of the responsive settings shell and SettingCard pages.
+//  Existing iOS-backed settings behavior is preserved; newly introduced controls
+//  remain visual-only until their native storage/services are wired.
 
 import UIKit
 import SafariServices
 
 // MARK: - SettingsViewController
+
+fileprivate enum SettingsPreviewKind {
+    case subtitleStyle
+    case colorTheme
+}
 
 class SettingsViewController: UIViewController {
 
@@ -54,8 +60,16 @@ class SettingsViewController: UIViewController {
         case link(String)
         case navigate
         case action
+        case appActions
+        case slider(String)
+        case button(String)
+        /// UI-only preview chooser used by the web settings for subtitle styles and themes.
+        case previewGrid(SettingsPreviewKind)
+        /// The web changelog's initial loading presentation. Networking is intentionally deferred.
+        case changelogPlaceholder
         /// Account card — full tracker account card (AniList, Kitsu, MAL, Local).
         case account(TrackerKind)
+        case accountPlaceholder(String)
     }
 
     private struct Row {
@@ -84,16 +98,11 @@ class SettingsViewController: UIViewController {
             selectedImage: UIImage.hayaseIcon("settings"))
     }
 
-    // MARK: - Colors (matching Hayase dark theme)
+    // MARK: - Colors
 
-    /// Page background — Hayase uses bg-black
-    private let bgColor   = UIColor.black
-    /// Card background — Hayase SettingCard: bg-neutral-950 (#0a0a0a)
-    private let cardColor = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
-    /// Muted foreground — Hayase text-muted-foreground ≈ zinc-400
-    private let mutedFg   = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
-    /// Separator color — Hayase <Separator> ≈ zinc-800 (#27272a)
-    private let separatorColor = UIColor(red: 0.153, green: 0.153, blue: 0.165, alpha: 1)
+    private let bgColor = UIColor.HayaseTheme.background
+    private let mutedFg = UIColor.HayaseTheme.mutedForeground
+    private let separatorColor = UIColor.HayaseTheme.border
 
     // MARK: - State
 
@@ -103,14 +112,20 @@ class SettingsViewController: UIViewController {
     private var tabButtonHeightConstraints: [NSLayoutConstraint] = []
     private weak var headerTabStack: UIStackView?
     private var tableView: UITableView!
-    /// Width constraint on the table header container — updated in viewDidLayoutSubviews
-    /// so the header always matches the actual table view width (fixes iPad split-view sizing).
-    private var headerWidthConstraint: NSLayoutConstraint?
-    /// Reentrancy guard: prevents `viewDidLayoutSubviews` from re-setting
-    /// `tableView.tableHeaderView` while a `reloadData()` is in progress.
-    /// Setting the header triggers a layout pass, which re-enters
-    /// `viewDidLayoutSubviews`, and can confuse UIKit's internal state
-    /// tracking — causing "invalid number of rows in section" crashes.
+    private let headingStack = UIStackView()
+    private let pageSeparator = UIView()
+    private let bodyContainer = UIView()
+    private let bodyContent = UIView()
+    private var asideView: UIView!
+    private var asideWidthConstraint: NSLayoutConstraint?
+    private var bodyLayoutConstraints: [NSLayoutConstraint] = []
+    private var horizontalPageConstraints: [NSLayoutConstraint] = []
+    private var headingTopConstraint: NSLayoutConstraint?
+    private var separatorTopConstraint: NSLayoutConstraint?
+    private var bodyTopConstraint: NSLayoutConstraint?
+    private var currentWideLayout: Bool?
+    private var currentShowsInlineAside: Bool?
+    private var currentMediumLayout: Bool?
     private var isUpdatingHeader = false
 
     /// Cached snapshot of sections for the currently selected tab.
@@ -174,16 +189,19 @@ class SettingsViewController: UIViewController {
                 description: "Automatically finds and loads fonts that are missing from a video's subtitles.",
                 kind: .toggle(userDefaultsKey: "pref_missingFont", defaultValue: true)),
             Row(title: "Subtitle Render Resolution Limit",
-                description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled linearly. This will GREATLY improve rendering speeds for complex typesetting for slower devices.",
+                description: "Max resolution to render subtitles at. If your resolution is higher than this setting the subtitles will be upscaled lineary. This will GREATLY improve rendering speeds for complex typesetting for slower devices. It's best to lower this on mobile devices which often have high pixel density where their effective resolution might be ~1440p while having small screens and slow processors.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.subtitleRenderHeight, options: Self.subtitleResolutions, defaultKey: Settings.Defaults.subtitleRenderHeight)),
+            Row(title: "Subtitle Dialogue Style Overrides",
+                description: "Selectively override the default dialogue style for subtitles. This will not change the style of typesetting [Fancy 3D Signs and Songs].\n\nWarning: the heuristic used for deciding when to override the style is rather rough, and enabling this option can lead to incorrectly rendered subtitles.",
+                kind: .previewGrid(.subtitleStyle)),
         ], tab: .player),
 
         Section(header: "Language Settings", rows: [
             Row(title: "Preferred Subtitle Language",
-                description: "Subtitle language to select automatically when a video is loaded. Defaults to English.",
+                description: "What subtitle language to automatically select when a video is loaded if it exists. This won't find torrents with this language automatically. If not found defaults to English.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.subtitleLanguage, options: Self.languageCodes, defaultKey: Settings.Defaults.subtitleLanguage)),
             Row(title: "Preferred Audio Language",
-                description: "Audio language to select automatically when a video is loaded. Defaults to Japanese.",
+                description: "What audio language to automatically select when a video is loaded if it exists. This won't find torrents with this language automatically. If not found defaults to Japanese.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.audioLanguage, options: Self.languageCodes, defaultKey: Settings.Defaults.audioLanguage)),
         ], tab: .player),
 
@@ -198,16 +216,16 @@ class SettingsViewController: UIViewController {
                 description: "Automatically enters Picture in Picture mode when the app loses visibility.",
                 kind: .toggle(userDefaultsKey: "pref_autoPiP", defaultValue: false)),
             Row(title: "Auto-Complete Episodes",
-                description: "Automatically marks episodes as complete when you finish watching them. Requires AniList login.",
+                description: "Automatically marks episodes as complete when you finish watching them. Requires Account login.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.autocomplete, defaultValue: Settings.Defaults.autocomplete)),
             Row(title: "Deband Video",
-                description: "Reduces banding (compression artifacts) on dark and compressed videos. High performance impact. Recommended for seasonal web releases, not recommended for high quality blu-ray videos.",
+                description: "Reduces banding [compression artifacts] on dark and compressed videos. High performance impact. Recommended for seasonal web releases, not recommended for high quality blu-ray videos.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.deband, defaultValue: Settings.Defaults.deband)),
             Row(title: "Seek Duration",
-                description: "Seconds to skip forward or backward when using the seek buttons. Higher values might negatively impact buffering speeds.",
+                description: "Seconds to skip forward or backward when using the seek buttons or keyboard shortcuts. Higher values might negatively impact buffering speeds.",
                 kind: .editableNumber(userDefaultsKey: Settings.Keys.seekDuration, defaultValue: Settings.Defaults.seekDuration, suffix: "sec", min: 1, max: 50)),
             Row(title: "Auto-Skip Intro/Outro",
-                description: "Attempt to automatically skip intro and outro sections. This WILL sometimes skip incorrect chapters, as some of the chapter data is community sourced.",
+                description: "Attempt to automatically skip intro and outro. This WILL sometimes skip incorrect chapters, as some of the chapter data is community sourced.",
                 kind: .toggle(userDefaultsKey: "pref_skipIntro", defaultValue: false)),
             Row(title: "Auto-Skip Filler",
                 description: "Automatically skip filler episodes. This WILL skip ENTIRE episodes.",
@@ -234,15 +252,15 @@ class SettingsViewController: UIViewController {
                 kind: .editableNumber(userDefaultsKey: "pref_doHURL", defaultValue: "https://cloudflare-dns.com/dns-query", suffix: "", min: 0, max: 0)),
         ], tab: .client),
 
-        Section(header: "Client Settings", rows: [
+        Section(header: "Torrent Client Settings", rows: [
             Row(title: "Torrent Download Location",
-                description: "Path to the folder used to store torrents. By default this is the app's cache folder, which might lose data when the OS tries to reclaim storage.",
+                description: "Path to the folder used to store torrents. By default this is the OS's TEMP/TMP cache folder, which might lose data when your OS tries to reclaim storage.",
                 kind: .value("Default")),
             Row(title: "Torrent Backend",
                 description: "Switches between the native libtorrent backend and Hayase's WebTorrent backend.",
                 kind: .selectable(userDefaultsKey: TorrentBackendKind.userDefaultsKey, options: Self.torrentBackends, defaultKey: TorrentBackendKind.defaultKind.rawValue)),
             Row(title: "Persist Files",
-                description: "Keeps torrent files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
+                description: "Keeps torrents files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.persistFiles, defaultValue: Settings.Defaults.persistFiles)),
             Row(title: "Streamed Download",
                 description: "Only downloads the data that's directly needed for playback, down to the minute, instead of downloading an entire batch of episodes. Will not buffer ahead more than a few seconds, and will stop downloading once the few second buffer is filled. Saves bandwidth and reduces strain on the peer swarm.",
@@ -254,7 +272,7 @@ class SettingsViewController: UIViewController {
                 description: "Number of peers per torrent. Higher values will increase download speeds but might quickly fill up available ports if your ISP limits the maximum allowed number of open connections.",
                 kind: .editableNumber(userDefaultsKey: "pref_maxConns", defaultValue: "50", suffix: "", min: 1, max: 512)),
             Row(title: "Forwarded Torrent Port",
-                description: "Forwarded port used for incoming torrent connections. 0 automatically finds an open unused port. Change this to a specific port if you forwarded manually, or if you use a VPN.",
+                description: "Forwarded port used for incoming torrent connections. 0 automatically finds an open unused port. Change this to a specific port if you forwarded manually, or if you use a VPN",
                 kind: .editableNumber(userDefaultsKey: "pref_torrentPort", defaultValue: "0", suffix: "", min: 0, max: 65536)),
             Row(title: "DHT Port",
                 description: "Port used for DHT connections. 0 is automatic.",
@@ -267,15 +285,30 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: "pref_disablePeX", defaultValue: false)),
         ], tab: .client),
 
+        Section(header: "NZB Client Settings", rows: [
+            Row(title: "Provider Domain",
+                description: "The domain of your NZB provider, without the protocol. For example, if your provider is accessed at https://news.example.com, just enter news.example.com here.",
+                kind: .value("news.example.com")),
+            Row(title: "Provider Login",
+                description: "The Login/Username for your NZB provider.",
+                kind: .value("admin")),
+            Row(title: "Provider Password",
+                description: "The Password for your NZB provider. This is stored in plaintext in the settings file, so be aware of that.",
+                kind: .value("••••••••")),
+            Row(title: "Connection Port",
+                description: "The port used to connect to your NZB provider. 119 is the default for NNTP.",
+                kind: .value("119")),
+            Row(title: "Connection Pool Size",
+                description: "The number of simultaneous connections to use for downloading from your NZB provider. Higher values might increase download speeds but can cause issues with some providers if set too high.\n\nThis is shared between extension, so if you have multiple NZB extensions configured they will share the same pool of connections.",
+                kind: .value("5")),
+        ], tab: .client),
+
         // ── Interface tab (Hayase /app/settings/interface/) ──
 
         Section(header: "Display Preferences", rows: [
             Row(title: "Title Language",
                 description: "What language should anime titles be displayed in.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.titleType, options: Self.titleTypes, defaultKey: Settings.Defaults.titleType)),
-        ], tab: .interface_),
-
-        Section(header: "Visibility Settings", rows: [
             Row(title: "Show Hentai",
                 description: "Shows hentai content throughout the app. If disabled all hentai content will be hidden and not shown in search results, but shown if present in your list.\n\nThis is also an AniList account setting, so make sure it is enabled in account settings as well to avoid inconsistencies.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.showHentai, defaultValue: Settings.Defaults.showHentai)),
@@ -284,17 +317,29 @@ class SettingsViewController: UIViewController {
                 kind: .toggle(userDefaultsKey: Settings.Keys.hideSpoilers, defaultValue: Settings.Defaults.hideSpoilers)),
         ], tab: .interface_),
 
+        Section(header: "Appearance", rows: [
+            Row(title: "Color Theme",
+                description: "Select a color theme for the interface.",
+                kind: .previewGrid(.colorTheme)),
+            Row(title: "Navigation Buttons",
+                description: "Show backwards/forwards navigation buttons for when mouse buttons aren't available.",
+                kind: .toggle(userDefaultsKey: "pref_showNavigation", defaultValue: false)),
+            Row(title: "UI Scale",
+                description: "Change the zoom level of the interface.",
+                kind: .slider("1.0")),
+        ], tab: .interface_),
+
         // ── Extensions tab (Hayase /app/settings/extensions/) ──
 
         Section(header: "Lookup Settings", rows: [
             Row(title: "Torrent Quality",
-                description: "What quality to use when trying to find torrents. This doesn't exclude other qualities from being found. Non-1080p resolutions might not be available for all shows, or find way less results.",
+                description: "What quality to use when trying to find torrents. None might rarely find less results than specific qualities. This doesn't exclude other qualities from being found like 4K or weird DVD resolutions. Non-1080p resolutions might not be available for all shows, or find way less results.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.searchQuality, options: Self.videoResolutions, defaultKey: Settings.Defaults.searchQuality)),
             Row(title: "Auto-Select Torrents",
                 description: "Automatically selects torrents based on quality and amount of seeders. Disable this to have more precise control over played torrents.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.searchAutoSelect, defaultValue: Settings.Defaults.searchAutoSelect)),
             Row(title: "Lookup Preference",
-                description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available, Size will focus on the smallest file size, and Availability will pick results with the most peers.",
+                description: "What to prioritize when looking for and sorting results. Quality will focus on the best quality available which often means big file sizes, Size will focus on the smallest file size available, and Availability will pick results with the most peers regardless of size and quality.",
                 kind: .selectable(userDefaultsKey: Settings.Keys.lookupPreference, options: Self.lookupPreferences, defaultKey: Settings.Defaults.lookupPreference)),
         ], tab: .extensions),
 
@@ -316,6 +361,9 @@ class SettingsViewController: UIViewController {
             Row(title: "MyAnimeList",
                 description: "Connect your MyAnimeList account for anime tracking and list sync.",
                 kind: .account(.mal)),
+            Row(title: "Simkl",
+                description: "Connect your Simkl account for anime tracking and list sync.",
+                kind: .accountPlaceholder("Simkl")),
             Row(title: "Local",
                 description: "Local-only tracking. Works offline.",
                 kind: .account(.local)),
@@ -324,22 +372,26 @@ class SettingsViewController: UIViewController {
         // ── App tab (Hayase /app/settings/app/) ──
 
         Section(header: "App Settings", rows: [
-            Row(title: "Import Settings From File",
-                description: "Import a previously exported settings file.",
-                kind: .action),
-            Row(title: "Export Settings To File",
-                description: "Export current settings to a file for backup.",
-                kind: .action),
-            Row(title: "Reset Everything To Default",
-                description: "Resets ALL settings and data to their default values. This cannot be undone.",
-                kind: .action),
+            Row(title: "App Actions", description: "", kind: .appActions),
         ], tab: .app),
 
         Section(header: "Debug Settings", rows: [
+            Row(title: "Logging Levels",
+                description: "Enable logging of specific parts of the app. These logs are saved to %appdata$/Hayase/logs/main.log or ~/config/Hayase/logs/main.log.",
+                kind: .value("None")),
+            Row(title: "Debug page",
+                description: "Go to the debug page to access additional debugging features.",
+                kind: .button("Go to Debug Page")),
             Row(title: "Copy App and Device Info",
                 description: "Copy app and device debug info and capabilities, such as version information and settings to clipboard.",
                 kind: .action),
         ], tab: .app),
+
+        Section(header: "", rows: [
+            Row(title: "Changelog",
+                description: "New updates and improvements to Hayase.",
+                kind: .changelogPlaceholder),
+        ], tab: .changelog),
 
 
     ]
@@ -350,8 +402,7 @@ class SettingsViewController: UIViewController {
         super.viewDidLoad()
         title = "Settings"
         view.backgroundColor = bgColor
-        navigationController?.navigationBar.prefersLargeTitles = true
-        navigationItem.largeTitleDisplayMode = .always
+        navigationController?.setNavigationBarHidden(true, animated: false)
 
         tableView = UITableView(frame: .zero, style: .plain)
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -371,105 +422,277 @@ class SettingsViewController: UIViewController {
                            forCellReuseIdentifier: HayaseSettingValueCell.reuseID)
         tableView.register(HayaseAccountCardCell.self,
                            forCellReuseIdentifier: HayaseAccountCardCell.reuseID)
-        tableView.tableHeaderView = buildHeaderView()
-        view.addSubview(tableView)
+        tableView.register(HayaseAccountPlaceholderCell.self,
+                           forCellReuseIdentifier: HayaseAccountPlaceholderCell.reuseID)
+        tableView.register(HayaseSettingsPreviewGridCell.self,
+                           forCellReuseIdentifier: HayaseSettingsPreviewGridCell.reuseID)
+        tableView.register(HayaseChangelogPlaceholderCell.self,
+                           forCellReuseIdentifier: HayaseChangelogPlaceholderCell.reuseID)
+        tableView.register(HayaseAppActionsCell.self,
+                           forCellReuseIdentifier: HayaseAppActionsCell.reuseID)
+        tableView.register(HayaseSettingSliderCell.self,
+                           forCellReuseIdentifier: HayaseSettingSliderCell.reuseID)
+        tableView.sectionHeaderTopPadding = 0
 
-        NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        setupPageLayout()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateResponsiveSettingsNavigation()
-        // Recalculate table header height after layout, and keep its width pinned to the
-        // actual table view width (important on iPad where the table may be narrower than the
-        // screen, e.g. in split-view multitasking).
-        guard !isUpdatingHeader else { return }
-        guard let header = tableView.tableHeaderView else { return }
-        let tableWidth = tableView.bounds.width
-        guard tableWidth > 0 else { return }
-        headerWidthConstraint?.constant = tableWidth
-        let target = CGSize(width: tableWidth, height: UIView.layoutFittingCompressedSize.height)
-        let size = header.systemLayoutSizeFitting(target,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel)
-        // Was an exact CGFloat equality check. systemLayoutSizeFitting over
-        // nested stack views can return a fractionally different height
-        // across otherwise-identical calls (Auto Layout constraint-solver
-        // rounding), and reassigning tableHeaderView itself triggers another
-        // layout pass — so an exact check could reassign the header
-        // repeatedly across consecutive passes. isUpdatingHeader only
-        // guards a *synchronous* re-entrant call, not a follow-up pass on
-        // the next run-loop cycle, so this could keep re-triggering.
-        // Repeated reassignment breaks touch-tracking continuity for any
-        // button inside the header, since UIKit ties touchesBegan/Ended to
-        // the specific view instance mid-gesture. A 0.5pt tolerance is far
-        // below anything visually meaningful here.
-        if abs(header.frame.size.height - size.height) > 0.5 {
-            isUpdatingHeader = true
-            header.frame.size.height = size.height
-            tableView.tableHeaderView = header
-            isUpdatingHeader = false
-        }
+        sizeInlineAsideIfNeeded()
     }
 
-    // MARK: - Header view
+    // MARK: - Page layout
 
-    /// Builds the native header that contains the settings navigation and version label.
-    private func buildHeaderView() -> UIView {
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
+    private func setupPageLayout() {
+        let pageTitle = UILabel()
+        pageTitle.text = "Settings"
+        pageTitle.font = .nunito(ofSize: 24, weight: .bold)
+        pageTitle.textColor = UIColor.HayaseTheme.foreground
 
-        // Subtitle: "Manage your app settings, preferences and accounts."
         let subtitle = UILabel()
         subtitle.text = "Manage your app settings, preferences and accounts."
-        subtitle.font = .nunito(ofSize: 14)
+        subtitle.font = .nunito(ofSize: 16)
         subtitle.textColor = mutedFg
         subtitle.numberOfLines = 0
 
-        // Separator: Hayase <Separator class='my-3 md:my-6'>
-        let separator = UIView()
-        separator.backgroundColor = separatorColor
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        headingStack.axis = .vertical
+        headingStack.spacing = 2
+        headingStack.addArrangedSubview(pageTitle)
+        headingStack.addArrangedSubview(subtitle)
+        headingStack.translatesAutoresizingMaskIntoConstraints = false
 
-        // SettingsNav.svelte navigation.
-        let tabGrid = buildTabGrid()
+        pageSeparator.backgroundColor = separatorColor
+        pageSeparator.translatesAutoresizingMaskIntoConstraints = false
+        bodyContainer.translatesAutoresizingMaskIntoConstraints = false
+        bodyContent.translatesAutoresizingMaskIntoConstraints = false
+        asideView = buildAsideView()
 
-        // Version info: matches Hayase sidebar footer
-        let versionLabel = UILabel()
-        versionLabel.text = "Hayase v\(appVersion())"
-        versionLabel.font = .nunito(ofSize: 12, weight: .light)
-        versionLabel.textColor = mutedFg
+        view.addSubview(headingStack)
+        view.addSubview(pageSeparator)
+        view.addSubview(bodyContainer)
+        bodyContainer.addSubview(bodyContent)
+        bodyContent.addSubview(tableView)
 
-        // Stack: subtitle → separator → tabGrid → version
-        let stack = UIStackView(arrangedSubviews: [subtitle, separator, tabGrid, versionLabel])
-        stack.axis = .vertical
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
+        let headingWidth = headingStack.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -24)
+        let separatorWidth = pageSeparator.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -24)
+        let bodyWidth = bodyContent.widthAnchor.constraint(equalTo: bodyContainer.widthAnchor, constant: -24)
+        [headingWidth, separatorWidth, bodyWidth].forEach { $0.priority = .defaultHigh }
+        horizontalPageConstraints = [
+            headingStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            headingStack.widthAnchor.constraint(lessThanOrEqualToConstant: 1440),
+            headingStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 12),
+            headingStack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
+            pageSeparator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            pageSeparator.widthAnchor.constraint(lessThanOrEqualToConstant: 1440),
+            pageSeparator.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 12),
+            pageSeparator.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
+            bodyContent.centerXAnchor.constraint(equalTo: bodyContainer.centerXAnchor),
+            bodyContent.widthAnchor.constraint(lessThanOrEqualToConstant: 1440),
+            bodyContent.leadingAnchor.constraint(greaterThanOrEqualTo: bodyContainer.leadingAnchor, constant: 12),
+            bodyContent.trailingAnchor.constraint(lessThanOrEqualTo: bodyContainer.trailingAnchor, constant: -12),
+            headingWidth,
+            separatorWidth,
+            bodyWidth,
+        ]
 
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        let headingTop = headingStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
+        let separatorTop = pageSeparator.topAnchor.constraint(equalTo: headingStack.bottomAnchor, constant: 12)
+        let bodyTop = bodyContainer.topAnchor.constraint(equalTo: pageSeparator.bottomAnchor, constant: 12)
+        headingTopConstraint = headingTop
+        separatorTopConstraint = separatorTop
+        bodyTopConstraint = bodyTop
+        NSLayoutConstraint.activate(horizontalPageConstraints + [
+            headingTop,
+            separatorTop,
+            pageSeparator.heightAnchor.constraint(equalToConstant: 1),
+            bodyTop,
+            bodyContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bodyContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bodyContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bodyContent.topAnchor.constraint(equalTo: bodyContainer.topAnchor),
+            bodyContent.bottomAnchor.constraint(equalTo: bodyContainer.bottomAnchor),
         ])
 
-        // Explicit width constraint so Auto Layout knows how wide to make the container.
-        // viewDidLayoutSubviews keeps this in sync with the actual table view width, which
-        // ensures the header spans the full width even on iPad (with or without split view).
+        updatePagePadding()
+        updateBodyLayout(force: true)
+    }
+
+    private func updatePagePadding() {
+        let medium = view.bounds.width >= 768
+        let padding: CGFloat = medium ? 40 : 12
+        horizontalPageConstraints[2].constant = padding
+        horizontalPageConstraints[3].constant = -padding
+        horizontalPageConstraints[6].constant = padding
+        horizontalPageConstraints[7].constant = -padding
+        horizontalPageConstraints[10].constant = padding
+        horizontalPageConstraints[11].constant = -padding
+        horizontalPageConstraints[12].constant = -2 * padding
+        horizontalPageConstraints[13].constant = -2 * padding
+        horizontalPageConstraints[14].constant = -2 * padding
+
+        headingTopConstraint?.constant = padding
+        separatorTopConstraint?.constant = medium ? 24 : 12
+        bodyTopConstraint?.constant = medium ? 24 : 12
+        tableView.contentInset.bottom = medium ? 0 : 40
+    }
+
+    /// Builds the support card, SettingsNav, and build information from +layout.svelte.
+    private func buildAsideView() -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        let supportCard = makeSupportCard()
+        let tabGrid = buildTabGrid()
+        let versionLabel = UILabel()
+        versionLabel.text = "Interface v\(appVersion())\nNative \(appVersion())\niOS \(UIDevice.current.systemVersion) \(UIDevice.current.model)\nLicense Information"
+        versionLabel.font = .nunito(ofSize: 12, weight: .light)
+        versionLabel.textColor = mutedFg
+        versionLabel.numberOfLines = 0
+
+        let topStack = UIStackView(arrangedSubviews: [supportCard, tabGrid])
+        topStack.axis = .vertical
+        topStack.spacing = 0
+        topStack.setCustomSpacing(16, after: supportCard)
+        topStack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(topStack)
+        container.addSubview(versionLabel)
+
+        NSLayoutConstraint.activate([
+            topStack.topAnchor.constraint(equalTo: container.topAnchor),
+            topStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            topStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            versionLabel.topAnchor.constraint(greaterThanOrEqualTo: topStack.bottomAnchor, constant: 12),
+            versionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            versionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            versionLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20),
+        ])
         let widthConstraint = container.widthAnchor.constraint(equalToConstant: UIScreen.main.bounds.width)
         widthConstraint.isActive = true
-        headerWidthConstraint = widthConstraint
-
-        // Need a non-zero initial frame for the header sizing to work
-        container.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 200)
+        asideWidthConstraint = widthConstraint
         return container
+    }
+
+    private func makeSupportCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = UIColor(red: 232 / 255, green: 121 / 255, blue: 249 / 255, alpha: 1)
+        card.layer.cornerRadius = 4
+        card.clipsToBounds = true
+
+        let artwork = UIImageView(image: HayaseSettingsArtwork.flowers)
+        artwork.contentMode = .scaleAspectFill
+        artwork.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(artwork)
+
+        let title = UILabel()
+        title.text = "Support the Project"
+        title.font = .nunito(ofSize: 16, weight: .bold)
+        title.textColor = UIColor.HayaseTheme.secondary
+
+        let message = UILabel()
+        message.text = "Please consider supporting the development of Hayase by donating!"
+        message.font = .nunito(ofSize: 12)
+        message.textColor = UIColor.HayaseTheme.secondary
+        message.numberOfLines = 0
+
+        let donate = UIButton(type: .system)
+        donate.setTitle("Donate", for: .normal)
+        donate.setImage(UIImage.hayaseIcon("heart"), for: .normal)
+        donate.tintColor = UIColor(red: 250 / 255, green: 104 / 255, blue: 182 / 255, alpha: 1)
+        donate.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
+        donate.backgroundColor = UIColor.HayaseTheme.primary
+        donate.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        donate.layer.cornerRadius = 6
+        donate.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        donate.imageEdgeInsets.right = 8
+        donate.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        donate.addTarget(self, action: #selector(donateTapped), for: .touchUpInside)
+
+        let stack = UIStackView(arrangedSubviews: [title, message, donate])
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+        NSLayoutConstraint.activate([
+            artwork.topAnchor.constraint(equalTo: card.topAnchor),
+            artwork.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            artwork.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            artwork.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+        return card
+    }
+
+    @objc private func donateTapped() {
+        guard let url = URL(string: "https://github.com/sponsors/ThaUnknown/") else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private func updateBodyLayout(force: Bool = false) {
+        guard isViewLoaded, tableView != nil, asideView != nil else { return }
+        let wide = view.bounds.width >= 1024
+        let showsInlineAside = !wide && (settingsRoute == .root || view.bounds.width >= 768)
+        guard force || wide != currentWideLayout || showsInlineAside != currentShowsInlineAside else { return }
+        currentWideLayout = wide
+        currentShowsInlineAside = showsInlineAside
+
+        NSLayoutConstraint.deactivate(bodyLayoutConstraints)
+        bodyLayoutConstraints.removeAll()
+        tableView.tableHeaderView = nil
+        asideView.removeFromSuperview()
+        tableView.removeFromSuperview()
+        bodyContent.addSubview(tableView)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+
+        if wide {
+            asideWidthConstraint?.constant = 240
+            asideView.translatesAutoresizingMaskIntoConstraints = false
+            bodyContent.addSubview(asideView)
+            bodyLayoutConstraints = [
+                asideView.topAnchor.constraint(equalTo: bodyContent.topAnchor),
+                asideView.leadingAnchor.constraint(equalTo: bodyContent.leadingAnchor),
+                asideView.bottomAnchor.constraint(equalTo: bodyContent.bottomAnchor),
+                tableView.topAnchor.constraint(equalTo: bodyContent.topAnchor),
+                tableView.leadingAnchor.constraint(equalTo: asideView.trailingAnchor, constant: 48),
+                tableView.trailingAnchor.constraint(equalTo: bodyContent.trailingAnchor),
+                tableView.bottomAnchor.constraint(equalTo: bodyContent.bottomAnchor),
+            ]
+        } else {
+            bodyLayoutConstraints = [
+                tableView.topAnchor.constraint(equalTo: bodyContent.topAnchor),
+                tableView.leadingAnchor.constraint(equalTo: bodyContent.leadingAnchor),
+                tableView.trailingAnchor.constraint(equalTo: bodyContent.trailingAnchor),
+                tableView.bottomAnchor.constraint(equalTo: bodyContent.bottomAnchor),
+            ]
+            if showsInlineAside {
+                asideView.translatesAutoresizingMaskIntoConstraints = false
+                tableView.tableHeaderView = asideView
+                sizeInlineAsideIfNeeded()
+            }
+        }
+        NSLayoutConstraint.activate(bodyLayoutConstraints)
+    }
+
+    private func sizeInlineAsideIfNeeded() {
+        guard !isUpdatingHeader,
+              tableView.tableHeaderView === asideView,
+              tableView.bounds.width > 0 else { return }
+        let width = tableView.bounds.width
+        asideWidthConstraint?.constant = width
+        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        let height = asideView.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        guard abs(asideView.frame.width - width) > 0.5 || abs(asideView.frame.height - height) > 0.5 else { return }
+        isUpdatingHeader = true
+        asideView.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        tableView.tableHeaderView = asideView
+        isUpdatingHeader = false
     }
 
     /// Builds SettingsNav.svelte's responsive navigation stack.
@@ -499,6 +722,12 @@ class SettingsViewController: UIViewController {
         let medium = width >= 768  // Tailwind md = 48rem = 768px
         let wide = width >= 1024   // Tailwind lg = 64rem = 1024px
 
+        let crossedMediumBreakpoint = currentMediumLayout != nil && currentMediumLayout != medium
+        currentMediumLayout = medium
+
+        updatePagePadding()
+        updateBodyLayout()
+
         // SettingsNav.svelte: flex-col md:flex-row lg:flex-col. Compact child routes hide the aside.
         stack.isHidden = !medium && settingsRoute != .root
         stack.axis = (medium && !wide) ? .horizontal : .vertical
@@ -511,6 +740,12 @@ class SettingsViewController: UIViewController {
                 ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)   // default px-4 py-2
                 : UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32) // lg px-8, h-10
             button.backgroundColor = medium ? .clear : UIColor.HayaseTheme.muted  // bg-muted md:bg-transparent
+        }
+
+        if crossedMediumBreakpoint {
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+            }
         }
 
     }
@@ -558,6 +793,7 @@ class SettingsViewController: UIViewController {
         }
 
         if targetTab == selectedTab {
+            HayaseNavTabButton.select(tag: targetTab.rawValue, in: tabButtons, animated: true)
             refreshVisibleSections()
             UIView.performWithoutAnimation {
                 tableView.reloadData()
@@ -721,9 +957,9 @@ class SettingsViewController: UIViewController {
 
     // MARK: - Action handling
 
-    private func handleAction(row: Row) {
-        switch row.title {
-        case "Reset Everything To Default":
+    private func handleAction(title: String) {
+        switch title {
+        case "Reset Everything To Default", "Reset EVERYTHING To Default":
             let alert = UIAlertController(title: "Reset Everything?",
                                           message: "This will reset ALL settings and data to their default values. This cannot be undone.",
                                           preferredStyle: .alert)
@@ -743,6 +979,19 @@ class SettingsViewController: UIViewController {
             break
         }
     }
+
+    private func controlWidth(for row: Row) -> CGFloat {
+        switch row.title {
+        case "Title Language":
+            return 240
+        case "Preferred Subtitle Language", "Preferred Audio Language":
+            return 144
+        case "DNS Over HTTPS URL", "Provider Domain", "Provider Login", "Provider Password":
+            return 320
+        default:
+            return 128
+        }
+    }
 }
 
 // MARK: - UITableViewDataSource
@@ -758,26 +1007,29 @@ extension SettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         guard section >= 0, section < visibleSections.count else { return nil }
+        guard !visibleSections[section].header.isEmpty else { return nil }
         // Hayase: <div class='font-weight-bold text-xl font-bold'>Section Name</div>
         let container = UIView()
         container.backgroundColor = .clear
         let label = UILabel()
         label.text = visibleSections[section].header
         label.font = .nunito(ofSize: 20, weight: .bold)
-        label.textColor = .white
+        label.textColor = UIColor.HayaseTheme.foreground
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
             label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
         ])
         return container
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        UITableView.automaticDimension
+        guard section >= 0, section < visibleSections.count,
+              !visibleSections[section].header.isEmpty else { return 0.01 }
+        return UITableView.automaticDimension
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -786,12 +1038,13 @@ extension SettingsViewController: UITableViewDataSource {
             return UITableViewCell()
         }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
+        let horizontal = view.bounds.width >= 768
         switch row.kind {
         case .toggle(let key, let def):
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingToggleCell.reuseID, for: indexPath) as? HayaseSettingToggleCell else { return UITableViewCell() }
             cell.configure(title: row.title, description: row.description,
-                           key: key, defaultValue: def)
+                           key: key, defaultValue: def, horizontal: horizontal)
             cell.onToggled = { [weak self] toggledKey in
                 self?.applyTorrentSettingsIfNeeded(forKey: toggledKey)
             }
@@ -800,7 +1053,8 @@ extension SettingsViewController: UITableViewDataSource {
         case .value(let val):
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
-            cell.configure(title: row.title, description: row.description, value: val, isLink: false)
+            cell.configure(title: row.title, description: row.description, value: val,
+                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row))
             cell.backgroundColor = bgColor
             return cell
         case .selectable(let key, let options, let defaultKey):
@@ -808,7 +1062,8 @@ extension SettingsViewController: UITableViewDataSource {
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let storedKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
             let displayValue = options.first(where: { $0.key == storedKey })?.label ?? storedKey
-            cell.configure(title: row.title, description: row.description, value: displayValue, isLink: false)
+            cell.configure(title: row.title, description: row.description, value: displayValue,
+                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row))
             cell.selectionStyle = .default
             cell.backgroundColor = bgColor
             return cell
@@ -817,33 +1072,84 @@ extension SettingsViewController: UITableViewDataSource {
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
             let display = suffix.isEmpty ? stored : "\(stored) \(suffix)"
-            cell.configure(title: row.title, description: row.description, value: display, isLink: false)
+            cell.configure(title: row.title, description: row.description, value: display,
+                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row))
             cell.selectionStyle = .default
             cell.backgroundColor = bgColor
             return cell
         case .link:
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
-            cell.configure(title: row.title, description: row.description, value: nil, isLink: true)
+            cell.configure(title: row.title, description: row.description, value: nil,
+                           isLink: true, horizontal: horizontal)
             cell.backgroundColor = bgColor
             return cell
         case .navigate:
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
-            cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
-            cell.accessoryType = .disclosureIndicator
+            cell.configure(title: row.title, description: row.description, value: "Manage Extensions",
+                           isLink: false, horizontal: horizontal, filledControl: true)
             cell.backgroundColor = bgColor
             return cell
         case .action:
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
-            cell.configure(title: row.title, description: row.description, value: nil, isLink: false)
+            cell.configure(title: row.title, description: row.description, value: nil,
+                           isLink: false, horizontal: horizontal)
+            cell.backgroundColor = bgColor
+            return cell
+        case .appActions:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseAppActionsCell.reuseID,
+                for: indexPath) as? HayaseAppActionsCell else { return UITableViewCell() }
+            cell.configure(horizontal: horizontal)
+            cell.onAction = { [weak self] title in
+                self?.handleAction(title: title)
+            }
+            cell.backgroundColor = bgColor
+            return cell
+        case .slider(let displayValue):
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingSliderCell.reuseID,
+                for: indexPath) as? HayaseSettingSliderCell else { return UITableViewCell() }
+            cell.configure(title: row.title, description: row.description,
+                           displayValue: displayValue, horizontal: horizontal)
+            cell.backgroundColor = bgColor
+            return cell
+        case .button(let label):
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
+            cell.configure(title: row.title, description: row.description, value: label,
+                           isLink: false, horizontal: horizontal, filledControl: true)
+            cell.backgroundColor = bgColor
+            return cell
+        case .previewGrid(let kind):
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseSettingsPreviewGridCell.reuseID,
+                for: indexPath) as? HayaseSettingsPreviewGridCell else { return UITableViewCell() }
+            cell.configure(title: row.title, description: row.description,
+                           kind: kind, twoColumns: view.bounds.width >= 640)
+            cell.backgroundColor = bgColor
+            return cell
+        case .changelogPlaceholder:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseChangelogPlaceholderCell.reuseID,
+                for: indexPath) as? HayaseChangelogPlaceholderCell else { return UITableViewCell() }
+            cell.configure(title: row.title, description: row.description,
+                           wide: view.bounds.width >= 640)
             cell.backgroundColor = bgColor
             return cell
         case .account(let tracker):
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseAccountCardCell.reuseID, for: indexPath) as? HayaseAccountCardCell else { return UITableViewCell() }
             cell.configure(tracker: tracker, parentVC: self)
+            cell.backgroundColor = bgColor
+            return cell
+        case .accountPlaceholder(let service):
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: HayaseAccountPlaceholderCell.reuseID,
+                for: indexPath) as? HayaseAccountPlaceholderCell else { return UITableViewCell() }
+            cell.configure(service: service)
             cell.backgroundColor = bgColor
             return cell
         }
@@ -872,8 +1178,8 @@ extension SettingsViewController: UITableViewDelegate {
         case .editableNumber(let key, let defaultValue, let suffix, let min, let max):
             showEditableAlert(title: row.title, key: key, defaultValue: defaultValue, suffix: suffix, min: min, max: max, indexPath: indexPath)
         case .action:
-            handleAction(row: row)
-        case .account:
+            handleAction(title: row.title)
+        case .account(_), .accountPlaceholder(_), .previewGrid(_), .changelogPlaceholder, .appActions, .slider(_), .button(_):
             break // Account cards handle their own interactions
         default:
             break
@@ -889,6 +1195,9 @@ extension SettingsViewController: UITableViewDelegate {
               indexPath.row >= 0, indexPath.row < visibleSections[indexPath.section].rows.count else { return 80 }
         let row = visibleSections[indexPath.section].rows[indexPath.row]
         if case .account = row.kind { return 140 }
+        if case .accountPlaceholder = row.kind { return 140 }
+        if case .previewGrid = row.kind { return 420 }
+        if case .changelogPlaceholder = row.kind { return 620 }
         return 80
     }
 
@@ -900,205 +1209,821 @@ extension SettingsViewController: UITableViewDelegate {
     }
 }
 
+
 // MARK: - HayaseSettingToggleCell
-// Matches Hayase SettingCard.svelte exactly:
-//   <div class='flex flex-col md:flex-row md:items-center justify-between
-//               bg-neutral-950 rounded-md px-6 py-4 gap-3'>
-//     <Label class='space-1 block leading-[unset] grow'>
-//       <div class='font-bold'>{title}</div>
-//       <div class='text-muted-foreground text-xs whitespace-pre-wrap'>{description}</div>
-//     </Label>
-//     <Switch />
-//   </div>
+//
+// Mirrors SettingCard.svelte: muted card, 24/16 padding, 12pt gap, and
+// vertical compact / horizontal md layout.
 
 final class HayaseSettingToggleCell: UITableViewCell {
     static let reuseID = "HayaseSettingToggleCell"
 
-    /// Card background — bg-neutral-950 (#0a0a0a)
-    static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
-
-    private let cardView: UIView = {
-        let v = UIView()
-        v.backgroundColor = hayaseCardBg
-        v.layer.cornerRadius = 6      // rounded-md = 6px
-        v.layer.masksToBounds = true
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 15, weight: .bold)    // font-bold
-        l.textColor = .white
-        l.numberOfLines = 1
-        return l
-    }()
-    private let descLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12)                   // text-xs = 12px
-        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)  // text-muted-foreground
-        l.numberOfLines = 0
-        return l
-    }()
-    private let toggle: UISwitch = {
-        let s = UISwitch()
-        s.onTintColor = .systemIndigo
-        return s
-    }()
-    private var udKey = ""
-    /// Called after the toggle value is saved to UserDefaults.
+    private let cardView = UIView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let textStack = UIStackView()
+    private let contentStack = UIStackView()
+    private let toggle = UISwitch()
+    private var userDefaultsKey = ""
     var onToggled: ((String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setup()
     }
-    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
 
     private func setup() {
         selectionStyle = .none
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
+        cardView.backgroundColor = UIColor.HayaseTheme.muted
+        cardView.layer.cornerRadius = 6
+        cardView.layer.masksToBounds = true
+        cardView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardView)
 
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
+        titleLabel.font = .nunito(ofSize: 16, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.numberOfLines = 0
+
+        descriptionLabel.font = .nunito(ofSize: 12)
+        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        descriptionLabel.numberOfLines = 0
+
         textStack.axis = .vertical
         textStack.spacing = 4
-        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(descriptionLabel)
 
-        toggle.translatesAutoresizingMaskIntoConstraints = false
+        toggle.onTintColor = UIColor.HayaseTheme.primary
+        toggle.thumbTintColor = UIColor.HayaseTheme.primaryForeground
+        toggle.transform = CGAffineTransform(scaleX: 0.82, y: 0.82)
+        toggle.addTarget(self, action: #selector(toggled), for: .valueChanged)
         toggle.setContentHuggingPriority(.required, for: .horizontal)
         toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
-        toggle.addTarget(self, action: #selector(toggled), for: .valueChanged)
 
-        cardView.addSubview(textStack)
-        cardView.addSubview(toggle)
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 12
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(textStack)
+        contentStack.addArrangedSubview(toggle)
+        cardView.addSubview(contentStack)
 
-        // Card margins: 16px horizontal, 6px vertical (space-y-3 = 12px total)
         NSLayoutConstraint.activate([
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-        ])
-
-        // Hayase: px-6 = 24px, py-4 = 16px, gap-3 = 12px
-        NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
-            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
-            textStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
-            textStack.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -12),
-
-            toggle.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
-            toggle.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            contentStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            contentStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            contentStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
         ])
     }
 
-    func configure(title: String, description: String, key: String, defaultValue: Bool) {
+    func configure(title: String,
+                   description: String,
+                   key: String,
+                   defaultValue: Bool,
+                   horizontal: Bool) {
         titleLabel.text = title
-        descLabel.text  = description
-        udKey = key
+        descriptionLabel.text = description
+        userDefaultsKey = key
         let stored = UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
         toggle.setOn(stored, animated: false)
+        applyLayout(horizontal: horizontal)
+    }
+
+    private func applyLayout(horizontal: Bool) {
+        contentStack.axis = horizontal ? .horizontal : .vertical
+        contentStack.alignment = horizontal ? .center : .leading
     }
 
     @objc private func toggled(_ sender: UISwitch) {
-        Settings.write(sender.isOn, forKey: udKey)
-        onToggled?(udKey)
+        Settings.write(sender.isOn, forKey: userDefaultsKey)
+        onToggled?(userDefaultsKey)
     }
 }
 
 // MARK: - HayaseSettingValueCell
-// Same SettingCard style with a value label or disclosure indicator on the right.
 
 final class HayaseSettingValueCell: UITableViewCell {
     static let reuseID = "HayaseSettingValueCell"
 
-    static let hayaseCardBg = UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)
-
-    private let cardView: UIView = {
-        let v = UIView()
-        v.backgroundColor = hayaseCardBg
-        v.layer.cornerRadius = 6
-        v.layer.masksToBounds = true
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 15, weight: .bold)
-        l.textColor = .white
-        l.numberOfLines = 1
-        return l
-    }()
-    private let descLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12)
-        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
-        l.numberOfLines = 0
-        return l
-    }()
-    private let valueLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 14)
-        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1)
-        l.setContentHuggingPriority(.required, for: .horizontal)
-        l.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return l
-    }()
+    private let cardView = UIView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let textStack = UIStackView()
+    private let contentStack = UIStackView()
+    private let controlView = UIView()
+    private let valueLabel = UILabel()
+    private var controlWidthConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setup()
     }
-    required init?(coder: NSCoder) { super.init(coder: coder); setup() }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
 
     private func setup() {
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
+        cardView.backgroundColor = UIColor.HayaseTheme.muted
+        cardView.layer.cornerRadius = 6
+        cardView.layer.masksToBounds = true
+        cardView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(cardView)
 
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, descLabel])
+        titleLabel.font = .nunito(ofSize: 16, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.numberOfLines = 0
+
+        descriptionLabel.font = .nunito(ofSize: 12)
+        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        descriptionLabel.numberOfLines = 0
+
         textStack.axis = .vertical
         textStack.spacing = 4
-        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(descriptionLabel)
 
+        controlView.backgroundColor = .clear
+        controlView.layer.borderWidth = 1
+        controlView.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        controlView.layer.cornerRadius = 6
+
+        valueLabel.font = .nunito(ofSize: 14)
+        valueLabel.textColor = UIColor.HayaseTheme.foreground
+        valueLabel.numberOfLines = 1
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        controlView.addSubview(valueLabel)
+        NSLayoutConstraint.activate([
+            valueLabel.leadingAnchor.constraint(equalTo: controlView.leadingAnchor, constant: 12),
+            valueLabel.trailingAnchor.constraint(equalTo: controlView.trailingAnchor, constant: -12),
+            valueLabel.centerYAnchor.constraint(equalTo: controlView.centerYAnchor),
+            controlView.heightAnchor.constraint(equalToConstant: 36),
+        ])
+        controlWidthConstraint = controlView.widthAnchor.constraint(equalToConstant: 128)
+        controlWidthConstraint?.priority = .defaultHigh
+        controlWidthConstraint?.isActive = true
+        controlView.setContentHuggingPriority(.required, for: .horizontal)
+        controlView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        cardView.addSubview(textStack)
-        cardView.addSubview(valueLabel)
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 12
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(textStack)
+        contentStack.addArrangedSubview(controlView)
+        cardView.addSubview(contentStack)
 
-        // Card margins: 16px horizontal, 6px vertical
         NSLayoutConstraint.activate([
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-        ])
-
-        NSLayoutConstraint.activate([
-            textStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
-            textStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
-            textStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
-            textStack.trailingAnchor.constraint(lessThanOrEqualTo: valueLabel.leadingAnchor, constant: -12),
-
-            valueLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
-            valueLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            contentStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            contentStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            contentStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
         ])
     }
 
-    func configure(title: String, description: String, value: String?, isLink: Bool) {
+    func configure(title: String,
+                   description: String,
+                   value: String?,
+                   isLink: Bool,
+                   horizontal: Bool,
+                   controlWidth: CGFloat = 128,
+                   filledControl: Bool = false) {
         titleLabel.text = title
-        descLabel.text  = description
+        descriptionLabel.text = description
         valueLabel.text = value
-        valueLabel.isHidden = value == nil
+        controlView.isHidden = value == nil
+        controlWidthConstraint?.constant = controlWidth
+        controlView.backgroundColor = filledControl ? UIColor.HayaseTheme.primary : .clear
+        controlView.layer.borderWidth = filledControl ? 0 : 1
+        valueLabel.textColor = filledControl ? UIColor.HayaseTheme.primaryForeground : UIColor.HayaseTheme.foreground
+        valueLabel.textAlignment = filledControl ? .center : .natural
         accessoryType = isLink ? .disclosureIndicator : .none
-        selectionStyle = isLink ? .default : .none
+        selectionStyle = (isLink || value != nil) ? .default : .none
+        contentStack.axis = horizontal ? .horizontal : .vertical
+        contentStack.alignment = horizontal ? .center : .leading
     }
 }
 
-// Legacy cell types kept as typealiases so any existing code referencing them compiles.
+// MARK: - HayaseAppActionsCell
+
+/// Matches the web app page's one-column / md three-column action-button grid.
+final class HayaseAppActionsCell: UITableViewCell {
+    static let reuseID = "HayaseAppActionsCell"
+
+    private let stack = UIStackView()
+    var onAction: ((String) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        stack.spacing = 12
+        stack.distribution = .fillEqually
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        let importButton = makeButton("Import Settings From File", destructive: false)
+        let exportButton = makeButton("Export Settings To File", destructive: false)
+        let resetButton = makeButton("Reset EVERYTHING To Default", destructive: true)
+        [importButton, exportButton, resetButton].forEach {
+            $0.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
+            stack.addArrangedSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+        ])
+    }
+
+    func configure(horizontal: Bool) {
+        stack.axis = horizontal ? .horizontal : .vertical
+    }
+
+    private func makeButton(_ title: String, destructive: Bool) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setTitleColor(destructive ? UIColor.HayaseTheme.destructiveForeground : UIColor.HayaseTheme.primaryForeground,
+                             for: .normal)
+        button.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.titleLabel?.minimumScaleFactor = 0.75
+        button.backgroundColor = destructive ? UIColor.HayaseTheme.destructive : UIColor.HayaseTheme.primary
+        button.layer.cornerRadius = 6
+        button.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        return button
+    }
+
+    @objc private func actionTapped(_ sender: UIButton) {
+        guard let title = sender.title(for: .normal) else { return }
+        onAction?(title)
+    }
+}
+
+// MARK: - HayaseSettingSliderCell
+
+final class HayaseSettingSliderCell: UITableViewCell {
+    static let reuseID = "HayaseSettingSliderCell"
+
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let valueLabel = UILabel()
+    private let slider = UISlider()
+    private let contentStack = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        let card = UIView()
+        card.backgroundColor = UIColor.HayaseTheme.muted
+        card.layer.cornerRadius = 6
+        card.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(card)
+
+        titleLabel.font = .nunito(ofSize: 16, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.numberOfLines = 0
+        descriptionLabel.font = .nunito(ofSize: 12)
+        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        descriptionLabel.numberOfLines = 0
+        let text = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel])
+        text.axis = .vertical
+        text.spacing = 4
+
+        slider.minimumValue = 0.3
+        slider.maximumValue = 2.5
+        slider.value = 1
+        slider.minimumTrackTintColor = UIColor.HayaseTheme.primary
+        slider.maximumTrackTintColor = UIColor.HayaseTheme.secondary
+        slider.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        slider.isUserInteractionEnabled = false
+        valueLabel.font = .nunito(ofSize: 12)
+        valueLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let control = UIStackView(arrangedSubviews: [slider, valueLabel])
+        control.axis = .horizontal
+        control.alignment = .center
+        control.spacing = 12
+
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 12
+        contentStack.addArrangedSubview(text)
+        contentStack.addArrangedSubview(control)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            contentStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24),
+            contentStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24),
+            contentStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+    }
+
+    func configure(title: String, description: String, displayValue: String, horizontal: Bool) {
+        titleLabel.text = title
+        descriptionLabel.text = description
+        valueLabel.text = displayValue
+        contentStack.axis = horizontal ? .horizontal : .vertical
+        contentStack.alignment = horizontal ? .center : .leading
+    }
+}
+
+// MARK: - HayaseSettingsPreviewGridCell
+
+/// UI-only counterpart of the web ToggleGroup preview grids. Selection wiring is
+/// deliberately deferred, but the complete option set and responsive layout are present.
+final class HayaseSettingsPreviewGridCell: UITableViewCell {
+    static let reuseID = "HayaseSettingsPreviewGridCell"
+
+    private let cardView = UIView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let gridStack = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        cardView.backgroundColor = UIColor.HayaseTheme.muted
+        cardView.layer.cornerRadius = 6
+        cardView.layer.masksToBounds = true
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(cardView)
+
+        titleLabel.font = .nunito(ofSize: 16, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        titleLabel.numberOfLines = 0
+
+        descriptionLabel.font = .nunito(ofSize: 12)
+        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        descriptionLabel.numberOfLines = 0
+
+        gridStack.axis = .vertical
+        gridStack.spacing = 12
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel, gridStack])
+        stack.axis = .vertical
+        stack.spacing = 4
+        stack.setCustomSpacing(12, after: descriptionLabel)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            stack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            stack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
+        ])
+    }
+
+    fileprivate func configure(title: String,
+                               description: String,
+                               kind: SettingsPreviewKind,
+                               twoColumns: Bool) {
+        titleLabel.text = title
+        descriptionLabel.text = description
+        clearGrid()
+
+        let tiles: [UIView]
+        switch kind {
+        case .subtitleStyle:
+            tiles = [
+                makeSubtitleTile(title: "None", sample: "🚫", selected: true),
+                makeSubtitleTile(title: "Gandhi Sans Bold", sample: "Never give up on your dreams!", selected: false),
+                makeSubtitleTile(title: "Noto Sans Bold", sample: "The story continues...", selected: false),
+                makeSubtitleTile(title: "Roboto Bold", sample: "Let's go!", selected: false),
+            ]
+        case .colorTheme:
+            tiles = [
+                makeThemeTile(title: "Blackout", background: UIColor(red: 0.035, green: 0.035, blue: 0.043, alpha: 1), foreground: .white, accent: UIColor(red: 0.82, green: 0.22, blue: 0.49, alpha: 1), selected: true),
+                makeThemeTile(title: "Whiteout", background: UIColor(white: 0.97, alpha: 1), foreground: UIColor(white: 0.08, alpha: 1), accent: UIColor(white: 0.15, alpha: 1), selected: false),
+                makeThemeTile(title: "Catppuccin", background: UIColor(red: 0.12, green: 0.12, blue: 0.18, alpha: 1), foreground: UIColor(red: 0.80, green: 0.84, blue: 0.96, alpha: 1), accent: UIColor(red: 0.80, green: 0.65, blue: 0.97, alpha: 1), selected: false),
+                makeThemeTile(title: "Dracula", background: UIColor(red: 0.16, green: 0.16, blue: 0.21, alpha: 1), foreground: UIColor(red: 0.97, green: 0.97, blue: 0.95, alpha: 1), accent: UIColor(red: 1.0, green: 0.47, blue: 0.78, alpha: 1), selected: false),
+                makeThemeTile(title: "Amber", background: UIColor(red: 0.10, green: 0.08, blue: 0.04, alpha: 1), foreground: UIColor(red: 1.0, green: 0.91, blue: 0.66, alpha: 1), accent: UIColor(red: 0.96, green: 0.62, blue: 0.04, alpha: 1), selected: false),
+                makeThemeTile(title: "Lavender", background: UIColor(red: 0.10, green: 0.08, blue: 0.16, alpha: 1), foreground: UIColor(red: 0.92, green: 0.88, blue: 1, alpha: 1), accent: UIColor(red: 0.60, green: 0.48, blue: 0.94, alpha: 1), selected: false),
+                makeThemeTile(title: "System", background: UIColor.HayaseTheme.background, foreground: UIColor.HayaseTheme.foreground, accent: UIColor.HayaseTheme.primary, selected: false),
+                makeThemeTile(title: "Custom", background: UIColor(red: 0.08, green: 0.11, blue: 0.13, alpha: 1), foreground: UIColor(red: 0.78, green: 0.96, blue: 0.90, alpha: 1), accent: UIColor(red: 0.19, green: 0.78, blue: 0.62, alpha: 1), selected: false),
+            ]
+        }
+
+        let columns = twoColumns ? 2 : 1
+        for start in stride(from: 0, to: tiles.count, by: columns) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.alignment = .fill
+            row.distribution = .fillEqually
+            row.spacing = 12
+            for index in start ..< min(start + columns, tiles.count) {
+                row.addArrangedSubview(tiles[index])
+            }
+            if columns == 2 && row.arrangedSubviews.count == 1 {
+                let spacer = UIView()
+                spacer.isHidden = true
+                row.addArrangedSubview(spacer)
+            }
+            gridStack.addArrangedSubview(row)
+        }
+    }
+
+    private func clearGrid() {
+        for row in gridStack.arrangedSubviews {
+            gridStack.removeArrangedSubview(row)
+            row.removeFromSuperview()
+        }
+    }
+
+    private func makeSubtitleTile(title: String, sample: String, selected: Bool) -> UIView {
+        let tile = previewContainer(selected: selected)
+        tile.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.4)
+
+        let name = previewLabel(title, size: 20, weight: .bold, color: UIColor.HayaseTheme.foreground)
+        let sampleLabel = previewLabel(sample, size: title == "None" ? 36 : 17, weight: .bold, color: .white)
+        sampleLabel.textAlignment = .center
+        sampleLabel.layer.shadowColor = UIColor.black.cgColor
+        sampleLabel.layer.shadowOpacity = 1
+        sampleLabel.layer.shadowRadius = 2
+        sampleLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
+
+        let video = UIView()
+        video.backgroundColor = UIColor(white: 0.08, alpha: 1)
+        video.layer.cornerRadius = 4
+        video.translatesAutoresizingMaskIntoConstraints = false
+        video.addSubview(sampleLabel)
+        sampleLabel.translatesAutoresizingMaskIntoConstraints = false
+        tile.addSubview(name)
+        tile.addSubview(video)
+
+        NSLayoutConstraint.activate([
+            tile.heightAnchor.constraint(equalToConstant: 174),
+            name.topAnchor.constraint(equalTo: tile.topAnchor, constant: 16),
+            name.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 16),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: tile.trailingAnchor, constant: -16),
+            video.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 10),
+            video.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 12),
+            video.trailingAnchor.constraint(equalTo: tile.trailingAnchor, constant: -12),
+            video.bottomAnchor.constraint(equalTo: tile.bottomAnchor, constant: -12),
+            sampleLabel.centerXAnchor.constraint(equalTo: video.centerXAnchor),
+            sampleLabel.centerYAnchor.constraint(equalTo: video.centerYAnchor),
+            sampleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: video.leadingAnchor, constant: 8),
+            sampleLabel.trailingAnchor.constraint(lessThanOrEqualTo: video.trailingAnchor, constant: -8),
+        ])
+        return tile
+    }
+
+    private func makeThemeTile(title: String,
+                               background: UIColor,
+                               foreground: UIColor,
+                               accent: UIColor,
+                               selected: Bool) -> UIView {
+        let tile = previewContainer(selected: selected)
+        tile.backgroundColor = background.withAlphaComponent(0.92)
+
+        let name = previewLabel(title, size: 20, weight: .bold, color: foreground)
+        let sample = previewLabel("The quick brown fox", size: 12, weight: .regular, color: foreground.withAlphaComponent(0.85))
+        let muted = previewLabel("Muted description text", size: 10, weight: .regular, color: foreground.withAlphaComponent(0.55))
+        let primary = miniButton("Primary", background: accent, foreground: background)
+        let secondary = miniButton("Secondary", background: foreground.withAlphaComponent(0.12), foreground: foreground)
+        let ghost = miniButton("Ghost", background: .clear, foreground: foreground)
+        let buttons = UIStackView(arrangedSubviews: [primary, secondary, ghost])
+        buttons.axis = .horizontal
+        buttons.spacing = 6
+        buttons.alignment = .center
+
+        let input = UIView()
+        input.layer.borderWidth = 1
+        input.layer.borderColor = foreground.withAlphaComponent(0.25).cgColor
+        input.layer.cornerRadius = 4
+        let inputLabel = previewLabel("Sample", size: 10, weight: .regular, color: foreground)
+        input.addSubview(inputLabel)
+        inputLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let switchTrack = UIView()
+        switchTrack.backgroundColor = foreground.withAlphaComponent(0.18)
+        switchTrack.layer.cornerRadius = 7
+        switchTrack.translatesAutoresizingMaskIntoConstraints = false
+        let thumb = UIView()
+        thumb.backgroundColor = foreground
+        thumb.layer.cornerRadius = 5
+        thumb.translatesAutoresizingMaskIntoConstraints = false
+        switchTrack.addSubview(thumb)
+
+        let sliderTrack = UIView()
+        sliderTrack.backgroundColor = foreground.withAlphaComponent(0.18)
+        sliderTrack.layer.cornerRadius = 1.5
+        sliderTrack.translatesAutoresizingMaskIntoConstraints = false
+        let sliderFill = UIView()
+        sliderFill.backgroundColor = accent
+        sliderFill.layer.cornerRadius = 1.5
+        sliderFill.translatesAutoresizingMaskIntoConstraints = false
+        sliderTrack.addSubview(sliderFill)
+
+        let body = UIStackView(arrangedSubviews: [sample, muted, buttons, input, switchTrack, sliderTrack])
+        body.axis = .vertical
+        body.alignment = .center
+        body.spacing = 5
+        body.translatesAutoresizingMaskIntoConstraints = false
+        tile.addSubview(name)
+        tile.addSubview(body)
+
+        NSLayoutConstraint.activate([
+            tile.heightAnchor.constraint(equalToConstant: 190),
+            name.topAnchor.constraint(equalTo: tile.topAnchor, constant: 16),
+            name.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 16),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: tile.trailingAnchor, constant: -16),
+            body.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 12),
+            body.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
+            body.leadingAnchor.constraint(greaterThanOrEqualTo: tile.leadingAnchor, constant: 12),
+            body.trailingAnchor.constraint(lessThanOrEqualTo: tile.trailingAnchor, constant: -12),
+            body.bottomAnchor.constraint(lessThanOrEqualTo: tile.bottomAnchor, constant: -12),
+            input.heightAnchor.constraint(equalToConstant: 24),
+            input.widthAnchor.constraint(equalTo: body.widthAnchor),
+            inputLabel.leadingAnchor.constraint(equalTo: input.leadingAnchor, constant: 8),
+            inputLabel.centerYAnchor.constraint(equalTo: input.centerYAnchor),
+            switchTrack.widthAnchor.constraint(equalToConstant: 28),
+            switchTrack.heightAnchor.constraint(equalToConstant: 14),
+            thumb.widthAnchor.constraint(equalToConstant: 10),
+            thumb.heightAnchor.constraint(equalToConstant: 10),
+            thumb.leadingAnchor.constraint(equalTo: switchTrack.leadingAnchor, constant: 2),
+            thumb.centerYAnchor.constraint(equalTo: switchTrack.centerYAnchor),
+            sliderTrack.heightAnchor.constraint(equalToConstant: 3),
+            sliderTrack.widthAnchor.constraint(equalTo: body.widthAnchor),
+            sliderFill.leadingAnchor.constraint(equalTo: sliderTrack.leadingAnchor),
+            sliderFill.topAnchor.constraint(equalTo: sliderTrack.topAnchor),
+            sliderFill.bottomAnchor.constraint(equalTo: sliderTrack.bottomAnchor),
+            sliderFill.widthAnchor.constraint(equalTo: sliderTrack.widthAnchor, multiplier: 0.4),
+        ])
+        return tile
+    }
+
+    private func previewContainer(selected: Bool) -> UIView {
+        let view = UIView()
+        view.layer.cornerRadius = 6
+        view.layer.borderWidth = selected ? 2 : 1
+        view.layer.borderColor = (selected ? UIColor.HayaseTheme.primary : UIColor.HayaseTheme.border).cgColor
+        return view
+    }
+
+    private func previewLabel(_ text: String,
+                              size: CGFloat,
+                              weight: UIFont.Weight,
+                              color: UIColor) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .nunito(ofSize: size, weight: weight)
+        label.textColor = color
+        label.numberOfLines = 1
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }
+
+    private func miniButton(_ title: String, background: UIColor, foreground: UIColor) -> UILabel {
+        let label = previewLabel(title, size: 9, weight: .bold, color: foreground)
+        label.backgroundColor = background
+        label.textAlignment = .center
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+        label.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        return label
+    }
+}
+
+// MARK: - HayaseChangelogPlaceholderCell
+
+final class HayaseChangelogPlaceholderCell: UITableViewCell {
+    static let reuseID = "HayaseChangelogPlaceholderCell"
+
+    private let rootStack = UIStackView()
+    private let intro = UIStackView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let entries = UIStackView()
+    private var entryViews: [HayaseChangelogSkeletonEntry] = []
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        titleLabel.font = .nunito(ofSize: 36, weight: .bold)
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
+        descriptionLabel.font = .nunito(ofSize: 14)
+        descriptionLabel.textColor = UIColor.HayaseTheme.mutedForeground
+
+        intro.axis = .vertical
+        intro.spacing = 12
+        intro.addArrangedSubview(titleLabel)
+        intro.addArrangedSubview(descriptionLabel)
+        intro.isLayoutMarginsRelativeArrangement = true
+        intro.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        intro.heightAnchor.constraint(equalToConstant: 240).isActive = true
+
+        entries.axis = .vertical
+        entries.spacing = 0
+        for _ in 0..<5 {
+            let entry = HayaseChangelogSkeletonEntry()
+            entryViews.append(entry)
+            entries.addArrangedSubview(entry)
+        }
+
+        rootStack.axis = .vertical
+        rootStack.addArrangedSubview(intro)
+        rootStack.addArrangedSubview(entries)
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+    }
+
+    func configure(title: String, description: String, wide: Bool) {
+        titleLabel.text = title
+        descriptionLabel.text = description
+        let left = wide ? max(0, contentView.bounds.width * 0.25) : 16
+        intro.layoutMargins = UIEdgeInsets(top: 0, left: left, bottom: 0, right: 16)
+        intro.alignment = .fill
+        entryViews.forEach { $0.configure(wide: wide) }
+    }
+}
+
+private final class HayaseChangelogSkeletonEntry: UIView {
+    private let dateContainer = UIView()
+    private let dateSkeleton = HayaseChangelogSkeletonEntry.skeleton(width: 112, height: 8)
+    private let body = UIStackView()
+    private let content = UIStackView()
+    private lazy var wideDateWidth = dateContainer.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.25)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        let separator = UIView()
+        separator.backgroundColor = UIColor.HayaseTheme.border
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(separator)
+
+        dateSkeleton.translatesAutoresizingMaskIntoConstraints = false
+        dateContainer.addSubview(dateSkeleton)
+        NSLayoutConstraint.activate([
+            dateContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            dateSkeleton.topAnchor.constraint(equalTo: dateContainer.topAnchor, constant: 8),
+            dateSkeleton.leadingAnchor.constraint(equalTo: dateContainer.leadingAnchor, constant: 16),
+            dateSkeleton.trailingAnchor.constraint(lessThanOrEqualTo: dateContainer.trailingAnchor, constant: -12),
+            dateSkeleton.bottomAnchor.constraint(lessThanOrEqualTo: dateContainer.bottomAnchor),
+        ])
+
+        let heading = Self.skeleton(width: 192, height: 16)
+        let line1 = Self.skeleton(width: 128, height: 8)
+        let line2 = Self.skeleton(width: 112, height: 8)
+        body.addArrangedSubview(heading)
+        body.addArrangedSubview(line1)
+        body.addArrangedSubview(line2)
+        body.axis = .vertical
+        body.alignment = .leading
+        body.spacing = 8
+        body.setCustomSpacing(12, after: heading)
+        content.axis = .horizontal
+        content.alignment = .top
+        content.spacing = 0
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.addArrangedSubview(dateContainer)
+        content.addArrangedSubview(body)
+        addSubview(content)
+
+        NSLayoutConstraint.activate([
+            separator.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            content.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 16),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+        ])
+        configure(wide: true)
+    }
+
+    func configure(wide: Bool) {
+        wideDateWidth.isActive = false
+        for view in content.arrangedSubviews {
+            content.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        content.axis = wide ? .horizontal : .vertical
+        content.spacing = wide ? 0 : 16
+        if wide {
+            content.addArrangedSubview(dateContainer)
+            content.addArrangedSubview(body)
+        } else {
+            content.addArrangedSubview(body)
+            content.addArrangedSubview(dateContainer)
+        }
+        wideDateWidth.isActive = wide
+    }
+
+    private static func skeleton(width: CGFloat, height: CGFloat) -> UIView {
+        let view = UIView()
+        view.backgroundColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.05)
+        view.layer.cornerRadius = min(4, height / 2)
+        view.widthAnchor.constraint(equalToConstant: width).isActive = true
+        view.heightAnchor.constraint(equalToConstant: height).isActive = true
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.45
+        pulse.toValue = 1
+        pulse.duration = 0.9
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        view.layer.add(pulse, forKey: "hayasePulse")
+        return view
+    }
+}
+
+// Legacy names retained for source compatibility.
 typealias SettingsToggleCell = HayaseSettingToggleCell
 typealias SettingsDetailCell = HayaseSettingValueCell
-
