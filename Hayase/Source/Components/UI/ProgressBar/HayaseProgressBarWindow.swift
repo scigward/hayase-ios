@@ -15,7 +15,7 @@ import UIKit
 final class HayaseProgressBarWindow: UIWindow {
     let bar = HayaseProgressBar()
 
-    init(windowScene: UIWindowScene) {
+    override init(windowScene: UIWindowScene) {
         super.init(windowScene: windowScene)
         windowLevel = UIWindow.Level.normal + 1
         backgroundColor = .clear
