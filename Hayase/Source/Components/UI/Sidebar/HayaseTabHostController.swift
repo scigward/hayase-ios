@@ -41,33 +41,41 @@ final class HayaseTabHostController: UIViewController {
     func select(_ index: Int) {
         guard viewControllers.indices.contains(index), index != selectedIndex else { return }
         let outgoing = selectedViewController
+        let incoming = viewControllers[index]
         selectedIndex = index
         guard isViewLoaded else { return }
-        if let outgoing {
-            unembed(outgoing)
-        }
-        if let incoming = selectedViewController {
+
+        guard let outgoing else {
             embed(incoming)
+            return
+        }
+
+        outgoing.willMove(toParent: nil)
+        addChild(incoming)
+        prepareView(incoming.view)
+
+        transition(from: outgoing,
+                   to: incoming,
+                   duration: 0,
+                   options: [.transitionCrossDissolve, .allowAnimatedContent],
+                   animations: nil) { [weak self, weak outgoing, weak incoming] _ in
+            guard let self, let outgoing, let incoming else { return }
+            outgoing.removeFromParent()
+            incoming.didMove(toParent: self)
         }
     }
 
     private func embed(_ child: UIViewController) {
         addChild(child)
-        child.view.translatesAutoresizingMaskIntoConstraints = false
+        prepareView(child.view)
         view.addSubview(child.view)
-        NSLayoutConstraint.activate([
-            child.view.topAnchor.constraint(equalTo: view.topAnchor),
-            child.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            child.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            child.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
         child.didMove(toParent: self)
     }
 
-    private func unembed(_ child: UIViewController) {
-        child.willMove(toParent: nil)
-        child.view.removeFromSuperview()
-        child.removeFromParent()
+    private func prepareView(_ childView: UIView) {
+        childView.translatesAutoresizingMaskIntoConstraints = true
+        childView.frame = view.bounds
+        childView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     }
 }
 
@@ -85,6 +93,12 @@ extension UIViewController {
 
     /// Index of the tab this controller currently lives in, if any.
     var hayaseTabIndex: Int? {
-        hayaseTabHost?.selectedIndex
+        guard let host = hayaseTabHost else { return nil }
+        var root = self
+        while let parent = root.parent, parent !== host {
+            root = parent
+        }
+        guard root.parent === host else { return nil }
+        return host.viewControllers.firstIndex { $0 === root }
     }
 }

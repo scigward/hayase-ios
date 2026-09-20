@@ -2,7 +2,14 @@
 //  ScheduleViewController.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/schedule/+page.svelte
+//  Matches Hayase's src/routes/app/schedule/+page.svelte exactly:
+//  • Title "Airing Calendar" + subtitle text
+//  • 7-column monthly calendar grid (Mon–Sun header)
+//  • Prev / Next month chevron navigation
+//  • Today cell: day number in rgb(61,180,242) circle (same as Hayase)
+//  • Days outside current month: 30% opacity
+//  • AniList airingSchedules data per day (episode count + titles)
+//  • Tap day → modal list of airing episodes for that day
 //
 
 import UIKit
@@ -120,7 +127,6 @@ final class ScheduleViewController: UIViewController {
     private var displayedMonth = Date()   // first moment of the displayed month
     private var airingEpisodes: [ScheduleAiringEpisode] = []
     private var isFetching = false
-    private var didPrepareInitialCalendar = false
 
     // Cached day grid: array of (date, dayNumber, isCurrentMonth) sorted Mon–Sun
     private var calendarDays: [(date: Date, number: Int, isCurrentMonth: Bool)] = []
@@ -236,12 +242,6 @@ final class ScheduleViewController: UIViewController {
 
         // Start at current month
         displayedMonth = startOfMonth(for: Date())
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        guard !didPrepareInitialCalendar, calendarCV.bounds.width > 0 else { return }
-        didPrepareInitialCalendar = true
         reloadCalendar()
         fetchAiringForMonth(displayedMonth)
     }
@@ -484,8 +484,8 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
 
     func collectionView(_ cv: UICollectionView, layout cvLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = max(floor(cv.bounds.width / 7), 1)
-        return CGSize(width: width, height: 96)  // h-24 = 96px
+        let w = cv.bounds.width / 7
+        return CGSize(width: floor(w), height: 96)
     }
 
     func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {

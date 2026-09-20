@@ -30,7 +30,6 @@ final class HayaseRouteTransition {
         snapshot.isUserInteractionEnabled = false  // ::view-transition pointer-events: none
         view.addSubview(snapshot)
         changes()
-        view.layoutIfNeeded()
 
         let animator = UIViewPropertyAnimator(duration: Self.duration,
                                               controlPoint1: Self.controlPoint1,
