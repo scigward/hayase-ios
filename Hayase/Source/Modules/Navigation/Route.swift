@@ -2,8 +2,7 @@
 //  Route.swift
 //  Hayase
 //
-//  Native route model for the app shell. Paths intentionally mirror the
-//  interface routes so native navigation can behave like SvelteKit routing.
+//  Mirrors: src/routes/app/+layout.svelte, src/routes/app/client/+page.ts, src/routes/app/settings/+page.ts, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts
 //
 
 import Foundation
@@ -24,6 +23,7 @@ enum Route: Hashable {
     case player
 
     enum ClientRoute: String, Hashable {
+        case root = ""
         case overview
         case files
         case peers
@@ -32,6 +32,7 @@ enum Route: Hashable {
     }
 
     enum SettingsRoute: String, Hashable {
+        case root = ""
         case player
         case client
         case interface
@@ -89,8 +90,12 @@ enum Route: Hashable {
             return "/app/w2g"
         case .chat:
             return "/app/chat"
+        case .client(.root):
+            return "/app/client"
         case .client(let route):
             return "/app/client/\(route.rawValue)"
+        case .settings(.root):
+            return "/app/settings"
         case .settings(let route):
             return "/app/settings/\(route.rawValue)"
         case .profile:
@@ -125,6 +130,7 @@ enum Route: Hashable {
         }
     }
 
+
     var resetsTabStack: Bool {
         switch self {
         case .home, .search, .schedule, .w2g, .chat, .client, .settings, .profile:
@@ -147,9 +153,9 @@ enum Route: Hashable {
         case 4:
             self = .chat
         case 5:
-            self = .client(.overview)
+            self = .client(.root)
         case 6:
-            self = .settings(.player)
+            self = .settings(.root)
         default:
             return nil
         }
@@ -176,13 +182,13 @@ enum Route: Hashable {
         case "chat":
             self = .chat
         case "client":
-            let route = parts.count > 2 ? ClientRoute(rawValue: parts[2]) : nil
-            self = .client(route ?? .overview)
+            let route = parts.count > 2 ? ClientRoute(rawValue: parts[2]) : .root
+            self = .client(route ?? .root)
         case "settings":
-            let route = parts.count > 2 ? SettingsRoute(rawValue: parts[2]) : nil
-            self = .settings(route ?? .player)
+            let route = parts.count > 2 ? SettingsRoute(rawValue: parts[2]) : .root
+            self = .settings(route ?? .root)
         case "profile":
-            self = .profile
+            self = .settings(.accounts)  // +page.ts redirects 307 to /app/settings/accounts
         case "anime":
             guard parts.count > 2, let animeID = Int(parts[2]) else { return nil }
             if parts.count > 4, parts[3] == "thread", let threadID = Int(parts[4]) {

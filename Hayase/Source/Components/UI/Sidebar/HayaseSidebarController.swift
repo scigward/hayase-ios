@@ -4,7 +4,7 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar) and src/lib/components/ui/sidebar/sidebar.svelte
+//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar), src/lib/components/ui/sidebar/sidebar.svelte, src/routes/app/anime/[id]/+page.svelte (preserved tab state)
 //
 
 import UIKit
@@ -76,7 +76,7 @@ final class HayaseSidebarController: UIViewController {
         configureActions()
         observeBannerBackdrop()
         observeRouteChanges()
-        apply(route: router.currentRoute, kind: .replace, animated: false)
+        apply(route: router.currentRoute, kind: .replace, options: .init(), animated: false)
         updateLayoutForCurrentWidth()
     }
 
@@ -378,8 +378,8 @@ final class HayaseSidebarController: UIViewController {
         mobileLauncherWidthConstraint = mobileLauncher.widthAnchor.constraint(equalToConstant: 64)
         mobileLauncherHeightConstraint = mobileLauncher.heightAnchor.constraint(equalToConstant: 64)
         NSLayoutConstraint.activate([
-            mobileLauncher.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            mobileLauncher.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            mobileLauncher.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),  // left-4 = 16px
+            mobileLauncher.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),  // bottom-4 = 16px
             mobileLauncherWidthConstraint!,
             mobileLauncherHeightConstraint!,
 
@@ -542,9 +542,9 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func observeRouteChanges() {
-        routeObservationID = router.observe { [weak self] route, kind in
+        routeObservationID = router.observe { [weak self] route, kind, options in
             DispatchQueue.main.async {
-                self?.apply(route: route, kind: kind, animated: true)
+                self?.apply(route: route, kind: kind, options: options, animated: true)
             }
         }
         NotificationCenter.default.addObserver(self,
@@ -554,6 +554,14 @@ final class HayaseSidebarController: UIViewController {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(animeNavigationDidFail),
                                                name: NSNotification.Name(Router.AnimeNavigationFailedNotification),
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(animeNavigationWillLoad),
+                                               name: NSNotification.Name(Router.ThreadNavigationWillLoadNotification),
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(animeNavigationDidFail),
+                                               name: NSNotification.Name(Router.ThreadNavigationFailedNotification),
                                                object: nil)
     }
 
@@ -590,44 +598,86 @@ final class HayaseSidebarController: UIViewController {
         router.navigate(appRoute)
     }
 
-    private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
+    private func apply(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool) {
         saveScrollPositionBeforeRouteChange(to: route)
         if animated {
             captureSnapshotBeforeRouteChange(to: route)
         }
-        closeMobileMenu(animated: animated)
         if animated {
             beginNavigationProgress()
         }
-        loadRoute(route) { [weak self] preloadedAnime in
+        loadRoute(route) { [weak self] preloaded in
             guard let self else { return }
-            self.commit(route: route, kind: kind, animated: animated, preloadedAnime: preloadedAnime)
+            self.commit(route: route, kind: kind, options: options, animated: animated, preloaded: preloaded)
             if animated {
                 self.finishNavigationProgress()
             }
         }
     }
 
-    /// The route's `load`: anime pages stay off screen until their media has arrived.
-    private func loadRoute(_ route: Route, completion: @escaping (AnimeItem?) -> Void) {
-        guard let id = animeID(for: route), animeRouteNeedsLoad(id, route: route) else {
-            completion(nil)
-            return
-        }
-        AnimeRouteLoader.load(id: id) { [weak self] result in
-            guard let self, self.isCurrentAnimeRoute(id) else { return }
-            switch result {
-            case .success(let item):
-                self.router.cacheAnimeItem(item)
-                completion(item)
-            case .failure(let error):
-                NSLog("[Sidebar] Anime route preload failed: %@", error.description)
-                self.finishNavigationProgress()
-            }
-        }
+    private struct RouteLoadPayload {
+        var anime: AnimeItem?
+        var thread: AniListThread?
     }
 
-    private func commit(route: Route, kind: Router.NavigationKind, animated: Bool, preloadedAnime: AnimeItem?) {
+    /// Nested SvelteKit layouts load concurrently. Keep the old route visible until all route-level data is ready.
+    private func loadRoute(_ route: Route, completion: @escaping (RouteLoadPayload) -> Void) {
+        var payload = RouteLoadPayload(anime: nil, thread: nil)
+        var pending = 0
+        var failed = false
+
+        func finishOne() {
+            pending -= 1
+            if pending == 0, !failed { completion(payload) }
+        }
+
+        if let id = animeID(for: route), animeRouteNeedsLoad(id, route: route) {
+            pending += 1
+            AnimeRouteLoader.load(id: id) { [weak self] result in
+                guard let self, self.isCurrentAnimeRoute(id), !failed else { return }
+                switch result {
+                case .success(let item):
+                    self.router.cacheAnimeItem(item)
+                    payload.anime = item
+                    finishOne()
+                case .failure(let error):
+                    failed = true
+                    NSLog("[Sidebar] Anime route preload failed: %@", error.description)
+                    self.finishNavigationProgress()
+                }
+            }
+        }
+
+        if case .animeThread(_, let threadID) = route {
+            if router.takeLoadedThreadRoute(threadID), let thread = router.cachedThread(for: threadID) {
+                payload.thread = thread
+            } else {
+                pending += 1
+                AniListForumClient.shared.threadResult(threadID: threadID) { [weak self] result in
+                    guard let self, self.router.currentRoute == route, !failed else { return }
+                    switch result {
+                    case .success(let thread):
+                        guard let thread else {
+                            failed = true
+                            self.finishNavigationProgress()
+                            return
+                        }
+                        self.router.cacheThread(thread)
+                        payload.thread = thread
+                        finishOne()
+                    case .failure(let error):
+                        failed = true
+                        NSLog("[Sidebar] Thread route preload failed: %@", error.description)
+                        self.finishNavigationProgress()
+                    }
+                }
+            }
+        }
+
+        if pending == 0 { completion(payload) }
+    }
+
+    private func commit(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool, preloaded: RouteLoadPayload) {
         let usesTransition = usesViewTransition(for: route, kind: kind, animated: animated)
         // the swipe stage already showed the move
         let uiAnimated = animated && historySwipe == nil
@@ -643,9 +693,9 @@ final class HayaseSidebarController: UIViewController {
 
             switch route {
             case .anime(let id):
-                self.showAnimeRoute(id: id, threadID: nil, kind: kind, preloaded: preloadedAnime, animated: navigationAnimated)
+                self.showAnimeRoute(id: id, threadID: nil, kind: kind, preloaded: preloaded.anime, preloadedThread: nil, animated: navigationAnimated)
             case .animeThread(let animeID, let threadID):
-                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, preloaded: preloadedAnime, animated: navigationAnimated)
+                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, preloaded: preloaded.anime, preloadedThread: preloaded.thread, animated: navigationAnimated)
             case .player:
                 self.showPlayerRoute(animated: uiAnimated)
             default:
@@ -659,7 +709,8 @@ final class HayaseSidebarController: UIViewController {
             self.hideHostedNavigationBars()
             self.updateSidebarBackground()
             self.lastAppliedRoute = route
-            self.restoreScrollPositionIfNeeded(for: route)
+            self.restoreScrollPositionIfNeeded(for: route, kind: kind, noScroll: options.noScroll)
+            self.closeMobileMenu(animated: uiAnimated)
         }
 
         if usesTransition {
@@ -670,8 +721,9 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func usesViewTransition(for route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
-        // iOS runs its own back/forward animation, and the player route skips it on mobile
-        guard animated, kind == .push, route != .player else { return false }
+        // iOS runs its own back/forward animation, and the player route skips it on mobile.
+        // SvelteKit still runs onNavigate for goto(..., { replaceState: true }).
+        guard animated, (kind == .push || kind == .replace), route != .player else { return false }
         // fullscreenElement: the player is forced fullscreen on phones
         let isPlayerFullscreen = UIDevice.current.userInterfaceIdiom == .phone
             && topVisibleHostedController() is VideoPlayerViewController
@@ -684,8 +736,14 @@ final class HayaseSidebarController: UIViewController {
         routeScrollPositions[previousRoute] = offset
     }
 
-    private func restoreScrollPositionIfNeeded(for route: Route) {
-        RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
+    private func restoreScrollPositionIfNeeded(for route: Route, kind: Router.NavigationKind, noScroll: Bool) {
+        switch kind {
+        case .back, .forward:
+            RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
+        case .push, .replace, .sync:
+            guard !noScroll else { return }
+            RouteScrollRestoration.scrollToTop(in: topVisibleHostedController())
+        }
     }
 
     private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
@@ -707,8 +765,11 @@ final class HayaseSidebarController: UIViewController {
                                 threadID: Int?,
                                 kind: Router.NavigationKind,
                                 preloaded: AnimeItem?,
+                                preloadedThread: AniListThread?,
                                 animated: Bool) {
         guard let nav = tabHost.selectedViewController as? UINavigationController else { return }
+
+        if let preloadedThread { router.cacheThread(preloadedThread) }
 
         if let detail = nav.topViewController as? AnimeDetailViewController,
            detail.routeAnimeID == id {
@@ -718,6 +779,11 @@ final class HayaseSidebarController: UIViewController {
 
         if let detail = nav.viewControllers.compactMap({ $0 as? AnimeDetailViewController }).last,
            detail.routeAnimeID == id {
+            if threadID == nil,
+               let sourceDetail = nav.topViewController as? AnimeDetailViewController,
+               sourceDetail !== detail {
+                detail.inheritPageTabState(from: sourceDetail)
+            }
             nav.popToViewController(detail, animated: false)
             detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
             return
@@ -767,9 +833,12 @@ final class HayaseSidebarController: UIViewController {
         let storyboard = UIStoryboard(name: "Main", bundle: nil)
         guard let detail = storyboard.instantiateViewController(withIdentifier: "AnimeDetailVC") as? AnimeDetailViewController else { return }
         detail.animeItem = item
+        if threadID == nil, let sourceDetail = navigationController.topViewController as? AnimeDetailViewController {
+            detail.inheritPageTabState(from: sourceDetail)
+        }
         navigationController.pushViewController(detail, animated: animated)
         detail.applyEmbeddedThreadRoute(threadID: threadID, title: nil)
-        restoreScrollPositionIfNeeded(for: router.currentRoute)
+        restoreScrollPositionIfNeeded(for: router.currentRoute, kind: .push, noScroll: false)
     }
 
     private func showPlayerRoute(animated: Bool) {
@@ -811,10 +880,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func updateLayoutForCurrentWidth() {
-        let isPhoneLandscape = traitCollection.userInterfaceIdiom == .phone
-            && view.bounds.width > view.bounds.height
-            && view.bounds.width >= 568
-        let isDesktop = view.bounds.width >= 768 || traitCollection.horizontalSizeClass == .regular || isPhoneLandscape
+        let isDesktop = view.bounds.width >= 768  // Tailwind md = 48rem = 768px
         guard isDesktopMode != isDesktop else { return }
         isDesktopMode = isDesktop
         sidebarList.superview?.isHidden = !isDesktop
@@ -870,9 +936,11 @@ final class HayaseSidebarController: UIViewController {
         mobileLauncherHeightConstraint?.constant = isMobileMenuOpen ? 176 : 64
         let icon = isMobileMenuOpen ? "x" : "menu"
         mobileToggleButton.setImage(UIImage.hayaseIcon(icon), for: .normal)
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) {
+        UIViewPropertyAnimator(duration: 0.15,
+                               controlPoint1: CGPoint(x: 0.4, y: 0),
+                               controlPoint2: CGPoint(x: 0.2, y: 1)) {  // Tailwind transition: 150ms ease
             self.view.layoutIfNeeded()
-        }
+        }.startAnimation()
     }
 
     private func closeMobileMenu(animated: Bool = true) {
@@ -883,7 +951,10 @@ final class HayaseSidebarController: UIViewController {
         mobileToggleButton.setImage(UIImage.hayaseIcon("menu"), for: .normal)
         let changes = { self.view.layoutIfNeeded() }
         if animated {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut], animations: changes)
+            UIViewPropertyAnimator(duration: 0.15,
+                                   controlPoint1: CGPoint(x: 0.4, y: 0),
+                                   controlPoint2: CGPoint(x: 0.2, y: 1),
+                                   animations: changes).startAnimation()  // Tailwind transition: 150ms ease
         } else {
             changes()
         }

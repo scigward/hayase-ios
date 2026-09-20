@@ -2,7 +2,7 @@
 //  RouteScrollRestoration.swift
 //  Hayase
 //
-//  Browser-style scroll restoration for route navigation.
+//  Mirrors: src/app.html (data-sveltekit-noscroll/keepfocus defaults) and SvelteKit scroll restoration
 //
 
 import UIKit
@@ -15,6 +15,12 @@ enum RouteScrollRestoration {
               scrollView.bounds.width > 0,
               scrollView.bounds.height > 0 else { return nil }
         return scrollView.contentOffset
+    }
+
+    static func scrollToTop(in viewController: UIViewController?) {
+        guard let scrollView = scrollView(in: viewController) else { return }
+        let inset = scrollView.adjustedContentInset
+        apply(CGPoint(x: -inset.left, y: -inset.top), to: scrollView)
     }
 
     static func restore(_ offset: CGPoint?, in viewController: UIViewController?) {

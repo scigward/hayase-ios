@@ -4,20 +4,15 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: player.svelte route behavior. iPhone enters fullscreen; iPad stays
-//  inside the app shell until the user explicitly toggles fullscreen.
+//  Mirrors: src/lib/components/ui/player/player.svelte (onNavigate/onMount fullscreen branch)
 //
 
 import UIKit
 
 extension UIViewController {
     var hayaseShouldEmbedPlayerInShell: Bool {
-        let traits = view.window?.traitCollection ?? traitCollection
-        let bounds = view.window?.bounds ?? view.bounds
-        let isPhoneLandscape = traits.userInterfaceIdiom == .phone
-            && bounds.width > bounds.height
-            && bounds.width >= 568
-        return bounds.width >= 768 || traits.horizontalSizeClass == .regular || isPhoneLandscape
+        // player.svelte: SUPPORTS.isMobile && !SUPPORTS.isIPad forces fullscreen.
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 
     func presentHayasePlayer(_ player: VideoPlayerViewController,

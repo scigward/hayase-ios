@@ -109,11 +109,16 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
     func navigationController(_ navigationController: UINavigationController,
                               didShow viewController: UIViewController,
                               animated: Bool) {
+        // An interactive pop can be cancelled after popViewController() was asked for.
+        // Keep only controllers that are genuinely no longer on the stack.
+        forwardViewControllers.removeAll { candidate in
+            navigationController.viewControllers.contains { $0 === candidate }
+        }
         applyInterfaceNavigationChrome()
     }
 
     private func installHistorySwipeGestures() {
-        interactivePopGestureRecognizer?.isEnabled = false
+        interactivePopGestureRecognizer?.isEnabled = true
 
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleHistoryPan(_:)))
         panGesture.maximumNumberOfTouches = 1
@@ -136,8 +141,7 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
 
         switch activeHistorySwipeDirection {
         case .back:
-            guard translation.x > 60 || velocity.x > 400 else { return }
-            _ = popViewController(animated: true)
+            break  // UINavigationController owns the interactive leading-edge pop.
         case .forward:
             guard translation.x < -60 || velocity.x < -400,
                   let viewController = forwardViewControllers.popLast() else { return }
@@ -156,15 +160,10 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
         let start = panGesture.location(in: view)
         let velocity = panGesture.velocity(in: view)
         let edgeWidth: CGFloat = 32
-        let isNearBackEdge = start.x <= edgeWidth
         let isNearForwardEdge = start.x >= view.bounds.width - edgeWidth
-        guard isNearBackEdge || isNearForwardEdge else { return false }
+        guard isNearForwardEdge else { return false }
         if abs(velocity.y) > abs(velocity.x) * 1.6 { return false }
 
-        if isNearBackEdge, viewControllers.count > 1 {
-            activeHistorySwipeDirection = .back
-            return true
-        }
         if isNearForwardEdge, !forwardViewControllers.isEmpty {
             activeHistorySwipeDirection = .forward
             return true
@@ -200,5 +199,6 @@ final class HayaseInterfaceNavigationController: UINavigationController, UINavig
         navigationBar.standardAppearance.configureWithTransparentBackground()
         navigationBar.scrollEdgeAppearance = navigationBar.standardAppearance
         additionalSafeAreaInsets.top = 0
+        interactivePopGestureRecognizer?.isEnabled = !isCurrentStackRouteOwned && viewControllers.count > 1
     }
 }

@@ -50,9 +50,12 @@ final class HayaseSidebarButton: UIButton {
 
     override var isHighlighted: Bool {
         didSet {
-            UIView.animate(withDuration: 0.12) {
-                self.alpha = self.isHighlighted ? 0.72 : 1
-                self.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.92, y: 0.92) : .identity
+            UIView.animate(withDuration: 0.1,
+                           delay: 0,
+                           options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]) {
+                self.transform = self.isHighlighted
+                    ? CGAffineTransform(scaleX: 0.98, y: 0.98)  // app.css :active scale(.98)
+                    : .identity
             }
         }
     }

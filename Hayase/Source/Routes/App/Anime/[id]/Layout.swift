@@ -2,6 +2,8 @@
 //  Layout.swift
 //  Hayase
 //
+//  Mirrors: src/routes/app/anime/[id]/+page.svelte (Tabs.Root bound value state)
+//
 
 import UIKit
 import SafariServices
@@ -2607,6 +2609,14 @@ class AnimeDetailViewController: UIViewController {
     }
 
     // MARK: - Tab bar
+
+    func inheritPageTabState(from source: AnimeDetailViewController) {
+        // The nested thread route renders a different +page.svelte, so it does not retain this tab state.
+        guard source.embeddedThreadID == nil else { return }
+        activeSection = source.activeSection
+        relationGraphExpanded = source.relationGraphExpanded
+        tabBar.selectedIndex = source.tabBar.selectedIndex
+    }
 
     func tabChanged(to index: Int) {
         let sectionMap: [Int: Section] = [

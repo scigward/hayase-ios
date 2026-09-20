@@ -2,8 +2,7 @@
 //  Router.swift
 //  Hayase
 //
-//  Small native router that uses route paths as the source of truth, mirroring
-//  the interface's goto/replaceState/back/forward navigation model.
+//  Mirrors: src/routes/+layout.svelte, src/routes/app/anime/[id]/+layout.ts, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts
 //
 
 import Foundation
@@ -14,6 +13,8 @@ final class Router {
     static let shared = Router(initialRoute: .home)
     static let AnimeNavigationFailedNotification = "AnimeNavigationFailedNotification"
     static let AnimeNavigationWillLoadNotification = "AnimeNavigationWillLoadNotification"
+    static let ThreadNavigationFailedNotification = "ThreadNavigationFailedNotification"
+    static let ThreadNavigationWillLoadNotification = "ThreadNavigationWillLoadNotification"
 
     enum NavigationKind {
         case push
@@ -23,7 +24,11 @@ final class Router {
         case sync
     }
 
-    typealias Observer = (_ route: Route, _ kind: NavigationKind) -> Void
+    struct NavigationOptions {
+        var noScroll = false
+    }
+
+    typealias Observer = (_ route: Route, _ kind: NavigationKind, _ options: NavigationOptions) -> Void
 
     private let history: History
     private var observers: [UUID: Observer] = [:]
@@ -31,7 +36,10 @@ final class Router {
     private var routeReadyAnimePayloadIDs: Set<Int> = []
     private var loadedAnimeRouteIDs: Set<Int> = []
     private var pendingAnimeNavigationID: UUID?
+    private var pendingThreadNavigationID: UUID?
     private var threadTitles: [Int: String] = [:]
+    private var threadPayloads: [Int: AniListThread] = [:]
+    private var loadedThreadRouteIDs: Set<Int> = []
     private var playerPayload: VideoPlayerViewController?
 
     private init(initialRoute: Route) {
@@ -59,38 +67,41 @@ final class Router {
         notify(route, kind: .replace)
     }
 
-    func navigate(_ route: Route, hostTabIndex: Int? = nil) {
+    func navigate(_ route: Route, hostTabIndex: Int? = nil, noScroll: Bool = false) {
         pendingAnimeNavigationID = nil
+        pendingThreadNavigationID = nil
         if route == currentRoute {
-            notify(route, kind: .replace)
+            notify(route, kind: .replace, options: NavigationOptions(noScroll: noScroll))
             return
         }
         history.push(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
-        notify(route, kind: .push)
+        notify(route, kind: .push, options: NavigationOptions(noScroll: noScroll))
     }
 
-    func replace(_ route: Route, hostTabIndex: Int? = nil) {
+    func replace(_ route: Route, hostTabIndex: Int? = nil, noScroll: Bool = false) {
         pendingAnimeNavigationID = nil
+        pendingThreadNavigationID = nil
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
-        notify(route, kind: .replace)
+        notify(route, kind: .replace, options: NavigationOptions(noScroll: noScroll))
     }
 
     @discardableResult
-    func navigate(path: String, hostTabIndex: Int? = nil) -> Bool {
+    func navigate(path: String, hostTabIndex: Int? = nil, noScroll: Bool = false) -> Bool {
         guard let route = Route(path: path) else { return false }
-        navigate(route, hostTabIndex: hostTabIndex)
+        navigate(route, hostTabIndex: hostTabIndex, noScroll: noScroll)
         return true
     }
 
     @discardableResult
-    func replace(path: String, hostTabIndex: Int? = nil) -> Bool {
+    func replace(path: String, hostTabIndex: Int? = nil, noScroll: Bool = false) -> Bool {
         guard let route = Route(path: path) else { return false }
-        replace(route, hostTabIndex: hostTabIndex)
+        replace(route, hostTabIndex: hostTabIndex, noScroll: noScroll)
         return true
     }
 
     func sync(_ route: Route, hostTabIndex: Int? = nil) {
         pendingAnimeNavigationID = nil
+        pendingThreadNavigationID = nil
         guard route != currentRoute else { return }
         history.replace(route, hostTabIndex: resolvedHostTabIndex(for: route, explicit: hostTabIndex))
         notify(route, kind: .sync)
@@ -185,11 +196,49 @@ final class Router {
 
     func navigateToAnimeThread(animeID: Int, threadID: Int, title: String?, hostTabIndex: Int? = nil) {
         if let title { threadTitles[threadID] = title }
-        navigate(.animeThread(animeID: animeID, threadID: threadID), hostTabIndex: hostTabIndex)
+
+        let requestID = UUID()
+        let sourceRoute = currentRoute
+        pendingThreadNavigationID = requestID
+        NotificationCenter.default.post(name: NSNotification.Name(Router.ThreadNavigationWillLoadNotification), object: nil)
+        AniListForumClient.shared.threadResult(threadID: threadID) { [weak self] result in
+            guard let self,
+                  self.pendingThreadNavigationID == requestID,
+                  self.currentRoute == sourceRoute else { return }
+            switch result {
+            case .success(let thread):
+                guard let thread else {
+                    self.pendingThreadNavigationID = nil
+                    NotificationCenter.default.post(name: NSNotification.Name(Router.ThreadNavigationFailedNotification),
+                                                    object: AniListRequestError.emptyData as NSError)
+                    return
+                }
+                self.pendingThreadNavigationID = nil
+                self.threadPayloads[threadID] = thread
+                self.loadedThreadRouteIDs.insert(threadID)
+                self.navigate(.animeThread(animeID: animeID, threadID: threadID), hostTabIndex: hostTabIndex)
+            case .failure(let error):
+                self.pendingThreadNavigationID = nil
+                NotificationCenter.default.post(name: NSNotification.Name(Router.ThreadNavigationFailedNotification),
+                                                object: error as NSError)
+            }
+        }
+    }
+
+    func cacheThread(_ thread: AniListThread) {
+        threadPayloads[thread.id] = thread
+    }
+
+    func cachedThread(for id: Int) -> AniListThread? {
+        threadPayloads[id]
+    }
+
+    func takeLoadedThreadRoute(_ id: Int) -> Bool {
+        loadedThreadRouteIDs.remove(id) != nil
     }
 
     func cachedThreadTitle(for id: Int) -> String? {
-        threadTitles[id]
+        threadTitles[id] ?? threadPayloads[id]?.title
     }
 
     func navigateToPlayer(_ player: VideoPlayerViewController, hostTabIndex: Int? = nil) {
@@ -209,6 +258,7 @@ final class Router {
     @discardableResult
     func back() -> Bool {
         pendingAnimeNavigationID = nil
+        pendingThreadNavigationID = nil
         guard let entry = history.back() else { return false }
         notify(entry.route, kind: .back)
         return true
@@ -217,6 +267,7 @@ final class Router {
     @discardableResult
     func forward() -> Bool {
         pendingAnimeNavigationID = nil
+        pendingThreadNavigationID = nil
         guard let entry = history.forward() else { return false }
         notify(entry.route, kind: .forward)
         return true
@@ -239,7 +290,7 @@ final class Router {
         route.tabIndex ?? explicit ?? currentHostTabIndex ?? currentRoute.tabIndex
     }
 
-    private func notify(_ route: Route, kind: NavigationKind) {
-        observers.values.forEach { $0(route, kind) }
+    private func notify(_ route: Route, kind: NavigationKind, options: NavigationOptions = NavigationOptions()) {
+        observers.values.forEach { $0(route, kind, options) }
     }
 }

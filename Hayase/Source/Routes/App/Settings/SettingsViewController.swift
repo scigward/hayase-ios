@@ -2,29 +2,12 @@
 //  SettingsViewController.swift
 //  Hayase
 //
-//  Identical port of Hayase's settings layout from:
-//    https://github.com/scigward/interface/tree/master/src/routes/app/settings
+//  Mirrors: src/routes/app/settings/+layout.svelte, src/routes/app/settings/+page.svelte, src/lib/components/SettingsNav.svelte
 //
-//  Design matches Hayase exactly:
-//  • SettingCard: bg-neutral-950 (#0a0a0a) rounded-md, NO border, px-6 py-4
-//  • Section headers: font-weight-bold text-xl font-bold (white)
-//  • Page background: black
-//  • Tab nav: 2-column grid matching SettingsNav.svelte mobile layout
-//    (active=white bg + black text, inactive=transparent + white text)
-//  • Subtitle: text-muted-foreground below title, then Separator
-//  • space-y-3 (12px) gap between cards
 //
-//  Tabs mirror Hayase's +layout.svelte sidebar items:
-//    Player, Client, Interface, Extensions, Accounts, App
-//
-//  Ported from Hayase settings pages:
-//    /app/settings/         (Player: subtitle, language, playback, interface)
-//    /app/settings/client/  (Security, Client settings)
-//    /app/settings/interface/ (Visibility settings)
-//    /app/settings/extensions/ (Lookup, Extensions)
-//    /app/settings/accounts/  (Account settings)
-//    /app/settings/app/       (App settings, Debug, About)
-//
+//  Navigation shell mirrors the responsive SettingsNav structure. The settings
+//  controls themselves predate this navigation audit and are intentionally not
+//  described here as source-identical.
 
 import UIKit
 import SafariServices
@@ -33,7 +16,7 @@ import SafariServices
 
 class SettingsViewController: UIViewController {
 
-    // MARK: - Tab model (matches Hayase +layout.svelte sidebar items)
+    // MARK: - Tab model
 
     private enum SettingsTab: Int, CaseIterable {
         case player = 0
@@ -42,6 +25,7 @@ class SettingsViewController: UIViewController {
         case extensions
         case accounts
         case app
+        case changelog
 
         var title: String {
             switch self {
@@ -51,6 +35,7 @@ class SettingsViewController: UIViewController {
             case .extensions: return "Extensions"
             case .accounts:   return "Accounts"
             case .app:        return "App"
+            case .changelog:  return "Changelog"
             }
         }
     }
@@ -113,7 +98,10 @@ class SettingsViewController: UIViewController {
     // MARK: - State
 
     private var selectedTab: SettingsTab = .player
+    private var settingsRoute: Route.SettingsRoute = .root
     private var tabButtons: [HayaseNavTabButton] = []
+    private var tabButtonHeightConstraints: [NSLayoutConstraint] = []
+    private weak var headerTabStack: UIStackView?
     private var tableView: UITableView!
     /// Width constraint on the table header container — updated in viewDidLayoutSubviews
     /// so the header always matches the actual table view width (fixes iPad split-view sizing).
@@ -394,6 +382,7 @@ class SettingsViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateResponsiveSettingsNavigation()
         // Recalculate table header height after layout, and keep its width pinned to the
         // actual table view width (important on iPad where the table may be narrower than the
         // screen, e.g. in split-view multitasking).
@@ -426,10 +415,9 @@ class SettingsViewController: UIViewController {
         }
     }
 
-    // MARK: - Header view (subtitle + separator + tab grid + version)
+    // MARK: - Header view
 
-    /// Builds the table header matching Hayase's settings layout:
-    /// subtitle → separator → 2-col tab grid → version info
+    /// Builds the native header that contains the settings navigation and version label.
     private func buildHeaderView() -> UIView {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -447,7 +435,7 @@ class SettingsViewController: UIViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
-        // Tab grid: 2-column matching Hayase SettingsNav.svelte mobile layout
+        // SettingsNav.svelte navigation.
         let tabGrid = buildTabGrid()
 
         // Version info: matches Hayase sidebar footer
@@ -482,44 +470,66 @@ class SettingsViewController: UIViewController {
         return container
     }
 
-    /// Builds the tab grid matching Hayase SettingsNav.svelte:
-    /// 2 columns on iPhone, 3 columns on iPad.
-    /// ```
-    /// <nav class='grid grid-cols-2 gap-y-1 gap-x-2'>
-    ///   <Button variant='ghost' class='relative font-semibold justify-start'>
-    ///     {#if isActive}<div class='bg-white absolute inset-0 rounded-md'/>{/if}
-    ///     <div class='text-white' class:!text-black={isActive}>{title}</div>
-    ///   </Button>
-    /// </nav>
-    /// ```
+    /// Builds SettingsNav.svelte's responsive navigation stack.
     private func buildTabGrid() -> UIView {
-        let vStack = UIStackView()
-        vStack.axis = .vertical
-        vStack.spacing = 4      // gap-y-1 = 4px
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 4  // gap-y-1 = 4px
+        stack.alignment = .fill
+        stack.distribution = .fill
+        headerTabStack = stack
 
         tabButtons.removeAll()
+        tabButtonHeightConstraints.removeAll()
 
-        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-        let cols = isIPad ? 3 : 2
-        let tabs = SettingsTab.allCases
-        for rowStart in stride(from: 0, to: tabs.count, by: cols) {
-            let hStack = UIStackView()
-            hStack.axis = .horizontal
-            hStack.spacing = 8  // gap-x-2 = 8px
-            hStack.distribution = .fillEqually
-
-            for col in 0..<cols {
-                let idx = rowStart + col
-                guard idx < tabs.count else { break }
-                let btn = makeTabButton(for: tabs[idx])
-                hStack.addArrangedSubview(btn)
-                tabButtons.append(btn)
-            }
-
-            vStack.addArrangedSubview(hStack)
+        for tab in SettingsTab.allCases {
+            let button = makeTabButton(for: tab)
+            stack.addArrangedSubview(button)
+            tabButtons.append(button)
         }
 
-        return vStack
+        return stack
+    }
+
+    private func updateResponsiveSettingsNavigation() {
+        guard isViewLoaded, let stack = headerTabStack else { return }
+        let width = view.bounds.width
+        let medium = width >= 768  // Tailwind md = 48rem = 768px
+        let wide = width >= 1024   // Tailwind lg = 64rem = 1024px
+
+        if settingsRoute == .root, medium, Router.shared.currentRoute == .settings(.root) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, Router.shared.currentRoute == .settings(.root) else { return }
+                Router.shared.replace(.settings(.player), hostTabIndex: self.hayaseTabIndex)
+            }
+        }
+
+        // SettingsNav.svelte: flex-col md:flex-row lg:flex-col. Compact child routes hide the aside.
+        stack.isHidden = !medium && settingsRoute != .root
+        stack.axis = (medium && !wide) ? .horizontal : .vertical
+        stack.spacing = (medium && !wide) ? 8 : 4  // gap-x-2 / gap-y-1
+        stack.distribution = (medium && !wide) ? .fillProportionally : .fill
+
+        for (index, button) in tabButtons.enumerated() {
+            tabButtonHeightConstraints[safe: index]?.constant = medium ? 36 : 40  // default h-9 / lg h-10
+            button.contentEdgeInsets = medium
+                ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)   // default px-4 py-2
+                : UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32) // lg px-8, h-10
+            button.backgroundColor = medium ? .clear : UIColor.HayaseTheme.muted  // bg-muted md:bg-transparent
+        }
+
+        if settingsRoute == .root && !medium {
+            if !visibleSections.isEmpty {
+                visibleSections = []
+                tableView.reloadData()
+            }
+        } else {
+            let next = allSections.filter { $0.tab == selectedTab }
+            if next.count != visibleSections.count {
+                visibleSections = next
+                tableView.reloadData()
+            }
+        }
     }
 
     /// Creates a single tab button matching Hayase SettingsNav.svelte ghost button style.
@@ -529,10 +539,13 @@ class SettingsViewController: UIViewController {
         btn.contentHorizontalAlignment = .leading
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
         btn.layer.cornerRadius = 6   // rounded-md
-        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32)  // size=lg: h-10 px-8
+        let height = btn.heightAnchor.constraint(equalToConstant: 40)  // size=lg: h-10 = 40px
+        height.isActive = true
+        tabButtonHeightConstraints.append(height)
         btn.tag = tab.rawValue
         btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
-        btn.backgroundColor = .clear
+        btn.backgroundColor = UIColor.HayaseTheme.muted  // bg-muted md:bg-transparent
         HayaseNavTabButton.select(tag: selectedTab.rawValue, in: [btn], animated: false)
         return btn
     }
@@ -543,7 +556,14 @@ class SettingsViewController: UIViewController {
 
     func applyRoute(_ route: Route.SettingsRoute) {
         loadViewIfNeeded()
+        settingsRoute = route
+        if route == .root {
+            HayaseNavTabButton.select(tag: -1, in: tabButtons, animated: true)
+            updateResponsiveSettingsNavigation()
+            return
+        }
         setSelectedTab(settingsTab(for: route))
+        updateResponsiveSettingsNavigation()
     }
 
     private func settingsRoute(for tab: SettingsTab) -> Route.SettingsRoute {
@@ -554,23 +574,26 @@ class SettingsViewController: UIViewController {
         case .extensions: return .extensions
         case .accounts: return .accounts
         case .app: return .app
+        case .changelog: return .changelog
         }
     }
 
     private func settingsTab(for route: Route.SettingsRoute) -> SettingsTab {
         switch route {
+        case .root: return .player
         case .player: return .player
         case .client: return .client
         case .interface: return .interface_
         case .extensions: return .extensions
         case .accounts: return .accounts
-        case .app, .changelog: return .app
+        case .app: return .app
+        case .changelog: return .changelog
         }
     }
 
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
-        Router.shared.navigate(.settings(settingsRoute(for: tab)), hostTabIndex: hayaseTabIndex)
+        Router.shared.navigate(.settings(settingsRoute(for: tab)), hostTabIndex: hayaseTabIndex, noScroll: true)
     }
 
     private func setSelectedTab(_ tab: SettingsTab) {
@@ -593,10 +616,6 @@ class SettingsViewController: UIViewController {
         refreshVisibleSections()
         UIView.performWithoutAnimation {
             tableView.reloadData()
-        }
-
-        if !visibleSections.isEmpty {
-            tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
         }
 
         CATransaction.commit()

@@ -33,9 +33,9 @@ enum HayaseSidebarRoute: Hashable, CaseIterable {
         case .schedule: return .schedule
         case .w2g: return .w2g(id: nil)
         case .chat: return .chat
-        case .client: return .client(.overview)
-        case .settings: return .settings(.player)
-        case .profile: return .profile
+        case .client: return .client(.root)
+        case .settings: return .settings(.root)
+        case .profile: return .settings(.accounts)  // /app/profile redirects 307 to /app/settings/accounts
         case .donate: return nil
         }
     }

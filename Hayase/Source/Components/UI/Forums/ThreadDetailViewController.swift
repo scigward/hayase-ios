@@ -3,7 +3,7 @@
 //  Hayase
 //
 //  Native UIKit shell for AniList forum thread detail.
-//  Mirrors: src/routes/app/anime/[id]/thread/[threadId]/+page.svelte
+//  Mirrors: src/routes/app/anime/[id]/thread/[threadId]/+layout.ts, src/routes/app/anime/[id]/thread/[threadId]/+page.svelte, src/lib/components/ui/forums/Comments.svelte
 //
 
 import UIKit
@@ -16,6 +16,7 @@ final class ThreadDetailViewController: UIViewController {
     private let threadTitle: String
     private let accentColor: UIColor
     private let isEmbeddedInAnimePage: Bool
+    private let preloadedThread: AniListThread?
     private let perPage = 15
     var onContentHeightChange: (() -> Void)?
     private var currentPage = 1
@@ -27,7 +28,8 @@ final class ThreadDetailViewController: UIViewController {
          animeID: Int? = nil,
          title: String,
          accentColor: UIColor? = nil,
-         embeddedInAnimePage: Bool = false) {
+         embeddedInAnimePage: Bool = false,
+         preloadedThread: AniListThread? = nil) {
         self.threadID = threadID
         self.animeID = animeID
         self.threadTitle = title
@@ -36,6 +38,7 @@ final class ThreadDetailViewController: UIViewController {
             .flatMap { ExtensionSearchViewController.uiColor(fromHex: $0.coverColor ?? "") }
         self.accentColor = accentColor ?? cachedAccent ?? UIColor.HayaseTheme.secondary
         self.isEmbeddedInAnimePage = embeddedInAnimePage
+        self.preloadedThread = preloadedThread
         super.init(nibName: nil, bundle: nil)
         self.title = title
     }
@@ -56,7 +59,13 @@ final class ThreadDetailViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupView()
-        fetchThread()
+        if let thread = preloadedThread ?? Router.shared.cachedThread(for: threadID) {
+            currentThread = thread
+            renderLoadingComments()
+            fetchComments(page: 1)
+        } else {
+            fetchThread()
+        }
     }
 
     // MARK: - Setup

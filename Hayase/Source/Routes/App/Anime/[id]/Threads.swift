@@ -2,6 +2,8 @@
 //  Threads.swift
 //  Hayase
 //
+//  Mirrors: src/lib/components/ui/forums/Threads.svelte, src/routes/app/anime/[id]/thread/[threadId]/+layout.ts, src/routes/app/anime/[id]/thread/[threadId]/+page.svelte
+//
 
 import UIKit
 
@@ -282,6 +284,7 @@ final class ThreadPairCell: UITableViewCell {
 
     private let stack = UIStackView()
     private let rightContainer = UIView()
+    private var stackTopConstraint: NSLayoutConstraint?
     private var stackLeadingConstraint: NSLayoutConstraint?
     private var stackTrailingConstraint: NSLayoutConstraint?
 
@@ -312,14 +315,16 @@ final class ThreadPairCell: UITableViewCell {
         stack.addArrangedSubview(rightContainer)
         contentView.addSubview(stack)
 
+        let top = stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14)  // gap-y-7 = 28px split between adjacent rows
         let leading = stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
         let trailing = stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+        stackTopConstraint = top
         stackLeadingConstraint = leading
         stackTrailingConstraint = trailing
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            top,
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),  // gap-y-7 = 28px split between adjacent rows
             leading,
             trailing,
             rightCard.topAnchor.constraint(equalTo: rightContainer.topAnchor),
@@ -329,10 +334,11 @@ final class ThreadPairCell: UITableViewCell {
         ])
     }
 
-    func applyPaddingForSizeClass(isRegular: Bool, availableWidth: CGFloat) {
+    func applyPaddingForSizeClass(isRegular: Bool, availableWidth: CGFloat, isFirstRow: Bool) {
         let sidePad = isRegular
             ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
             : CGFloat(16)
+        stackTopConstraint?.constant = isFirstRow ? 12 : 14  // pt-3 = 12px; later rows split gap-y-7 = 28px
         stackLeadingConstraint?.constant = sidePad
         stackTrailingConstraint?.constant = -sidePad
     }
@@ -424,7 +430,8 @@ extension AnimeDetailViewController {
                                                   animeID: routeAnimeID,
                                                   title: embeddedThreadTitle ?? Router.shared.cachedThreadTitle(for: threadID) ?? "Thread",
                                                   accentColor: accentColor,
-                                                  embeddedInAnimePage: true)
+                                                  embeddedInAnimePage: true,
+                                                  preloadedThread: Router.shared.cachedThread(for: threadID))
             threadVC.onContentHeightChange = { [weak self] in
                 self?.invalidateEmbeddedThreadHeight()
             }
@@ -483,7 +490,8 @@ extension AnimeDetailViewController {
             cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
             cell.applyPaddingForSizeClass(
                 isRegular: traitCollection.horizontalSizeClass == .regular,
-                availableWidth: tableView.frame.width)
+                availableWidth: tableView.frame.width,
+                isFirstRow: indexPath.row == 0)
             cell.onTapThread = { [weak self] threadID in
                 guard let self = self else { return }
                 guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
@@ -540,9 +548,10 @@ extension AnimeDetailViewController {
             ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
             : CGFloat(16)
 
+        let topPadding: CGFloat = indexPath.row == 0 ? 12 : 14  // pt-3 = 12px; later rows split gap-y-7 = 28px
         NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
-            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: topPadding),
+            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),  // gap-y-7 = 28px split between adjacent rows
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
         ])
@@ -585,7 +594,7 @@ extension AnimeDetailViewController {
             : CGFloat(16)
 
         NSLayoutConstraint.activate([
-            outerStack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 14),
+            outerStack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),  // pt-3 = 12px
             outerStack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),
             outerStack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
             outerStack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),

@@ -2,6 +2,8 @@
 //  DownloadsViewController.swift
 //  Hayase
 //
+//  Mirrors: src/routes/app/client/+layout.svelte, src/routes/app/client/+page.svelte, src/lib/components/SettingsNav.svelte
+//
 
 import UIKit
 import CoreData
@@ -28,6 +30,7 @@ class DownloadsViewController: UIViewController {
     private var libraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
 
     private var selectedTabIndex: Int = 0
+    private var clientRoute: Route.ClientRoute = .root
     private static let settingsTabIndex = 5
 
     // MARK: - Page header
@@ -60,6 +63,8 @@ class DownloadsViewController: UIViewController {
     // MARK: - Tab bar & containers
 
     private var tabButtons: [HayaseNavTabButton] = []
+    private var tabButtonHeightConstraints: [NSLayoutConstraint] = []
+    private var tabButtonMinWidthConstraints: [NSLayoutConstraint] = []
     private let tabBarContainer = UIView()
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
@@ -553,6 +558,8 @@ class DownloadsViewController: UIViewController {
         tabStackView.translatesAutoresizingMaskIntoConstraints = false
 
         tabButtons.removeAll()
+        tabButtonHeightConstraints.removeAll()
+        tabButtonMinWidthConstraints.removeAll()
         let titles = ["Overview", "Files", "Peers", "Trackers", "Library", "Settings"]
         for (index, title) in titles.enumerated() {
             let button = makeTabButton(title: title, tag: index)
@@ -593,34 +600,62 @@ class DownloadsViewController: UIViewController {
         btn.contentHorizontalAlignment = .leading
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
         btn.layer.cornerRadius = 6
-        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32)  // size=lg: h-10 px-8
         btn.tag = tag
         btn.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
-        btn.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        btn.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        let height = btn.heightAnchor.constraint(equalToConstant: 40)  // size=lg: h-10 = 40px
+        let minWidth = btn.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
+        height.isActive = true
+        minWidth.isActive = true
+        tabButtonHeightConstraints.append(height)
+        tabButtonMinWidthConstraints.append(minWidth)
         updateTabButtonAppearance(btn)
         HayaseNavTabButton.select(tag: selectedTabIndex, in: [btn], animated: false)
         return btn
     }
 
     private func updateResponsiveClientLayoutIfNeeded() {
-        let wide = TorrentClientStyle.isWideClientLayout(width: view.bounds.width)
+        let width = view.bounds.width
+        let medium = width >= 768  // Tailwind md = 48rem = 768px
+        let wide = TorrentClientStyle.isWideClientLayout(width: width)  // Tailwind lg = 64rem = 1024px
         lastWideClientLayout = wide
+
+        if clientRoute == .root, medium, Router.shared.currentRoute == .client(.root) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, Router.shared.currentRoute == .client(.root) else { return }
+                Router.shared.replace(.client(.overview), hostTabIndex: self.hayaseTabIndex)
+            }
+        }
+
+        let compactRoot = !medium && clientRoute == .root
+        tabBarContainer.isHidden = !medium && !compactRoot
+        containerView.isHidden = compactRoot
 
         bodyStackView.axis = wide ? .horizontal : .vertical
         bodyStackView.spacing = wide ? TorrentClientStyle.sidebarGap : 8
-        tabStackView.axis = wide ? .vertical : .horizontal
-        tabStackView.spacing = wide ? 4 : 8
-        tabScrollView.alwaysBounceHorizontal = !wide
-        tabScrollView.alwaysBounceVertical = wide
+        tabStackView.axis = (wide || !medium) ? .vertical : .horizontal
+        tabStackView.spacing = (wide || !medium) ? 4 : 8  // gap-y-1 / gap-x-2
+        tabScrollView.alwaysBounceHorizontal = medium && !wide
+        tabScrollView.alwaysBounceVertical = wide || !medium
 
         tabBarWidthConstraint?.isActive = wide
         tabBarHeightConstraint?.isActive = !wide
-        tabStackWidthConstraint?.isActive = wide
-        tabStackHeightConstraint?.isActive = !wide
+        tabBarHeightConstraint?.constant = medium ? 44 : 260  // 6 × h-10 + 5 × gap-y-1
+        tabStackWidthConstraint?.isActive = wide || !medium
+        tabStackHeightConstraint?.isActive = medium && !wide
         tabScrollBottomToContainerConstraint?.isActive = !wide
         tabScrollBottomToFooterConstraint?.isActive = wide
         webTorrentVersionLabel.isHidden = !wide
+
+        for (index, button) in tabButtons.enumerated() {
+            let height = medium ? CGFloat(36) : CGFloat(40)  // default h-9 / lg h-10
+            tabButtonHeightConstraints[safe: index]?.constant = height
+            tabButtonMinWidthConstraints[safe: index]?.isActive = medium
+            button.contentEdgeInsets = medium
+                ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)   // default px-4 py-2
+                : UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32) // lg px-8, h-10
+        }
+
         globeView.isHidden = false
         globeView.transform = .identity
         let viewportWidth = view.window?.bounds.width ?? view.bounds.width
@@ -628,8 +663,8 @@ class DownloadsViewController: UIViewController {
         globeWidthConstraint?.constant = globeSize
         globeView.setViewportWidth(viewportWidth)
 
-        let padding = wide ? TorrentClientStyle.regularPadding : TorrentClientStyle.compactPadding
-        let separatorSpacing = wide ? TorrentClientStyle.regularSeparatorSpacing : TorrentClientStyle.compactSeparatorSpacing
+        let padding = medium ? TorrentClientStyle.regularPadding : TorrentClientStyle.compactPadding  // p-3 md:p-10
+        let separatorSpacing = medium ? TorrentClientStyle.regularSeparatorSpacing : TorrentClientStyle.compactSeparatorSpacing  // my-3 md:my-6
         pageTitleTopConstraint?.constant = padding
         pageTitleLeadingConstraint?.constant = padding
         pageTitleTrailingConstraint?.constant = -padding
@@ -648,23 +683,32 @@ class DownloadsViewController: UIViewController {
     }
 
     private func updateTabButtonAppearance(_ btn: UIButton) {
-        let wide = lastWideClientLayout ?? TorrentClientStyle.isWideClientLayout(width: view.bounds.width)
-        btn.backgroundColor = wide ? .clear : TorrentClientStyle.muted
+        let medium = view.bounds.width >= 768  // bg-muted md:bg-transparent
+        btn.backgroundColor = medium ? .clear : TorrentClientStyle.muted
     }
 
     private func updateTabButtonAppearances() {
         for btn in tabButtons {
             updateTabButtonAppearance(btn)
         }
-        HayaseNavTabButton.select(tag: selectedTabIndex, in: tabButtons, animated: false)
+        HayaseNavTabButton.select(tag: clientRoute == .root ? -1 : selectedTabIndex, in: tabButtons, animated: false)
     }
 
     func applyRoute(_ route: Route.ClientRoute) {
         loadViewIfNeeded()
-        guard let index = tabIndex(for: route), index != selectedTabIndex else { return }
-        selectedTabIndex = index
-        HayaseNavTabButton.select(tag: index, in: tabButtons, animated: true)
-        showTab(index)
+        clientRoute = route
+        if route == .root {
+            HayaseNavTabButton.select(tag: -1, in: tabButtons, animated: true)
+            updateResponsiveClientLayoutIfNeeded()
+            return
+        }
+        guard let index = tabIndex(for: route) else { return }
+        if index != selectedTabIndex {
+            selectedTabIndex = index
+            HayaseNavTabButton.select(tag: index, in: tabButtons, animated: true)
+            showTab(index)
+        }
+        updateResponsiveClientLayoutIfNeeded()
     }
 
     private func clientRoute(for tabIndex: Int) -> Route.ClientRoute? {
@@ -680,6 +724,7 @@ class DownloadsViewController: UIViewController {
 
     private func tabIndex(for route: Route.ClientRoute) -> Int? {
         switch route {
+        case .root: return nil
         case .overview: return 0
         case .files: return 1
         case .peers: return 2
@@ -691,9 +736,9 @@ class DownloadsViewController: UIViewController {
     @objc private func tabButtonTapped(_ sender: UIButton) {
         let index = sender.tag
         if index == Self.settingsTabIndex {
-            Router.shared.navigate(.settings(.client), hostTabIndex: hayaseTabIndex)
+            Router.shared.navigate(.settings(.client), hostTabIndex: hayaseTabIndex, noScroll: true)
         } else if let route = clientRoute(for: index) {
-            Router.shared.navigate(.client(route), hostTabIndex: hayaseTabIndex)
+            Router.shared.navigate(.client(route), hostTabIndex: hayaseTabIndex, noScroll: true)
         }
     }
 
