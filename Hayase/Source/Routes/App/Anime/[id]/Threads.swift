@@ -489,7 +489,7 @@ extension AnimeDetailViewController {
                 guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
                 if let animeID = self.routeAnimeID {
                     Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                       hostTabIndex: self.tabBarController?.selectedIndex)
+                                                       hostTabIndex: self.hayaseTabIndex)
                 } else {
                     let accentColor = self.animeItem.flatMap { item in
                         ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
@@ -522,7 +522,7 @@ extension AnimeDetailViewController {
             guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
             if let animeID = self.routeAnimeID {
                 Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                   hostTabIndex: self.tabBarController?.selectedIndex)
+                                                   hostTabIndex: self.hayaseTabIndex)
             } else {
                 let accentColor = self.animeItem.flatMap { item in
                     ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }

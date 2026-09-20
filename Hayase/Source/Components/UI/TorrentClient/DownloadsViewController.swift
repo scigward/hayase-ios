@@ -59,7 +59,7 @@ class DownloadsViewController: UIViewController {
 
     // MARK: - Tab bar & containers
 
-    private var tabButtons: [UIButton] = []
+    private var tabButtons: [HayaseNavTabButton] = []
     private let tabBarContainer = UIView()
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
@@ -587,8 +587,8 @@ class DownloadsViewController: UIViewController {
         ])
     }
 
-    private func makeTabButton(title: String, tag: Int) -> UIButton {
-        let btn = UIButton(type: .system)
+    private func makeTabButton(title: String, tag: Int) -> HayaseNavTabButton {
+        let btn = HayaseNavTabButton()
         btn.setTitle(title, for: .normal)
         btn.contentHorizontalAlignment = .leading
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
@@ -598,7 +598,8 @@ class DownloadsViewController: UIViewController {
         btn.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
         btn.heightAnchor.constraint(equalToConstant: 40).isActive = true
         btn.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
-        updateTabButtonAppearance(btn, isSelected: tag == selectedTabIndex)
+        updateTabButtonAppearance(btn)
+        HayaseNavTabButton.select(tag: selectedTabIndex, in: [btn], animated: false)
         return btn
     }
 
@@ -646,28 +647,23 @@ class DownloadsViewController: UIViewController {
         updateTabButtonAppearances()
     }
 
-    private func updateTabButtonAppearance(_ btn: UIButton, isSelected: Bool) {
+    private func updateTabButtonAppearance(_ btn: UIButton) {
         let wide = lastWideClientLayout ?? TorrentClientStyle.isWideClientLayout(width: view.bounds.width)
-        if isSelected {
-            btn.backgroundColor = TorrentClientStyle.primary
-            btn.setTitleColor(TorrentClientStyle.primaryForeground, for: .normal)
-        } else {
-            btn.backgroundColor = wide ? .clear : TorrentClientStyle.muted
-            btn.setTitleColor(TorrentClientStyle.foreground, for: .normal)
-        }
+        btn.backgroundColor = wide ? .clear : TorrentClientStyle.muted
     }
 
     private func updateTabButtonAppearances() {
         for btn in tabButtons {
-            updateTabButtonAppearance(btn, isSelected: btn.tag == selectedTabIndex)
+            updateTabButtonAppearance(btn)
         }
+        HayaseNavTabButton.select(tag: selectedTabIndex, in: tabButtons, animated: false)
     }
 
     func applyRoute(_ route: Route.ClientRoute) {
         loadViewIfNeeded()
         guard let index = tabIndex(for: route), index != selectedTabIndex else { return }
         selectedTabIndex = index
-        updateTabButtonAppearances()
+        HayaseNavTabButton.select(tag: index, in: tabButtons, animated: true)
         showTab(index)
     }
 
@@ -695,9 +691,9 @@ class DownloadsViewController: UIViewController {
     @objc private func tabButtonTapped(_ sender: UIButton) {
         let index = sender.tag
         if index == Self.settingsTabIndex {
-            Router.shared.navigate(.settings(.client), hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigate(.settings(.client), hostTabIndex: hayaseTabIndex)
         } else if let route = clientRoute(for: index) {
-            Router.shared.navigate(.client(route), hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigate(.client(route), hostTabIndex: hayaseTabIndex)
         }
     }
 
@@ -1755,7 +1751,7 @@ class DownloadsViewController: UIViewController {
                                                        media: media,
                                                        fallbackMediaID: mediaID)
         }
-        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
         return true
     }
 
@@ -1893,7 +1889,7 @@ class DownloadsViewController: UIViewController {
         }
         openingLibraryPlaybackHash = nil
         pendingLibraryPlaybackService = nil
-        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
     }
 
     private func handleEpisodeChangeFromTorrentClient(episode: Int,
@@ -1954,7 +1950,7 @@ class DownloadsViewController: UIViewController {
             return false
         }
 
-        Router.shared.navigate(.player, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.player, hostTabIndex: hayaseTabIndex)
         return true
     }
 

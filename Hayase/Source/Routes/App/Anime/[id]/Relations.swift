@@ -1239,7 +1239,7 @@ extension AnimeDetailViewController {
                            accentColor: currentAnimeAccent,
                            expanded: relationGraphExpanded)
             cell.onSelectMedia = { [weak self] id in
-                Router.shared.navigate(.anime(id: id), hostTabIndex: self?.tabBarController?.selectedIndex)
+                Router.shared.navigate(.anime(id: id), hostTabIndex: self?.hayaseTabIndex)
             }
             cell.onToggleExpanded = { [weak self] expanded in
                 guard let self else { return }

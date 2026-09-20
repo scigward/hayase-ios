@@ -30,7 +30,7 @@ final class HayaseSidebarButton: UIButton {
     private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
     private var iconSizeConstraint: NSLayoutConstraint?
     private var iconCenterXConstraint: NSLayoutConstraint?
-    private var isActiveRoute = false
+    private(set) var isActiveRoute = false
 
     var onPress: (() -> Void)?
 
@@ -133,19 +133,26 @@ final class HayaseSidebarButton: UIButton {
         addTarget(self, action: #selector(didTap), for: .touchUpInside)
     }
 
+    var activePill: UIView { activeBackground }
+
     func setActive(_ active: Bool, animated: Bool) {
+        isActiveRoute = active
+        activeBackground.alpha = active ? 1 : 0
         let changes = {
-            self.isActiveRoute = active
-            self.activeBackground.alpha = active ? 1 : 0
             self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
             self.iconView.tintColor = self.tintColor
             self.applyIconImage()
         }
-        if animated {
-            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut], animations: changes)
-        } else {
+        guard animated else {
             changes()
+            return
         }
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.3  // duration-300
+        fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)  // transition-colors
+        iconView.layer.add(fade, forKey: "hayaseTint")
+        UIViewPropertyAnimator(duration: 0.3, controlPoint1: CGPoint(x: 0.4, y: 0), controlPoint2: CGPoint(x: 0.2, y: 1), animations: changes).startAnimation()
     }
 
     func setStatusDotVisible(_ visible: Bool) {

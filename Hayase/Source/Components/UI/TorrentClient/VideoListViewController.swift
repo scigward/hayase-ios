@@ -494,7 +494,7 @@ class VideoListViewController: UIViewController {
         player.onEpisodeChange   = { [weak self] episode, media in
             self?.handleEpisodeChangeFromPlayer(episode, media: media)
         }
-        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
     }
 
     /// Mirrors the interface player fallback: when the next/previous episode is

@@ -45,9 +45,16 @@ final class HayaseSidebarListView: UIView {
     }
 
     func setSelectedRoute(_ currentRoute: Route, animated: Bool) {
+        let previous = routeButtons.values.first { $0.isActiveRoute }
+        var next: HayaseSidebarButton?
         for (route, button) in routeButtons {
-            button.setActive(route.matches(currentRoute), animated: animated)
+            let isActive = route.matches(currentRoute)
+            button.setActive(isActive, animated: animated)
+            if isActive { next = button }
         }
+        guard animated, let previous, let next, previous !== next else { return }
+        HayaseCrossfade.send(next.activePill, from: previous.activePill)
+        HayaseCrossfade.receive(previous.activePill, to: next.activePill)
     }
 
     func setSelectedIndex(_ index: Int, animated: Bool) {

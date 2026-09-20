@@ -33,7 +33,7 @@ extension UIViewController {
                     DispatchQueue.main.asyncAfter(deadline: .now() + (animated ? 0.35 : 0), execute: completion)
                 }
             }
-            if presentingViewController != nil && navigationController?.tabBarController == nil {
+            if presentingViewController != nil && navigationController?.hayaseTabHost == nil {
                 dismiss(animated: false, completion: pushPlayer)
             } else {
                 pushPlayer()
@@ -46,20 +46,20 @@ extension UIViewController {
     }
 
     func hayaseShellNavigationController() -> UINavigationController? {
-        if let nav = navigationController, nav.tabBarController != nil {
+        if let nav = navigationController, nav.hayaseTabHost != nil {
             return nav
         }
-        if let tab = tabBarController,
-           let nav = tab.selectedViewController as? UINavigationController {
+        if let host = hayaseTabHost,
+           let nav = host.selectedViewController as? UINavigationController {
             return nav
         }
         for child in children {
-            if let tab = child as? UITabBarController,
-               let nav = tab.selectedViewController as? UINavigationController {
+            if let host = child as? HayaseTabHostController,
+               let nav = host.selectedViewController as? UINavigationController {
                 return nav
             }
             if let nav = child as? UINavigationController,
-               nav.tabBarController != nil {
+               nav.hayaseTabHost != nil {
                 return nav
             }
         }

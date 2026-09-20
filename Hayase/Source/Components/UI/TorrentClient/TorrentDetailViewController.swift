@@ -266,7 +266,7 @@ final class TorrentDetailViewController: UIViewController {
             // Revert to the previous tab so Settings doesn't stay selected
             sender.selectedSegmentIndex = previousSegmentIndex
             // Navigate to the app Settings page (matches Hayase: Settings → /app/settings/client/)
-            Router.shared.navigate(.settings(.client), hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigate(.settings(.client), hostTabIndex: hayaseTabIndex)
         } else {
             previousSegmentIndex = sender.selectedSegmentIndex
             showTab(sender.selectedSegmentIndex)

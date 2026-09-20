@@ -113,7 +113,7 @@ class SettingsViewController: UIViewController {
     // MARK: - State
 
     private var selectedTab: SettingsTab = .player
-    private var tabButtons: [UIButton] = []
+    private var tabButtons: [HayaseNavTabButton] = []
     private var tableView: UITableView!
     /// Width constraint on the table header container — updated in viewDidLayoutSubviews
     /// so the header always matches the actual table view width (fixes iPad split-view sizing).
@@ -523,8 +523,8 @@ class SettingsViewController: UIViewController {
     }
 
     /// Creates a single tab button matching Hayase SettingsNav.svelte ghost button style.
-    private func makeTabButton(for tab: SettingsTab) -> UIButton {
-        let btn = UIButton(type: .system)
+    private func makeTabButton(for tab: SettingsTab) -> HayaseNavTabButton {
+        let btn = HayaseNavTabButton()
         btn.setTitle(tab.title, for: .normal)
         btn.contentHorizontalAlignment = .leading
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .semibold)
@@ -532,7 +532,8 @@ class SettingsViewController: UIViewController {
         btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
         btn.tag = tab.rawValue
         btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
-        updateTabAppearance(btn, isSelected: tab == selectedTab)
+        btn.backgroundColor = .clear
+        HayaseNavTabButton.select(tag: selectedTab.rawValue, in: [btn], animated: false)
         return btn
     }
 
@@ -567,28 +568,14 @@ class SettingsViewController: UIViewController {
         }
     }
 
-    /// Updates a tab button's appearance to match Hayase's active/inactive states.
-    private func updateTabAppearance(_ btn: UIButton, isSelected: Bool) {
-        if isSelected {
-            btn.backgroundColor = .white
-            btn.setTitleColor(.black, for: .normal)
-        } else {
-            btn.backgroundColor = .clear
-            btn.setTitleColor(.white, for: .normal)
-        }
-    }
-
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = SettingsTab(rawValue: sender.tag), tab != selectedTab else { return }
-        Router.shared.navigate(.settings(settingsRoute(for: tab)), hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.settings(settingsRoute(for: tab)), hostTabIndex: hayaseTabIndex)
     }
 
     private func setSelectedTab(_ tab: SettingsTab) {
         guard tab != selectedTab else { return }
-        // 1. Snapshot the OLD table content *before* mutating anything.
-        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
-
-        // 2. Update model state + tab-button appearance + reload.
+        // Update model state + tab-button appearance + reload.
         //    ALL of this must happen with ZERO animation/transaction context.
         //    Even UIButton.backgroundColor changes create an implicit
         //    CATransaction; if reloadData() fires within that transaction,
@@ -600,9 +587,7 @@ class SettingsViewController: UIViewController {
 
         selectedTab = tab
 
-        for btn in tabButtons {
-            updateTabAppearance(btn, isSelected: btn.tag == tab.rawValue)
-        }
+        HayaseNavTabButton.select(tag: tab.rawValue, in: tabButtons, animated: true)
 
         // Refresh the cached section array and reload.
         refreshVisibleSections()
@@ -615,20 +600,6 @@ class SettingsViewController: UIViewController {
         }
 
         CATransaction.commit()
-
-        // 3. Overlay the old-content snapshot and crossfade it out to
-        //    reveal the freshly-reloaded table underneath.  The animation
-        //    only touches the snapshot (a plain UIView), not the table, so
-        //    it cannot interfere with UIKit's internal bookkeeping.
-        if let snapshot = snapshot {
-            snapshot.frame = tableView.frame
-            tableView.superview?.addSubview(snapshot)
-            UIView.animate(withDuration: 0.25, animations: {
-                snapshot.alpha = 0
-            }) { _ in
-                snapshot.removeFromSuperview()
-            }
-        }
     }
 
     // MARK: - Helpers

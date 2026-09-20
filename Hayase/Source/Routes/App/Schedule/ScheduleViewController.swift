@@ -499,7 +499,7 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
         for ep in eps.prefix(8) {
             let title = "\(ep.titlePreferred ?? "Unknown") — Ep \(ep.episode)"
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
-                Router.shared.navigate(.anime(id: ep.mediaID), hostTabIndex: self?.tabBarController?.selectedIndex)
+                Router.shared.navigate(.anime(id: ep.mediaID), hostTabIndex: self?.hayaseTabIndex)
             })
         }
         alert.addAction(UIAlertAction(title: "Close", style: .cancel))

@@ -374,7 +374,7 @@ final class HayaseChatViewController: UIViewController {
     }
 
     @objc private func nopeTapped() {
-        Router.shared.navigate(.home, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.home, hostTabIndex: hayaseTabIndex)
     }
 
     @objc private func continueTapped() {
@@ -700,7 +700,7 @@ final class HayaseChatViewController: UIViewController {
         userListTableView.reloadData()
         IRCLobby.prevAgreed = false
         render()
-        Router.shared.navigate(.home, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.home, hostTabIndex: hayaseTabIndex)
     }
 
     private func updateInputHeight() {

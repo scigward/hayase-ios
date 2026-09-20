@@ -939,7 +939,7 @@ extension W2GViewController {
                                          fallbackAnimeItem: animeItem,
                                          torrentEntity: entity)
         }
-        Router.shared.navigateToPlayer(player, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
     }
 
     private func showW2GError(_ message: String) {
@@ -1096,7 +1096,7 @@ extension W2GViewController {
                                              fallbackAnimeItem: animeItem,
                                              torrentEntity: entity)
             }
-            Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
+            Router.shared.navigateToPlayer(player, hostTabIndex: self.hayaseTabIndex)
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {

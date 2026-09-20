@@ -1340,7 +1340,7 @@ final class ExtensionSearchViewController: UIViewController {
             player.onEpisodeChange   = { [weak self] episode, media in
                 self?.handleEpisodeChangeFromPlayer(episode, media: media)
             }
-            Router.shared.navigateToPlayer(player, hostTabIndex: self.tabBarController?.selectedIndex)
+            Router.shared.navigateToPlayer(player, hostTabIndex: self.hayaseTabIndex)
         }
     }
 

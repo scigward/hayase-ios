@@ -1919,7 +1919,7 @@ class AnimeDetailViewController: UIViewController {
         let state = Route.SearchState(
             genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
             tags: SearchValues.genreSet.contains(genre) ? [] : [genre])
-        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
     }
 
     func navigateToSearchTab(filterType: String, value: String) {
@@ -1942,7 +1942,7 @@ class AnimeDetailViewController: UIViewController {
         default:
             break
         }
-        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
     }
 
     // MARK: - Lifecycle
@@ -2237,7 +2237,7 @@ class AnimeDetailViewController: UIViewController {
         tableView.estimatedSectionHeaderHeight = 0
         tableView.estimatedSectionFooterHeight = 0
         tableView.contentInsetAdjustmentBehavior = .never
-        let tabBarH = tabBarController?.tabBar.frame.height ?? 83
+        let tabBarH: CGFloat = 83
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tabBarH, right: 0)
         tableView.scrollIndicatorInsets = tableView.contentInset
         tableView.clipsToBounds = false

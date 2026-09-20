@@ -2628,7 +2628,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             // Wire play button → navigate to anime detail
             cell.onPlayTapped = { [weak self] item in
                 guard let self else { return }
-                Router.shared.navigateToAnime(item, hostTabIndex: self.tabBarController?.selectedIndex)
+                Router.shared.navigateToAnime(item, hostTabIndex: self.hayaseTabIndex)
             }
             // Wire favorite/bookmark buttons to AniList tracking
             cell.onFavorite = { item in
@@ -2723,7 +2723,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                     sort: section.filterSort,
                     onList: section.filterOnList,
                     ids: section.filterIDs)
-                Router.shared.navigate(.search(state), hostTabIndex: self.tabBarController?.selectedIndex)
+                Router.shared.navigate(.search(state), hostTabIndex: self.hayaseTabIndex)
             }
         }
         return header
@@ -2755,7 +2755,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             }
             if let anime = anime(at: indexPath) {
                 Router.shared.navigateToAnime(AnimeCollectionViewCell.animeItem(from: anime),
-                                             hostTabIndex: tabBarController?.selectedIndex)
+                                             hostTabIndex: hayaseTabIndex)
             }
             return
         }
@@ -2765,7 +2765,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         if indexPath.section == 0 {
             guard let cell = collectionView.cellForItem(at: indexPath) as? FeaturedBannerCell,
                   let item = cell.currentItem else { return }
-            Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
             return
         }
         // Tap on poster row
@@ -2782,7 +2782,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
                                              actions: hayasePreviewCardActions()) {
             return
         }
-        Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
     }
 
     // MARK: - UIScrollViewDelegate (scroll-driven banner effects)
@@ -2910,7 +2910,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         let state = Route.SearchState(
             genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
             tags: SearchValues.genreSet.contains(genre) ? [] : [genre])
-        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
     }
 
     /// Navigate to Search with a badge filter. filterType: "format", "status", "season", "score"
@@ -2929,7 +2929,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         default:
             break
         }
-        Router.shared.navigate(.search(state), hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
     }
 }
 

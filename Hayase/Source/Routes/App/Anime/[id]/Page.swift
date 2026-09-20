@@ -306,7 +306,7 @@ extension AnimeDetailViewController: UITableViewDelegate {
             guard let thread = threads[safe: indexPath.row] else { return }
             if let animeID = routeAnimeID {
                 Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                   hostTabIndex: tabBarController?.selectedIndex)
+                                                   hostTabIndex: hayaseTabIndex)
             } else {
                 let accentColor = animeItem.flatMap { item in
                     ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
@@ -380,7 +380,7 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
         switch collectionView.tag {
         case 100:
             guard let relation = relations[safe: indexPath.item] else { return }
-            Router.shared.navigateToAnime(relation.media, hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigateToAnime(relation.media, hostTabIndex: hayaseTabIndex)
         case 400:
             guard let item = recommendations[safe: indexPath.item] else { return }
             if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
@@ -390,7 +390,7 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
                                                  actions: hayasePreviewCardActions()) {
                 return
             }
-            Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
+            Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
         default:
             return
         }

@@ -53,7 +53,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private func installSidebarShellIfNeeded() {
         guard let tabBarController = window?.rootViewController as? UITabBarController else { return }
-        window?.rootViewController = HayaseSidebarController(tabBarController: tabBarController)
+        let rootControllers = tabBarController.viewControllers ?? []
+        tabBarController.setViewControllers([], animated: false)
+        window?.rootViewController = HayaseSidebarController(viewControllers: rootControllers)
         window?.makeKeyAndVisible()
     }
 

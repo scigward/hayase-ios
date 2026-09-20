@@ -432,13 +432,13 @@ final class ThreadDetailViewController: UIViewController {
 
     @objc private func goBack() {
         if let animeID {
-            _ = Router.shared.navigate(path: "/app/anime/\(animeID)", hostTabIndex: tabBarController?.selectedIndex)
+            _ = Router.shared.navigate(path: "/app/anime/\(animeID)", hostTabIndex: hayaseTabIndex)
         } else {
             navigationController?.popViewController(animated: true)
         }
     }
 
     private func navigate(path: String) {
-        _ = Router.shared.navigate(path: path, hostTabIndex: tabBarController?.selectedIndex)
+        _ = Router.shared.navigate(path: path, hostTabIndex: hayaseTabIndex)
     }
 }

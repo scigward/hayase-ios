@@ -194,7 +194,7 @@ extension UIViewController {
 
     private func openHayasePreviewAnime(_ media: AnimeItem) {
         Hover.shared.unhoverLastElement()
-        Router.shared.navigateToAnime(media, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToAnime(media, hostTabIndex: hayaseTabIndex)
     }
 
     private func presentHayasePreviewExtensionSearch(media: AnimeItem, episode: Int) {

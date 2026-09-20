@@ -13,6 +13,7 @@ import Foundation
 final class Router {
     static let shared = Router(initialRoute: .home)
     static let AnimeNavigationFailedNotification = "AnimeNavigationFailedNotification"
+    static let AnimeNavigationWillLoadNotification = "AnimeNavigationWillLoadNotification"
 
     enum NavigationKind {
         case push
@@ -28,6 +29,7 @@ final class Router {
     private var observers: [UUID: Observer] = [:]
     private var animePayloads: [Int: AnimeItem] = [:]
     private var routeReadyAnimePayloadIDs: Set<Int> = []
+    private var loadedAnimeRouteIDs: Set<Int> = []
     private var pendingAnimeNavigationID: UUID?
     private var threadTitles: [Int: String] = [:]
     private var playerPayload: VideoPlayerViewController?
@@ -111,6 +113,19 @@ final class Router {
         }
     }
 
+    /// True once, right after `navigateToAnime` has already run the route's load.
+    func takeLoadedAnimeRoute(_ id: Int) -> Bool {
+        loadedAnimeRouteIDs.remove(id) != nil
+    }
+
+    var previousRoute: Route? {
+        history.canGoBack ? history.entries[history.currentIndex - 1].route : nil
+    }
+
+    var nextRoute: Route? {
+        history.canGoForward ? history.entries[history.currentIndex + 1].route : nil
+    }
+
     func cachedAnimeItem(for id: Int) -> AnimeItem? {
         animePayloads[id]
     }
@@ -142,18 +157,14 @@ final class Router {
     func navigateToAnime(_ item: AnimeItem, hostTabIndex: Int? = nil) {
         cacheAnimeItem(item)
 
-        if cachedFullAnimeItem(for: item.id) != nil {
-            navigate(.anime(id: item.id), hostTabIndex: hostTabIndex)
-            return
-        }
-
         // Match SvelteKit's /app/anime/[id] load: do not render the anime
         // route from a partial card/search payload. Keep the current route on
         // screen until the route-ready IDMedia equivalent is available.
         let requestID = UUID()
         let sourceRoute = currentRoute
         pendingAnimeNavigationID = requestID
-        AniListClient.shared.fetchResolverMediaByIdResult(item.id) { [weak self] result in
+        NotificationCenter.default.post(name: NSNotification.Name(Router.AnimeNavigationWillLoadNotification), object: nil)
+        AnimeRouteLoader.load(id: item.id) { [weak self] result in
             guard let self,
                   self.pendingAnimeNavigationID == requestID,
                   self.currentRoute == sourceRoute else { return }
@@ -161,6 +172,7 @@ final class Router {
             case .success(let media):
                 self.pendingAnimeNavigationID = nil
                 self.cacheAnimeItem(media)
+                self.loadedAnimeRouteIDs.insert(media.id)
                 self.navigate(.anime(id: media.id), hostTabIndex: hostTabIndex)
             case .failure(let error):
                 self.pendingAnimeNavigationID = nil

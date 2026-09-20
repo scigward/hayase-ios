@@ -1315,7 +1315,7 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
                                              actions: hayasePreviewCardActions()) {
             return
         }
-        Router.shared.navigateToAnime(item, hostTabIndex: tabBarController?.selectedIndex)
+        Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
     }
 
     // Infinite scroll — matches use:infiniteScroll in Hayase

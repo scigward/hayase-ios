@@ -4,7 +4,7 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: src/routes/app/+layout.svelte and src/lib/components/ui/sidebar/sidebar.svelte
+//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar) and src/lib/components/ui/sidebar/sidebar.svelte
 //
 
 import UIKit
@@ -22,11 +22,15 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropAnimeRoute = "anime"
     private static let homeBannerBackdropPlayerRoute = "player"
 
-    private let tabBarControllerHost: UITabBarController
+    private let tabHost: HayaseTabHostController
     private let router = Router.shared
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
     private let contentContainer = UIView()
+    private static let routeSnapshotLimit = 10
+
+    private var progressWindow: HayaseProgressBarWindow?
+    private let routeTransition = HayaseRouteTransition()
     private let mobileLauncher = UIView()
     private let mobileGridContainer = UIView()
     private let mobileToggleButton = UIButton(type: .system)
@@ -44,30 +48,17 @@ final class HayaseSidebarController: UIViewController {
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
-    private var selectedIndexObservation: NSKeyValueObservation?
-    private enum HistorySwipeDirection {
-        case back
-        case forward
-    }
-
     private var routeObservationID: UUID?
-    private var isApplyingRoute = false
-    private var activeHistorySwipeDirection: HistorySwipeDirection?
+    private var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
+    private var historySwipe: HayaseHistorySwipe?
+    private var routeSnapshots: [Route: UIView] = [:]
+    private var routeSnapshotOrder: [Route] = []
     private var lastAppliedRoute: Route?
     private var routeScrollPositions: [Route: CGPoint] = [:]
+    private var isNavigationLoading = false
 
-    // Root pages that routes need to reach into (sub-tab selection etc.).
-    // Held directly instead of being looked up through
-    // `selectedViewController.viewControllers.first`: on compact widths the
-    // hidden UITabBarController has more tabs than fit (7), so UIKit moves the
-    // overflow tabs (Chat, Client, Settings) under its "More" navigation
-    // controller and that lookup stops finding them.
-    private weak var searchPage: SearchViewController?
-    private weak var downloadsPage: DownloadsViewController?
-    private weak var settingsPage: SettingsViewController?
-
-    init(tabBarController: UITabBarController) {
-        self.tabBarControllerHost = tabBarController
+    init(viewControllers: [UIViewController]) {
+        self.tabHost = HayaseTabHostController(viewControllers: HayaseSidebarController.interfaceRoutes(from: viewControllers))
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -78,14 +69,12 @@ final class HayaseSidebarController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
-        installInterfaceRoutes()
-        router.reset(to: Route(tabIndex: tabBarControllerHost.selectedIndex) ?? .home, hostTabIndex: tabBarControllerHost.selectedIndex)
+        router.reset(to: Route(tabIndex: tabHost.selectedIndex) ?? .home, hostTabIndex: tabHost.selectedIndex)
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
         configureActions()
         observeBannerBackdrop()
-        observeTabSelection()
         observeRouteChanges()
         apply(route: router.currentRoute, kind: .replace, animated: false)
         updateLayoutForCurrentWidth()
@@ -119,6 +108,7 @@ final class HayaseSidebarController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        installProgressBarIfNeeded()
         hideHostedNavigationBars()
         updateSidebarBackground()
     }
@@ -136,27 +126,29 @@ final class HayaseSidebarController: UIViewController {
         updateLayoutForCurrentWidth()
     }
 
-    private func setupContentHost() {
-        hideNativeTabNavigation(in: tabBarControllerHost)
-        tabBarControllerHost.delegate = self
+    private func installProgressBarIfNeeded() {
+        guard progressWindow == nil, let scene = view.window?.windowScene else { return }
+        progressWindow = HayaseProgressBarWindow(windowScene: scene)
+    }
 
+    private func setupContentHost() {
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.backgroundColor = UIColor.HayaseTheme.background
         view.addSubview(contentContainer)
 
-        addChild(tabBarControllerHost)
-        tabBarControllerHost.view.translatesAutoresizingMaskIntoConstraints = false
-        contentContainer.addSubview(tabBarControllerHost.view)
+        addChild(tabHost)
+        tabHost.view.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(tabHost.view)
         NSLayoutConstraint.activate([
             contentContainer.topAnchor.constraint(equalTo: view.topAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            tabBarControllerHost.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            tabBarControllerHost.view.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            tabBarControllerHost.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            tabBarControllerHost.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+            tabHost.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            tabHost.view.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            tabHost.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            tabHost.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
-        tabBarControllerHost.didMove(toParent: self)
+        tabHost.didMove(toParent: self)
         installRouteHistoryGestures()
     }
 
@@ -169,29 +161,102 @@ final class HayaseSidebarController: UIViewController {
     }
 
     @objc private func handleRouteHistoryPan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view)
         switch gesture.state {
+        case .began:
+            beginHistorySwipe()
+        case .changed:
+            guard let swipe = historySwipe else { return }
+            let dragged = swipe.direction == .back ? translation.x : -translation.x
+            swipe.update(progress: max(dragged, 0) / view.bounds.width)
         case .ended:
-            let translation = gesture.translation(in: view)
-            let velocity = gesture.velocity(in: view)
-            switch activeHistorySwipeDirection {
-            case .back:
-                if translation.x > 60 || velocity.x > 400 { router.back() }
-            case .forward:
-                if translation.x < -60 || velocity.x < -400 { router.forward() }
-            case .none:
-                break
-            }
-            activeHistorySwipeDirection = nil
+            finishHistorySwipe(translation: translation, velocity: gesture.velocity(in: view))
         case .cancelled, .failed:
+            historySwipe?.finish(completing: false) { [weak self] in
+                self?.endHistorySwipe()
+            }
             activeHistorySwipeDirection = nil
         default:
             break
         }
     }
 
-    private func installInterfaceRoutes() {
-        guard var controllers = tabBarControllerHost.viewControllers else { return }
-        controllers = controllers.map { controller in
+    private func beginHistorySwipe() {
+        guard historySwipe == nil,
+              let direction = activeHistorySwipeDirection,
+              let route = direction == .back ? router.previousRoute : router.nextRoute,
+              let destination = routeSnapshots[route],
+              destination.bounds.size == view.bounds.size,
+              let current = view.snapshotView(afterScreenUpdates: false) else { return }
+        historySwipe = HayaseHistorySwipe(direction: direction, current: current, destination: destination, host: view)
+    }
+
+    private func finishHistorySwipe(translation: CGPoint, velocity: CGPoint) {
+        let direction = activeHistorySwipeDirection
+        activeHistorySwipeDirection = nil
+        let commits: Bool
+        switch direction {
+        case .back:
+            commits = translation.x > 60 || velocity.x > 400
+        case .forward:
+            commits = translation.x < -60 || velocity.x < -400
+        case .none:
+            commits = false
+        }
+        guard let swipe = historySwipe else {
+            if commits {
+                if direction == .back { router.back() } else { router.forward() }
+            }
+            return
+        }
+        swipe.finish(completing: commits) { [weak self] in
+            guard let self else { return }
+            if commits {
+                self.completeHistorySwipe(swipe)
+            } else {
+                self.endHistorySwipe()
+            }
+        }
+    }
+
+    private func completeHistorySwipe(_ swipe: HayaseHistorySwipe) {
+        if let route = lastAppliedRoute {
+            storeSnapshot(swipe.current, for: route)
+        }
+        let moved = swipe.direction == .back ? router.back() : router.forward()
+        if !moved {
+            endHistorySwipe()
+        }
+    }
+
+    private func endHistorySwipe() {
+        guard let swipe = historySwipe else { return }
+        historySwipe = nil
+        view.layoutIfNeeded()
+        DispatchQueue.main.async {
+            swipe.remove()
+        }
+    }
+
+    private func captureSnapshotBeforeRouteChange(to route: Route) {
+        guard historySwipe == nil, !isMobileMenuOpen,
+              let previousRoute = lastAppliedRoute, previousRoute != route,
+              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
+        storeSnapshot(snapshot, for: previousRoute)
+    }
+
+    private func storeSnapshot(_ snapshot: UIView, for route: Route) {
+        snapshot.frame = view.bounds
+        routeSnapshots[route] = snapshot
+        routeSnapshotOrder.removeAll { $0 == route }
+        routeSnapshotOrder.append(route)
+        while routeSnapshotOrder.count > Self.routeSnapshotLimit {
+            routeSnapshots.removeValue(forKey: routeSnapshotOrder.removeFirst())
+        }
+    }
+
+    private static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
+        var controllers = viewControllers.map { controller -> UIViewController in
             if let nav = controller as? HayaseInterfaceNavigationController {
                 return nav
             }
@@ -200,64 +265,18 @@ final class HayaseSidebarController: UIViewController {
             }
             return controller
         }
-        captureRootPages(from: controllers)
-        guard controllers.count == 6 else {
-            tabBarControllerHost.setViewControllers(controllers, animated: false)
-            return
-        }
+        guard controllers.count == 6 else { return controllers }
         let chat = HayaseInterfaceNavigationController(rootViewController: HayaseChatViewController())
         controllers.insert(chat, at: 4)
-        tabBarControllerHost.setViewControllers(controllers, animated: false)
-    }
-
-    private func captureRootPages(from controllers: [UIViewController]) {
-        for controller in controllers {
-            guard let root = (controller as? UINavigationController)?.viewControllers.first else { continue }
-            if let page = root as? SearchViewController {
-                searchPage = page
-            } else if let page = root as? DownloadsViewController {
-                downloadsPage = page
-            } else if let page = root as? SettingsViewController {
-                settingsPage = page
-            }
-        }
-    }
-
-    private func rootPage(for route: Route) -> UIViewController? {
-        switch route {
-        case .search: return searchPage
-        case .client: return downloadsPage
-        case .settings, .profile: return settingsPage
-        default: return nil
-        }
+        return controllers
     }
 
     private func hideHostedNavigationBars() {
-        hideNavigationChrome(in: tabBarControllerHost)
-    }
-
-    private func hideNativeTabNavigation(in tab: UITabBarController) {
-        tab.tabBar.isHidden = true
-        tab.tabBar.alpha = 0
-        tab.tabBar.isUserInteractionEnabled = false
-
-        if #available(iOS 18.0, *) {
-            // iPadOS 18 can promote a UITabBarController into Apple's native
-            // tab/sidebar chrome on regular-width screens. This app owns its
-            // navigation UI, so keep UIKit's tab chrome fully disabled.
-            tab.mode = .tabBar
-            tab.setTabBarHidden(true, animated: false)
-            tab.sidebar.isHidden = true
-        }
-
-        tab.view.setNeedsLayout()
+        hideNavigationChrome(in: tabHost)
     }
 
     private func hideNavigationChrome(in viewController: UIViewController?) {
         guard let viewController else { return }
-        if let tab = viewController as? UITabBarController {
-            hideNativeTabNavigation(in: tab)
-        }
         if let nav = viewController as? UINavigationController {
             nav.setNavigationBarHidden(true, animated: false)
             nav.isToolbarHidden = true
@@ -522,23 +541,40 @@ final class HayaseSidebarController: UIViewController {
         mobileSidebarList.configure(actionHandler: handler)
     }
 
-    private func observeTabSelection() {
-        selectedIndexObservation = tabBarControllerHost.observe(\.selectedIndex, options: [.new]) { [weak self] tab, _ in
-            DispatchQueue.main.async {
-                guard let self, !self.isApplyingRoute,
-                      self.router.currentRoute.tabIndex != tab.selectedIndex,
-                      let route = Route(tabIndex: tab.selectedIndex) else { return }
-                self.router.sync(route, hostTabIndex: tab.selectedIndex)
-            }
-        }
-    }
-
     private func observeRouteChanges() {
         routeObservationID = router.observe { [weak self] route, kind in
             DispatchQueue.main.async {
                 self?.apply(route: route, kind: kind, animated: true)
             }
         }
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(animeNavigationWillLoad),
+                                               name: NSNotification.Name(Router.AnimeNavigationWillLoadNotification),
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(animeNavigationDidFail),
+                                               name: NSNotification.Name(Router.AnimeNavigationFailedNotification),
+                                               object: nil)
+    }
+
+    @objc private func animeNavigationWillLoad() {
+        beginNavigationProgress()
+    }
+
+    @objc private func animeNavigationDidFail() {
+        finishNavigationProgress()
+    }
+
+    private func beginNavigationProgress() {
+        guard !isNavigationLoading else { return }
+        isNavigationLoading = true
+        progressWindow?.bar.navigationWillBegin()
+    }
+
+    private func finishNavigationProgress() {
+        isNavigationLoading = false
+        progressWindow?.bar.navigationDidFinish()
+        endHistorySwipe()
     }
 
     private func handle(_ route: HayaseSidebarRoute) {
@@ -556,43 +592,68 @@ final class HayaseSidebarController: UIViewController {
 
     private func apply(route: Route, kind: Router.NavigationKind, animated: Bool) {
         saveScrollPositionBeforeRouteChange(to: route)
+        if animated {
+            captureSnapshotBeforeRouteChange(to: route)
+        }
         closeMobileMenu(animated: animated)
-        updateSelection(for: route, animated: animated)
+        if animated {
+            beginNavigationProgress()
+        }
+        loadRoute(route) { [weak self] preloadedAnime in
+            guard let self else { return }
+            self.commit(route: route, kind: kind, animated: animated, preloadedAnime: preloadedAnime)
+            if animated {
+                self.finishNavigationProgress()
+            }
+        }
+    }
+
+    /// The route's `load`: anime pages stay off screen until their media has arrived.
+    private func loadRoute(_ route: Route, completion: @escaping (AnimeItem?) -> Void) {
+        guard let id = animeID(for: route), animeRouteNeedsLoad(id, route: route) else {
+            completion(nil)
+            return
+        }
+        AnimeRouteLoader.load(id: id) { [weak self] result in
+            guard let self, self.isCurrentAnimeRoute(id) else { return }
+            switch result {
+            case .success(let item):
+                self.router.cacheAnimeItem(item)
+                completion(item)
+            case .failure(let error):
+                NSLog("[Sidebar] Anime route preload failed: %@", error.description)
+                self.finishNavigationProgress()
+            }
+        }
+    }
+
+    private func commit(route: Route, kind: Router.NavigationKind, animated: Bool, preloadedAnime: AnimeItem?) {
+        let usesTransition = usesViewTransition(for: route, kind: kind, animated: animated)
+        // the swipe stage already showed the move
+        let uiAnimated = animated && historySwipe == nil
+        let navigationAnimated = uiAnimated && !usesTransition
 
         let performRouteChange = {
+            self.updateSelection(for: route, animated: uiAnimated)
             let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
             if let targetIndex {
                 self.minimizeVisiblePlayerIfNeeded()
-                self.isApplyingRoute = true
-                if self.tabBarControllerHost.selectedIndex != targetIndex {
-                    self.tabBarControllerHost.selectedIndex = targetIndex
-                }
-                self.isApplyingRoute = false
+                self.tabHost.select(targetIndex)
             }
 
             switch route {
             case .anime(let id):
-                self.showAnimeRoute(id: id, threadID: nil, kind: kind, animated: animated)
+                self.showAnimeRoute(id: id, threadID: nil, kind: kind, preloaded: preloadedAnime, animated: navigationAnimated)
             case .animeThread(let animeID, let threadID):
-                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, animated: animated)
+                self.showAnimeRoute(id: animeID, threadID: threadID, kind: kind, preloaded: preloadedAnime, animated: navigationAnimated)
             case .player:
-                self.showPlayerRoute(animated: animated)
+                self.showPlayerRoute(animated: uiAnimated)
             default:
-                guard route.resetsTabStack else { break }
-                if let page = self.rootPage(for: route) {
-                    // Pop whichever navigation controller actually holds the
-                    // page (the tab's own nav, or UIKit's More nav on compact
-                    // widths) back to it. Never popToRoot on the More nav:
-                    // its root is the system "More" list.
-                    if let host = page.navigationController,
-                       host.viewControllers.contains(page),
-                       host.topViewController !== page {
-                        host.popToViewController(page, animated: false)
-                    }
-                } else if let nav = self.tabBarControllerHost.selectedViewController as? UINavigationController {
+                if route.resetsTabStack,
+                   let nav = self.tabHost.selectedViewController as? UINavigationController {
                     nav.popToRootViewController(animated: false)
+                    self.applyRouteState(route, to: nav)
                 }
-                self.applyRouteState(route)
             }
 
             self.hideHostedNavigationBars()
@@ -601,24 +662,20 @@ final class HayaseSidebarController: UIViewController {
             self.restoreScrollPositionIfNeeded(for: route)
         }
 
-        if shouldCrossfadeRoute(kind: kind, animated: animated) {
-            UIView.transition(with: contentContainer,
-                              duration: 0.16,
-                              options: [.transitionCrossDissolve, .allowAnimatedContent],
-                              animations: performRouteChange)
+        if usesTransition {
+            routeTransition.perform(in: view, changes: performRouteChange)
         } else {
             performRouteChange()
         }
     }
 
-    private func shouldCrossfadeRoute(kind: Router.NavigationKind, animated: Bool) -> Bool {
-        guard animated else { return false }
-        switch kind {
-        case .push, .back, .forward:
-            return true
-        case .replace, .sync:
-            return false
-        }
+    private func usesViewTransition(for route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
+        // iOS runs its own back/forward animation, and the player route skips it on mobile
+        guard animated, kind == .push, route != .player else { return false }
+        // fullscreenElement: the player is forced fullscreen on phones
+        let isPlayerFullscreen = UIDevice.current.userInterfaceIdiom == .phone
+            && topVisibleHostedController() is VideoPlayerViewController
+        return !isPlayerFullscreen
     }
 
     private func saveScrollPositionBeforeRouteChange(to route: Route) {
@@ -631,16 +688,16 @@ final class HayaseSidebarController: UIViewController {
         RouteScrollRestoration.restore(routeScrollPositions[route], in: topVisibleHostedController())
     }
 
-    private func applyRouteState(_ route: Route) {
+    private func applyRouteState(_ route: Route, to navigationController: UINavigationController) {
         switch route {
         case .search(let state):
-            searchPage?.applyRouteState(state)
+            (navigationController.viewControllers.first as? SearchViewController)?.applyRouteState(state)
         case .client(let clientRoute):
-            downloadsPage?.applyRoute(clientRoute)
+            (navigationController.viewControllers.first as? DownloadsViewController)?.applyRoute(clientRoute)
         case .settings(let settingsRoute):
-            settingsPage?.applyRoute(settingsRoute)
+            (navigationController.viewControllers.first as? SettingsViewController)?.applyRoute(settingsRoute)
         case .profile:
-            settingsPage?.openAccountsTab()
+            (navigationController.viewControllers.first as? SettingsViewController)?.openAccountsTab()
         default:
             break
         }
@@ -649,8 +706,9 @@ final class HayaseSidebarController: UIViewController {
     private func showAnimeRoute(id: Int,
                                 threadID: Int?,
                                 kind: Router.NavigationKind,
+                                preloaded: AnimeItem?,
                                 animated: Bool) {
-        guard let nav = tabBarControllerHost.selectedViewController as? UINavigationController else { return }
+        guard let nav = tabHost.selectedViewController as? UINavigationController else { return }
 
         if let detail = nav.topViewController as? AnimeDetailViewController,
            detail.routeAnimeID == id {
@@ -665,21 +723,32 @@ final class HayaseSidebarController: UIViewController {
             return
         }
 
-        if let item = router.cachedFullAnimeItem(for: id) {
+        if let item = preloaded ?? router.cachedFullAnimeItem(for: id) {
             pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
-            return
         }
+    }
 
-        AniListClient.shared.fetchResolverMediaByIdResult(id) { [weak self, weak nav] result in
-            guard let self, let nav, self.isCurrentAnimeRoute(id) else { return }
-            switch result {
-            case .success(let item):
-                self.router.cacheAnimeItem(item)
-                self.pushAnimeDetail(item: item, threadID: threadID, in: nav, animated: animated)
-            case .failure(let error):
-                NSLog("[Sidebar] Anime route preload failed: %@", error.description)
-            }
+    private func animeID(for route: Route) -> Int? {
+        switch route {
+        case .anime(let id): return id
+        case .animeThread(let animeID, _): return animeID
+        default: return nil
         }
+    }
+
+    private func animeRouteNeedsLoad(_ id: Int, route: Route) -> Bool {
+        if router.takeLoadedAnimeRoute(id) { return false }
+        guard let nav = hostNavigationController(for: route) else { return false }
+        let detail = nav.viewControllers.compactMap { $0 as? AnimeDetailViewController }.last
+        return detail?.routeAnimeID != id
+    }
+
+    private func hostNavigationController(for route: Route) -> UINavigationController? {
+        guard let index = route.tabIndex ?? router.currentHostTabIndex else {
+            return tabHost.selectedViewController as? UINavigationController
+        }
+        guard tabHost.viewControllers.indices.contains(index) else { return nil }
+        return tabHost.viewControllers[index] as? UINavigationController
     }
 
     private func isCurrentAnimeRoute(_ id: Int) -> Bool {
@@ -716,7 +785,7 @@ final class HayaseSidebarController: UIViewController {
             return
         }
 
-        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController {
+        if let nav = tabHost.selectedViewController as? UINavigationController {
             if nav.topViewController === player { return }
             if nav.viewControllers.contains(where: { $0 === player }) {
                 nav.popToViewController(player, animated: animated)
@@ -725,12 +794,12 @@ final class HayaseSidebarController: UIViewController {
         }
 
         player.isMinimizing = false
-        let presenter = topVisibleHostedController() ?? tabBarControllerHost
+        let presenter = topVisibleHostedController() ?? tabHost
         presenter.presentHayasePlayer(player, animated: animated)
     }
 
     private func minimizeVisiblePlayerIfNeeded() {
-        guard let nav = tabBarControllerHost.selectedViewController as? UINavigationController,
+        guard let nav = tabHost.selectedViewController as? UINavigationController,
               let player = nav.topViewController as? VideoPlayerViewController else { return }
         MiniPlayerManager.shared.minimize(player)
     }
@@ -741,16 +810,11 @@ final class HayaseSidebarController: UIViewController {
         updateSidebarBackground()
     }
 
-    private func updateSelection(animated: Bool) {
-        updateSelection(for: router.currentRoute, animated: animated)
-    }
-
     private func updateLayoutForCurrentWidth() {
         let isPhoneLandscape = traitCollection.userInterfaceIdiom == .phone
             && view.bounds.width > view.bounds.height
             && view.bounds.width >= 568
         let isDesktop = view.bounds.width >= 768 || traitCollection.horizontalSizeClass == .regular || isPhoneLandscape
-        hideNativeTabNavigation(in: tabBarControllerHost)
         guard isDesktopMode != isDesktop else { return }
         isDesktopMode = isDesktop
         sidebarList.superview?.isHidden = !isDesktop
@@ -786,7 +850,7 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func topVisibleHostedController() -> UIViewController? {
-        topVisibleController(from: tabBarControllerHost.selectedViewController)
+        topVisibleController(from: tabHost.selectedViewController)
     }
 
     private func topVisibleController(from controller: UIViewController?) -> UIViewController? {
@@ -796,9 +860,6 @@ final class HayaseSidebarController: UIViewController {
         }
         if let nav = controller as? UINavigationController {
             return topVisibleController(from: nav.topViewController)
-        }
-        if let tab = controller as? UITabBarController {
-            return topVisibleController(from: tab.selectedViewController)
         }
         return controller
     }
@@ -898,12 +959,7 @@ private final class SidebarBackdropGradientView: UIView {
     }
 }
 
-extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecognizerDelegate {
-    func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
-        hideHostedNavigationBars()
-        updateSelection(animated: true)
-    }
-
+extension HayaseSidebarController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
 
@@ -917,7 +973,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
 
         // Native pushed tool screens keep their local stack gesture. Main app
         // route history is only handled here when the visible stack is route-owned.
-        if let nav = tabBarControllerHost.selectedViewController as? UINavigationController,
+        if let nav = tabHost.selectedViewController as? UINavigationController,
            nav.viewControllers.count > 1,
            !isCurrentRouteOwnedByRouter {
             return false
@@ -936,20 +992,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
         return false
     }
 
-    /// Confirmed root cause of Settings' tab-grid buttons being untappable
-    /// on iPhone: this pan gesture lives on the app-wide root view, and
-    /// `edgeWidth` (32pt) is measured from the true screen edge — but on a
-    /// 2-column layout with 16pt outer margins, the second column's own
-    /// right edge sits well inside that 32pt zone (worked out to ~16pt from
-    /// the screen edge on a ~390pt-wide iPhone). `gestureRecognizerShouldBegin`
-    /// alone isn't enough: it only governs whether *this* gesture begins,
-    /// not whether it competes for the touch in the first place, and a plain
-    /// UIButton's own touch tracking can still lose that competition to a
-    /// sibling gesture recognizer on an ancestor view. Excluding touches
-    /// that land on any UIControl (or one of its subviews) here means this
-    /// gesture never contends for them at all — fixes this specific case
-    /// and protects every other button/switch near a screen edge elsewhere
-    /// in the app from the same class of bug.
+    // Buttons near the screen edge stay tappable: the history swipe never competes for a touch that lands on a control.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer is UIPanGestureRecognizer else { return true }
         var candidate: UIView? = touch.view

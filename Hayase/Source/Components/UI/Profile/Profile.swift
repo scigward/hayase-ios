@@ -660,7 +660,7 @@ private final class ProfileCardViewController: UIViewController {
     private static let bannerImageAlpha: CGFloat = 0.25
 
     private func navigate(to path: String) {
-        let hostTabIndex = presentingViewController?.tabBarController?.selectedIndex
+        let hostTabIndex = presentingViewController?.hayaseTabIndex
         dismiss(animated: false) {
             Router.shared.navigate(path: path, hostTabIndex: hostTabIndex)
         }

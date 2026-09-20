@@ -21,6 +21,7 @@ final class AniZipService {
     private var lastCachedData: AniZipEpisodesResponse?
     private var lastImagesCachedID: Int = 0
     private var lastImagesCachedData: AniZipImagesResponse?
+    private var preloadedEpisodes: [Int: AniZipEpisodesResponse] = [:]
     private let cacheQueue = DispatchQueue(label: "com.hayase.anizip.cache")
 
     func episodesCached(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
@@ -69,11 +70,25 @@ final class AniZipService {
 
     // MARK: - Episodes
 
-    func episodes(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
-        guard let url = URL(string: "\(baseURL)/episodes?anilist_id=\(anilistID)") else {
-            completion(nil); return
+    /// Fetches ahead of the anime page; the page's own `episodes` call takes the result once.
+    func preloadEpisodes(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
+        fetchEpisodes(anilistID: anilistID) { [weak self] response in
+            if let response {
+                self?.cacheQueue.async { self?.preloadedEpisodes[anilistID] = response }
+            }
+            completion(response)
         }
-        safeFetch(url: url, completion: completion)
+    }
+
+    func episodes(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
+        cacheQueue.async { [weak self] in
+            guard let self else { completion(nil); return }
+            if let preloaded = self.preloadedEpisodes.removeValue(forKey: anilistID) {
+                completion(preloaded)
+                return
+            }
+            self.fetchEpisodes(anilistID: anilistID, completion: completion)
+        }
     }
 
     // MARK: - Mappings
@@ -100,6 +115,13 @@ final class AniZipService {
     }
 
     // MARK: - Private
+
+    private func fetchEpisodes(anilistID: Int, completion: @escaping (AniZipEpisodesResponse?) -> Void) {
+        guard let url = URL(string: "\(baseURL)/episodes?anilist_id=\(anilistID)") else {
+            completion(nil); return
+        }
+        safeFetch(url: url, completion: completion)
+    }
 
     private func safeFetch<T: Decodable>(url: URL, completion: @escaping (T?) -> Void) {
         var request = URLRequest(url: url, timeoutInterval: 15)
