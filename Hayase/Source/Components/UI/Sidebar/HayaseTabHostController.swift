@@ -11,20 +11,21 @@ import UIKit
 
 // MARK: - HayaseTabHostController
 
-/// Shows one root navigation controller at a time. The app draws its own
-/// sidebar, so this replaces the hidden UITabBarController, which moves every
-/// tab past the fifth under its "More" navigation controller at compact widths.
-final class HayaseTabHostController: UIViewController {
-    let viewControllers: [UIViewController]
-    private(set) var selectedIndex = 0
-
-    var selectedViewController: UIViewController? {
-        viewControllers.indices.contains(selectedIndex) ? viewControllers[selectedIndex] : nil
-    }
+/// Keeps UIKit's real tab-controller containment and lifecycle while the app
+/// draws the visible navigation in HayaseSidebarController.
+///
+/// The first web-navigation implementation replaced UITabBarController with a
+/// plain UIViewController and manually moved UINavigationController children.
+/// That bypassed the UIKit tab relationship used by the storyboard roots and
+/// made first selection of Schedule, Client and Settings terminate the app.
+/// Keeping a real tab host also restores each page's `tabBarController` chain.
+final class HayaseTabHostController: UITabBarController {
 
     init(viewControllers: [UIViewController]) {
-        self.viewControllers = viewControllers
         super.init(nibName: nil, bundle: nil)
+        setViewControllers(viewControllers, animated: false)
+        selectedIndex = 0
+        tabBar.isHidden = true
     }
 
     required init?(coder: NSCoder) {
@@ -33,46 +34,15 @@ final class HayaseTabHostController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        if let selected = selectedViewController {
-            embed(selected)
-        }
+        tabBar.isHidden = true
     }
 
     func select(_ index: Int) {
-        guard viewControllers.indices.contains(index), index != selectedIndex else { return }
-        let outgoing = selectedViewController
-        let incoming = viewControllers[index]
-        guard isViewLoaded else {
-            selectedIndex = index
-            return
-        }
-
-        // HayaseRouteTransition already supplies the interface's full-screen
-        // crossfade. Do not wrap the child swap in UIViewController.transition:
-        // even with a zero duration it creates a UIKit transition transaction,
-        // and first-load collection/table reloads can then trip UIKit's update
-        // consistency assertions (Schedule, Client and Settings/Profile).
-        if let outgoing {
-            outgoing.willMove(toParent: nil)
-            outgoing.viewIfLoaded?.removeFromSuperview()
-            outgoing.removeFromParent()
-        }
-
+        guard let viewControllers,
+              viewControllers.indices.contains(index),
+              index != selectedIndex else { return }
         selectedIndex = index
-        embed(incoming)
-    }
-
-    private func embed(_ child: UIViewController) {
-        addChild(child)
-        prepareView(child.view)
-        view.addSubview(child.view)
-        child.didMove(toParent: self)
-    }
-
-    private func prepareView(_ childView: UIView) {
-        childView.translatesAutoresizingMaskIntoConstraints = true
-        childView.frame = view.bounds
-        childView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tabBar.isHidden = true
     }
 }
 
@@ -80,6 +50,9 @@ final class HayaseTabHostController: UIViewController {
 
 extension UIViewController {
     var hayaseTabHost: HayaseTabHostController? {
+        if let host = tabBarController as? HayaseTabHostController {
+            return host
+        }
         var candidate = parent
         while let current = candidate {
             if let host = current as? HayaseTabHostController { return host }
@@ -91,11 +64,15 @@ extension UIViewController {
     /// Index of the tab this controller currently lives in, if any.
     var hayaseTabIndex: Int? {
         guard let host = hayaseTabHost else { return nil }
+        if let navigationController,
+           let index = host.viewControllers?.firstIndex(where: { $0 === navigationController }) {
+            return index
+        }
         var root = self
         while let parent = root.parent, parent !== host {
             root = parent
         }
         guard root.parent === host else { return nil }
-        return host.viewControllers.firstIndex { $0 === root }
+        return host.viewControllers?.firstIndex { $0 === root }
     }
 }

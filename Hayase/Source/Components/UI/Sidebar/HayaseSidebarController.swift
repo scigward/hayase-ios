@@ -717,7 +717,7 @@ final class HayaseSidebarController: UIViewController {
             let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
             if route.resetsTabStack,
                let targetIndex,
-               let navigationController = self.tabHost.viewControllers[safe: targetIndex] as? UINavigationController {
+               let navigationController = self.tabHost.viewControllers?[safe: targetIndex] as? UINavigationController {
                 navigationController.popToRootViewController(animated: false)
                 self.applyRouteState(route, to: navigationController)
             }
@@ -867,8 +867,9 @@ final class HayaseSidebarController: UIViewController {
         guard let index = route.tabIndex ?? router.currentHostTabIndex else {
             return tabHost.selectedViewController as? UINavigationController
         }
-        guard tabHost.viewControllers.indices.contains(index) else { return nil }
-        return tabHost.viewControllers[index] as? UINavigationController
+        guard let viewControllers = tabHost.viewControllers,
+              viewControllers.indices.contains(index) else { return nil }
+        return viewControllers[index] as? UINavigationController
     }
 
     private func isCurrentAnimeRoute(_ id: Int) -> Bool {
