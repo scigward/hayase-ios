@@ -1,3 +1,5 @@
+// Mirrors: src/lib/components/ui/player/wrapper.svelte, src/lib/components/ui/player/player.svelte, src/routes/+layout.svelte, src/app.css
+
 /// Hayase wrapper.svelte — in-app mini-player manager.
 ///
 /// In Hayase, the player component (wrapper.svelte) is always mounted in the
@@ -173,17 +175,16 @@ final class MiniPlayerManager {
     /// Minimizes the fullscreen player into the in-app mini-player.
     /// Equivalent to Hayase's `isMiniplayer = true` (navigating away from
     /// `/app/player`).
-    func minimize(_ player: VideoPlayerViewController) {
+    func minimize(_ player: VideoPlayerViewController,
+                  removalAnimated: Bool = true,
+                  fadeIn: Bool = false) {
         // If there's already a different player active, close it first.
         if let existing = activePlayer, existing !== player {
             close()
         }
         activePlayer = player
 
-        // Capture the window scene from the player's window BEFORE dismissing.
-        // After dismiss, the player's view.window is nil, so we grab it now.
-        // This is the most reliable way to get a valid scene because we know
-        // the player's window is currently visible on screen.
+        // Prefer the player's current scene; route-driven modal exits fall back to the connected foreground scene below.
         let playerScene = player.view.window?.windowScene
 
         // Create a dedicated window for the mini-player so it floats above
@@ -216,13 +217,18 @@ final class MiniPlayerManager {
             self?.updateMiniCastProgress(elapsed: elapsed, duration: duration)
         }
 
-        // Position and show immediately — don't start invisible and don't
-        // depend on the dismiss completion to make the container visible.
-        // The dismiss cross-dissolve reveals the mini-player underneath.
+        // Root view transitions fade wrapper.svelte with the destination; do the same for the separate native mini window.
         isTucked = false
         isSnappedToRight = true
         repositionContainer()
-        container.alpha = 1
+        container.alpha = fadeIn ? 0 : 1
+        if fadeIn {
+            UIViewPropertyAnimator(duration: 0.2,
+                                   controlPoint1: CGPoint(x: 0.42, y: 0),
+                                   controlPoint2: CGPoint(x: 0.58, y: 1)) {
+                container.alpha = 1
+            }.startAnimation()
+        }
 
         // Start auto-hide timer so the mini-player tucks after a few seconds.
         resetAutoHideTimer()
@@ -231,22 +237,23 @@ final class MiniPlayerManager {
         player.isMinimizing = true
         let finishMinimize: () -> Void = { [weak self] in
             player.isMinimizing = false
-            // Reposition after dismiss in case safe area insets changed
-            // (e.g., landscape → portrait rotation during the transition).
+            // Reposition after removal in case safe area insets changed.
             self?.repositionContainer()
         }
         if let nav = player.navigationController,
            nav.viewControllers.contains(player) {
-            nav.popViewController(animated: true)
-            if let coordinator = player.transitionCoordinator {
+            nav.popViewController(animated: removalAnimated)
+            if removalAnimated, let coordinator = player.transitionCoordinator {
                 coordinator.animate(alongsideTransition: nil) { _ in
                     finishMinimize()
                 }
             } else {
                 finishMinimize()
             }
+        } else if player.presentingViewController != nil {
+            player.dismiss(animated: removalAnimated, completion: finishMinimize)
         } else {
-            player.dismiss(animated: true, completion: finishMinimize)
+            finishMinimize()
         }
 
         // Persist session state so the mini-player can be restored on relaunch

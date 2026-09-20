@@ -4,7 +4,7 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar), src/lib/components/ui/sidebar/sidebar.svelte, src/routes/app/anime/[id]/+page.svelte (preserved tab state)
+//  Mirrors: src/routes/app/+layout.svelte, src/routes/+layout.svelte (onNavigate, ProgressBar), src/lib/components/ui/sidebar/sidebar.svelte, src/routes/app/client/+page.ts, src/routes/app/client/+page.svelte, src/routes/app/settings/+page.ts, src/routes/app/settings/+page.svelte, src/routes/app/anime/[id]/+page.svelte (preserved tab state)
 //
 
 import UIKit
@@ -599,6 +599,13 @@ final class HayaseSidebarController: UIViewController {
     }
 
     private func apply(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool) {
+        guard router.currentRoute == route else { return }
+
+        if let redirectedRoute = responsiveIndexRedirect(for: route) {
+            router.replace(redirectedRoute, hostTabIndex: redirectedRoute.tabIndex, noScroll: options.noScroll)
+            return
+        }
+
         saveScrollPositionBeforeRouteChange(to: route)
         if animated {
             captureSnapshotBeforeRouteChange(to: route)
@@ -608,9 +615,10 @@ final class HayaseSidebarController: UIViewController {
         }
         loadRoute(route) { [weak self] preloaded in
             guard let self else { return }
-            self.commit(route: route, kind: kind, options: options, animated: animated, preloaded: preloaded)
-            if animated {
-                self.finishNavigationProgress()
+            self.commit(route: route, kind: kind, options: options, animated: animated, preloaded: preloaded) { [weak self] in
+                if animated {
+                    self?.finishNavigationProgress()
+                }
             }
         }
     }
@@ -677,17 +685,39 @@ final class HayaseSidebarController: UIViewController {
         if pending == 0 { completion(payload) }
     }
 
-    private func commit(route: Route, kind: Router.NavigationKind, options: Router.NavigationOptions, animated: Bool, preloaded: RouteLoadPayload) {
+    private func commit(route: Route,
+                        kind: Router.NavigationKind,
+                        options: Router.NavigationOptions,
+                        animated: Bool,
+                        preloaded: RouteLoadPayload,
+                        completion: @escaping () -> Void) {
+        let playerToMinimize = route == .player ? nil : visiblePlayerForRouteExit()
         let usesTransition = usesViewTransition(for: route, kind: kind, animated: animated)
         // the swipe stage already showed the move
         let uiAnimated = animated && historySwipe == nil
         let navigationAnimated = uiAnimated && !usesTransition
 
-        let performRouteChange = {
+        let performRouteChange: (Bool) -> Void = { [weak self] shouldMinimizePlayer in
+            guard let self else { return }
             self.updateSelection(for: route, animated: uiAnimated)
+
+            if shouldMinimizePlayer, let player = playerToMinimize {
+                player.exitFullscreenForRouteNavigationIfNeeded()
+                MiniPlayerManager.shared.minimize(
+                    player,
+                    removalAnimated: false,
+                    fadeIn: usesTransition && !UIAccessibility.isReduceMotionEnabled
+                )
+            }
+
             let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
+            if route.resetsTabStack,
+               let targetIndex,
+               let navigationController = self.tabHost.viewControllers[safe: targetIndex] as? UINavigationController {
+                navigationController.popToRootViewController(animated: false)
+                self.applyRouteState(route, to: navigationController)
+            }
             if let targetIndex {
-                self.minimizeVisiblePlayerIfNeeded()
                 self.tabHost.select(targetIndex)
             }
 
@@ -699,11 +729,7 @@ final class HayaseSidebarController: UIViewController {
             case .player:
                 self.showPlayerRoute(animated: uiAnimated)
             default:
-                if route.resetsTabStack,
-                   let nav = self.tabHost.selectedViewController as? UINavigationController {
-                    nav.popToRootViewController(animated: false)
-                    self.applyRouteState(route, to: nav)
-                }
+                break
             }
 
             self.hideHostedNavigationBars()
@@ -711,23 +737,47 @@ final class HayaseSidebarController: UIViewController {
             self.lastAppliedRoute = route
             self.restoreScrollPositionIfNeeded(for: route, kind: kind, noScroll: options.noScroll)
             self.closeMobileMenu(animated: uiAnimated)
+            completion()
+        }
+
+        // player.svelte awaits fullscreen exit before route commit; dismiss first so UIKit stack changes never overlap.
+        if let player = playerToMinimize,
+           player.navigationController?.viewControllers.contains(where: { $0 === player }) != true,
+           player.presentingViewController != nil {
+            player.exitFullscreenForRouteNavigationIfNeeded()
+            player.isMinimizing = true
+            player.dismiss(animated: uiAnimated) {
+                MiniPlayerManager.shared.minimize(player, removalAnimated: false)
+                performRouteChange(false)
+            }
+            return
         }
 
         if usesTransition {
-            routeTransition.perform(in: view, changes: performRouteChange)
+            routeTransition.perform(in: view) { performRouteChange(true) }
         } else {
-            performRouteChange()
+            performRouteChange(true)
         }
     }
 
+    private func visiblePlayerForRouteExit() -> VideoPlayerViewController? {
+        if let player = topVisibleHostedController() as? VideoPlayerViewController {
+            return player
+        }
+        guard !MiniPlayerManager.shared.isActive,
+              let player = router.cachedPlayer(),
+              player.viewIfLoaded?.window != nil else { return nil }
+        return player
+    }
+
     private func usesViewTransition(for route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
-        // iOS runs its own back/forward animation, and the player route skips it on mobile.
+        // iOS runs its own back/forward animation, and entering the mobile player skips it.
         // SvelteKit still runs onNavigate for goto(..., { replaceState: true }).
         guard animated, (kind == .push || kind == .replace), route != .player else { return false }
-        // fullscreenElement: the player is forced fullscreen on phones
-        let isPlayerFullscreen = UIDevice.current.userInterfaceIdiom == .phone
-            && topVisibleHostedController() is VideoPlayerViewController
-        return !isPlayerFullscreen
+        guard let player = visiblePlayerForRouteExit() else { return true }
+        // Root +layout.svelte skips startViewTransition whenever fullscreenElement is set.
+        // Phones force the player fullscreen; iPad can enter the same state manually.
+        return UIDevice.current.userInterfaceIdiom != .phone && !player.isFullscreenForRouteNavigation
     }
 
     private func saveScrollPositionBeforeRouteChange(to route: Route) {
@@ -867,12 +917,6 @@ final class HayaseSidebarController: UIViewController {
         presenter.presentHayasePlayer(player, animated: animated)
     }
 
-    private func minimizeVisiblePlayerIfNeeded() {
-        guard let nav = tabHost.selectedViewController as? UINavigationController,
-              let player = nav.topViewController as? VideoPlayerViewController else { return }
-        MiniPlayerManager.shared.minimize(player)
-    }
-
     private func updateSelection(for route: Route, animated: Bool) {
         sidebarList.setSelectedRoute(route, animated: animated)
         mobileSidebarList.setSelectedRoute(route, animated: animated)
@@ -890,6 +934,26 @@ final class HayaseSidebarController: UIViewController {
             closeMobileMenu(animated: false)
         }
         updateSidebarBackground()
+
+        if responsiveIndexRedirect(for: router.currentRoute) != nil {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let redirectedRoute = self.responsiveIndexRedirect(for: self.router.currentRoute) else { return }
+                self.router.replace(redirectedRoute, hostTabIndex: redirectedRoute.tabIndex)
+            }
+        }
+    }
+
+    private func responsiveIndexRedirect(for route: Route) -> Route? {
+        guard view.bounds.width >= 768 else { return nil }  // Tailwind md = 48rem = 768px
+        switch route {
+        case .client(.root):
+            return .client(.overview)
+        case .settings(.root):
+            return .settings(.player)
+        default:
+            return nil
+        }
     }
 
     private func updateSidebarBackground() {

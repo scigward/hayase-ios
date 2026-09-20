@@ -1,3 +1,5 @@
+// Mirrors: src/lib/components/ui/player/player.svelte, src/lib/components/ui/player/episodesmodal.svelte
+
 import UIKit
 import AVKit
 import CoreMedia
@@ -2636,38 +2638,26 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
-    /// Leaves the player and opens `/app/anime/[id]` for the anime being watched,
-    /// mirroring the web title button's `goto()`.
-    /// Also called from MiniPlayerManager's cast overlay title tap — the
-    /// player is already minimized in that case, so don't minimize it again
-    /// (minimize() isn't designed to be re-run against its own active player).
+    /// Mirrors episodesmodal.svelte's plain `goto()` to `/app/anime/[id]`; the app shell owns player exit/minimization.
     func openAnimeDetailFromTitle() {
         let mediaID = currentMediaID
         guard mediaID > 0 else { return }
 
         saveProgress()
-
-        // The fullscreen portal reparents the player's view into a window overlay;
-        // undo it first so the route change is actually visible underneath.
-        if isFullscreenPresentation {
-            toggleFullscreenPresentation()
-        }
-
         if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
             Router.shared.cacheAnimeItem(media)
         }
-
-        // Keep playback alive in the mini-player, matching the web app where
-        // navigating away from the player keeps the media session running.
-        // A player hosted in the shell's navigation stack is already minimized by
-        // `HayaseSidebarController.minimizeVisiblePlayerIfNeeded()` while the route
-        // is applied, so only the modally presented case needs handling here.
-        let isHostedInNavigationStack = navigationController?.viewControllers.contains(self) ?? false
-        if !isHostedInNavigationStack, MiniPlayerManager.shared.activePlayer !== self {
-            MiniPlayerManager.shared.minimize(self)
-        }
-
         Router.shared.navigate(.anime(id: mediaID))
+    }
+
+    var isFullscreenForRouteNavigation: Bool {
+        isFullscreenPresentation
+    }
+
+    func exitFullscreenForRouteNavigationIfNeeded() {
+        if isFullscreenPresentation {
+            exitFullscreenPresentation()
+        }
     }
 
     /// interface episodesmodal.svelte: `<Sheet.Content class='w-full sm:w-[550px] ...'>`
