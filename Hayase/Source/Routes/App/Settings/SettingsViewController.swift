@@ -1653,10 +1653,10 @@ final class HayaseSettingsPreviewGridCell: UITableViewCell {
         switch kind {
         case .subtitleStyle:
             tiles = [
-                makeSubtitleTile(title: "None", sample: "🚫", selected: true),
-                makeSubtitleTile(title: "Gandhi Sans Bold", sample: "Never give up on your dreams!", selected: false),
-                makeSubtitleTile(title: "Noto Sans Bold", sample: "The story continues...", selected: false),
-                makeSubtitleTile(title: "Roboto Bold", sample: "Let's go!", selected: false),
+                makeSubtitleTile(title: "None", sample: "🚫", image: nil, selected: true),
+                makeSubtitleTile(title: "Gandhi Sans Bold", sample: "", image: HayaseSettingsArtwork.gandhiSans, selected: false),
+                makeSubtitleTile(title: "Noto Sans Bold", sample: "", image: HayaseSettingsArtwork.notoSans, selected: false),
+                makeSubtitleTile(title: "Roboto Bold", sample: "", image: HayaseSettingsArtwork.roboto, selected: false),
             ]
         case .colorTheme:
             tiles = [
@@ -1697,13 +1697,17 @@ final class HayaseSettingsPreviewGridCell: UITableViewCell {
         }
     }
 
-    private func makeSubtitleTile(title: String, sample: String, selected: Bool) -> UIView {
+    private func makeSubtitleTile(title: String,
+                                  sample: String,
+                                  image: UIImage?,
+                                  selected: Bool) -> UIView {
         let tile = previewContainer(selected: selected)
         tile.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.4)
 
         let name = previewLabel(title, size: 20, weight: .bold, color: UIColor.HayaseTheme.foreground)
         let sampleLabel = previewLabel(sample, size: title == "None" ? 36 : 17, weight: .bold, color: .white)
         sampleLabel.textAlignment = .center
+        sampleLabel.isHidden = image != nil
         sampleLabel.layer.shadowColor = UIColor.black.cgColor
         sampleLabel.layer.shadowOpacity = 1
         sampleLabel.layer.shadowRadius = 2
@@ -1712,21 +1716,31 @@ final class HayaseSettingsPreviewGridCell: UITableViewCell {
         let video = UIView()
         video.backgroundColor = UIColor(white: 0.08, alpha: 1)
         video.layer.cornerRadius = 4
+        video.clipsToBounds = true
         video.translatesAutoresizingMaskIntoConstraints = false
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFill
+        imageView.isHidden = image == nil
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        video.addSubview(imageView)
         video.addSubview(sampleLabel)
         sampleLabel.translatesAutoresizingMaskIntoConstraints = false
-        tile.addSubview(name)
         tile.addSubview(video)
+        tile.addSubview(name)
 
         NSLayoutConstraint.activate([
-            tile.heightAnchor.constraint(equalToConstant: 174),
             name.topAnchor.constraint(equalTo: tile.topAnchor, constant: 16),
             name.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 16),
             name.trailingAnchor.constraint(lessThanOrEqualTo: tile.trailingAnchor, constant: -16),
-            video.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 10),
-            video.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 12),
-            video.trailingAnchor.constraint(equalTo: tile.trailingAnchor, constant: -12),
-            video.bottomAnchor.constraint(equalTo: tile.bottomAnchor, constant: -12),
+            video.topAnchor.constraint(equalTo: tile.topAnchor),
+            video.leadingAnchor.constraint(equalTo: tile.leadingAnchor),
+            video.trailingAnchor.constraint(equalTo: tile.trailingAnchor),
+            video.bottomAnchor.constraint(equalTo: tile.bottomAnchor),
+            video.heightAnchor.constraint(equalTo: video.widthAnchor, multiplier: 9.0 / 16.0),
+            imageView.topAnchor.constraint(equalTo: video.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: video.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: video.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: video.bottomAnchor),
             sampleLabel.centerXAnchor.constraint(equalTo: video.centerXAnchor),
             sampleLabel.centerYAnchor.constraint(equalTo: video.centerYAnchor),
             sampleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: video.leadingAnchor, constant: 8),
