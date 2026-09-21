@@ -478,7 +478,7 @@ final class HayaseSettingsPreviewGridCell: UITableViewCell {
         ])
     }
 
-    fileprivate func configure(title: String,
+    func configure(title: String,
                                description: String,
                                kind: SettingsPreviewKind,
                                selectedValue: String,
