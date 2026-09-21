@@ -100,8 +100,6 @@ enum SettingsSectionCatalog {
         ("NATIVE", "Native (進撃の巨人)"),
     ]
 
-    private static let torrentBackends: [(key: String, label: String)] = TorrentBackendKind.settingsOptions
-
     private static let downloadLocations: [(key: String, label: String)] = [
         ("cache", "Cache"), ("documents", "Internal Storage"),
     ]
@@ -165,20 +163,16 @@ enum SettingsSectionCatalog {
             Row(title: "Minimal UI",
                 description: "Forces minimalistic player UI, hides controls.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.minimalPlayerUI, defaultValue: Settings.Defaults.minimalPlayerUI)),
-            Row(title: "Show Streaming Logger",
-                description: "Keeps the streaming log overlay visible during playback instead of auto-hiding.",
-                kind: .toggle(userDefaultsKey: "pref_showLogger", defaultValue: false)),  // iOS-specific: not in Hayase, kept per user request
         ], tab: .player),
 
         // ── Client tab (Hayase /app/settings/client/) ──
+
+        Section(header: "Security Settings", rows: [], tab: .client),
 
         Section(header: "Torrent Client Settings", rows: [
             Row(title: "Torrent Download Location",
                 description: "Path to the folder used to store torrents. By default this is the OS's TEMP/TMP cache folder, which might lose data when your OS tries to reclaim storage.",
                 kind: .selectable(userDefaultsKey: "pref_torrentLocation", options: Self.downloadLocations, defaultKey: "cache")),
-            Row(title: "Torrent Backend",
-                description: "Switches between the native libtorrent backend and Hayase's WebTorrent backend.",
-                kind: .selectable(userDefaultsKey: TorrentBackendKind.userDefaultsKey, options: Self.torrentBackends, defaultKey: TorrentBackendKind.defaultKind.rawValue)),
             Row(title: "Persist Files",
                 description: "Keeps torrents files instead of deleting them after a new torrent is played. This doesn't seed the files, only keeps them on your drive. This will quickly fill up your storage.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.persistFiles, defaultValue: Settings.Defaults.persistFiles)),
@@ -187,7 +181,7 @@ enum SettingsSectionCatalog {
                 kind: .toggle(userDefaultsKey: Settings.Keys.streamedDownload, defaultValue: Settings.Defaults.streamedDownload)),
             Row(title: "Transfer Speed Limit",
                 description: "Download/Upload speed limit for torrents, higher values increase CPU usage, and values higher than your storage write speeds will quickly fill up RAM.",
-                kind: .editableNumber(userDefaultsKey: "pref_torrentSpeed", defaultValue: "40", suffix: "Mb/s", min: 1, max: 999)),
+                kind: .editableNumber(userDefaultsKey: "pref_torrentSpeed", defaultValue: "40", suffix: "Mb/s", min: 1, max: 50)),
             Row(title: "Max Number of Connections",
                 description: "Number of peers per torrent. Higher values will increase download speeds but might quickly fill up available ports if your ISP limits the maximum allowed number of open connections.",
                 kind: .editableNumber(userDefaultsKey: "pref_maxConns", defaultValue: "80", suffix: "", min: 1, max: 512)),

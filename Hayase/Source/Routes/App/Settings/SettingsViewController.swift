@@ -260,9 +260,8 @@ class SettingsViewController: UIViewController {
             bodyWidth,
         ]
 
-        // The web settings shell owns its viewport padding. The hidden UIKit
-        // tab/navigation bars may still contribute a large safe-area inset.
-        let headingTop = headingStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 12)
+        // #root has safe-area top padding; +layout.svelte adds 12/40pt inside it.
+        let headingTop = headingStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
         let separatorTop = pageSeparator.topAnchor.constraint(equalTo: headingStack.bottomAnchor, constant: 12)
         let bodyTop = bodyContainer.topAnchor.constraint(equalTo: pageSeparator.bottomAnchor, constant: 12)
         bodyContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -344,11 +343,10 @@ class SettingsViewController: UIViewController {
         card.backgroundColor = UIColor(red: 232 / 255, green: 121 / 255, blue: 249 / 255, alpha: 1)
         card.layer.cornerRadius = 4
         card.clipsToBounds = true
-
-        let artwork = UIImageView(image: HayaseSettingsArtwork.flowers)
-        artwork.contentMode = .scaleAspectFill
-        artwork.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(artwork)
+        // Web uses background-image/cover; a constrained UIImageView would
+        // contribute the 1573x433 artwork's intrinsic height to Auto Layout.
+        card.layer.contents = HayaseSettingsArtwork.flowers?.cgImage
+        card.layer.contentsGravity = .resizeAspectFill
 
         let title = UILabel()
         title.text = "Support the Project"
@@ -380,10 +378,6 @@ class SettingsViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(stack)
         NSLayoutConstraint.activate([
-            artwork.topAnchor.constraint(equalTo: card.topAnchor),
-            artwork.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            artwork.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            artwork.bottomAnchor.constraint(equalTo: card.bottomAnchor),
             stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -24),
@@ -682,63 +676,26 @@ class SettingsViewController: UIViewController {
         present(picker, animated: true)
     }
 
-    // MARK: - Editable number/text alert
-
-    private func showEditableAlert(title: String, key: String, defaultValue: String, suffix: String, min: Int, max: Int, indexPath: IndexPath) {
-        let currentValue = UserDefaults.standard.string(forKey: key) ?? defaultValue
-
-        let alert = UIAlertController(title: title, message: suffix.isEmpty ? nil : "Enter a value", preferredStyle: .alert)
-        alert.addTextField { textField in
-            textField.text = currentValue
-            textField.clearButtonMode = .whileEditing
-            if min > 0 || max > 0 {
-                textField.keyboardType = .numberPad
-            }
-            if !suffix.isEmpty {
-                textField.placeholder = suffix
-            }
-        }
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
-            guard let text = alert.textFields?.first?.text, !text.isEmpty else { return }
-            // Validate numeric range if applicable
-            if min > 0 || max > 0 {
-                guard let num = Int(text) else {
-                    self?.presentMessage(title: "Invalid Value", message: "Enter a whole number for \(title).")
-                    return
-                }
-                let clamped = Swift.min(Swift.max(num, min), max)
-                Settings.write(String(clamped), forKey: key)
+    // The web settings use inline inputs. Commit on editing end so the active
+    // torrent session is updated without replacing the editing cell.
+    private func commitInput(_ value: String, key: String, fallback: String,
+                             numericRange: ClosedRange<Int>?, allowsFraction: Bool = false) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let result: String
+        if let range = numericRange {
+            if allowsFraction, let number = Double(trimmed), number.isFinite {
+                result = String(Swift.min(Swift.max(number, Double(range.lowerBound)), Double(range.upperBound)))
+            } else if let number = Int(trimmed) {
+                result = String(Swift.min(Swift.max(number, range.lowerBound), range.upperBound))
             } else {
-                Settings.write(text, forKey: key)
+                return UserDefaults.standard.string(forKey: key) ?? fallback
             }
-            self?.tableView.reloadData()
-            self?.applyTorrentSettingsIfNeeded(forKey: key)
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        present(alert, animated: true)
-    }
-
-    private func showEditableTextAlert(title: String,
-                                       key: String,
-                                       defaultValue: String,
-                                       secure: Bool) {
-        let currentValue = UserDefaults.standard.string(forKey: key) ?? defaultValue
-        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
-        alert.addTextField { field in
-            field.text = currentValue
-            field.isSecureTextEntry = secure
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-            field.clearButtonMode = .whileEditing
+        } else {
+            result = trimmed
         }
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
-            guard let value = alert?.textFields?.first?.text else { return }
-            Settings.write(value.trimmingCharacters(in: .whitespacesAndNewlines), forKey: key)
-            self?.applyTorrentSettingsIfNeeded(forKey: key)
-            self?.tableView.reloadData()
-        })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        present(alert, animated: true)
+        Settings.write(result, forKey: key)
+        applyTorrentSettingsIfNeeded(forKey: key)
+        return result
     }
 
     // MARK: - Action handling
@@ -918,30 +875,48 @@ extension SettingsViewController: UITableViewDataSource {
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let storedKey = UserDefaults.standard.string(forKey: key) ?? defaultKey
             let displayValue = options.first(where: { $0.key == storedKey })?.label ?? storedKey
-            cell.configure(title: row.title, description: row.description, value: displayValue,
-                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row), selectable: true)
+            if row.title == "Torrent Download Location" {
+                cell.configureDownloadLocation(title: row.title, description: row.description,
+                                               path: TorrentBackendSettings().path,
+                                               choice: displayValue, horizontal: horizontal)
+            } else {
+                cell.configure(title: row.title, description: row.description, value: displayValue,
+                               isLink: false, horizontal: horizontal,
+                               controlWidth: controlWidth(for: row), selectable: true)
+            }
             cell.selectionStyle = .default
             cell.backgroundColor = bgColor
             return cell
-        case .editableNumber(let key, let defaultValue, let suffix, _, _):
+        case .editableNumber(let key, let defaultValue, let suffix, let min, let max):
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
-            let display = suffix.isEmpty ? stored : "\(stored) \(suffix)"
-            cell.configure(title: row.title, description: row.description, value: display,
-                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row))
-            cell.selectionStyle = .default
+            cell.configureInput(title: row.title, description: row.description, value: stored,
+                                placeholder: defaultValue, secure: false, numeric: true,
+                                suffix: suffix, horizontal: horizontal, controlWidth: 128)
+            cell.onInputEnded = { [weak self] value in
+                self?.commitInput(value, key: key, fallback: defaultValue,
+                                  numericRange: min...max, allowsFraction: key == Settings.Keys.seekDuration) ?? stored
+            }
             cell.backgroundColor = bgColor
             return cell
         case .editableText(let key, let defaultValue, let secure):
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: HayaseSettingValueCell.reuseID, for: indexPath) as? HayaseSettingValueCell else { return UITableViewCell() }
             let stored = UserDefaults.standard.string(forKey: key) ?? defaultValue
-            let display = secure && !stored.isEmpty ? String(repeating: "•", count: min(max(stored.count, 8), 16)) : stored
-            cell.configure(title: row.title, description: row.description,
-                           value: display.isEmpty ? "Not configured" : display,
-                           isLink: false, horizontal: horizontal, controlWidth: controlWidth(for: row))
-            cell.selectionStyle = .default
+            let placeholder: String
+            switch row.title {
+            case "Provider Domain": placeholder = "news.example.com"
+            case "Provider Login": placeholder = "admin"
+            case "Provider Password": placeholder = "admin1"
+            default: placeholder = ""
+            }
+            cell.configureInput(title: row.title, description: row.description, value: stored,
+                                placeholder: placeholder, secure: secure, numeric: false,
+                                suffix: "", horizontal: horizontal, controlWidth: 320)
+            cell.onInputEnded = { [weak self] value in
+                self?.commitInput(value, key: key, fallback: defaultValue, numericRange: nil) ?? stored
+            }
             cell.backgroundColor = bgColor
             return cell
         case .link:
@@ -1061,10 +1036,8 @@ extension SettingsViewController: UITableViewDelegate {
             }
         case .selectable(let key, let options, let defaultKey):
             showSelectionPicker(title: row.title, key: key, options: options, defaultKey: defaultKey, indexPath: indexPath)
-        case .editableNumber(let key, let defaultValue, let suffix, let min, let max):
-            showEditableAlert(title: row.title, key: key, defaultValue: defaultValue, suffix: suffix, min: min, max: max, indexPath: indexPath)
-        case .editableText(let key, let defaultValue, let secure):
-            showEditableTextAlert(title: row.title, key: key, defaultValue: defaultValue, secure: secure)
+        case .editableNumber, .editableText:
+            break // Inline Input handles editing.
         case .action:
             handleAction(title: row.title)
         case .button(_):

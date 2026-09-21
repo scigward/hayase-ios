@@ -115,10 +115,16 @@ final class HayaseSettingValueCell: UITableViewCell {
     private let contentStack = UIStackView()
     private let controlView = UIView()
     private let comboBox = ComboBox()
+    private let downloadLocationStack = UIStackView()
+    private let downloadPathField = Input(placeholder: "/tmp/webtorrent")
+    private let downloadLocationComboBox = ComboBox()
     private let valueLabel = UILabel()
+    private let input = Input(placeholder: "")
     private var controlWidthConstraint: NSLayoutConstraint?
     private var comboWidthConstraint: NSLayoutConstraint?
-    var selectionAnchor: UIView { comboBox }
+    private var inputWidthConstraint: NSLayoutConstraint?
+    var onInputEnded: ((String) -> String)?
+    var selectionAnchor: UIView { downloadLocationStack.isHidden ? comboBox : downloadLocationComboBox }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -186,6 +192,41 @@ final class HayaseSettingValueCell: UITableViewCell {
         comboBox.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         comboBox.isHidden = true
 
+        input.layer.borderWidth = 1
+        input.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        input.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        inputWidthConstraint = input.widthAnchor.constraint(equalToConstant: 128)
+        inputWidthConstraint?.priority = .defaultHigh
+        inputWidthConstraint?.isActive = true
+        input.setContentHuggingPriority(.required, for: .horizontal)
+        input.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        input.addTarget(self, action: #selector(inputDidEndEditing), for: .editingDidEnd)
+        input.addTarget(self, action: #selector(inputDidReturn), for: .editingDidEndOnExit)
+        input.isHidden = true
+
+        downloadLocationStack.axis = .horizontal
+        downloadLocationStack.spacing = 0
+        downloadLocationStack.alignment = .center
+        downloadLocationStack.isHidden = true
+        downloadPathField.isUserInteractionEnabled = false
+        downloadPathField.layer.borderWidth = 1
+        downloadPathField.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        downloadPathField.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        downloadPathField.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        let pathWidth = downloadPathField.widthAnchor.constraint(equalToConstant: 240)
+        pathWidth.priority = .defaultHigh
+        pathWidth.isActive = true
+        downloadLocationComboBox.isUserInteractionEnabled = false
+        downloadLocationComboBox.layer.borderWidth = 1
+        downloadLocationComboBox.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        downloadLocationComboBox.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        let locationWidth = downloadLocationComboBox.widthAnchor.constraint(equalToConstant: 128)
+        locationWidth.priority = .defaultHigh
+        locationWidth.isActive = true
+        downloadLocationStack.addArrangedSubview(downloadPathField)
+        downloadLocationStack.addArrangedSubview(downloadLocationComboBox)
+        downloadLocationStack.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
         contentStack.axis = .horizontal
         contentStack.alignment = .center
         contentStack.spacing = 12
@@ -193,9 +234,12 @@ final class HayaseSettingValueCell: UITableViewCell {
         contentStack.addArrangedSubview(textStack)
         contentStack.addArrangedSubview(controlView)
         contentStack.addArrangedSubview(comboBox)
+        contentStack.addArrangedSubview(input)
+        contentStack.addArrangedSubview(downloadLocationStack)
         cardView.addSubview(contentStack)
 
         NSLayoutConstraint.activate([
+            downloadLocationStack.widthAnchor.constraint(lessThanOrEqualTo: contentStack.widthAnchor),
             cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
             cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -220,6 +264,9 @@ final class HayaseSettingValueCell: UITableViewCell {
         valueLabel.text = value
         controlView.isHidden = value == nil || selectable
         comboBox.isHidden = !selectable
+        input.isHidden = true
+        downloadLocationStack.isHidden = true
+        onInputEnded = nil
         comboBox.configure(text: value ?? "", placeholder: value == nil)
         controlWidthConstraint?.constant = controlWidth
         comboWidthConstraint?.constant = controlWidth
@@ -231,6 +278,54 @@ final class HayaseSettingValueCell: UITableViewCell {
         selectionStyle = (isLink || value != nil) ? .default : .none
         contentStack.axis = horizontal ? .horizontal : .vertical
         contentStack.alignment = horizontal ? .center : .leading
+    }
+
+    func configureDownloadLocation(title: String, description: String,
+                                   path: String, choice: String, horizontal: Bool) {
+        configure(title: title, description: description, value: nil,
+                  isLink: false, horizontal: horizontal)
+        downloadPathField.text = path
+        downloadLocationComboBox.configure(text: choice, placeholder: false)
+        downloadLocationStack.isHidden = false
+        selectionStyle = .default
+    }
+
+    func configureInput(title: String, description: String, value: String,
+                        placeholder: String, secure: Bool, numeric: Bool,
+                        suffix: String, horizontal: Bool, controlWidth: CGFloat) {
+        configure(title: title, description: description, value: nil,
+                  isLink: false, horizontal: horizontal)
+        input.isHidden = false
+        input.text = value
+        input.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)])
+        input.isSecureTextEntry = secure
+        input.keyboardType = numeric ? .numbersAndPunctuation : .default
+        input.returnKeyType = .done
+        inputWidthConstraint?.constant = controlWidth
+        selectionStyle = .none
+
+        if suffix.isEmpty {
+            input.rightView = nil
+            input.rightViewMode = .never
+        } else {
+            let label = UILabel(frame: CGRect(x: 0, y: 0, width: suffix == "Mb/s" ? 48 : 40, height: 36))
+            label.text = suffix
+            label.font = .nunito(ofSize: 14)
+            label.textColor = UIColor.HayaseTheme.foreground
+            input.rightView = label
+            input.rightViewMode = .always
+        }
+    }
+
+    @objc private func inputDidEndEditing() {
+        guard let onInputEnded else { return }
+        input.text = onInputEnded(input.text ?? "")
+    }
+
+    @objc private func inputDidReturn() {
+        input.resignFirstResponder()
     }
 }
 

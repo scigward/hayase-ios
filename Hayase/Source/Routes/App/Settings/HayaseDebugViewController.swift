@@ -71,6 +71,16 @@ final class HayaseDebugViewController: UIViewController {
             description: "Save native media-session and export capabilities for this device.",
             action: #selector(saveMediaCapabilities)
         ))
+        stack.addArrangedSubview(makeCard(
+            title: "Native Torrent Backend",
+            description: "Switch between the native libtorrent and WebTorrent backends.",
+            action: #selector(selectTorrentBackend), buttonTitle: "Select"
+        ))
+        stack.addArrangedSubview(makeCard(
+            title: "Streaming Logger Overlay",
+            description: "Configure the native playback log overlay.",
+            action: #selector(configureStreamingLogger), buttonTitle: "Configure"
+        ))
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -85,7 +95,8 @@ final class HayaseDebugViewController: UIViewController {
         ])
     }
 
-    private func makeCard(title: String, description: String, action: Selector) -> UIView {
+    private func makeCard(title: String, description: String, action: Selector,
+                          buttonTitle: String = "Save") -> UIView {
         let card = UIView()
         card.backgroundColor = UIColor.HayaseTheme.muted
         card.layer.cornerRadius = 6
@@ -104,7 +115,7 @@ final class HayaseDebugViewController: UIViewController {
         text.spacing = 4
 
         let button = UIButton(type: .system)
-        button.setTitle("Save", for: .normal)
+        button.setTitle(buttonTitle, for: .normal)
         button.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
         button.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
         button.backgroundColor = UIColor.HayaseTheme.primary
@@ -184,6 +195,42 @@ final class HayaseDebugViewController: UIViewController {
             "exportPresets": AVAssetExportSession.allExportPresets(),
         ]
         shareJSON(info, name: "hayase-media-capabilities")
+    }
+
+    @objc private func selectTorrentBackend() {
+        let options = TorrentBackendKind.settingsOptions
+        let picker = CommandPopoverViewController(
+            title: "Native Torrent Backend", placeholder: "Search...",
+            groups: [CommandGroup(options: options.map {
+                CommandOption(value: $0.key, label: $0.label)
+            })],
+            selectedValues: [TorrentBackendKind.current().rawValue],
+            allowsMultiple: false, sourceView: view
+        )
+        picker.onSelectionChanged = { values in
+            guard let value = values.first else { return }
+            Settings.write(value, forKey: TorrentBackendKind.userDefaultsKey)
+            TorrentBackendManager.shared.backendSelectionDidChange()
+        }
+        present(picker, animated: true)
+    }
+
+    @objc private func configureStreamingLogger() {
+        let enabled = UserDefaults.standard.bool(forKey: "pref_showLogger")
+        let alert = UIAlertController(title: "Streaming Logger Overlay",
+                                      message: enabled ? "Currently enabled" : "Currently disabled",
+                                      preferredStyle: .actionSheet)
+        for option in [("Enable", true), ("Disable", false)] {
+            alert.addAction(UIAlertAction(title: option.0, style: .default) { _ in
+                Settings.write(option.1, forKey: "pref_showLogger")
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
+        present(alert, animated: true)
     }
 
     private func shareJSON(_ object: [String: Any], name: String) {
