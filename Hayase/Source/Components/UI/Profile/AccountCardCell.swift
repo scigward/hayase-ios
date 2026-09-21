@@ -273,7 +273,7 @@ final class HayaseAccountCardCell: UITableViewCell {
         iconView = icon
 
         // Settings button visibility
-        settingsButton.isHidden = !(tracker == .anilist || tracker == .mal)
+        settingsButton.isHidden = !(tracker == .anilist || tracker == .mal || tracker == .simkl)
 
         // Local tracker has no login button
         loginButton.isHidden = tracker == .local
@@ -344,6 +344,8 @@ final class HayaseAccountCardCell: UITableViewCell {
                 loginKitsu()
             case .mal:
                 loginMAL()
+            case .simkl:
+                loginSimkl()
             case .local:
                 break
             }
@@ -356,6 +358,8 @@ final class HayaseAccountCardCell: UITableViewCell {
             showAniListSettings()
         case .mal:
             showMALSettings()
+        case .simkl:
+            showSimklSettings()
         default:
             break
         }
@@ -470,6 +474,42 @@ final class HayaseAccountCardCell: UITableViewCell {
         session.start()
     }
 
+    // MARK: - Simkl Login
+
+    private func loginSimkl() {
+        guard let vc = parentVC else { return }
+        guard !SimklAuth.clientID.isEmpty, !SimklAuth.clientSecret.isEmpty else {
+            showSimklSettings()
+            return
+        }
+        let state = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        guard let url = SimklAuth.authorizeURL(state: state) else { return }
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "hayase") { [weak self] callbackURL, error in
+            self?.authSession = nil
+            self?.authPresentationContext = nil
+            guard error == nil,
+                  let callbackURL,
+                  let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  components.queryItems?.first(where: { $0.name == "state" })?.value == state,
+                  let code = components.queryItems?.first(where: { $0.name == "code" })?.value else { return }
+            SimklAuth.completeLogin(code: code) { result in
+                if case .failure(let error) = result {
+                    let alert = UIAlertController(title: "Simkl Login Failed",
+                                                  message: error.localizedDescription,
+                                                  preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    vc.present(alert, animated: true)
+                }
+            }
+        }
+        let context = AniListAuthPresentationContext(anchor: vc)
+        authPresentationContext = context
+        session.presentationContextProvider = context
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        session.start()
+    }
+
     // MARK: - Settings dialogs
 
     private func showAniListSettings() {
@@ -531,6 +571,35 @@ final class HayaseAccountCardCell: UITableViewCell {
             popover.sourceRect = settingsButton.bounds
         }
 
+        vc.present(alert, animated: true)
+    }
+
+    private func showSimklSettings() {
+        guard let vc = parentVC else { return }
+        let alert = UIAlertController(
+            title: "Simkl Settings",
+            message: "Create an OAuth application at simkl.com/settings/developer/new, then enter its credentials here.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.text = SimklAuth.clientID
+            field.placeholder = "Simkl Client ID"
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addTextField { field in
+            field.text = SimklAuth.clientSecret
+            field.placeholder = "Simkl Client Secret"
+            field.isSecureTextEntry = true
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak alert] _ in
+            let fields = alert?.textFields ?? []
+            SimklAuth.clientID = fields.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            SimklAuth.clientSecret = fields.dropFirst().first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         vc.present(alert, animated: true)
     }
 }

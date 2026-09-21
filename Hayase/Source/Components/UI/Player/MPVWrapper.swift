@@ -131,8 +131,14 @@ final class MPVWrapper {
             guard let self else { return }
             if layer.status == .failed {
                 if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Display layer failed - auto-resetting decoder") }
-                self.queue.async {
-                    self.performDecoderReset()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    // AVSampleBufferDisplayLayer does not resume accepting
+                    // samples after a failure until its failed image is flushed.
+                    self.displayLayer.flushAndRemoveImage()
+                    self.queue.async { [weak self] in
+                        self?.performDecoderReset()
+                    }
                 }
             }
         }
@@ -156,7 +162,8 @@ final class MPVWrapper {
         }
         mpv = handle
 
-        checkError(mpv_request_log_messages(handle, "warn"))
+        let mpvLogLevel = Settings.debugLevel == "*" ? "debug" : "warn"
+        checkError(mpv_request_log_messages(handle, mpvLogLevel))
 
         let layerPtrInt = Int(bitPattern: Unmanaged.passUnretained(displayLayer).toOpaque())
         var displayLayerPtr = Int64(layerPtrInt)
@@ -167,6 +174,7 @@ final class MPVWrapper {
         // Read once at start; a changed setting applies from the next player.
         let subtitleRenderHeight = Int(Settings.subtitleRenderHeight) ?? 0
         checkError(mpv_set_option_string(handle, "avfoundation-osd-render-height", String(subtitleRenderHeight)))
+        configureSubtitleStyle(on: handle)
 
         #if targetEnvironment(simulator)
         checkError(mpv_set_option_string(handle, "hwdec", "no"))
@@ -194,6 +202,46 @@ final class MPVWrapper {
             instance.processEvents()
         }, Unmanaged.passUnretained(self).toOpaque())
         isRunning = true
+    }
+
+    /// Mirrors interface `subtitles.ts` dialogue-style overrides. mpv/libass
+    /// applies these only to subtitle dialogue it considers safe to override;
+    /// embedded signs and typesetting remain governed by the ASS script.
+    private func configureSubtitleStyle(on handle: OpaquePointer) {
+        let selection = Settings.subtitleStyle
+        guard selection != "none" else {
+            checkError(mpv_set_option_string(handle, "sub-ass-override", "no"))
+            return
+        }
+
+        let font: String
+        let spacing: String
+        let scaleX: String
+        switch selection {
+        case "gandhisans":
+            font = "Gandhi Sans"
+            spacing = "0.2"
+            scaleX = "98"
+        case "notosans":
+            font = "Noto Sans"
+            spacing = "0"
+            scaleX = "99"
+        default:
+            font = "Roboto Medium"
+            spacing = "0"
+            scaleX = "100"
+        }
+
+        let overrides = [
+            "FontName=\(font)", "FontSize=72", "PrimaryColour=&H00FFFFFF",
+            "SecondaryColour=&HFF000000", "OutlineColour=&H00000000",
+            "BackColour=&H00000000", "Bold=1", "Italic=0", "Underline=0",
+            "StrikeOut=0", "ScaleX=\(scaleX)", "ScaleY=100",
+            "Spacing=\(spacing)", "Angle=0", "BorderStyle=1", "Outline=4",
+            "Shadow=0", "Alignment=2", "MarginL=135", "MarginR=135", "MarginV=50",
+        ].joined(separator: ",")
+        checkError(mpv_set_option_string(handle, "sub-ass-override", "yes"))
+        checkError(mpv_set_option_string(handle, "sub-ass-style-overrides", overrides))
     }
     
     func stop() {

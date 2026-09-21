@@ -521,6 +521,10 @@ final class VideoPlayerViewController: UIViewController {
     private var playbackRateBeforeFastForward = 1.0
     private var wasPausedBeforeFastForward = false
     private var currentSkippableChapter: SkippableChapter?
+    private var autoSkipStartedFor: Set<String> = []
+    private var visibilityPauseWasPlaying = false
+    private var autoPiPRequested = false
+    private var appVisibilityObservers: [NSObjectProtocol] = []
     /// The double-tap recognizer, stored so single-tap can require(toFail:) it.
     private var doubleTapRecognizer: UITapGestureRecognizer?
     private var longPressRecognizer: UILongPressGestureRecognizer?
@@ -666,6 +670,8 @@ final class VideoPlayerViewController: UIViewController {
             self.pipController = pip
         }
 
+        observeAppVisibility()
+
         loadCurrentVideo()
         scheduleHide()
 
@@ -696,6 +702,48 @@ final class VideoPlayerViewController: UIViewController {
         }
     }
 
+    private func observeAppVisibility() {
+        let center = NotificationCenter.default
+        appVisibilityObservers.append(center.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, Settings.playerAutoPiP, !self.isPaused else { return }
+            self.autoPiPRequested = self.pipController?.startPictureInPicture() ?? false
+        })
+        appVisibilityObservers.append(center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, Settings.playerPause, !self.isPaused,
+                  !self.autoPiPRequested,
+                  !(self.pipController?.isPictureInPictureActive ?? false) else { return }
+            self.visibilityPauseWasPlaying = true
+            self.surface.mpv.pausePlayback()
+        })
+        appVisibilityObservers.append(center.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if self.autoPiPRequested {
+                self.pipController?.stopPictureInPicture()
+                self.autoPiPRequested = false
+            }
+            if self.visibilityPauseWasPlaying, self.isPaused {
+                self.surface.mpv.play()
+            }
+            self.visibilityPauseWasPlaying = false
+        })
+        appVisibilityObservers.append(center.addObserver(
+            forName: Settings.didChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self, let key = notification.userInfo?["key"] as? String else { return }
+            if key == Settings.Keys.playerAutoPiP {
+                self.pipController?.setAutomaticStartEnabled(Settings.playerAutoPiP)
+            } else if key == Settings.Keys.minimalPlayerUI {
+                self.statsHUD.isHidden = Settings.minimalPlayerUI
+            }
+        })
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Don't tear down when minimizing to in-app PiP — the video keeps
@@ -714,6 +762,8 @@ final class VideoPlayerViewController: UIViewController {
     /// NOT minimizing, and from MiniPlayerManager when the user closes the
     /// mini-player.
     func tearDownPlayer() {
+        appVisibilityObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        appVisibilityObservers.removeAll()
         saveProgress()
         Router.shared.clearCachedPlayer(self)
         MiniPlayerManager.shared.clearSessionStateIfNeeded(for: self)
@@ -1413,6 +1463,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func showPlayerAnimation(icon: String) {
+        guard !Settings.minimalPlayerUI else { return }
         guard let image = UIImage.hayaseFilledIcon(icon, pointSize: 64) else { return }
         let iconView = UIImageView(image: image)
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -1448,6 +1499,7 @@ final class VideoPlayerViewController: UIViewController {
         pendingRestoreTime = nil
         chapters.removeAll()
         currentSkippableChapter = nil
+        autoSkipStartedFor.removeAll()
         skipChapterButton.stopProgress()
         updateChapterMarkers()
         updateBuffering(true)
@@ -1678,7 +1730,7 @@ final class VideoPlayerViewController: UIViewController {
         statsTimer?.invalidate()
         startCastDisplaysTimer()
         guard torrentHandle != nil || isWebTorrentPlayback else { return }
-        statsHUD.isHidden = false
+        statsHUD.isHidden = Settings.minimalPlayerUI
         updateStats()
         let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStats()
@@ -1724,7 +1776,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func applyWebTorrentStats(peers: Int, downloadSpeed: UInt64, uploadSpeed: UInt64) {
-        statsHUD.isHidden = false
+        statsHUD.isHidden = Settings.minimalPlayerUI
         statsPeersLabel.text = "\(peers)"
         statsDownLabel.text = "\(fmtBits(downloadSpeed * 8))/s"
         statsUpLabel.text = "\(fmtBits(uploadSpeed * 8))/s"
@@ -2227,6 +2279,14 @@ final class VideoPlayerViewController: UIViewController {
         if let next {
             skipChapterButton.setTitle("Skip \(next.skipType)")
             skipChapterButton.stopProgress()
+            let eligibleType = ["Opening", "Intro", "Ending", "Outro", "Credits"].contains(next.skipType)
+            let eligibleLength = next.end - (chapterWindow(at: currentTime)?.start ?? next.end)
+            let w2gAllowsSkip = W2GLobby.shared.client.map { $0.peers.count > 1 } ?? true
+            if Settings.playerSkip, episodeNumber != 1, eligibleType,
+               (60.0...120.0).contains(eligibleLength), w2gAllowsSkip,
+               autoSkipStartedFor.insert(next.skipType).inserted {
+                skipChapterButton.startProgress(duration: 3)
+            }
         } else {
             skipChapterButton.stopProgress()
         }
@@ -3052,7 +3112,10 @@ final class VideoPlayerViewController: UIViewController {
 
     // Auto-plays next episode (Hayase web: next() called at EOF)
     private func handleFileEnded() {
-        guard let currentEpisode = currentEpisodeForNavigation,
+        guard Settings.playerAutoplay,
+              !(MiniPlayerManager.shared.isActive && MiniPlayerManager.shared.activePlayer === self),
+              (W2GLobby.shared.client?.peers.count ?? 2) > 1,
+              let currentEpisode = currentEpisodeForNavigation,
               canNavigate(to: currentEpisode + 1) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.nextTapped() }
     }
@@ -3338,8 +3401,15 @@ extension VideoPlayerViewController: PiPControllerDelegate {
         setControls(visible: false)
     }
 
-    func pipController(_ controller: PiPController, didStartPictureInPicture: Bool) {
-        // System PiP started successfully.
+    func pipController(_ controller: PiPController, didStartPictureInPicture started: Bool) {
+        guard !started else { return }
+        autoPiPRequested = false
+        if Settings.playerPause,
+           UIApplication.shared.applicationState == .background,
+           !isPaused {
+            visibilityPauseWasPlaying = true
+            surface.mpv.pausePlayback()
+        }
     }
 
     func pipController(_ controller: PiPController, willStopPictureInPicture: Bool) {

@@ -37,17 +37,17 @@ struct TorrentBackendSettings: Encodable {
         torrentPersist = defaults.object(forKey: Settings.Keys.persistFiles) as? Bool ?? Settings.Defaults.persistFiles
         torrentDHT = defaults.bool(forKey: "pref_disableDHT")
         torrentStreamedDownload = defaults.object(forKey: Settings.Keys.streamedDownload) as? Bool ?? Settings.Defaults.streamedDownload
-        torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 80, min: 1, max: 999)
-        maxConns = Self.clampedInt(defaults.string(forKey: "pref_maxConns"), defaultValue: 55, min: 1, max: 512)
+        torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 40, min: 1, max: 999)
+        maxConns = Self.clampedInt(defaults.string(forKey: "pref_maxConns"), defaultValue: 80, min: 1, max: 512)
         torrentPort = Self.clampedInt(defaults.string(forKey: "pref_torrentPort"), defaultValue: 0, min: 0, max: 65535)
         dhtPort = Self.clampedInt(defaults.string(forKey: "pref_dhtPort"), defaultValue: 0, min: 0, max: 65535)
         torrentPeX = defaults.bool(forKey: "pref_disablePeX")
         nzbDomain = defaults.string(forKey: "pref_nzbDomain") ?? ""
         nzbLogin = defaults.string(forKey: "pref_nzbLogin") ?? ""
         nzbPassword = defaults.string(forKey: "pref_nzbPassword") ?? ""
-        nzbPort = Self.clampedInt(defaults.string(forKey: "pref_nzbPort"), defaultValue: 0, min: 0, max: 65535)
-        nzbPoolSize = Self.clampedInt(defaults.string(forKey: "pref_nzbPoolSize"), defaultValue: 0, min: 0, max: 128)
-        path = Self.defaultDownloadPath()
+        nzbPort = Self.clampedInt(defaults.string(forKey: "pref_nzbPort"), defaultValue: 119, min: 1, max: 65535)
+        nzbPoolSize = Self.clampedInt(defaults.string(forKey: "pref_nzbPoolSize"), defaultValue: 4, min: 1, max: 128)
+        path = Self.downloadPath(for: defaults.string(forKey: "pref_torrentLocation") ?? "cache")
     }
 
     func dictionary() -> [String: Any] {
@@ -74,9 +74,10 @@ struct TorrentBackendSettings: Encodable {
         return Swift.min(Swift.max(parsed, min), max)
     }
 
-    private static func defaultDownloadPath() -> String {
+    private static func downloadPath(for location: String) -> String {
         let manager = FileManager.default
-        let base = manager.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let directory: FileManager.SearchPathDirectory = location == "documents" ? .documentDirectory : .cachesDirectory
+        let base = manager.urls(for: directory, in: .userDomainMask).first
             ?? manager.temporaryDirectory
         let url = base.appendingPathComponent("HayaseWebTorrent", isDirectory: true)
         try? manager.createDirectory(at: url, withIntermediateDirectories: true)

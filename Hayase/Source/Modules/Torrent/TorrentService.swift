@@ -130,8 +130,8 @@ public class TorrentService: NSObject, SessionDelegate {
         settings.maxDownloadSpeed = speedBytesPerSec
         settings.maxUploadSpeed   = speedBytesPerSec
 
-        // Max connections per torrent (Hayase: maxConns, default 55).
-        let maxConns = Int(ud.string(forKey: "pref_maxConns") ?? "55") ?? 55
+        // Max connections per torrent (Hayase: maxConns, default 80).
+        let maxConns = Int(ud.string(forKey: "pref_maxConns") ?? "80") ?? 80
         settings.connectionLimit = maxConns
 
         // Streamed download mode (Hayase: torrentStreamedDownload).

@@ -113,7 +113,7 @@ final class TrackerAccountManager {
 
     func isLoggedIn(_ tracker: TrackerKind) -> Bool {
         if tracker == .local { return true }
-        if tracker == .anilist {
+        if tracker == .anilist || tracker == .simkl {
             return viewer(for: tracker) != nil && token(for: tracker) != nil
         }
         return viewer(for: tracker) != nil

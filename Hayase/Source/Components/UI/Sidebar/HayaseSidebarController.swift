@@ -119,6 +119,7 @@ final class HayaseSidebarController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        HayaseInterfaceScale.apply(to: self, in: view.window)
         updateLayoutForCurrentWidth()
         updateSidebarBackground()
         hideHostedNavigationBars()
@@ -794,7 +795,9 @@ final class HayaseSidebarController: UIViewController {
            player.presentingViewController != nil {
             player.exitFullscreenForRouteNavigationIfNeeded()
             player.isMinimizing = true
-            player.dismiss(animated: uiAnimated) {
+            // The web skips a view transition when leaving mobile fullscreen.
+            // Do not add UIKit's modal cross-dissolve to that route change.
+            player.dismiss(animated: false) {
                 MiniPlayerManager.shared.minimize(player, removalAnimated: false)
                 performRouteChange(false)
             }
@@ -956,14 +959,14 @@ final class HayaseSidebarController: UIViewController {
         if let nav = tabHost.selectedViewController as? UINavigationController {
             if nav.topViewController === player { return }
             if nav.viewControllers.contains(where: { $0 === player }) {
-                nav.popToViewController(player, animated: animated)
+                nav.popToViewController(player, animated: false)
                 return
             }
         }
 
         player.isMinimizing = false
         let presenter = topVisibleHostedController() ?? tabHost
-        presenter.presentHayasePlayer(player, animated: animated)
+        presenter.presentHayasePlayer(player, animated: false)
     }
 
     private func updateSelection(for route: Route, animated: Bool) {

@@ -64,6 +64,7 @@ enum TrackerKind: String, CaseIterable {
     case anilist = "anilist"
     case kitsu   = "kitsu"
     case mal     = "mal"
+    case simkl   = "simkl"
     case local   = "local"
 
     var displayName: String {
@@ -71,6 +72,7 @@ enum TrackerKind: String, CaseIterable {
         case .anilist: return "AniList"
         case .kitsu:   return "Kitsu"
         case .mal:     return "MyAnimeList"
+        case .simkl:   return "Simkl"
         case .local:   return "Local"
         }
     }

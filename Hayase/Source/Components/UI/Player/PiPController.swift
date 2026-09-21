@@ -92,16 +92,22 @@ final class PiPController: NSObject {
         pipController = AVPictureInPictureController(contentSource: contentSource)
         pipController?.delegate = self
         pipController?.requiresLinearPlayback = false
-        pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = Settings.playerAutoPiP
     }
-    
-    func startPictureInPicture() {
+
+    func setAutomaticStartEnabled(_ enabled: Bool) {
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = enabled
+    }
+
+    @discardableResult
+    func startPictureInPicture() -> Bool {
         guard let pipController = pipController,
               pipController.isPictureInPicturePossible else {
-            return
+            return false
         }
         
         pipController.startPictureInPicture()
+        return true
     }
     
     func stopPictureInPicture() {

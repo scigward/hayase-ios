@@ -47,12 +47,21 @@ enum Settings {
         static let subtitleLanguage = "pref_subtitleLanguage"
         static let audioLanguage = "pref_audioLanguage"
         static let subtitleRenderHeight = "pref_subtitleRenderHeight"
+        static let subtitleStyle = "pref_subtitleStyle"
+        static let playerAutoplay = "pref_autoplay"
+        static let playerPause = "pref_playerPause"
+        static let playerAutoPiP = "pref_autoPiP"
+        static let playerSkip = "pref_skipIntro"
+        static let minimalPlayerUI = "pref_minimalUI"
         static let searchQuality = "pref_searchQuality"
         static let searchAutoSelect = "pref_searchAutoSelect"
         static let lookupPreference = "pref_lookupPreference"
         static let showHentai = "pref_showHentai"
         static let titleType = "pref_titleType"
         static let hideSpoilers = "pref_hideSpoilers"
+        static let showNavigation = "pref_showNavigation"
+        static let uiScale = "pref_uiScale"
+        static let debugLevel = "pref_debugLevel"
         static let persistFiles = "pref_persistFiles"
         static let streamedDownload = "pref_streamedDownload"
     }
@@ -67,13 +76,22 @@ enum Settings {
         static let seekDuration = "2"
         static let subtitleLanguage = "eng"
         static let audioLanguage = "jpn"
-        static let subtitleRenderHeight = "1080"
+        static let subtitleRenderHeight = "720"
+        static let subtitleStyle = "none"
+        static let playerAutoplay = true
+        static let playerPause = true
+        static let playerAutoPiP = false
+        static let playerSkip = false
+        static let minimalPlayerUI = false
         static let searchQuality = "1080"
         static let searchAutoSelect = true
         static let lookupPreference = "quality"
         static let showHentai = false
         static let titleType = "ANILIST"
         static let hideSpoilers = false
+        static let showNavigation = false
+        static let uiScale = 1.0
+        static let debugLevel = ""
         static let persistFiles = false
         static let streamedDownload = true
     }
@@ -137,6 +155,36 @@ enum Settings {
         set { write(newValue, forKey: Keys.subtitleRenderHeight) }
     }
 
+    static var subtitleStyle: String {
+        get { UserDefaults.standard.string(forKey: Keys.subtitleStyle) ?? Defaults.subtitleStyle }
+        set { write(newValue, forKey: Keys.subtitleStyle) }
+    }
+
+    static var playerAutoplay: Bool {
+        get { readBool(Keys.playerAutoplay, default: Defaults.playerAutoplay) }
+        set { write(newValue, forKey: Keys.playerAutoplay) }
+    }
+
+    static var playerPause: Bool {
+        get { readBool(Keys.playerPause, default: Defaults.playerPause) }
+        set { write(newValue, forKey: Keys.playerPause) }
+    }
+
+    static var playerAutoPiP: Bool {
+        get { readBool(Keys.playerAutoPiP, default: Defaults.playerAutoPiP) }
+        set { write(newValue, forKey: Keys.playerAutoPiP) }
+    }
+
+    static var playerSkip: Bool {
+        get { readBool(Keys.playerSkip, default: Defaults.playerSkip) }
+        set { write(newValue, forKey: Keys.playerSkip) }
+    }
+
+    static var minimalPlayerUI: Bool {
+        get { readBool(Keys.minimalPlayerUI, default: Defaults.minimalPlayerUI) }
+        set { write(newValue, forKey: Keys.minimalPlayerUI) }
+    }
+
     // MARK: - Search / Extensions
 
     /// General-purpose accessor. `ExtensionSearchViewController`'s initial
@@ -174,6 +222,26 @@ enum Settings {
     static var hideSpoilers: Bool {
         get { readBool(Keys.hideSpoilers, default: Defaults.hideSpoilers) }
         set { write(newValue, forKey: Keys.hideSpoilers) }
+    }
+
+    static var showNavigation: Bool {
+        get { readBool(Keys.showNavigation, default: Defaults.showNavigation) }
+        set { write(newValue, forKey: Keys.showNavigation) }
+    }
+
+    static var uiScale: Double {
+        get {
+            guard UserDefaults.standard.object(forKey: Keys.uiScale) != nil else {
+                return Defaults.uiScale
+            }
+            return min(max(UserDefaults.standard.double(forKey: Keys.uiScale), 0.3), 2.5)
+        }
+        set { write(min(max(newValue, 0.3), 2.5), forKey: Keys.uiScale) }
+    }
+
+    static var debugLevel: String {
+        get { UserDefaults.standard.string(forKey: Keys.debugLevel) ?? Defaults.debugLevel }
+        set { write(newValue, forKey: Keys.debugLevel) }
     }
 
     // MARK: - Torrent

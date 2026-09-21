@@ -45,6 +45,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Dispatched async to let the root view controller finish loading
         // from the storyboard before the mini-player window is created.
         DispatchQueue.main.async {
+            HayaseInterfaceScale.apply()
             MiniPlayerManager.shared.restoreSessionIfNeeded()
         }
 

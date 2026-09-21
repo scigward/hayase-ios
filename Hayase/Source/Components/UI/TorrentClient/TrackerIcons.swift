@@ -385,6 +385,16 @@ enum TrackerIconFactory {
             view = KitsuIconView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         case .mal:
             view = MALIconView(frame: CGRect(x: 0, y: 0, width: size, height: size))
+        case .simkl:
+            let label = UILabel(frame: CGRect(x: 0, y: 0, width: size, height: size))
+            label.text = "S"
+            label.textAlignment = .center
+            label.textColor = UIColor.HayaseTheme.foreground
+            label.backgroundColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.12)
+            label.font = .nunito(ofSize: size * 0.62, weight: .bold)
+            label.layer.cornerRadius = size * 0.16
+            label.layer.masksToBounds = true
+            view = label
         case .local:
             view = LocalFolderIconView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         }

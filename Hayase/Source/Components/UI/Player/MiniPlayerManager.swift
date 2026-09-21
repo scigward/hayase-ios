@@ -223,9 +223,9 @@ final class MiniPlayerManager {
         repositionContainer()
         container.alpha = fadeIn ? 0 : 1
         if fadeIn {
-            UIViewPropertyAnimator(duration: 0.2,
-                                   controlPoint1: CGPoint(x: 0.42, y: 0),
-                                   controlPoint2: CGPoint(x: 0.58, y: 1)) {
+            UIViewPropertyAnimator(duration: 0.25,
+                                   controlPoint1: CGPoint(x: 0.25, y: 0.1),
+                                   controlPoint2: CGPoint(x: 0.25, y: 1)) {
                 container.alpha = 1
             }.startAnimation()
         }
@@ -234,9 +234,10 @@ final class MiniPlayerManager {
         resetAutoHideTimer()
 
         // Flag to prevent viewWillDisappear from tearing down the player.
+        // Keep this state for the entire mini-player lifetime: tab and modal
+        // appearance callbacks can arrive after a nonanimated pop/dismiss.
         player.isMinimizing = true
         let finishMinimize: () -> Void = { [weak self] in
-            player.isMinimizing = false
             // Reposition after removal in case safe area insets changed.
             self?.repositionContainer()
         }
@@ -505,6 +506,7 @@ final class MiniPlayerManager {
         // Inner container clips content to rounded corners.
         let inner = UIView(frame: v.bounds)
         inner.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        inner.backgroundColor = .black
         inner.clipsToBounds = true
         inner.layer.cornerRadius = cornerRadius
         inner.tag = innerContainerTag
@@ -1358,6 +1360,7 @@ final class MiniPlayerManager {
             close()
         }
         activePlayer = player
+        player.isMinimizing = true
 
         let window = makePassthroughWindow(preferredScene: nil)
         miniWindow = window
