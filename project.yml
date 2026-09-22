@@ -28,7 +28,7 @@ packages:
     path: ./Vendor/NodeMobile
   LucideIcons:
     url: https://github.com/JakubMazur/lucide-icons-swift.git
-    from: "0.516.0"
+    from: "1.47.0"
   Starscream:
     url: https://github.com/daltoniam/Starscream.git
     from: "4.0.8"
