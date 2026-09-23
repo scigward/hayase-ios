@@ -12,6 +12,10 @@ const rows = read('Routes/App/Settings/SettingsViewController+Content.swift');
 const actions = read('Routes/App/Settings/SettingsViewController+Actions.swift');
 const transition = read('Components/UI/Sidebar/HayaseRouteTransition.swift');
 const sidebar = read('Components/UI/Sidebar/HayaseSidebarController.swift');
+const extensions = read('Routes/App/Settings/SettingsExtensionsView.swift');
+const typography = read('Components/UI/Settings/SettingsCardView.swift');
+const toggle = read('Components/UI/Switch/HayaseSwitch.swift');
+const routeIndex = read('Components/UI/Sidebar/HayaseTabIndex.swift');
 
 assert(!/UITableView|tableHeaderView|UITableViewDataSource/.test(controller + shell));
 assert(shell.includes('let headingTop = safeAreaInsets.top + padding'));
@@ -34,6 +38,17 @@ assert(transition.includes('CGPoint(x: 0.25, y: 0.1)'));
 assert(transition.includes('UIAccessibility.isReduceMotionEnabled'));
 assert(sidebar.includes('routeTransition.perform(in: view)'));
 assert(sidebar.includes('routeTransition.finish()'));
+assert(sidebar.includes('tabHost.setViewControllers([controller], animated: false)'));
+assert(sidebar.includes('self.routeControllers[safe: targetIndex]'));
+assert(!sidebar.includes('tabHost.selectedIndex = targetIndex'));
+assert(!sidebar.includes('tabHost.observe('));
+assert(routeIndex.includes('hayaseLogicalRouteIndex ?? navigationController?.hayaseLogicalRouteIndex'));
+assert(toggle.includes('setContentHuggingPriority(.required, for: .horizontal)'));
+assert(toggle.includes('setContentCompressionResistancePriority(.required, for: .horizontal)'));
+assert(typography.includes('max(lineHeight, ceil(label.font.lineHeight))'));
+assert(typography.includes('control.setContentHuggingPriority(.defaultHigh, for: .horizontal)'));
+assert(extensions.indexOf('reload()') < extensions.indexOf('observer = NotificationCenter'));
+assert(/queue: \.main\) \{ \[weak self\] _ in[\s\S]*?DispatchQueue\.main\.async \{ \[weak self\] in/.test(extensions));
 assert(!existsSync(join(root, 'Hayase/Source/Routes/App/Settings/SettingsCells.swift')));
 assert(!existsSync(join(root, 'Hayase/Source/Components/UI/Profile/AccountCardCell.swift')));
 assert(read('Modules/Torrent/Backend/TorrentBackendSettings.swift').includes('let torrentSpeed: Double'));
@@ -64,5 +79,7 @@ for (const name of ['AccountCardView.swift', 'AccountCardView+Authentication.swi
   count++;
 }
 checkDelimiters(transition, 'HayaseRouteTransition.swift');
-console.log(`Settings source contracts passed; delimiter checks passed for ${count + 1} files.`);
+checkDelimiters(sidebar, 'HayaseSidebarController.swift');
+checkDelimiters(routeIndex, 'HayaseTabIndex.swift');
+console.log(`Settings source contracts passed; delimiter checks passed for ${count + 3} files.`);
 console.log('Not a Swift parse, type-check, build, or runtime test.');

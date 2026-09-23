@@ -23,6 +23,8 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropPlayerRoute = "player"
 
     private let tabHost: UITabBarController
+    private var routeControllers: [UIViewController] = []
+    private var selectedRouteIndex = 0
     private let router = Router.shared
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
@@ -48,8 +50,6 @@ final class HayaseSidebarController: UIViewController {
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
-    private var selectedIndexObservation: NSKeyValueObservation?
-    private var isApplyingRoute = false
     private var routeObservationID: UUID?
     private var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
     private var historySwipe: HayaseHistorySwipe?
@@ -72,13 +72,12 @@ final class HayaseSidebarController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor.HayaseTheme.background
         installInterfaceRoutes()
-        router.reset(to: Route(tabIndex: tabHost.selectedIndex) ?? .home, hostTabIndex: tabHost.selectedIndex)
+        router.reset(to: Route(tabIndex: selectedRouteIndex) ?? .home, hostTabIndex: selectedRouteIndex)
         setupContentHost()
         setupDesktopSidebar()
         setupMobileSidebar()
         configureActions()
         observeBannerBackdrop()
-        observeTabSelection()
         observeRouteChanges()
         apply(route: router.currentRoute, kind: .replace, options: .init(), animated: false)
         updateLayoutForCurrentWidth()
@@ -265,7 +264,25 @@ final class HayaseSidebarController: UIViewController {
 
     private func installInterfaceRoutes() {
         guard let viewControllers = tabHost.viewControllers else { return }
-        tabHost.setViewControllers(Self.interfaceRoutes(from: viewControllers), animated: false)
+        let selectedController = tabHost.selectedViewController
+        routeControllers = Self.interfaceRoutes(from: viewControllers)
+        for (index, controller) in routeControllers.enumerated() {
+            controller.hayaseLogicalRouteIndex = index
+        }
+        selectedRouteIndex = routeControllers.firstIndex { $0 === selectedController } ?? 0
+        selectRouteController(at: selectedRouteIndex)
+    }
+
+    private func selectRouteController(at index: Int) {
+        guard routeControllers.indices.contains(index) else { return }
+        let controller = routeControllers[index]
+        selectedRouteIndex = index
+        // The sidebar owns navigation. Give UIKit one visible tab, not seven:
+        // otherwise compact UIKit moves Client/Settings under its More controller.
+        // Retain each original navigation stack separately, including its player.
+        if tabHost.selectedViewController !== controller || tabHost.viewControllers?.count != 1 {
+            tabHost.setViewControllers([controller], animated: false)
+        }
     }
 
     private static func interfaceRoutes(from viewControllers: [UIViewController]) -> [UIViewController] {
@@ -595,18 +612,6 @@ final class HayaseSidebarController: UIViewController {
                                                object: nil)
     }
 
-    private func observeTabSelection() {
-        selectedIndexObservation = tabHost.observe(\.selectedIndex, options: [.new]) { [weak self] tab, _ in
-            DispatchQueue.main.async {
-                guard let self,
-                      !self.isApplyingRoute,
-                      self.router.currentRoute.tabIndex != tab.selectedIndex,
-                      let route = Route(tabIndex: tab.selectedIndex) else { return }
-                self.router.sync(route, hostTabIndex: tab.selectedIndex)
-            }
-        }
-    }
-
     @objc private func animeNavigationWillLoad() {
         beginNavigationProgress()
     }
@@ -758,16 +763,12 @@ final class HayaseSidebarController: UIViewController {
             let targetIndex = route.tabIndex ?? self.router.currentHostTabIndex
             if route.resetsTabStack,
                let targetIndex,
-               let navigationController = self.tabHost.viewControllers?[safe: targetIndex] as? UINavigationController {
+               let navigationController = self.routeControllers[safe: targetIndex] as? UINavigationController {
                 navigationController.popToRootViewController(animated: false)
                 self.applyRouteState(route, to: navigationController)
             }
             if let targetIndex {
-                self.isApplyingRoute = true
-                if self.tabHost.selectedIndex != targetIndex {
-                    self.tabHost.selectedIndex = targetIndex
-                }
-                self.isApplyingRoute = false
+                self.selectRouteController(at: targetIndex)
             }
 
             switch route {
@@ -915,9 +916,8 @@ final class HayaseSidebarController: UIViewController {
         guard let index = route.tabIndex ?? router.currentHostTabIndex else {
             return tabHost.selectedViewController as? UINavigationController
         }
-        guard let viewControllers = tabHost.viewControllers,
-              viewControllers.indices.contains(index) else { return nil }
-        return viewControllers[index] as? UINavigationController
+        guard routeControllers.indices.contains(index) else { return nil }
+        return routeControllers[index] as? UINavigationController
     }
 
     private func isCurrentAnimeRoute(_ id: Int) -> Bool {

@@ -6,14 +6,24 @@
 //
 
 import UIKit
+import ObjectiveC
+
+private var hayaseLogicalRouteIndexKey: UInt8 = 0
 
 extension UIViewController {
-    /// Index of the storyboard tab this controller currently belongs to.
-    ///
-    /// UIKit can place overflow tabs inside its More navigation controller on
-    /// compact devices, so prefer the owning navigation controller's original
-    /// index and fall back to the currently selected tab.
+    /// Stable route identity, independent of UIKit's visible tab slot.
+    var hayaseLogicalRouteIndex: Int? {
+        get { (objc_getAssociatedObject(self, &hayaseLogicalRouteIndexKey) as? NSNumber)?.intValue }
+        set {
+            objc_setAssociatedObject(self, &hayaseLogicalRouteIndexKey,
+                                     newValue.map { NSNumber(value: $0) }, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+
     var hayaseTabIndex: Int? {
+        if let index = hayaseLogicalRouteIndex ?? navigationController?.hayaseLogicalRouteIndex {
+            return index
+        }
         guard let tab = tabBarController else { return nil }
         if let navigationController,
            let index = tab.viewControllers?.firstIndex(where: { $0 === navigationController }) {

@@ -11,6 +11,10 @@ final class HayaseSwitch: UIControl {
     init(hideState: Bool = false) {
         hidesState = hideState
         super.init(frame: .zero)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
         isAccessibilityElement = true
         stateLabel.font = .nunito(ofSize: 12)
         stateLabel.textColor = UIColor.HayaseTheme.foreground

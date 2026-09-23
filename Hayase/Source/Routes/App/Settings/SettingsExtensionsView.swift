@@ -73,12 +73,17 @@ final class SettingsExtensionsView: UIView, SettingsResponsiveView {
         list.axis = .vertical
         list.spacing = 8
         [tabContainer, imports, list].forEach { root.addArrangedSubview($0) }
+        // Finish singleton initialization before observing the defaults it loads.
+        reload()
         observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
             object: nil, queue: .main) { [weak self] _ in
-                guard let self, self.displayedConfigs != ExtensionService.shared.configs else { return }
-                self.reload()
+                // didChange can fire synchronously inside configs/options.didSet.
+                // Read only after that mutation's exclusive access has ended.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.displayedConfigs != ExtensionService.shared.configs else { return }
+                    self.reload()
+                }
             }
-        reload()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }

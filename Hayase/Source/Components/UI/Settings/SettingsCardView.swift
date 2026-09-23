@@ -13,8 +13,11 @@ enum SettingsTypography {
         label.font = .nunito(ofSize: size, weight: weight)
         label.textColor = color
         let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = lineHeight
-        paragraph.maximumLineHeight = lineHeight
+        // CSS permits glyphs to overflow a short line box; UILabel clips them.
+        // Reserve the font's actual metrics for leading-none labels in UIKit.
+        let safeLineHeight = max(lineHeight, ceil(label.font.lineHeight))
+        paragraph.minimumLineHeight = safeLineHeight
+        paragraph.maximumLineHeight = safeLineHeight
         label.attributedText = NSAttributedString(string: text, attributes: [
             .font: UIFont.nunito(ofSize: size, weight: weight),
             .foregroundColor: color, .paragraphStyle: paragraph,
@@ -54,6 +57,9 @@ final class SettingsCardView: UIView, SettingsResponsiveView {
         textStack.axis = .vertical
         textStack.spacing = 0
         textStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        if control.contentHuggingPriority(for: .horizontal).rawValue < UILayoutPriority.defaultHigh.rawValue {
+            control.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        }
         stack.axis = .vertical
         stack.alignment = .leading
         stack.spacing = 12
