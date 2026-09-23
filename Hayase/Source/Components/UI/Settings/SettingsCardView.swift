@@ -1,0 +1,210 @@
+// Mirrors: src/lib/components/SettingCard.svelte and ui/{label,input,button,slider}
+import UIKit
+
+protocol SettingsResponsiveView: AnyObject {
+    func updateLayout(viewportWidth: CGFloat)
+}
+
+enum SettingsTypography {
+    static func label(_ text: String, size: CGFloat, lineHeight: CGFloat,
+                      weight: UIFont.Weight = .regular,
+                      color: UIColor = UIColor.HayaseTheme.foreground) -> UILabel {
+        let label = UILabel()
+        label.font = .nunito(ofSize: size, weight: weight)
+        label.textColor = color
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        label.attributedText = NSAttributedString(string: text, attributes: [
+            .font: UIFont.nunito(ofSize: size, weight: weight),
+            .foregroundColor: color, .paragraphStyle: paragraph,
+        ])
+        label.numberOfLines = 0
+        return label
+    }
+
+    static func button(_ title: String, destructive: Bool = false) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+        button.setTitleColor(destructive ? UIColor.HayaseTheme.destructiveForeground : UIColor.HayaseTheme.primaryForeground, for: .normal)
+        button.backgroundColor = destructive ? UIColor.HayaseTheme.destructive : UIColor.HayaseTheme.primary
+        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        button.layer.cornerRadius = 6
+        button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return button
+    }
+}
+
+final class SettingsCardView: UIView, SettingsResponsiveView {
+    private let stack = UIStackView()
+    private let textStack: UIStackView
+    private var horizontal: Bool?
+    private var textWidth: NSLayoutConstraint?
+
+    init(title: String, description: String, control: UIView) {
+        let titleLabel = SettingsTypography.label(title, size: 14, lineHeight: 20, weight: .bold)
+        let descriptionLabel = SettingsTypography.label(description, size: 12, lineHeight: 16,
+                                                         weight: .medium, color: UIColor.HayaseTheme.mutedForeground)
+        descriptionLabel.isHidden = description.isEmpty
+        textStack = UIStackView(arrangedSubviews: [titleLabel, descriptionLabel])
+        super.init(frame: .zero)
+        backgroundColor = UIColor.HayaseTheme.muted
+        layer.cornerRadius = 6
+        textStack.axis = .vertical
+        textStack.spacing = 0
+        textStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(textStack)
+        stack.addArrangedSubview(control)
+        addSubview(stack)
+        textWidth = textStack.widthAnchor.constraint(equalTo: stack.widthAnchor)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            control.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+        ])
+        control.accessibilityLabel = title
+        updateLayout(viewportWidth: 0)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateLayout(viewportWidth: CGFloat) {
+        let next = viewportWidth >= 768
+        if horizontal != next {
+            textWidth?.isActive = false
+            horizontal = next
+            stack.axis = next ? .horizontal : .vertical
+            stack.alignment = next ? .center : .leading
+            textWidth?.isActive = !next
+        }
+        stack.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
+            .forEach { $0.updateLayout(viewportWidth: viewportWidth) }
+    }
+}
+
+final class SettingsInputControl: UIView {
+    let input = Input(placeholder: "")
+    var onChange: ((String) -> Void)?
+    var onCommit: ((String) -> String)?
+
+    init(value: String, placeholder: String, width: CGFloat, numeric: Bool = false,
+         secure: Bool = false, suffix: String = "") {
+        super.init(frame: .zero)
+        input.text = value
+        input.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [
+            .foregroundColor: UIColor.HayaseTheme.mutedForeground,
+        ])
+        input.isSecureTextEntry = secure
+        input.keyboardType = numeric ? .numbersAndPunctuation : .default
+        input.returnKeyType = .done
+        input.layer.borderWidth = 1
+        input.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        addSubview(input)
+        NSLayoutConstraint.activate([
+            input.topAnchor.constraint(equalTo: topAnchor),
+            input.leadingAnchor.constraint(equalTo: leadingAnchor),
+            input.trailingAnchor.constraint(equalTo: trailingAnchor),
+            input.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 36),
+        ])
+        let preferredWidth = widthAnchor.constraint(equalToConstant: width)
+        preferredWidth.priority = .defaultHigh
+        preferredWidth.isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        if !suffix.isEmpty {
+            let label = SettingsTypography.label(suffix, size: 14, lineHeight: 20)
+            label.frame = CGRect(x: 0, y: 0, width: suffix == "Mb/s" ? 48 : 40, height: 36)
+            input.rightView = label
+            input.rightViewMode = .always
+        }
+        input.addTarget(self, action: #selector(changed), for: .editingChanged)
+        input.addTarget(self, action: #selector(committed), for: .editingDidEnd)
+        input.addTarget(self, action: #selector(done), for: .editingDidEndOnExit)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func changed() { onChange?(input.text ?? "") }
+    @objc private func committed() { if let onCommit { input.text = onCommit(input.text ?? "") } }
+    @objc private func done() { input.resignFirstResponder() }
+}
+
+final class SettingsActionsView: UIStackView, SettingsResponsiveView {
+    init(onAction: @escaping (String) -> Void) {
+        super.init(frame: .zero)
+        spacing = 12
+        distribution = .fillEqually
+        for title in ["Import Settings From File", "Export Settings To File", "Reset EVERYTHING To Default"] {
+            let button = SettingsTypography.button(title, destructive: title.hasPrefix("Reset"))
+            button.addAction(UIAction { _ in onAction(title) }, for: .touchUpInside)
+            addArrangedSubview(button)
+        }
+        axis = .vertical
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func updateLayout(viewportWidth: CGFloat) { axis = viewportWidth >= 768 ? .horizontal : .vertical }
+}
+
+final class SettingsSliderControl: UIControl {
+    private let track = UIView()
+    private let fill = UIView()
+    private let thumb = UIView()
+    private(set) var value: Double
+    private let range: ClosedRange<Double>
+    private let step: Double
+
+    init(value: Double, min: Double, max: Double, step: Double) {
+        self.value = value.isFinite ? Swift.min(Swift.max(value, min), max) : min
+        range = min...max
+        self.step = step
+        super.init(frame: .zero)
+        track.backgroundColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.2)
+        track.layer.cornerRadius = 3
+        fill.backgroundColor = UIColor.HayaseTheme.primary
+        fill.layer.cornerRadius = 3
+        thumb.backgroundColor = UIColor.HayaseTheme.background
+        thumb.layer.cornerRadius = 8
+        thumb.layer.borderWidth = 1
+        thumb.layer.borderColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.5).cgColor
+        [track, fill, thumb].forEach { $0.isUserInteractionEnabled = false; addSubview($0) }
+        isAccessibilityElement = true
+        accessibilityTraits = .adjustable
+        heightAnchor.constraint(equalToConstant: 16).isActive = true
+        let width = widthAnchor.constraint(equalToConstant: 240)
+        width.priority = .defaultHigh
+        width.isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+        track.frame = CGRect(x: 0, y: 5, width: bounds.width, height: 6)
+        fill.frame = CGRect(x: 0, y: 5, width: bounds.width * fraction, height: 6)
+        thumb.frame = CGRect(x: max(0, bounds.width - 16) * fraction, y: 0, width: 16, height: 16)
+        accessibilityValue = String(format: "%.1f", value)
+    }
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool { update(touch); return true }
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool { update(touch); return true }
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) { sendActions(for: .editingDidEnd) }
+    override func cancelTracking(with event: UIEvent?) { sendActions(for: .editingDidEnd) }
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: 0, dy: -14).contains(point)
+    }
+    override func accessibilityIncrement() { setValue(value + step); sendActions(for: .editingDidEnd) }
+    override func accessibilityDecrement() { setValue(value - step); sendActions(for: .editingDidEnd) }
+    private func update(_ touch: UITouch) {
+        let fraction = Double(touch.location(in: self).x / max(1, bounds.width))
+        setValue(range.lowerBound + fraction * (range.upperBound - range.lowerBound))
+    }
+    private func setValue(_ proposed: Double) {
+        value = min(max((proposed / step).rounded() * step, range.lowerBound), range.upperBound)
+        setNeedsLayout()
+        sendActions(for: .valueChanged)
+    }
+}

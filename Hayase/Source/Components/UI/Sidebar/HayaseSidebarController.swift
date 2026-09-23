@@ -805,8 +805,9 @@ final class HayaseSidebarController: UIViewController {
         }
 
         if usesTransition {
-            routeTransition.perform(in: contentContainer) { performRouteChange(true) }
+            routeTransition.perform(in: view) { performRouteChange(true) }
         } else {
+            routeTransition.finish()
             performRouteChange(true)
         }
     }

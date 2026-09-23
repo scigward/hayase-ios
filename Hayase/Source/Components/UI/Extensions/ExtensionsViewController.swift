@@ -707,7 +707,7 @@ final class BadgeFlowView: UIView {
 
     enum Item {
         /// Standard badge: rounded bg-neutral-900 pill with bold text, px-3 py-0.5
-        case badge(String)
+        case badge(String, color: UIColor? = nil)
         /// Language emoji flags: text-xl, no background
         case flags(String)
     }
@@ -730,18 +730,21 @@ final class BadgeFlowView: UIView {
 
     private var labels: [UILabel] = []
     private let hSpacing: CGFloat = 8   // gap-2 = 8pt
-    private let vSpacing: CGFloat = 4
+    private var vSpacing: CGFloat = 4
 
-    func setItems(_ items: [Item]) {
+    func setItems(_ items: [Item], fontSize: CGFloat = 13, rowSpacing: CGFloat = 4,
+                  background: UIColor = UIColor(white: 23/255, alpha: 1),
+                  foreground: UIColor = UIColor(white: 212/255, alpha: 1)) {
+        vSpacing = rowSpacing
         labels.forEach { $0.removeFromSuperview() }
         labels = items.map { item in
             switch item {
-            case .badge(let text):
+            case .badge(let text, let color):
                 let l = PaddedBadgeLabel()
                 l.text = text
-                l.font = .nunito(ofSize: 13, weight: .bold)         // text-sm font-bold
-                l.textColor = UIColor(white: 212/255, alpha: 1)         // text-neutral-300 #d4d4d4
-                l.backgroundColor = UIColor(white: 23/255, alpha: 1)   // bg-neutral-900 #171717
+                l.font = .nunito(ofSize: fontSize, weight: .bold)
+                l.textColor = foreground
+                l.backgroundColor = color ?? background
                 l.layer.cornerRadius = 4                                // rounded = 4pt
                 l.clipsToBounds = true
                 addSubview(l)

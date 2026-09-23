@@ -57,6 +57,11 @@ final class HayaseDebugViewController: UIViewController {
             action: #selector(saveLogs)
         ))
         stack.addArrangedSubview(makeCard(
+            title: "Copy App and Device Info",
+            description: "Copy app version and device information to the clipboard.",
+            action: #selector(copyDeviceInfo), buttonTitle: "Copy"
+        ))
+        stack.addArrangedSubview(makeCard(
             title: "Settings",
             description: "Save current settings to a file with account credentials redacted.",
             action: #selector(saveSettings)
@@ -158,6 +163,12 @@ final class HayaseDebugViewController: UIViewController {
             "processorCount": ProcessInfo.processInfo.processorCount,
         ]
         shareJSON(info, name: "hayase-device-info")
+    }
+
+    @objc private func copyDeviceInfo() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        UIPasteboard.general.string = "Hayase v\(version) (\(build))\niOS \(UIDevice.current.systemVersion)\n\(UIDevice.current.model)\n"
     }
 
     @objc private func saveLogs() {

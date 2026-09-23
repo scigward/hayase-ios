@@ -14,6 +14,8 @@ extension UIColor {
         /// interface theme-default: --muted / --card hsl(0 0% 4%).
         static let muted = UIColor(white: 0.04, alpha: 1)
         static let card = UIColor(white: 0.04, alpha: 1)
+        /// interface theme-default: --popover hsl(0 0% 4%).
+        static let popover = UIColor(white: 0.04, alpha: 1)
         /// interface theme-default: --muted-foreground hsl(0 0% 50%).
         static let mutedForeground = UIColor(white: 0.5, alpha: 1)
         /// interface theme-default: --border hsl(0 0% 10%).

@@ -13,7 +13,7 @@ struct TorrentBackendSettings: Encodable {
     // torrentPeX, but the values are disable flags. false means enabled.
     let torrentDHT: Bool
     let torrentStreamedDownload: Bool
-    let torrentSpeed: Int
+    let torrentSpeed: Double
     let maxConns: Int
     let torrentPort: Int
     let dhtPort: Int
@@ -37,7 +37,8 @@ struct TorrentBackendSettings: Encodable {
         torrentPersist = defaults.object(forKey: Settings.Keys.persistFiles) as? Bool ?? Settings.Defaults.persistFiles
         torrentDHT = defaults.bool(forKey: "pref_disableDHT")
         torrentStreamedDownload = defaults.object(forKey: Settings.Keys.streamedDownload) as? Bool ?? Settings.Defaults.streamedDownload
-        torrentSpeed = Self.clampedInt(defaults.string(forKey: "pref_torrentSpeed"), defaultValue: 40, min: 1, max: 999)
+        let speed = Double(defaults.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
+        torrentSpeed = speed.isFinite ? min(999, max(1, speed)) : 40
         maxConns = Self.clampedInt(defaults.string(forKey: "pref_maxConns"), defaultValue: 80, min: 1, max: 512)
         torrentPort = Self.clampedInt(defaults.string(forKey: "pref_torrentPort"), defaultValue: 0, min: 0, max: 65535)
         dhtPort = Self.clampedInt(defaults.string(forKey: "pref_dhtPort"), defaultValue: 0, min: 0, max: 65535)

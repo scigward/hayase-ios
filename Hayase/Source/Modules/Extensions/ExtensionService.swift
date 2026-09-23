@@ -171,6 +171,18 @@ final class ExtensionService {
         options[id]?.options[key] = value
     }
 
+    func sourceCode(for id: String) async throws -> String {
+        guard let config = configs[id], let url = jsurl(config.code) else {
+            throw ExtensionError.invalidURL("Invalid extension source URL")
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+              let source = String(data: data, encoding: .utf8) else {
+            throw ExtensionError.invalidManifest("Could not load extension source code")
+        }
+        return source
+    }
+
     // MARK: - ConfigManager.update (mirrors storage.ts update())
 
     /// Fetch updated configs from all stored update URLs and reload changed extensions.

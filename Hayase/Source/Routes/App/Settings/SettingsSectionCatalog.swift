@@ -29,7 +29,6 @@ enum SettingsTab: Int, CaseIterable {
 
 enum RowKind {
     case toggle(userDefaultsKey: String, defaultValue: Bool)
-    case value(String)
     /// Selectable value — tapping shows a picker with the given options.
     /// `userDefaultsKey` persists the choice; `options` maps stored-key → display label;
     /// `defaultKey` is the initial stored key.
@@ -37,9 +36,7 @@ enum RowKind {
     /// Editable numeric value — tapping shows a text field.
     case editableNumber(userDefaultsKey: String, defaultValue: String, suffix: String, min: Int, max: Int)
     case editableText(userDefaultsKey: String, defaultValue: String, secure: Bool)
-    case link(String)
-    case navigate
-    case action
+    case extensions
     case appActions
     case slider(userDefaultsKey: String, defaultValue: Double, min: Double, max: Double, step: Double)
     case button(String)
@@ -137,7 +134,7 @@ enum SettingsSectionCatalog {
                 description: "Automatically starts playing next episode when a video ends.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.playerAutoplay, defaultValue: Settings.Defaults.playerAutoplay)),
             Row(title: "Pause On Lost Visibility",
-                description: "Pauses/Resumes video playback when the app goes to background.",
+                description: "Pauses/Resumes video playback when the app loses visibility.",
                 kind: .toggle(userDefaultsKey: Settings.Keys.playerPause, defaultValue: Settings.Defaults.playerPause)),
             Row(title: "PiP On Lost Visibility",
                 description: "Automatically enters Picture in Picture mode when the app loses visibility.",
@@ -260,7 +257,7 @@ enum SettingsSectionCatalog {
         Section(header: "Extension Settings", rows: [
             Row(title: "Manage Extensions",
                 description: "Install and configure Hayase-compatible torrent/NZB extensions.",
-                kind: .navigate),
+                kind: .extensions),
         ], tab: .extensions),
 
         // ── Accounts tab (Hayase /app/settings/accounts/) ──
@@ -296,9 +293,6 @@ enum SettingsSectionCatalog {
             Row(title: "Debug page",
                 description: "Go to the debug page to access additional debugging features.",
                 kind: .button("Go to Debug Page")),
-            Row(title: "Copy App and Device Info",
-                description: "Copy app and device debug info and capabilities, such as version information and settings to clipboard.",
-                kind: .action),
         ], tab: .app),
 
         Section(header: "", rows: [

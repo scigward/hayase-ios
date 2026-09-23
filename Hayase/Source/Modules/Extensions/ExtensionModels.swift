@@ -81,6 +81,8 @@ struct ExtensionConfig: Codable, Equatable {
     /// URL to the extension JS code (may use gh: or npm: or file: prefix)
     var code: String
     var options: [String: ExtensionOptionDef]?
+    var deprecated: Bool? = nil
+    var manifestVersion: Int? = nil
 }
 
 /// Per-extension user options and enabled state — mirrors ExtensionsOptions in storage.ts

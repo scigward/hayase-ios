@@ -124,9 +124,9 @@ public class TorrentService: NSObject, SessionDelegate {
 
         // Transfer speed limit (Mb/s → bytes/s).
         // Hayase default: 40 Mb/s.  0 = unlimited.
-        let parsedSpeedMbps = Int(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
-        let speedMbps = min(999, max(0, parsedSpeedMbps))
-        let speedBytesPerSec = UInt(speedMbps) * 125_000   // Mb/s → bytes/s
+        let parsedSpeedMbps = Double(ud.string(forKey: "pref_torrentSpeed") ?? "40") ?? 40
+        let speedMbps = parsedSpeedMbps.isFinite ? min(999, max(0, parsedSpeedMbps)) : 40
+        let speedBytesPerSec = UInt(speedMbps * 125_000)   // Mb/s → bytes/s
         settings.maxDownloadSpeed = speedBytesPerSec
         settings.maxUploadSpeed   = speedBytesPerSec
 
