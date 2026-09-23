@@ -208,7 +208,7 @@ final class SettingsNavigationView: UIView {
         var x: CGFloat = 0
         for button in tabs {
             let buttonHeight: CGFloat = medium ? 36 : 40
-            let buttonWidth = horizontal ? ceil(button.titleLabel?.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 36)).width ?? 0) + 32 : width
+            let buttonWidth = horizontal ? ceil(button.titleLabel?.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 36)).width ?? 0) + 32 : width
             if apply {
                 button.frame = CGRect(x: x, y: y, width: buttonWidth, height: buttonHeight)
                 button.contentEdgeInsets = UIEdgeInsets(top: 0, left: medium ? 16 : 32, bottom: 0, right: medium ? 16 : 32)
