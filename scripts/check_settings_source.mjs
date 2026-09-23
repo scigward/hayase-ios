@@ -16,6 +16,16 @@ const extensions = read('Routes/App/Settings/SettingsExtensionsView.swift');
 const typography = read('Components/UI/Settings/SettingsCardView.swift');
 const toggle = read('Components/UI/Switch/HayaseSwitch.swift');
 const routeIndex = read('Components/UI/Sidebar/HayaseTabIndex.swift');
+const clientLayout = read('Components/UI/TorrentClient/DownloadsViewController.swift');
+const episodePagination = read('Routes/App/Anime/[id]/EpisodesList.swift').split('final class PaginationBarView: UIView {')[1].split('// MARK: - Episode fetching')[0];
+assert(clientLayout.includes('label.setContentHuggingPriority(.required, for: .vertical)'));
+assert(clientLayout.includes('tabBarHeightConstraint?.isActive = medium && !wide'));
+assert(!clientLayout.includes('medium ? 44 : 260'));
+assert(!episodePagination.includes('pageStack.isHidden = isCompact'));
+assert(episodePagination.includes('effectivePaginationWidth < 480'));
+assert(episodePagination.includes('smallButtons ? 25.6 : 36'));
+assert(episodePagination.includes('addSubview(compactInfoLabel)'));
+assert(episodePagination.includes('compactInfoLabel.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 20)'));
 
 assert(!/UITableView|tableHeaderView|UITableViewDataSource/.test(controller + shell));
 assert(shell.includes('let headingTop = safeAreaInsets.top + padding'));
@@ -81,5 +91,6 @@ for (const name of ['AccountCardView.swift', 'AccountCardView+Authentication.swi
 checkDelimiters(transition, 'HayaseRouteTransition.swift');
 checkDelimiters(sidebar, 'HayaseSidebarController.swift');
 checkDelimiters(routeIndex, 'HayaseTabIndex.swift');
-console.log(`Settings source contracts passed; delimiter checks passed for ${count + 3} files.`);
+checkDelimiters('class PaginationBarView {' + episodePagination, 'PaginationBarView');
+console.log(`Layout source contracts passed; delimiter checks passed for ${count + 4} Swift files/components.`);
 console.log('Not a Swift parse, type-check, build, or runtime test.');

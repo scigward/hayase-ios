@@ -448,6 +448,10 @@ class DownloadsViewController: UIViewController {
     private func setupPageHeader() {
         pageTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         pageSubtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        for label in [pageTitleLabel, pageSubtitleLabel] {
+            label.setContentHuggingPriority(.required, for: .vertical)
+            label.setContentCompressionResistancePriority(.required, for: .vertical)
+        }
         TorrentClientStyle.configureSeparator(headerSeparator)
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
 
@@ -469,7 +473,7 @@ class DownloadsViewController: UIViewController {
             pageTitleTrailingConstraint!,
             pageTitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.contentMaxWidth),
 
-            pageSubtitleLabel.topAnchor.constraint(equalTo: pageTitleLabel.bottomAnchor, constant: 4),
+            pageSubtitleLabel.topAnchor.constraint(equalTo: pageTitleLabel.bottomAnchor, constant: 2),
             pageSubtitleLabel.leadingAnchor.constraint(equalTo: pageTitleLabel.leadingAnchor),
             pageSubtitleTrailingConstraint!,
 
@@ -640,8 +644,10 @@ class DownloadsViewController: UIViewController {
         tabScrollView.alwaysBounceVertical = wide || !medium
 
         tabBarWidthConstraint?.isActive = wide
-        tabBarHeightConstraint?.isActive = !wide
-        tabBarHeightConstraint?.constant = medium ? 44 : 260  // 6 × h-10 + 5 × gap-y-1
+        // Compact index has only the menu: let its scroll viewport fill the
+        // remaining height instead of forcing the header to absorb that space.
+        tabBarHeightConstraint?.isActive = medium && !wide
+        tabBarHeightConstraint?.constant = 44
         tabStackWidthConstraint?.isActive = wide || !medium
         tabStackHeightConstraint?.isActive = medium && !wide
         tabScrollBottomToContainerConstraint?.isActive = !wide

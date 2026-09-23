@@ -946,6 +946,7 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
 // MARK: - PaginationBarView
 
 final class PaginationBarView: UIView {
+    // Mirrors: src/lib/components/EpisodesList.svelte (xs buttons, md footer).
 
     var onPageChange: ((Int) -> Void)?
 
@@ -1022,6 +1023,13 @@ final class PaginationBarView: UIView {
     private var controlsTrailingConstraint: NSLayoutConstraint?
     private var renderedInfoText: NSAttributedString?
     private var lastAppliedCompactMode: Bool?
+    private var lastAppliedSmallButtons: Bool?
+    private let pageContainer = UIView()
+    private var pageContainerWidth: NSLayoutConstraint?
+    private var expandedBottom: NSLayoutConstraint?
+    private var compactBottom: NSLayoutConstraint?
+    private var compactInfoLeading: NSLayoutConstraint?
+    private var compactInfoTrailing: NSLayoutConstraint?
 
     /// Explicit width used to pick the compact/expanded pagination layout.
     ///
@@ -1043,17 +1051,28 @@ final class PaginationBarView: UIView {
         prevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
         nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
 
+        pageContainer.addSubview(pageStack)
+        pageContainerWidth = pageContainer.widthAnchor.constraint(equalTo: pageStack.widthAnchor)
+        NSLayoutConstraint.activate([
+            pageStack.centerXAnchor.constraint(equalTo: pageContainer.centerXAnchor),
+            pageStack.topAnchor.constraint(equalTo: pageContainer.topAnchor),
+            pageStack.bottomAnchor.constraint(equalTo: pageContainer.bottomAnchor),
+        ])
         controlsStack.addArrangedSubview(prevButton)
-        controlsStack.addArrangedSubview(pageStack)
-        controlsStack.addArrangedSubview(compactInfoLabel)
+        controlsStack.addArrangedSubview(pageContainer)
         controlsStack.addArrangedSubview(nextButton)
 
         addSubview(infoLabel)
         addSubview(controlsStack)
+        addSubview(compactInfoLabel)
 
         infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         controlsLeadingConstraint = controlsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+        expandedBottom = controlsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+        compactBottom = compactInfoLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+        compactInfoLeading = compactInfoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
+        compactInfoTrailing = compactInfoLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
 
         NSLayoutConstraint.activate([
             infoLeadingConstraint!,
@@ -1061,20 +1080,21 @@ final class PaginationBarView: UIView {
 
             controlsTrailingConstraint!,
             controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            controlsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            compactInfoLabel.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 20),
+            compactInfoLeading!,
+            compactInfoTrailing!,
         ])
+        applyResponsiveModeIfNeeded(force: true)
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
         let width = superview?.bounds.width ?? bounds.width
-        let sidePad = isRegular
-            ? AnimeDetailViewController.interfacePageSideInset(for: width)
-            : CGFloat(16)
+        let sidePad = AnimeDetailViewController.interfacePageSideInset(for: width)
         infoLeadingConstraint?.constant = sidePad
         controlsLeadingConstraint?.constant = sidePad
         controlsTrailingConstraint?.constant = -sidePad
+        compactInfoLeading?.constant = sidePad
+        compactInfoTrailing?.constant = -sidePad
         applyResponsiveModeIfNeeded()
     }
 
@@ -1205,13 +1225,32 @@ final class PaginationBarView: UIView {
 
     private func applyResponsiveModeIfNeeded(force: Bool = false) {
         let isCompact = effectivePaginationWidth < 768
-        guard force || lastAppliedCompactMode != isCompact else { return }
+        let smallButtons = effectivePaginationWidth < 480
+        guard force || lastAppliedCompactMode != isCompact || lastAppliedSmallButtons != smallButtons else { return }
         lastAppliedCompactMode = isCompact
+        lastAppliedSmallButtons = smallButtons
 
         infoLabel.isHidden = isCompact
-        pageStack.isHidden = isCompact
+        pageStack.isHidden = false
         compactInfoLabel.attributedText = renderedInfoText
         compactInfoLabel.isHidden = !isCompact
+        expandedBottom?.isActive = false
+        compactBottom?.isActive = false
+        pageContainerWidth?.isActive = !isCompact
+        expandedBottom?.isActive = !isCompact
+        compactBottom?.isActive = isCompact
+        let size: CGFloat = smallButtons ? 25.6 : 36
+        for item in [prevButton, nextButton] + pageStack.arrangedSubviews {
+            for constraint in item.constraints where constraint.firstItem === item && constraint.secondItem == nil {
+                if constraint.firstAttribute == .width || constraint.firstAttribute == .height {
+                    constraint.constant = size
+                }
+            }
+            if let button = item as? UIButton {
+                button.titleLabel?.font = .nunito(ofSize: smallButtons ? 12 : 14, weight: .medium)
+                button.layer.cornerRadius = smallButtons ? 2 : 6
+            }
+        }
 
         controlsLeadingConstraint?.isActive = isCompact
         controlsTrailingConstraint?.isActive = true
@@ -1219,7 +1258,7 @@ final class PaginationBarView: UIView {
 
     private var effectivePaginationWidth: CGFloat {
         if let responsiveWidthOverride, responsiveWidthOverride > 1 { return responsiveWidthOverride }
-        if let window, window.bounds.width > 1 { return window.bounds.width }
+        if let root = window?.rootViewController, root.view.bounds.width > 1 { return root.view.bounds.width }
         if bounds.width > 1 { return bounds.width }
         if let superview, superview.bounds.width > 1 { return superview.bounds.width }
         return UIScreen.main.bounds.width
