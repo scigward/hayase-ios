@@ -1789,12 +1789,12 @@ final class TorrentResultCell: UITableViewCell {
         for extId in result.extensionIds.sorted() {
             if let config = configs[extId], let url = URL(string: config.icon) {
                 let iv = UIImageView()
-                iv.contentMode = .scaleAspectFit
+                iv.contentMode = .scaleToFill
                 iv.widthAnchor.constraint(equalToConstant: 16).isActive = true
                 iv.heightAnchor.constraint(equalToConstant: 16).isActive = true
-                iv.layer.cornerRadius = 2
+                iv.layer.cornerRadius = 0
                 iv.clipsToBounds = true
-                iv.backgroundColor = UIColor(white: 0.15, alpha: 1)
+                iv.backgroundColor = .clear
                 extIconsStack.addArrangedSubview(iv)
                 URLSession.shared.dataTask(with: url) { data, _, _ in
                     if let data, let img = UIImage(data: data) {

@@ -386,15 +386,11 @@ enum TrackerIconFactory {
         case .mal:
             view = MALIconView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         case .simkl:
-            let label = UILabel(frame: CGRect(x: 0, y: 0, width: size, height: size))
-            label.text = "S"
-            label.textAlignment = .center
-            label.textColor = UIColor.HayaseTheme.foreground
-            label.backgroundColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.12)
-            label.font = .nunito(ofSize: size * 0.62, weight: .bold)
-            label.layer.cornerRadius = size * 0.16
-            label.layer.masksToBounds = true
-            view = label
+            // Mirrors: src/lib/components/icons/Simkl.svelte.
+            let icon = UIImageView(image: UIImage(named: "SimklLogo"))
+            icon.contentMode = .scaleAspectFit
+            icon.tintColor = UIColor.HayaseTheme.foreground
+            view = icon
         case .local:
             view = LocalFolderIconView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         }

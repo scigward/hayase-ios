@@ -14,21 +14,20 @@
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <subviews>
-                            <label opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Hayase" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="sXx-Hs-VLL">
-                                <rect key="frame" x="0.0" y="382" width="390" height="40"/>
-                                <fontDescription key="fontDescription" type="system" pointSize="32"/>
-                                <color key="textColor" systemColor="labelColor"/>
-                                <nil key="highlightedColor"/>
-                            </label>
+                            <imageView opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="HayaseLaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="sXx-Hs-VLL">
+                                <rect key="frame" x="155" y="382" width="80" height="80"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="80" id="logo-width"/>
+                                    <constraint firstAttribute="height" constant="80" id="logo-height"/>
+                                </constraints>
+                            </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="Iat-wk-001"/>
                         <constraints>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cnx-001"/>
                             <constraint firstItem="sXx-Hs-VLL" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="cny-001"/>
-                            <constraint firstItem="sXx-Hs-VLL" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="cnl-001"/>
-                            <constraint firstAttribute="trailing" secondItem="sXx-Hs-VLL" secondAttribute="trailing" id="cnt-001"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -38,11 +37,6 @@
         </scene>
     </scenes>
     <resources>
-        <systemColor name="labelColor">
-            <color white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-        </systemColor>
-        <systemColor name="systemBackgroundColor">
-            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-        </systemColor>
+        <image name="HayaseLaunchLogo" width="80" height="80"/>
     </resources>
 </document>

@@ -18,7 +18,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         layer.cornerRadius = 6
         let icon = UIImageView()
         icon.backgroundColor = UIColor.HayaseTheme.accent
-        icon.contentMode = .scaleAspectFill
+        icon.contentMode = .scaleToFill
         icon.layer.cornerRadius = 6
         icon.clipsToBounds = true
         icon.widthAnchor.constraint(equalToConstant: 40).isActive = true
@@ -89,6 +89,10 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         actions.alignment = .trailing
         actions.isLayoutMarginsRelativeArrangement = true
         actions.layoutMargins.bottom = 6
+        // flex-1/min-w-0 belongs to the text column, not the action column.
+        let actionsWidth = actions.widthAnchor.constraint(equalToConstant: 52)
+        actionsWidth.priority = UILayoutPriority(999)
+        actionsWidth.isActive = true
         actions.isHidden = ExtensionService.shared.options[config.id] == nil
         let row = UIStackView(arrangedSubviews: [left, actions])
         row.spacing = 12

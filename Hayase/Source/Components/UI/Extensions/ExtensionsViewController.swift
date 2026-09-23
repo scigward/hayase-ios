@@ -729,6 +729,7 @@ final class BadgeFlowView: UIView {
     }
 
     private var labels: [UILabel] = []
+    private var measuredWidth: CGFloat = 0
     private let hSpacing: CGFloat = 8   // gap-2 = 8pt
     private var vSpacing: CGFloat = 4
 
@@ -736,6 +737,7 @@ final class BadgeFlowView: UIView {
                   background: UIColor = UIColor(white: 23/255, alpha: 1),
                   foreground: UIColor = UIColor(white: 212/255, alpha: 1)) {
         vSpacing = rowSpacing
+        setContentCompressionResistancePriority(.required, for: .vertical)
         labels.forEach { $0.removeFromSuperview() }
         labels = items.map { item in
             switch item {
@@ -797,6 +799,10 @@ final class BadgeFlowView: UIView {
         guard !labels.isEmpty else { return }
         let width = bounds.width
         guard width > 0 else { return }
+        if abs(measuredWidth - width) > 0.5 {
+            measuredWidth = width
+            invalidateIntrinsicContentSize()
+        }
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for l in labels {
             let sz = l.intrinsicContentSize

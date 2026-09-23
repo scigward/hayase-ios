@@ -1,5 +1,16 @@
 # Settings and route-transition implementation review
 
+## Splash, extension badges/icons, and support button follow-up
+
+Baseline: 703717a. Sources: interface static/logo_white_fit.svg, app.html (black startup background), src/lib/components/icons/Simkl.svelte, ui/extensions/ExtensionCard.svelte, SearchModal.svelte, app.css, and routes/app/settings/+layout.svelte.
+
+- Native launch screen: LaunchScreen.storyboard now uses the source white vector logo on black instead of system-font text. An 80-point centered mark is a native launch-screen choice, not a claimed upstream animated splash specification; no forced delay was added. HayaseLaunchLogo.imageset contains the source vector.
+- Badges: SettingsExtensionCardView fixes the action column at its content width so the text/badge column can grow. Shared BadgeFlowView in ExtensionsViewController resists height compression and invalidates its measured height on width changes. Source uses wrapping rows and 8-point gaps; wrapping itself is intentional.
+- Images: settings icons retain the source's explicit accent background and use the image element's fill sizing. Search-result icons in ExtensionSearchViewController have no background or corner rounding, matching SearchModal.svelte. Embedded backgrounds in downloaded images are not altered.
+- Simkl: TrackerIcons.swift now uses SimklLogo.imageset, copied from the actual source SVG, instead of a letter placeholder.
+- Donate: SettingsLayoutView uses SettingsSupportButton. Filled 18-point heart, #fa68b6, 8-point gap, 12-point bold Nunito, source 32-point button height, glow, and 1-second alternating scale 1 to 0.85. Animation stops off-window, in background, or for reduced motion. CSS drop-shadow vs Core Animation rendering and web idle detection vs native application activity remain unverified/different; exact device-pixel parity is not claimed.
+- Validation: source-contract checks, asset-manifest references, vector/storyboard XML parsing, and git diff --check. No Swift compilation, asset-catalog compilation, or iOS runtime execution on this Windows host. GitHub builds are not checked; the user uses Codemagic. No patch artifact requested. Device checks still needed: cold launch, narrow/wide extension cards after import/resize, transparent icons, Simkl visibility, and donate animation/lifecycle.
+
 ## Status
 
 Source implementation and source-contract checks completed; **not an iOS build or runtime approval, and not a claim of complete visual parity**. The reported iPad/iPhone symptom still requires device verification. Player ownership, rendering-surface transfer, and miniplayer lifetime code were not changed.

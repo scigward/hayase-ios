@@ -121,7 +121,7 @@ final class SettingsNavigationView: UIView {
                                                        color: UIColor.HayaseTheme.secondary)
     private let supportDescription = SettingsTypography.label("Please consider supporting the development of Hayase by donating!",
                                                              size: 12, lineHeight: 16, color: UIColor.HayaseTheme.secondary)
-    private let donate = UIButton(type: .custom)
+    private let donate = SettingsSupportButton(frame: .zero)
     private var tabs: [HayaseNavTabButton] = []
     private var footer: [UIView] = []
 
@@ -134,14 +134,6 @@ final class SettingsNavigationView: UIView {
         support.layer.contentsGravity = .resizeAspectFill
         addSubview(support)
         [supportTitle, supportDescription, donate].forEach { support.addSubview($0) }
-        donate.setTitle("Donate", for: .normal)
-        donate.setImage(UIImage.hayaseIcon("heart"), for: .normal)
-        donate.tintColor = UIColor(red: 250 / 255, green: 104 / 255, blue: 182 / 255, alpha: 1)
-        donate.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
-        donate.titleLabel?.font = .nunito(ofSize: 12, weight: .bold)
-        donate.backgroundColor = UIColor.HayaseTheme.primary
-        donate.layer.cornerRadius = 6
-        donate.imageEdgeInsets.right = 8
         donate.addAction(UIAction { _ in
             guard let url = URL(string: "https://github.com/sponsors/ThaUnknown/") else { return }
             UIApplication.shared.open(url)

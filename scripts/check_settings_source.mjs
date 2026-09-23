@@ -16,6 +16,21 @@ const extensions = read('Routes/App/Settings/SettingsExtensionsView.swift');
 const typography = read('Components/UI/Settings/SettingsCardView.swift');
 const toggle = read('Components/UI/Switch/HayaseSwitch.swift');
 const routeIndex = read('Components/UI/Sidebar/HayaseTabIndex.swift');
+const extensionCard = read('Routes/App/Settings/SettingsExtensionCardView.swift');
+const badgeFlow = read('Components/UI/Extensions/ExtensionsViewController.swift').split('final class BadgeFlowView: UIView {')[1];
+const supportButton = read('Components/UI/Settings/SettingsSupportButton.swift');
+assert(extensionCard.includes('actions.widthAnchor.constraint(equalToConstant: 52)'));
+assert(badgeFlow.includes('setContentCompressionResistancePriority(.required, for: .vertical)'));
+assert(badgeFlow.includes('abs(measuredWidth - width) > 0.5'));
+assert(supportButton.includes('hayaseFilledIcon("heart", pointSize: 18)'));
+assert(supportButton.includes('style.imagePadding = 8'));
+assert(supportButton.includes('pulse.toValue = 0.85') && supportButton.includes('pulse.duration = 1'));
+for (const name of ['SimklLogo', 'HayaseLaunchLogo']) {
+  const asset = join(root, 'Hayase/Resources/Assets.xcassets', `${name}.imageset`);
+  const manifest = JSON.parse(readFileSync(join(asset, 'Contents.json'), 'utf8'));
+  assert(existsSync(join(asset, manifest.images[0].filename)));
+  assert(manifest.properties['preserves-vector-representation']);
+}
 const clientLayout = read('Components/UI/TorrentClient/DownloadsViewController.swift');
 const episodePagination = read('Routes/App/Anime/[id]/EpisodesList.swift').split('final class PaginationBarView: UIView {')[1].split('// MARK: - Episode fetching')[0];
 assert(clientLayout.includes('label.setContentHuggingPriority(.required, for: .vertical)'));
