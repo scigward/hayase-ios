@@ -13,7 +13,9 @@ enum ColumnHeader {
                      activeColumnIndex: Int? = nil,
                      sortAscending: Bool = true,
                      target: Any? = nil,
-                     action: Selector? = nil) -> UIView {
+                     action: Selector? = nil,
+                     selectAll: Bool? = nil,
+                     onSort: ((Int, Bool) -> Void)? = nil) -> UIView {
         let header = UIView()
         header.backgroundColor = TorrentClientStyle.background
 
@@ -25,8 +27,8 @@ enum ColumnHeader {
         header.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16),
+            stack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -24),
             stack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
 
@@ -44,8 +46,26 @@ enum ColumnHeader {
                 button.contentHorizontalAlignment = .left
                 button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
                 button.tag = index
-                button.addTarget(target, action: action, for: .touchUpInside)
-                button.accessibilityValue = activeColumnIndex == index ? (sortAscending ? "Ascending" : "Descending") : "Unsorted"
+                if let selected = selectAll, index == columns.count - 1 {
+                    button.setTitle(nil, for: .normal)
+                    button.setImage(UIImage.hayaseIcon(selected ? "square-check" : "square", pointSize: 18), for: .normal)
+                    button.contentHorizontalAlignment = .center
+                    button.accessibilityLabel = "Select all torrents"
+                    button.accessibilityValue = selected ? "Selected" : "Not selected"
+                    button.addTarget(target, action: action, for: .touchUpInside)
+                } else if let onSort {
+                    button.menu = UIMenu(children: [
+                        UIAction(title: "Asc", image: UIImage.hayaseIcon("arrow-up", pointSize: 16)) { _ in onSort(index, true) },
+                        UIAction(title: "Desc", image: UIImage.hayaseIcon("arrow-down", pointSize: 16)) { _ in onSort(index, false) },
+                    ])
+                    button.showsMenuAsPrimaryAction = true
+                } else {
+                    button.addTarget(target, action: action, for: .touchUpInside)
+                }
+                button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+                if selectAll == nil || index != columns.count - 1 {
+                    button.accessibilityValue = activeColumnIndex == index ? (sortAscending ? "Ascending" : "Descending") : "Unsorted"
+                }
                 view = button
             } else {
                 let label = UILabel()

@@ -237,7 +237,7 @@ function statsFromTorrent (torrent) {
     },
     time: {
       remaining: Number.isFinite(Number(torrent.timeRemaining)) ? Number(torrent.timeRemaining) : 0,
-      elapsed: 0
+      elapsed: Math.max(0, (Date.now() - (torrent.__hayaseStartedAt ?? Date.now())) / 1000)
     },
     peers: {
       seeders,
@@ -327,6 +327,7 @@ async function removeRunningTorrents (hashes) {
 function observeTorrent (torrent) {
   if (!torrent || torrent.__hayaseObserved) return torrent
   torrent.__hayaseObserved = true
+  torrent.__hayaseStartedAt = Date.now()
   activeTorrent = torrent
   refreshTorrentStatus()
 

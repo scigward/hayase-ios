@@ -7,6 +7,10 @@ final class SettingsSupportButton: UIButton {
     override init(frame: CGRect) {
         super.init(frame: frame)
         var style = UIButton.Configuration.plain()
+        // Button size="sm" uses rounded-md, never UIKit's adaptive capsule.
+        style.cornerStyle = .fixed
+        style.background.cornerRadius = 6
+        style.background.backgroundColor = UIColor.HayaseTheme.primary
         var titleAttributes = AttributeContainer()
         titleAttributes.font = UIFont.nunito(ofSize: 12, weight: .bold)
         titleAttributes.foregroundColor = UIColor.HayaseTheme.primaryForeground

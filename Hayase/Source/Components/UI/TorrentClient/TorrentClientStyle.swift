@@ -31,6 +31,8 @@ enum TorrentClientStyle {
     static let blue500 = rgb(59, 130, 246)
     static let purple500 = rgb(168, 85, 247)
     static let yellow500 = rgb(234, 179, 8)
+    static let orange500 = rgb(249, 115, 22)
+    static let red500 = rgb(239, 68, 68)
 
     static func isWideClientLayout(width: CGFloat) -> Bool {
         width >= 1024
@@ -75,6 +77,30 @@ enum TorrentClientStyle {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
         cell.tintColor = foreground
+    }
+
+    /// Table.Root keeps all columns reachable through horizontal overflow.
+    static func installScrollableTable(_ table: UITableView, in shell: UIView, minimumWidth: CGFloat) {
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        shell.addSubview(scroll)
+        scroll.addSubview(table)
+        let preferredWidth = table.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: shell.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: shell.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: shell.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: shell.bottomAnchor),
+            table.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            table.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            table.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            table.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            table.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            table.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
+            table.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth),
+            preferredWidth,
+        ])
     }
 
     static func makeSearchField(placeholder: String) -> UITextField {
