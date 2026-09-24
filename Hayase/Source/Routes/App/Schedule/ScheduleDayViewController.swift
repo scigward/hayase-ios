@@ -21,6 +21,7 @@ final class ScheduleDayViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .clear
         view.addSubview(backdrop)
         backdrop.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(close)))
         panel.backgroundColor = UIColor.HayaseTheme.background

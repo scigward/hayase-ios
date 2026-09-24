@@ -26,6 +26,10 @@ class SettingsDialogViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Like the cover modal, let only the shared striped backdrop render
+        // behind the panel (EntryEditor inherits this presentation too).
+        view.backgroundColor = .clear
+        backdrop.backgroundColor = .clear
         stripedBackdrop.isUserInteractionEnabled = false
         backdrop.addSubview(stripedBackdrop)
         backdrop.addTarget(self, action: #selector(close), for: .touchUpInside)

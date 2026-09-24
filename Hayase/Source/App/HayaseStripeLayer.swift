@@ -230,11 +230,11 @@ final class HayaseStripedBackdropView: UIView {
 
     private let stripeLayer: CALayer
     private var blurAnimator: UIViewPropertyAnimator?
-    private var blurIntensity: CGFloat = 0.04
+    private var blurIntensity: CGFloat = 0.15
 
     init(pattern: HayaseStripePattern = .customBackground,
          dimColor: UIColor? = nil,
-         blurAlpha: CGFloat = 0.04) {
+         blurAlpha: CGFloat = 0.15) {
         self.stripeLayer = pattern.makeLayer()
         super.init(frame: .zero)
         backgroundColor = dimColor ?? .clear
