@@ -230,6 +230,7 @@ final class HayaseStripedBackdropView: UIView {
 
     private let stripeLayer: CALayer
     private var blurAnimator: UIViewPropertyAnimator?
+    private var configuredBlurSize: CGSize = .zero
     private var blurIntensity: CGFloat = 0.15
 
     init(pattern: HayaseStripePattern = .customBackground,
@@ -259,6 +260,7 @@ final class HayaseStripedBackdropView: UIView {
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
             self?.blurView.effect = UIBlurEffect(style: .regular)
         }
+        animator.pausesOnCompletion = true
         animator.startAnimation()
         animator.pauseAnimation()
         animator.fractionComplete = intensity
@@ -272,12 +274,25 @@ final class HayaseStripedBackdropView: UIView {
         blurAnimator?.stopAnimation(true)
         blurAnimator = nil
         blurView.effect = nil
-        if window != nil { configureBlur(intensity: blurIntensity) }
+        configuredBlurSize = .zero
+        // Frame-laid-out dialogs attach at zero size. Starting the effect here
+        // lets UIKit recreate its backing filters after we scrub the animator.
+        // Configure only once the visual-effect view has its final geometry.
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         blurView.frame = bounds
+        if window != nil, bounds.width > 0, bounds.height > 0,
+           configuredBlurSize != bounds.size {
+            blurAnimator?.stopAnimation(true)
+            blurAnimator = nil
+            blurView.effect = nil
+            blurView.layoutIfNeeded()
+            configuredBlurSize = bounds.size
+            configureBlur(intensity: blurIntensity)
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         stripeLayer.frame = bounds
