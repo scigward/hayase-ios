@@ -586,7 +586,7 @@ extension PlayerEpisodeListViewController: UIViewControllerTransitioningDelegate
 /// click-to-close).
 final class RightSideSheetPresentationController: UIPresentationController {
 
-    private let dimmingView = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.55))
+    private let dimmingView = HayaseStripedBackdropView()
 
     override var frameOfPresentedViewInContainerView: CGRect {
         guard let containerView = containerView else { return .zero }

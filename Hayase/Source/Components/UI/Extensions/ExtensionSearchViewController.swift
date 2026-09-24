@@ -165,6 +165,8 @@ final class ExtensionSearchViewController: UIViewController {
     private var pendingVideoService: VideoService?
     private var pendingEntity: Torrents?
     private var pendingPlayer: VideoPlayerViewController?
+    private var isOpeningPlayer = false
+    private var playbackDismissAnimator: UIViewPropertyAnimator?
     private var metadataObserver: NSObjectProtocol?
     private var isResolvingPendingMetadata = false
 
@@ -1031,6 +1033,8 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: - Download
 
     private func confirmDownload(_ result: TorrentResult) {
+        guard !isOpeningPlayer else { return }
+        isOpeningPlayer = true
         // Skip confirmation — start streaming immediately.
         startDownload(result)
     }
@@ -1093,12 +1097,41 @@ final class ExtensionSearchViewController: UIViewController {
         player.onCancelMetadataLoading = { [weak self] in self?.cleanupPendingState() }
         let host = hayaseTabIndex
         let openPlayer = { [self, player] in
+            isOpeningPlayer = false
             Router.shared.navigateToPlayer(player, hostTabIndex: host)
-            waitForMetadataAndPlay(entity: entity)
         }
-        // Close the search dialog before the route snapshot is captured.
-        if presentingViewController != nil { dismiss(animated: false, completion: openPlayer) }
-        else { openPlayer() }
+        // SearchModal.svelte starts metadata immediately, closes with flyAndScale,
+        // then awaits sleep(300) before goto('/app/player').
+        waitForMetadataAndPlay(entity: entity)
+        dismissSearchForPlayback(completion: openPlayer)
+    }
+
+    private func dismissSearchForPlayback(completion: @escaping () -> Void) {
+        guard presentingViewController != nil else { completion(); return }
+        view.endEditing(true)
+        view.isUserInteractionEnabled = false
+        let began = CACurrentMediaTime()
+        let finish = { [self] in
+            dismiss(animated: false) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, 0.3 - (CACurrentMediaTime() - began)),
+                                               execute: completion)
+            }
+        }
+        guard !UIAccessibility.isReduceMotionEnabled else { finish(); return }
+        (presentationController as? BottomDialogPresentationController)?.fadeForPlayback()
+        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 0),
+                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 0))
+        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: timing)
+        animator.addAnimations { [weak self] in
+            self?.view.alpha = 0
+            self?.view.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+        }
+        animator.addCompletion { [weak self] _ in
+            self?.playbackDismissAnimator = nil
+            finish()
+        }
+        playbackDismissAnimator = animator
+        animator.startAnimation()
     }
 
     // The route changes once, before fetching. The same player is hydrated on completion.
@@ -1858,8 +1891,14 @@ private extension UIColor {
 /// sheet matching the web interface's Dialog.Content exactly.
 final class BottomDialogPresentationController: UIPresentationController {
 
+    func fadeForPlayback() {
+        UIView.animate(withDuration: 0.15, delay: 0, options: .curveLinear) {
+            self.dimmingView.alpha = 0
+        }
+    }
+
     /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg + backdrop blur).
-    private let dimmingView = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.55))
+    private let dimmingView = HayaseStripedBackdropView()
 
     // MARK: Frame
 

@@ -6,7 +6,7 @@ class SettingsDialogViewController: UIViewController {
     var onClose: (() -> Void)?
     private let panel = UIView()
     private let backdrop = UIControl()
-    private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
+    private let stripedBackdrop = HayaseStripedBackdropView()
     private let heading: String
     private let maximumWidth: CGFloat
     private let contentInset: CGFloat
@@ -26,7 +26,8 @@ class SettingsDialogViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        backdrop.layer.addSublayer(stripeLayer)
+        stripedBackdrop.isUserInteractionEnabled = false
+        backdrop.addSubview(stripedBackdrop)
         backdrop.addTarget(self, action: #selector(close), for: .touchUpInside)
         view.addSubview(backdrop)
         panel.backgroundColor = UIColor.HayaseTheme.popover
@@ -74,7 +75,7 @@ class SettingsDialogViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         backdrop.frame = view.bounds
-        stripeLayer.frame = backdrop.bounds
+        stripedBackdrop.frame = backdrop.bounds
         let width = min(maximumWidth, view.bounds.width)
         let viewport = view.window?.rootViewController?.view.bounds.width ?? view.bounds.width
         content.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }

@@ -145,14 +145,8 @@ private final class HomeBannerBackdropView: UIView {
         guard let image else { return }
         guard currentURLString == urlString else { return }
 
-        if imageView.image == nil {
-            imageView.image = image
-        } else {
-            UIView.transition(with: imageView,
-                              duration: 0.3,
-                              options: .transitionCrossDissolve,
-                              animations: { self.imageView.image = image })
-        }
+        imageView.layer.removeAllAnimations()
+        imageView.image = image
     }
 
     func applyOverscrollZoom(_ overscroll: CGFloat) {
@@ -206,7 +200,7 @@ private final class HomeBannerBackdropView: UIView {
 // • 15-second auto-rotation
 // • Banner query: SCORE_DESC, perPage: 5, current season, statusNot NOT_YET_RELEASED
 
-private final class FeaturedBannerCell: UICollectionViewCell {
+private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegate {
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
     // Banner height: 70% on iPhone, 80% on iPad — matches web h-[70vh] md:h-[80vh]
@@ -236,7 +230,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     private var items: [AnimeItem] = []
     private var currentIndex = 0
-    private var rotationTimer: Timer?
+    var onFeaturedChanged: ((Int) -> Void)?
+    private var progressGeneration = 0
     private var bannerTask: URLSessionDataTask?
     private var fanartTask: URLSessionDataTask?
     private var currentSidebarBackdropURL: String?
@@ -478,6 +473,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         bannerBackdropClipView.translatesAutoresizingMaskIntoConstraints = false
         bannerBackdropClipView.layer.zPosition = -1
+        bannerBackdropClipView.isHidden = true // Artwork belongs to the single page backdrop, as in banner-image.svelte.
         contentView.addSubview(bannerBackdropClipView)
 
         [backgroundImageView, gradientView].forEach {
@@ -752,15 +748,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard window != nil else { return }
         let isRegular = traitCollection.horizontalSizeClass == .regular
         applyLayoutForSizeClass(isRegular: isRegular)
-        if rotationTimer == nil, !items.isEmpty {
-            updateDots()
-            startTimer()
-        }
+        if !items.isEmpty { updateDots() }
     }
 
     // MARK: Configuration
 
-    func configure(with items: [AnimeItem]) {
+    func configure(with items: [AnimeItem], selectedID: Int? = nil) {
         // full-banner.svelte: shuffleAndFilter(media).filter(bannerImage || trailer).slice(0, 5)
         let filtered = Self.shuffle(items).filter { $0.bannerURL != nil || $0.trailerYouTubeID != nil }
         let nextItems = Array(filtered.prefix(5))
@@ -768,19 +761,20 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             self.items = nextItems
             return
         }
+        let keepID = currentItem?.id ?? selectedID
         self.items = nextItems
         followingUsersByMediaID = [:]
-        currentIndex = 0
+        currentIndex = nextItems.firstIndex { $0.id == keepID } ?? 0
         rebuildDots()
         displayItem(animated: false)
         loadFollowingUsers(for: self.items)
-        startTimer()
     }
 
     private func displayItem(animated: Bool) {
         guard currentIndex < items.count else { return }
         artworkGeneration += 1
         let item = items[currentIndex]
+        onFeaturedChanged?(item.id)
         let block = {
             // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
             // Web: {#await episodesCached()} shows nothing while loading, then clearlogo or text.
@@ -849,7 +843,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             fade.toValue = 1
             fade.duration = 0.8
             fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            contentView.layer.add(fade, forKey: "featured-fade-in")
+            titleLabel.layer.add(fade, forKey: "featured-fade-in")
+            descriptionLabel.layer.add(fade, forKey: "featured-fade-in")
         }
         loadBanner(for: item)
         loadClearlogo(for: item)
@@ -894,10 +889,11 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         avatarTasks.forEach { $0.cancel() }
         avatarTasks = []
         avatarContainer.subviews.forEach { $0.removeFromSuperview() }
-        avatarContainerWidthConstraint.constant = 32 + CGFloat(max(0, users.count - 1)) * 28
+        avatarContainerWidthConstraint.constant = 32 + CGFloat(max(0, users.count - 1)) * 24
         guard !users.isEmpty else { return }
         let profiles = FollowerAvatarStackView()
-        profiles.configure(users: users, avatarSize: 32, ringWidth: 4) { id, completion in
+        profiles.configure(users: users, avatarSize: 32, ringWidth: 0,
+                           ringColor: UIColor.HayaseTheme.primary, overlap: 8, cutoutBorder: 4) { id, completion in
             AniListClient.shared.fetchUserProfileResult(id: id) { result in
                 completion(try? result.get())
             }
@@ -1285,7 +1281,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
             // Hayase: inactive width 1.5rem (24pt), active width 3rem (48pt)
-            let wc = dot.widthAnchor.constraint(equalToConstant: i == 0 ? 48 : 24)
+            let wc = dot.widthAnchor.constraint(equalToConstant: i == currentIndex ? 48 : 24)
             wc.isActive = true
             dotWidthConstraints[i] = wc
 
@@ -1318,7 +1314,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         currentIndex = index
         displayItem(animated: true)
         // Restart the timer so the next auto-advance is a full interval from now
-        startTimer()
     }
 
     @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
@@ -1331,7 +1326,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         default: break
         }
         displayItem(animated: true)
-        startTimer()
     }
 
     @objc private func playButtonTapped() {
@@ -1369,6 +1363,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         // Matches Hayase full-banner.svelte dot behavior:
         //   inactive: bg-white/20, width 1.5rem (24pt)
         //   active:   bg-custom (coverImage.color), width 3rem (48pt), fill animation over 15s
+        progressGeneration += 1
         let item = items[safe: currentIndex]
         let customColor = Self.uiColor(fromHex: item?.coverColor) ?? .white
         for (i, dot) in dotsStack.arrangedSubviews.enumerated() {
@@ -1393,7 +1388,9 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 anim.timingFunction = CAMediaTimingFunction(name: .linear)
                 anim.fillMode = .forwards
                 anim.isRemovedOnCompletion = false
-                fill?.layer.add(anim, forKey: "fillProgress")
+                anim.delegate = self
+                anim.setValue(progressGeneration, forKey: "generation")
+                if window != nil { fill?.layer.add(anim, forKey: "fillProgress") }
             } else {
                 fill?.backgroundColor = .clear
             }
@@ -1404,21 +1401,17 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         }
     }
 
-    private func startTimer() {
-        rotationTimer?.invalidate()
-        guard items.count > 1 else { return }
-        rotationTimer = Timer.scheduledTimer(withTimeInterval: FeaturedBannerCell.rotationInterval,
-                                             repeats: true) { [weak self] _ in
-            guard let self = self, !self.items.isEmpty else { return }
-            self.currentIndex = (self.currentIndex + 1) % self.items.count
-            self.displayItem(animated: true)
-        }
+    func animationDidStop(_ animation: CAAnimation, finished: Bool) {
+        guard finished, window != nil, items.count > 1,
+              animation.value(forKey: "generation") as? Int == progressGeneration else { return }
+        currentIndex = (currentIndex + 1) % items.count
+        displayItem(animated: true)
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        rotationTimer?.invalidate()
-        rotationTimer = nil
+        progressGeneration += 1
+        dotsStack.arrangedSubviews.forEach { $0.viewWithTag(999)?.layer.removeAnimation(forKey: "fillProgress") }
         artworkGeneration += 1
         bannerTask?.cancel()
         bannerTask = nil
@@ -1446,8 +1439,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
-            rotationTimer?.invalidate()
-            rotationTimer = nil
+            progressGeneration += 1
+            dotsStack.arrangedSubviews.forEach { $0.viewWithTag(999)?.layer.removeAnimation(forKey: "fillProgress") }
         }
     }
 
@@ -1732,6 +1725,7 @@ class BrowseAnimeViewController: UIViewController {
     private let homeFlipDuration: TimeInterval = 0.4
 
     private let homeBackdropView = HomeBannerBackdropView()
+    private var selectedFeaturedID: Int?
     private let homeBackdropCoverView: UIView = {
         let view = UIView()
         view.backgroundColor = hayasePageBackground
@@ -2131,7 +2125,11 @@ class BrowseAnimeViewController: UIViewController {
             self.bannerItems = bannerResults
             if self.collectionView.numberOfSections > 0,
                self.collectionView.numberOfItems(inSection: 0) > 0 {
-                self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                if let cell = self.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell {
+                    cell.configure(with: bannerResults, selectedID: self.selectedFeaturedID)
+                } else {
+                    self.collectionView.reloadItems(at: [IndexPath(item: 0, section: 0)])
+                }
                 DispatchQueue.main.async { self.syncBannerToCurrentScrollPosition() }
             }
         }
@@ -2656,13 +2654,19 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
                 for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
             cell.layer.zPosition = 0
-            cell.onBackdropImageChanged = { [weak self] urlString, image in
-                guard let self, !self.isSearching else { return }
-                self.homeBackdropView.setBackdrop(urlString: urlString, image: image)
-                self.syncBannerToCurrentScrollPosition()
+            cell.onFeaturedChanged = { [weak self] id in self?.selectedFeaturedID = id }
+            cell.onBackdropImageChanged = { [weak self, weak cell] urlString, image in
+                let mediaID = cell?.currentItem?.id
+                DispatchQueue.main.async {
+                    guard let self, let cell, !self.isSearching,
+                          cell.currentItem?.id == mediaID,
+                          self.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) === cell else { return }
+                    self.homeBackdropView.setBackdrop(urlString: urlString, image: image)
+                    self.syncBannerToCurrentScrollPosition()
+                }
             }
             if !bannerItems.isEmpty {
-                cell.configure(with: bannerItems)
+                cell.configure(with: bannerItems, selectedID: selectedFeaturedID)
             }
             // Wire play button → navigate to anime detail
             cell.onPlayTapped = { [weak self] item in

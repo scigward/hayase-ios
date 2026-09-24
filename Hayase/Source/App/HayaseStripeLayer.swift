@@ -86,7 +86,7 @@ enum HayaseStripePattern {
             return cached
         }
 
-        let image = makeRepeatingLinearGradientTile(size: spec.seamlessTileSize,
+        let image = makeRepeatingLinearGradientTile(size: spec.tileSize,
                                                     scale: scale,
                                                     spec: spec)
         tileCacheQueue.sync {
@@ -137,8 +137,10 @@ enum HayaseStripePattern {
               let minPerpendicular = perpendicularCorners.min(),
               let maxPerpendicular = perpendicularCorners.max() else { return }
 
-        let periodStart = floor(minProjection / spec.period) * spec.period - spec.period
-        let periodEnd = ceil(maxProjection / spec.period) * spec.period + spec.period
+        // CSS starts the gradient line at the corner projection, not at
+        // an arbitrary world-space zero. Keep its phase when the view resizes.
+        let periodStart = minProjection
+        let periodEnd = maxProjection + spec.period
         let perpendicularPadding = hypot(bounds.width, bounds.height)
         let perpendicularStart = minPerpendicular - perpendicularPadding
         let perpendicularHeight = maxPerpendicular - minPerpendicular + perpendicularPadding * 2
@@ -221,31 +223,56 @@ enum HayaseStripePattern {
 /// stripe effect gets the same interface-style backdrop treatment.
 final class HayaseStripedBackdropView: UIView {
     private let blurView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        let view = UIVisualEffectView(effect: nil)
         view.isUserInteractionEnabled = false
         return view
     }()
 
     private let stripeLayer: CALayer
+    private var blurAnimator: UIViewPropertyAnimator?
+    private var blurIntensity: CGFloat = 0.15
 
     init(pattern: HayaseStripePattern = .customBackground,
          dimColor: UIColor? = nil,
-         blurAlpha: CGFloat = 0.3) {
+         blurAlpha: CGFloat = 0.15) {
         self.stripeLayer = pattern.makeLayer()
         super.init(frame: .zero)
         backgroundColor = dimColor ?? .clear
-        blurView.alpha = blurAlpha
         addSubview(blurView)
         layer.addSublayer(stripeLayer)
+        blurIntensity = min(max(blurAlpha, 0), 1)
     }
 
     required init?(coder: NSCoder) {
         self.stripeLayer = HayaseStripePattern.customBackground.makeLayer()
         super.init(coder: coder)
         backgroundColor = .clear
-        blurView.alpha = 0.3
         addSubview(blurView)
         layer.addSublayer(stripeLayer)
+    }
+
+    private func configureBlur(intensity: CGFloat) {
+        guard !UIAccessibility.isReduceTransparencyEnabled else { return }
+        // Keep the backdrop live. Fading a fully blurred view blends sharp
+        // pixels back in and creates double edges instead of a small blur.
+        // UIKit has no public CSS blur-radius API; this is a light native blur.
+        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
+            self?.blurView.effect = UIBlurEffect(style: .regular)
+        }
+        animator.startAnimation()
+        animator.pauseAnimation()
+        animator.fractionComplete = intensity
+        blurAnimator = animator
+    }
+
+    deinit { blurAnimator?.stopAnimation(true) }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        blurAnimator?.stopAnimation(true)
+        blurAnimator = nil
+        blurView.effect = nil
+        if window != nil { configureBlur(intensity: blurIntensity) }
     }
 
     override func layoutSubviews() {
@@ -303,6 +330,12 @@ private final class HayaseStripeTiledLayer: CALayer {
         guard bounds.width > 0,
               bounds.height > 0 else { return }
 
+        if case .customBackground = pattern {
+            // custom-bg has no CSS background-size. Draw its exact 40-degree,
+            // 10-point repeat directly, avoiding fractional raster tile seams.
+            HayaseStripePattern.drawPattern(in: ctx, bounds: bounds, spec: pattern.renderSpec)
+            return
+        }
         let tile = HayaseStripePattern.cachedTile(for: pattern, scale: contentsScale)
         guard let cgImage = tile.cgImage else { return }
 

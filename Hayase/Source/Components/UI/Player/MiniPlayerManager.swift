@@ -527,9 +527,15 @@ final class MiniPlayerManager {
     /// `isMiniplayer` branch) the Now Casting display while actively casting.
     /// Re-callable: removes any existing overlay first so cast state changes
     /// while already minimized can rebuild it in place.
+    func refreshLoadingState(for player: VideoPlayerViewController) {
+        guard activePlayer === player, let containerView else { return }
+        addOverlay(to: containerView)
+    }
+
     private func addOverlay(to container: UIView) {
         guard let inner = container.viewWithTag(innerContainerTag) else { return }
         inner.viewWithTag(overlayTag)?.removeFromSuperview()
+        guard activePlayer?.isLoadingMetadata != true else { return }
 
         let overlay = UIView()
         overlay.tag = overlayTag

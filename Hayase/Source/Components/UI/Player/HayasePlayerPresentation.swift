@@ -19,7 +19,7 @@ extension UIViewController {
                              animated: Bool = true,
                              completion: (() -> Void)? = nil) {
         player.modalTransitionStyle = .crossDissolve
-        if hayaseShouldEmbedPlayerInShell, let nav = hayaseShellNavigationController() {
+        if hayaseShouldEmbedPlayerInShell || player.isLoadingMetadata, let nav = hayaseShellNavigationController() {
             let pushPlayer = {
                 nav.setNavigationBarHidden(true, animated: false)
                 nav.navigationBar.isHidden = true

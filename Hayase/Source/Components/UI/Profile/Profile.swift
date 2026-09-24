@@ -23,6 +23,7 @@ import UIKit
 
 final class FollowerAvatarStackView: UIStackView {
     private var buttons: [ProfileButton] = []
+    private var cutoutBorder: CGFloat?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -51,8 +52,11 @@ final class FollowerAvatarStackView: UIStackView {
                    avatarSize: CGFloat = 32,
                    ringWidth: CGFloat = 4,
                    ringColor: UIColor = UIColor.HayaseTheme.background,
+                   overlap: CGFloat = 4, cutoutBorder: CGFloat? = nil,
                    detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         reset()
+        spacing = -overlap
+        self.cutoutBorder = cutoutBorder
         let visibleUsers = users.filter { !$0.name.isEmpty }
         isHidden = visibleUsers.isEmpty
         visibleUsers.forEach { user in
@@ -62,6 +66,11 @@ final class FollowerAvatarStackView: UIStackView {
                                        ringColor: ringColor,
                                        detailFetcher: detailFetcher)
             button.translatesAutoresizingMaskIntoConstraints = false
+            if cutoutBorder != nil {
+                button.layer.cornerRadius = avatarSize / 2
+                button.layer.borderWidth = 1
+                button.layer.borderColor = UIColor.HayaseTheme.primary.cgColor
+            }
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: avatarSize),
                 button.heightAnchor.constraint(equalToConstant: avatarSize),
@@ -79,6 +88,28 @@ final class FollowerAvatarStackView: UIStackView {
             view.removeFromSuperview()
         }
         isHidden = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for (index, button) in buttons.enumerated() {
+            guard let border = cutoutBorder, index < buttons.count - 1 else {
+                button.layer.mask = nil
+                continue
+            }
+            // Avatars.svelte cuts a transparent gap around the NEXT avatar;
+            // it does not paint an opaque ring around each current avatar.
+            let radius = button.bounds.height / 2 + border
+            let center = CGPoint(x: button.bounds.width * 1.5 + spacing, y: button.bounds.midY)
+            let path = UIBezierPath(rect: button.bounds)
+            path.append(UIBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                                    width: radius * 2, height: radius * 2)))
+            let mask = (button.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+            mask.frame = button.bounds
+            mask.fillRule = .evenOdd
+            mask.path = path.cgPath
+            button.layer.mask = mask
+        }
     }
 }
 

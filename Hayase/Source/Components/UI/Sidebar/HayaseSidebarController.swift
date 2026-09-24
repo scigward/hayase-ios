@@ -826,7 +826,9 @@ final class HayaseSidebarController: UIViewController {
     private func usesViewTransition(for route: Route, kind: Router.NavigationKind, animated: Bool) -> Bool {
         // iOS runs its own back/forward animation, and entering the mobile player skips it.
         // SvelteKit still runs onNavigate for goto(..., { replaceState: true }).
-        guard animated, (kind == .push || kind == .replace), route != .player else { return false }
+        guard animated, (kind == .push || kind == .replace) else { return false }
+        // supports.ts includes BOTH iPhone and iPad in isMobile.
+        if route == .player, UIDevice.current.userInterfaceIdiom == .phone || UIDevice.current.userInterfaceIdiom == .pad { return false }
         guard let player = visiblePlayerForRouteExit() else { return true }
         // Root +layout.svelte skips startViewTransition whenever fullscreenElement is set.
         // Phones force the player fullscreen; iPad can enter the same state manually.

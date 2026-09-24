@@ -4,7 +4,7 @@ import UIKit
 final class ScheduleDayViewController: UIViewController {
     private let episodes: [ScheduleAiringEpisode]
     private let select: (Int) -> Void
-    private let backdrop = HayaseStripedBackdropView(dimColor: UIColor.black.withAlphaComponent(0.55))
+    private let backdrop = HayaseStripedBackdropView()
     private let panel = UIView()
     private let border = UIView()
     private let scroll = UIScrollView()

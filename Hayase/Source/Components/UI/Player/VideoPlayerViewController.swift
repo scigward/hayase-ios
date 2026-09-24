@@ -383,14 +383,16 @@ final class VideoPlayerViewController: UIViewController {
     var videoEntity: Videos?
     private var metadataLoadingView: PlayerMetadataLoadingView?
     private var metadataLoadingOwner: AnyObject?
+    var isLoadingMetadata: Bool { metadataLoadingView != nil }
     var onCancelMetadataLoading: (() -> Void)?
 
     func beginMetadataLoading(owner: AnyObject) {
         metadataLoadingOwner = owner
         loadViewIfNeeded()
-        let loading = PlayerMetadataLoadingView(frame: view.bounds)
+        let loading = PlayerMetadataLoadingView(frame: surface.bounds)
         loading.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(loading)
+        surface.addSubview(loading)
+        overlay.isHidden = true
         metadataLoadingView = loading
     }
 
@@ -403,8 +405,14 @@ final class VideoPlayerViewController: UIViewController {
         }
         metadataLoadingView?.removeFromSuperview()
         metadataLoadingView = nil
+        overlay.isHidden = false
         loadCurrentVideo()
         scheduleHide()
+        MiniPlayerManager.shared.refreshLoadingState(for: self)
+        if UIDevice.current.userInterfaceIdiom == .phone,
+           Router.shared.currentRoute == .player, !isMinimizing {
+            enterFullscreenPresentation()
+        }
     }
     var torrentHandle: TorrentHandle?
     var videoService: VideoService?
