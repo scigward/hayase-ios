@@ -100,7 +100,7 @@ All paths below are relative to `Hayase/Source/` unless otherwise stated.
 | Routes/App/Settings/SettingsChangelogView.swift | Responsive changelog/loading/error rendering |
 | Routes/App/Settings/SettingsExtensionCardView.swift | Extension card and status lifetime |
 | Routes/App/Settings/SettingsExtensionsView.swift | Inline tabs/import/list/options/source dialogs |
-| scripts/check_settings_source.mjs (repository root) | Source-contract and delimiter regression checks |
+| Source-check script (since removed at user request) | Historical source-contract and delimiter regression checks |
 
 ## Known differences and unresolved verification
 

@@ -64,6 +64,7 @@ final class FollowerAvatarStackView: UIStackView {
                                        avatarSize: avatarSize,
                                        ringWidth: ringWidth,
                                        ringColor: ringColor,
+                                       imageInset: cutoutBorder == nil ? 0 : 1,
                                        detailFetcher: detailFetcher)
             button.translatesAutoresizingMaskIntoConstraints = false
             if cutoutBorder != nil {
@@ -101,15 +102,31 @@ final class FollowerAvatarStackView: UIStackView {
             // it does not paint an opaque ring around each current avatar.
             let radius = button.bounds.height / 2 + border
             let center = CGPoint(x: button.bounds.width * 1.5 + spacing, y: button.bounds.midY)
-            let path = UIBezierPath(rect: button.bounds)
-            path.append(UIBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius,
-                                                    width: radius * 2, height: radius * 2)))
-            let mask = (button.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+            let mask = (button.layer.mask as? AvatarCutoutLayer) ?? AvatarCutoutLayer()
+            mask.contentsScale = window?.screen.scale ?? UIScreen.main.scale
             mask.frame = button.bounds
-            mask.fillRule = .evenOdd
-            mask.path = path.cgPath
+            mask.cutoutCenter = center
+            mask.cutoutRadius = radius
+            mask.setNeedsDisplay()
             button.layer.mask = mask
         }
+    }
+}
+
+/// CSS radial mask: transparent through radius - 1, opaque at radius.
+private final class AvatarCutoutLayer: CALayer {
+    var cutoutCenter = CGPoint.zero
+    var cutoutRadius: CGFloat = 0
+
+    override func draw(in context: CGContext) {
+        guard cutoutRadius > 0,
+              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                  colors: [UIColor.clear.cgColor, UIColor.black.cgColor] as CFArray,
+                  locations: [0, 1]) else { return }
+        context.drawRadialGradient(gradient,
+            startCenter: cutoutCenter, startRadius: max(0, cutoutRadius - 1),
+            endCenter: cutoutCenter, endRadius: cutoutRadius,
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     }
 }
 
@@ -122,6 +139,7 @@ private final class ProfileButton: UIControl {
          avatarSize: CGFloat,
          ringWidth: CGFloat,
          ringColor: UIColor,
+         imageInset: CGFloat = 0,
          detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         self.user = user
         self.detailFetcher = detailFetcher
@@ -130,14 +148,14 @@ private final class ProfileButton: UIControl {
                                             ringWidth: ringWidth,
                                             ringColor: ringColor)
         super.init(frame: .zero)
-        setup()
+        setup(imageInset: imageInset)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setup() {
+    private func setup(imageInset: CGFloat) {
         accessibilityLabel = user.name
         addTarget(self, action: #selector(showProfile), for: .touchUpInside)
 
@@ -145,10 +163,10 @@ private final class ProfileButton: UIControl {
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(avatarView)
         NSLayoutConstraint.activate([
-            avatarView.topAnchor.constraint(equalTo: topAnchor),
-            avatarView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            avatarView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            avatarView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            avatarView.topAnchor.constraint(equalTo: topAnchor, constant: imageInset),
+            avatarView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: imageInset),
+            avatarView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -imageInset),
+            avatarView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -imageInset),
         ])
     }
 

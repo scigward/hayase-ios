@@ -37,6 +37,8 @@ shared table/button primitives, and `modules/torrent/client.ts`.
 
 ## Verification and boundaries
 
+The source-check scripts named below were subsequently removed at the user's request. This section records historical checks, not commands available in the current checkout.
+
 `node scripts/check_settings_source.mjs`,
 `node scripts/check_torrent_client_source.mjs`, JavaScript syntax checking, and
 `git diff --check` pass. The torrent script executes the bridge statistics

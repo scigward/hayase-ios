@@ -198,32 +198,6 @@ private final class AnimeDetailBannerBackdropView: UIView {
     }
 }
 
-// MARK: - AnimeDialogBackdropView
-
-private final class AnimeDialogBackdropView: UIView {
-    private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    private func setup() {
-        backgroundColor = UIColor.black.withAlphaComponent(0.82)
-        layer.addSublayer(stripeLayer)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        stripeLayer.frame = bounds
-    }
-}
-
 // MARK: - PaddedLabel
 
 final class PaddedLabel: UILabel {
@@ -2366,7 +2340,7 @@ class AnimeDetailViewController: UIViewController {
         dialog.modalTransitionStyle = .crossDissolve
         dialog.view.backgroundColor = .clear
 
-        let backdropView = AnimeDialogBackdropView()
+        let backdropView = HayaseStripedBackdropView()
         backdropView.translatesAutoresizingMaskIntoConstraints = false
         dialog.view.addSubview(backdropView)
 
@@ -2388,13 +2362,7 @@ class AnimeDetailViewController: UIViewController {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageContainer.addSubview(imageView)
 
-        let closeButton = UIButton(type: .system)
-        closeButton.backgroundColor = .clear
-        closeButton.tintColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.7)
-        closeButton.layer.cornerRadius = 2
-        closeButton.layer.masksToBounds = true
-        closeButton.setImage(UIImage.hayaseIcon("x", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)), for: .normal)
-        closeButton.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        let closeButton = HayaseCloseButton()
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(dismissPresentedCoverDialog), for: .touchUpInside)
         dialog.view.addSubview(closeButton)
@@ -2428,8 +2396,8 @@ class AnimeDetailViewController: UIViewController {
 
             closeButton.topAnchor.constraint(equalTo: imageContainer.topAnchor, constant: 16),
             closeButton.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor, constant: -16),
-            closeButton.widthAnchor.constraint(equalToConstant: 24),
-            closeButton.heightAnchor.constraint(equalToConstant: 24),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
 
         // Tap outside image to dismiss

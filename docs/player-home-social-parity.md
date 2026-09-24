@@ -12,9 +12,7 @@ W2G and Global Chat use the interface's 768-point viewport breakpoint and conten
 
 ## Validation
 
-- check_settings_source.mjs
-- check_torrent_client_source.mjs
-- check_player_home_parity.mjs (source contracts, changed-Swift delimiter checks and 84 calendar-month models)
+- The earlier JavaScript source-check scripts were removed at the user's request; their historical results are not runtime validation.
 - git diff --check
 
 These are source-level checks, not Swift compilation or pixel/runtime verification. No GitHub build checks were performed.
@@ -29,3 +27,10 @@ Codemagic/device acceptance still needs: delayed/failed metadata, closing a load
 - Homepage avatars use the source's 8-point overlap, transparent 4-point cutout and 1-point primary border instead of opaque 4-point rings.
 - custom-bg is drawn as a continuous 40-degree, 10-point gradient with the CSS stops and alpha, avoiding fractional raster-tile seams. Opaque striped variants retain their CSS 119-point tile. Dialogs share the live blur/stripe component without an extra 55% black tint.
 - Blur is a light native visual effect, not a screenshot. UIKit does not expose a public Gaussian pixel-radius setting, so CSS blur(4px) equality is NOT certified; device comparison remains necessary.
+
+## Follow-up: shared backdrops and close controls
+
+- Reduced the native blur fraction from 0.15 to 0.04. Cover dialogs now use the same live striped backdrop instead of a separate unblurred, 82%-black overlay.
+- Featured avatars reserve the CSS border's one-point inset and use the source radial mask's one-point feather rather than a hard cutout. Profile taps are preserved.
+- HayaseCloseButton shares the 16-point Radix-style cross and the source's dialog/sheet styling across cover, settings, episode-list and schedule presentations, with a larger invisible touch target.
+- Removed the three added source-check scripts; production JavaScript is unchanged. Historical reports below/elsewhere record checks performed before removal. Current validation is diff and source review only; Codemagic/device validation is still required.

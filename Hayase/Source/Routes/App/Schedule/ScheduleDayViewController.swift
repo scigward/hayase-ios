@@ -9,7 +9,7 @@ final class ScheduleDayViewController: UIViewController {
     private let border = UIView()
     private let scroll = UIScrollView()
     private let rows = UIStackView()
-    private let closeButton = UIButton(type: .custom)
+    private let closeButton = HayaseCloseButton(style: .sheet)
 
     init(episodes: [ScheduleAiringEpisode], select: @escaping (Int) -> Void) {
         self.episodes = episodes
@@ -48,9 +48,6 @@ final class ScheduleDayViewController: UIViewController {
             rows.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             rows.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -24),
         ])
-        closeButton.setImage(UIImage.hayaseIcon("x"), for: .normal)
-        closeButton.tintColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.7)
-        closeButton.accessibilityLabel = "Close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         panel.addSubview(closeButton)
     }

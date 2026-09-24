@@ -57,10 +57,7 @@ class SettingsDialogViewController: UIViewController {
             content.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             content.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
         ])
-        let closeButton = UIButton(type: .custom)
-        closeButton.setImage(UIImage.hayaseIcon("x"), for: .normal)
-        closeButton.tintColor = UIColor.HayaseTheme.mutedForeground
-        closeButton.accessibilityLabel = "Close"
+        let closeButton = HayaseCloseButton()
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(closeButton)

@@ -97,7 +97,7 @@ final class PlayerEpisodeListViewController: UIViewController {
     private let leftBorder = UIView()
 
     /// interface sheet-content.svelte: `<SheetClose class='absolute right-4 top-4 ...'>`.
-    private let closeButton = UIButton(type: .system)
+    private let closeButton = HayaseCloseButton(style: .sheet)
 
     private let emptyLabel: UILabel = {
         let label = UILabel()
@@ -193,12 +193,6 @@ final class PlayerEpisodeListViewController: UIViewController {
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.startAnimating()
 
-        closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)
-        closeButton.tintColor = UIColor.HayaseTheme.foreground
-        // interface: `opacity-70 hover:opacity-100`, `rounded-sm`, `bg-secondary` when open.
-        closeButton.alpha = 0.7
-        closeButton.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(0.7)
-        closeButton.layer.cornerRadius = 4
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
@@ -234,8 +228,8 @@ final class PlayerEpisodeListViewController: UIViewController {
             // interface sheet-content.svelte: `absolute right-4 top-4`.
             closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            closeButton.widthAnchor.constraint(equalToConstant: 28),
-            closeButton.heightAnchor.constraint(equalToConstant: 28),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
     }
 
