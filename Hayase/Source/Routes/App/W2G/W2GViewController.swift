@@ -276,7 +276,7 @@ final class W2GViewController: UIViewController {
         codeLabel.textColor = UIColor(white: 0.5, alpha: 1)
 
         subtitleLabel.text = "Watch videos together with friends in real-time. You can invite others to your lobby and chat while watching."
-        subtitleLabel.font = .nunito(ofSize: 14)
+        subtitleLabel.font = .nunito(ofSize: 16)
         subtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
         subtitleLabel.numberOfLines = 0
 
@@ -355,16 +355,15 @@ final class W2GViewController: UIViewController {
         button.addTarget(self, action: action, for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 40),
-            button.heightAnchor.constraint(equalToConstant: 40)
+            button.widthAnchor.constraint(equalToConstant: 36),
+            button.heightAnchor.constraint(equalToConstant: 36)
         ])
     }
 
     // MARK: - Layout Constraints
     //
     // Responsive layout mirroring web's `flex md:flex-row flex-col-reverse`:
-    //   - Narrow screens (iPhone): chat on top, user list hidden (toggle-able)
-    //     or stacked below when there's enough vertical space.
+    //   - Narrow screens: user list above messages, capped at 40% of the body.
     //   - Wide screens (iPad / landscape): chat left, user list right (md:w-72).
 
     /// Constraints activated only in wide (side-by-side) layout.
@@ -373,6 +372,9 @@ final class W2GViewController: UIViewController {
     private var narrowLayoutConstraints: [NSLayoutConstraint] = []
     /// Tracks current layout class to avoid redundant re-layouts.
     private var isWideLayout: Bool?
+    private lazy var compactUsersHeight = userListTableView.heightAnchor.constraint(equalToConstant: 0)
+
+    private var headerInsets: [NSLayoutConstraint] = []
 
     private func setupLobbyConstraints() {
         let pad: CGFloat = 16
@@ -381,50 +383,58 @@ final class W2GViewController: UIViewController {
         // Always-active constraints
         NSLayoutConstraint.activate([
             // Title row
-            titleLabel.topAnchor.constraint(equalTo: safe.topAnchor, constant: pad),
-            titleLabel.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
 
             codeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             codeLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 16),
 
             // Subtitle: web uses space-y-0.5 = 2pt gap
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
-            subtitleLabel.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
 
             // Separator: web uses <Separator class='!my-6' /> = 24pt vertical margin
             separatorView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
-            separatorView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
-            separatorView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
-            separatorView.heightAnchor.constraint(equalToConstant: 0.5),
+            separatorView.heightAnchor.constraint(equalToConstant: 1),
 
             // Bottom bar (always pinned to bottom)
             bottomBar.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
-            bottomBar.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
             bottomBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -pad),
-            bottomBar.heightAnchor.constraint(equalToConstant: 44),
+            bottomBar.heightAnchor.constraint(equalToConstant: 36),
 
             // Message field fills remaining space in bottom bar
             messageField.heightAnchor.constraint(equalToConstant: 36),
         ])
 
+        headerInsets = [
+            titleLabel.topAnchor.constraint(equalTo: safe.topAnchor, constant: pad),
+            titleLabel.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
+            subtitleLabel.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
+            subtitleLabel.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
+            separatorView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
+            separatorView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -pad),
+        ]
+        NSLayoutConstraint.activate(headerInsets)
+
         // Wide layout: chat left, user list right (md:flex-row, md:w-72 = 288pt)
         wideLayoutConstraints = [
-            userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            bottomBar.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor, constant: -16),
+            userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 24),
             userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             userListTableView.widthAnchor.constraint(equalToConstant: 288), // md:w-72
-            userListTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            userListTableView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
 
-            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 24),
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
             chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
             chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
         ]
 
-        // Narrow layout: chat fills width, user list hidden
-        // (mirrors web's `flex-col-reverse` mobile where user list collapses)
+        // Narrow layout: participants above messages (flex-col-reverse).
         narrowLayoutConstraints = [
-            chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 8),
+            bottomBar.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -16),
+            userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 24),
+            userListTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            compactUsersHeight,
+            chatTableView.topAnchor.constraint(equalTo: userListTableView.bottomAnchor),
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
             chatTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -16),
             chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
@@ -434,11 +444,15 @@ final class W2GViewController: UIViewController {
     }
 
     /// Activates the appropriate layout based on screen width.
-    /// Web breakpoint: `md:` = 768px. On iOS, treat width >= 600pt as "wide".
+    /// Web breakpoint: `md:` = 768px of the app viewport.
     private func updateLayoutForCurrentWidth() {
-        let wide = view.bounds.width >= 600
+        let wide = (view.window?.rootViewController?.view.bounds.width ?? view.bounds.width) >= 768
+        compactUsersHeight.constant = min(userListTableView.contentSize.height + 8, max(0, (view.bounds.height - separatorView.frame.maxY - 24) * 0.4))
         guard wide != isWideLayout else { return }
         isWideLayout = wide
+        for (index, constraint) in headerInsets.enumerated() {
+            constraint.constant = (index == 3 || index == 5 ? -1 : 1) * (wide ? 40 : 12)
+        }
 
         if wide {
             NSLayoutConstraint.deactivate(narrowLayoutConstraints)
@@ -447,7 +461,7 @@ final class W2GViewController: UIViewController {
         } else {
             NSLayoutConstraint.deactivate(wideLayoutConstraints)
             NSLayoutConstraint.activate(narrowLayoutConstraints)
-            userListTableView.isHidden = true
+            userListTableView.isHidden = false
         }
     }
 

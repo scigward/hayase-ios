@@ -2537,9 +2537,7 @@ class AnimeDetailViewController: UIViewController {
             self?.headerView?.updatePlayButtonTitle(listStatus: nil)
         }
 
-        editorVC.modalPresentationStyle = .custom
-        editorVC.transitioningDelegate = editorVC
-        present(editorVC, animated: true)
+        present(editorVC, animated: false)
     }
 
     // MARK: - AniList progress & button state

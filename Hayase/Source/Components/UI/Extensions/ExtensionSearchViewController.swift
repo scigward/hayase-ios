@@ -164,11 +164,9 @@ final class ExtensionSearchViewController: UIViewController {
     // MARK: Direct-to-player state (skip VideoListViewController)
     private var pendingVideoService: VideoService?
     private var pendingEntity: Torrents?
-    private var pendingHud: UIAlertController?
+    private var pendingPlayer: VideoPlayerViewController?
     private var metadataObserver: NSObjectProtocol?
-    private var metadataStatusTimer: Timer?
     private var isResolvingPendingMetadata = false
-    private var isPollingWebTorrentStatus = false
 
     // MARK: UI
     private var tableView: UITableView!
@@ -263,8 +261,9 @@ final class ExtensionSearchViewController: UIViewController {
             nav.navigationBar.shadowImage = nil
             nav.navigationBar.isTranslucent = true
         }
-        // Clean up any pending direct-to-player state
-        cleanupPendingState()
+        // Route navigation removes this search view while metadata is still loading.
+        // The pending player owns the coordinator until resolution or teardown.
+        if pendingPlayer == nil { cleanupPendingState() }
     }
 
     override func viewDidLayoutSubviews() {
@@ -1087,87 +1086,39 @@ final class ExtensionSearchViewController: UIViewController {
         }
         try? context.save()
 
-        let hud = UIAlertController(title: "Preparing playback…", message: "Adding torrent…", preferredStyle: .alert)
-        hud.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-            self?.cancelPendingPlayback()
-        })
-        present(hud, animated: true)
-
-        // Go directly to the video player — skip the file list page.
-        // waitForMetadataAndPlay creates a VideoService which internally calls
-        // UpdateTorrentEntityInController — a single call is sufficient.
-        // Calling it here first would cause a redundant double call that
-        // triggers removeOtherTorrents twice, increasing the risk of
-        // accidentally deleting the torrent's downloaded pieces.
-        waitForMetadataAndPlay(entity: entity, hud: hud)
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        pendingPlayer = player
+        player.beginMetadataLoading(owner: self)
+        player.onCancelMetadataLoading = { [weak self] in self?.cleanupPendingState() }
+        let host = hayaseTabIndex
+        let openPlayer = { [self, player] in
+            Router.shared.navigateToPlayer(player, hostTabIndex: host)
+            waitForMetadataAndPlay(entity: entity)
+        }
+        // Close the search dialog before the route snapshot is captured.
+        if presentingViewController != nil { dismiss(animated: false, completion: openPlayer) }
+        else { openPlayer() }
     }
 
-    // MARK: - Direct-to-player flow
-
-    /// Creates a VideoService, listens for metadata, and presents the player
-    /// as soon as the target file is resolved — skipping VideoListViewController.
-    private func waitForMetadataAndPlay(entity: Torrents, hud: UIAlertController) {
+    // The route changes once, before fetching. The same player is hydrated on completion.
+    private func waitForMetadataAndPlay(entity: Torrents) {
         let vs = VideoService(torrentEntity: entity, episode: currentEpisode)
         pendingVideoService = vs
         pendingEntity = entity
-        pendingHud = hud
-
-        // Listen for the notification that video CoreData entries are ready.
         metadataObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
             object: nil, queue: .main) { [weak self] _ in
                 self?.handlePendingMetadata()
         }
-
-        // Update the HUD with live torrent status while waiting.
-        metadataStatusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self, let vs = self.pendingVideoService, let hud = self.pendingHud else { return }
-
-            if TorrentBackendManager.shared.currentKind == .webtorrent {
-                self.updateWebTorrentStatusHUD(hud)
-                return
-            }
-
-            guard let handle = vs.torrentHandle,
-                  let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil, { activeHandle in
-                      activeHandle.snapshot
-                  }) else {
-                hud.message = "Connecting to peers…"
-                return
-            }
-            let peers = snap.numberOfPeers
-            switch snap.state {
-            case .downloadingMetadata:
-                hud.message = peers > 0
-                    ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s"))"
-                    : "Connecting to DHT and trackers…"
-            case .downloading, .finished, .seeding:
-                hud.message = "Preparing file list…"
-            default:
-                hud.message = "Connecting to peers…"
-            }
-        }
-
-        // Kick off the torrent add + metadata fetch.
         vs.UpdateLocalVideo()
-    }
-
-    private func updateWebTorrentStatusHUD(_ hud: UIAlertController) {
-        guard !isPollingWebTorrentStatus else { return }
-        isPollingWebTorrentStatus = true
-
-        TorrentBackendManager.shared.webTorrentStatus { [weak self, weak hud] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isPollingWebTorrentStatus = false
-
-                switch result {
-                case .success(let status):
-                    hud?.message = status.hudMessage
-                case .failure(let error):
-                    hud?.message = "Starting WebTorrent backend…\nStatus unavailable: \(error.localizedDescription)"
-                }
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self, weak vs] in
+            guard let self, let vs, self.pendingVideoService === vs else { return }
+            let player = self.pendingPlayer
+            self.cleanupPendingState()
+            let error = vs.lastError ?? NSError(domain: "Hayase.Metadata", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not fetch torrent metadata from peers."])
+            player?.finishMetadataLoading(error: error)
         }
     }
 
@@ -1180,13 +1131,9 @@ final class ExtensionSearchViewController: UIViewController {
 
         // Check for errors.
         if let error = vs.lastError {
-            let hud = pendingHud
+            let player = pendingPlayer
             cleanupPendingState()
-            hud?.dismiss(animated: false) { [weak self] in
-                let alert = UIAlertController(title: "Error", message: error.localizedDescription, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-                self?.present(alert, animated: true)
-            }
+            player?.finishMetadataLoading(error: error)
             return
         }
 
@@ -1291,6 +1238,7 @@ final class ExtensionSearchViewController: UIViewController {
                                      videos: [Videos],
                                      batchFiles: [TorrentBatchResolver.ResolvedFile],
                                      resolvedVideoFiles: [TorrentBatchResolver.ResolvedItem<Videos>] = []) {
+        guard pendingVideoService === vs else { return }
         var targetVideo = targetVideo
         var targetIndex = targetIndex
 
@@ -1311,87 +1259,58 @@ final class ExtensionSearchViewController: UIViewController {
         _ = vs.UpdateFilePathForFileIndex(targetIndex)
 
         // Clean up pending state before presenting.
-        let hud = pendingHud
+        guard let player = pendingPlayer else { return }
         cleanupPendingState()
+        let activeFile = batchFiles.first { torrentFileIndex(from: $0.entry.index) == Optional(targetIndex) }
+        let activeVideoFile = resolvedVideoFiles.first { $0.item.videoIndex?.uintValue == targetIndex }
+        let activeMedia = activeFile?.media ?? activeVideoFile?.media ?? self.animeItem
+        let activeEpisode = activeFile?.episodeReference.intValue ?? activeVideoFile?.episodeReference.intValue ?? self.currentEpisode
 
-        hud?.dismiss(animated: false) { [weak self] in
-            guard let self else { return }
-            // Close any existing mini-player before starting a new one.
-            MiniPlayerManager.shared.close()
-            let activeFile = batchFiles.first { torrentFileIndex(from: $0.entry.index) == Optional(targetIndex) }
-            let activeVideoFile = resolvedVideoFiles.first { $0.item.videoIndex?.uintValue == targetIndex }
-            let activeMedia = activeFile?.media ?? activeVideoFile?.media ?? self.animeItem
-            let activeEpisode = activeFile?.episodeReference.intValue ?? activeVideoFile?.episodeReference.intValue ?? self.currentEpisode
-
-            let player = VideoPlayerViewController()
-            player.videoEntity       = video
-            player.torrentHandle     = vs.torrentHandle
-            player.videoService      = vs
-            player.fileIndex         = targetIndex
-            player.anilistID         = activeMedia?.id ?? Int(entity.animes?.animeAnilistId ?? 0)
-            player.episodeNumber     = activeEpisode
-            player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? self.animeItem?.episodes ?? 0
-            player.allVideos         = videos
-            player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
-            player.batchFiles        = batchFiles
-            player.resolvedVideoFiles = resolvedVideoFiles
-            // Hayase web mediahandler.svelte playEpisode(): when the target
-            // episode is not in the current batch, initiate a new search.
-            player.onEpisodeChange   = { [weak self] episode, media in
-                self?.handleEpisodeChangeFromPlayer(episode, media: media)
-            }
-            Router.shared.navigateToPlayer(player, hostTabIndex: self.hayaseTabIndex)
+        player.videoEntity       = video
+        player.torrentHandle     = vs.torrentHandle
+        player.videoService      = vs
+        player.fileIndex         = targetIndex
+        player.anilistID         = activeMedia?.id ?? Int(entity.animes?.animeAnilistId ?? 0)
+        player.episodeNumber     = activeEpisode
+        player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? self.animeItem?.episodes ?? 0
+        player.allVideos         = videos
+        player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
+        player.batchFiles        = batchFiles
+        player.resolvedVideoFiles = resolvedVideoFiles
+        // Hayase web mediahandler.svelte playEpisode(): when the target
+        // episode is not in the current batch, initiate a new search.
+        player.onEpisodeChange   = { [self] episode, media in
+            handleEpisodeChangeFromPlayer(episode, media: media)
         }
+        player.finishMetadataLoading()
     }
 
     private func cleanupPendingState() {
         isResolvingPendingMetadata = false
-        isPollingWebTorrentStatus = false
         if let observer = metadataObserver {
             NotificationCenter.default.removeObserver(observer)
             metadataObserver = nil
         }
-        metadataStatusTimer?.invalidate()
-        metadataStatusTimer = nil
         pendingVideoService = nil
         pendingEntity = nil
-        pendingHud = nil
+        pendingPlayer = nil
     }
 
-    /// Cancels the in-progress direct-to-player flow and removes the
-    /// torrent that was being prepared. Called when the user taps "Cancel"
-    /// on the preparing-playback HUD.
-    private func cancelPendingPlayback() {
-        // Grab the pending torrent handle before cleanup nils the service.
-        let handle = pendingVideoService?.torrentHandle
-        cleanupPendingState()
-        // Remove the torrent so it doesn't linger in the session (the user
-        // explicitly cancelled, so the download is unwanted).
-        if let handle {
-            TorrentService.sharedTorrentService.safeRemoveTorrent(handle, deleteFiles: true)
-        }
-    }
 
     /// Called from the VideoPlayerViewController's `onEpisodeChange` callback
     /// when the user taps next/prev and the target episode is NOT in the
-    /// current torrent batch. Dismisses the player, updates the episode, and
+    /// current torrent batch. Updates the search episode and
     /// triggers a new extension search — mirroring the Hayase web interface's
     /// `searchStore.set({ media, episode })` flow from mediahandler.svelte.
     private func handleEpisodeChangeFromPlayer(_ episode: Int, media: AnimeItem?) {
         // Close the mini-player if active (the old torrent's player).
         MiniPlayerManager.shared.close()
-        // Dismiss the fullscreen player to return to this search screen.
-        dismiss(animated: true) { [weak self] in
-            guard let self else { return }
-            // Update media/episode and trigger a fresh search with auto-select.
-            if let media {
-                self.animeItem = media
-            }
-            self.currentEpisode = episode
-            self.episodeField.text = "\(episode)"
-            self.autoSelectAfterSearch = true
-            self.triggerSearch()
-        }
+        // The search coordinator is retained by the player, not presented again.
+        if let media { animeItem = media }
+        currentEpisode = episode
+        episodeField.text = String(episode)
+        autoSelectAfterSearch = true
+        triggerSearch()
     }
 }
 

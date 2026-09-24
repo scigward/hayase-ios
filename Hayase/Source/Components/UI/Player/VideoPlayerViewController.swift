@@ -381,6 +381,31 @@ final class VideoPlayerViewController: UIViewController {
     // MARK: - Input (set before presenting)
 
     var videoEntity: Videos?
+    private var metadataLoadingView: PlayerMetadataLoadingView?
+    private var metadataLoadingOwner: AnyObject?
+    var onCancelMetadataLoading: (() -> Void)?
+
+    func beginMetadataLoading(owner: AnyObject) {
+        metadataLoadingOwner = owner
+        loadViewIfNeeded()
+        let loading = PlayerMetadataLoadingView(frame: view.bounds)
+        loading.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(loading)
+        metadataLoadingView = loading
+    }
+
+    func finishMetadataLoading(error: Error? = nil) {
+        onCancelMetadataLoading = nil
+        metadataLoadingOwner = nil
+        if let error {
+            metadataLoadingView?.showError(error.localizedDescription)
+            return
+        }
+        metadataLoadingView?.removeFromSuperview()
+        metadataLoadingView = nil
+        loadCurrentVideo()
+        scheduleHide()
+    }
     var torrentHandle: TorrentHandle?
     var videoService: VideoService?
     var fileIndex: UInt = 0
@@ -762,6 +787,9 @@ final class VideoPlayerViewController: UIViewController {
     /// NOT minimizing, and from MiniPlayerManager when the user closes the
     /// mini-player.
     func tearDownPlayer() {
+        onCancelMetadataLoading?()
+        onCancelMetadataLoading = nil
+        metadataLoadingOwner = nil
         appVisibilityObservers.forEach { NotificationCenter.default.removeObserver($0) }
         appVisibilityObservers.removeAll()
         saveProgress()

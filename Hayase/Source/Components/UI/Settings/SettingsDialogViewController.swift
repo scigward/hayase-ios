@@ -1,7 +1,7 @@
 // Mirrors: src/lib/components/ui/dialog/{dialog-content,dialog-overlay}.svelte
 import UIKit
 
-final class SettingsDialogViewController: UIViewController {
+class SettingsDialogViewController: UIViewController {
     let content = UIStackView()
     var onClose: (() -> Void)?
     private let panel = UIView()
@@ -9,12 +9,16 @@ final class SettingsDialogViewController: UIViewController {
     private let stripeLayer = HayaseStripePattern.customBackground.makeLayer()
     private let heading: String
     private let maximumWidth: CGFloat
+    private let contentInset: CGFloat
+    private let heightFraction: CGFloat
     private var closing = false
     private var panelAnimator: UIViewPropertyAnimator?
 
-    init(title: String, maximumWidth: CGFloat = 512) {
+    init(title: String, maximumWidth: CGFloat = 512, contentInset: CGFloat = 24, heightFraction: CGFloat = 0.95) {
         heading = title
         self.maximumWidth = maximumWidth
+        self.contentInset = contentInset
+        self.heightFraction = heightFraction
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
     }
@@ -27,6 +31,7 @@ final class SettingsDialogViewController: UIViewController {
         view.addSubview(backdrop)
         panel.backgroundColor = UIColor.HayaseTheme.popover
         panel.layer.borderWidth = 1
+        panel.clipsToBounds = true
         panel.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         panel.accessibilityViewIsModal = true
         view.addSubview(panel)
@@ -36,13 +41,15 @@ final class SettingsDialogViewController: UIViewController {
         content.axis = .vertical
         content.spacing = 16
         content.translatesAutoresizingMaskIntoConstraints = false
-        content.insertArrangedSubview(SettingsTypography.label(heading, size: 18, lineHeight: 18, weight: .bold), at: 0)
+        if !heading.isEmpty {
+            content.insertArrangedSubview(SettingsTypography.label(heading, size: 18, lineHeight: 18, weight: .bold), at: 0)
+        }
         scroll.addSubview(content)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: panel.topAnchor, constant: 24),
-            scroll.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 24),
-            scroll.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -24),
-            scroll.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -24),
+            scroll.topAnchor.constraint(equalTo: panel.topAnchor, constant: contentInset),
+            scroll.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: contentInset),
+            scroll.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -contentInset),
+            scroll.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -contentInset),
             content.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             content.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
@@ -72,12 +79,12 @@ final class SettingsDialogViewController: UIViewController {
         let viewport = view.window?.rootViewController?.view.bounds.width ?? view.bounds.width
         content.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
             .forEach { $0.updateLayout(viewportWidth: viewport) }
-        let size = content.systemLayoutSizeFitting(CGSize(width: max(0, width - 48), height: 0),
+        let size = content.systemLayoutSizeFitting(CGSize(width: max(0, width - contentInset * 2), height: 0),
             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         let safe = view.safeAreaLayoutGuide.layoutFrame
         let visibleBottom = min(safe.maxY, view.keyboardLayoutGuide.layoutFrame.minY)
         let visibleHeight = max(0, visibleBottom - safe.minY)
-        let height = min(size.height + 48, visibleHeight * 0.95)
+        let height = min(size.height + contentInset * 2, visibleHeight * heightFraction)
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         panel.center = CGPoint(x: view.bounds.midX, y: safe.minY + visibleHeight / 2)
         panel.layer.cornerRadius = viewport >= 640 ? 8 : 0

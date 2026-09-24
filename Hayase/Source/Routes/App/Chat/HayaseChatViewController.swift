@@ -209,6 +209,7 @@ final class HayaseChatViewController: UIViewController {
     private var wideLayoutConstraints: [NSLayoutConstraint] = []
     private var narrowLayoutConstraints: [NSLayoutConstraint] = []
     private var isWideLayout: Bool?
+    private lazy var compactUsersHeight = userListTableView.heightAnchor.constraint(equalToConstant: 0)
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
@@ -248,9 +249,10 @@ final class HayaseChatViewController: UIViewController {
     }
 
     /// Mirrors W2GViewController's `updateLayoutForCurrentWidth()`. Web
-    /// breakpoint: `md:` = 768px; treated as 600pt on iOS, same as W2G.
+    /// breakpoint: `md:` = 768px of the app viewport.
     private func updateLayoutForCurrentWidth() {
-        let wide = view.bounds.width >= 600
+        let wide = (view.window?.rootViewController?.view.bounds.width ?? view.bounds.width) >= 768
+        compactUsersHeight.constant = min(CGFloat(users.count) * 40 + 8, max(0, rowContainer.bounds.height * 0.4))
         guard wide != isWideLayout else { return }
         isWideLayout = wide
 
@@ -468,7 +470,7 @@ final class HayaseChatViewController: UIViewController {
         rowContainer.addSubview(loadingIndicator)
 
         loadingLabel.text = "Loading..."
-        loadingLabel.font = .nunito(ofSize: 16)
+        loadingLabel.font = .nunito(ofSize: 18)
         loadingLabel.textColor = UIColor.HayaseTheme.mutedForeground
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
         loadingLabel.isHidden = true
@@ -545,12 +547,8 @@ final class HayaseChatViewController: UIViewController {
             loadingLabel.centerXAnchor.constraint(equalTo: messagesTableView.centerXAnchor),
             loadingLabel.topAnchor.constraint(equalTo: loadingIndicator.bottomAnchor, constant: 8),
 
-            // Input bar always spans the full width, under both the chat
-            // and userlist columns — mirrors W2GViewController's bottomBar,
-            // which is likewise constrained to the safe area directly
-            // rather than to chatTableView. px-4/pb-4.
+            // Input stays within the message column (px-4/pb-4).
             inputBar.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 16),
-            inputBar.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -16),
             inputBar.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor, constant: -16),
 
             exitButton.leadingAnchor.constraint(equalTo: inputBar.leadingAnchor),
@@ -586,15 +584,9 @@ final class HayaseChatViewController: UIViewController {
         //
         // Narrow (`flex-col-reverse`): userlist ABOVE messages, not hidden
         // — `flex-col-reverse` renders the row's last DOM child (UserList)
-        // first. Its height here is a flat 40% of rowContainer rather than
-        // true `max-h-[40%]` (a cap that shrinks below 40% for a short
-        // list, via `overflow-y-auto`) — a self-sizing-with-cap UITableView
-        // height is a materially bigger, separate piece of Auto Layout
-        // work than the rest of this pass, and a fixed reserved box that
-        // scrolls internally when it overflows is the same trade-off the
-        // wide-layout column already makes (its height is "however much
-        // space is left," not "however many rows there are" either).
+        // first, with content height capped at 40% of the message area.
         wideLayoutConstraints = [
+            inputBar.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor, constant: -16),
             headerStack.topAnchor.constraint(equalTo: chatContainer.topAnchor, constant: 40),
             headerStack.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 40),
             headerStack.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -40),
@@ -603,7 +595,7 @@ final class HayaseChatViewController: UIViewController {
 
             userListTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
             userListTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
-            userListTableView.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor),
+            userListTableView.bottomAnchor.constraint(equalTo: chatContainer.bottomAnchor, constant: -8),
             userListTableView.widthAnchor.constraint(equalToConstant: 288),
 
             messagesTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
@@ -612,6 +604,7 @@ final class HayaseChatViewController: UIViewController {
         ]
 
         narrowLayoutConstraints = [
+            inputBar.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -16),
             headerStack.topAnchor.constraint(equalTo: chatContainer.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor, constant: 12),
             headerStack.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor, constant: -12),
@@ -621,7 +614,7 @@ final class HayaseChatViewController: UIViewController {
             userListTableView.topAnchor.constraint(equalTo: rowContainer.topAnchor),
             userListTableView.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor),
             userListTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
-            userListTableView.heightAnchor.constraint(equalTo: rowContainer.heightAnchor, multiplier: 0.4), // max-h-[40%]
+            compactUsersHeight, // content-sized, capped at max-h-[40%]
 
             messagesTableView.topAnchor.constraint(equalTo: userListTableView.bottomAnchor),
             messagesTableView.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),

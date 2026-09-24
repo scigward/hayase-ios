@@ -12,6 +12,7 @@ class CommandPopoverViewController: UIViewController {
 
     private let accessibilityTitle: String
     private let placeholder: String
+    private let showsSearch: Bool
     private let groups: [CommandGroup]
     private let allowsMultiple: Bool
     private var selectedValues: Set<String>
@@ -29,9 +30,10 @@ class CommandPopoverViewController: UIViewController {
          groups: [CommandGroup],
          selectedValues: Set<String>,
          allowsMultiple: Bool,
-         sourceView: UIView?) {
+         sourceView: UIView?, showsSearch: Bool = true) {
         self.accessibilityTitle = title
         self.placeholder = placeholder
+        self.showsSearch = showsSearch
         self.groups = groups
         self.selectedValues = selectedValues
         self.allowsMultiple = allowsMultiple
@@ -70,7 +72,9 @@ class CommandPopoverViewController: UIViewController {
             dismissControl.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        containerView.backgroundColor = UIColor.HayaseTheme.muted
+        containerView.backgroundColor = showsSearch ? UIColor.HayaseTheme.muted : UIColor.HayaseTheme.popover
+        containerView.layer.borderWidth = showsSearch ? 0 : 1
+        containerView.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         containerView.layer.cornerRadius = 6
         containerView.layer.masksToBounds = true
         containerView.layer.shadowColor = UIColor.black.cgColor
@@ -85,6 +89,7 @@ class CommandPopoverViewController: UIViewController {
         searchField.backgroundColor = UIColor.HayaseTheme.muted
         searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         searchField.accessibilityLabel = accessibilityTitle
+        searchField.isHidden = !showsSearch
 
         let separator = UIView()
         separator.backgroundColor = UIColor.HayaseTheme.border
@@ -115,12 +120,12 @@ class CommandPopoverViewController: UIViewController {
             searchField.topAnchor.constraint(equalTo: containerView.topAnchor),
             searchField.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             searchField.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            searchField.heightAnchor.constraint(equalToConstant: 36),
+            searchField.heightAnchor.constraint(equalToConstant: showsSearch ? 36 : 0),
 
             separator.topAnchor.constraint(equalTo: searchField.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1),
+            separator.heightAnchor.constraint(equalToConstant: showsSearch ? 1 : 0),
 
             tableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -138,11 +143,9 @@ class CommandPopoverViewController: UIViewController {
         let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
         let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
         let listHeight = min(maxContentHeight, CGFloat(rows) * 32 + CGFloat(headings) * 26)
-        let height = min(maxContentHeight + 37, max(96, 37 + listHeight))
-        let compact = traitCollection.horizontalSizeClass == .compact || bounds.width < 700
-        let width = compact
-            ? min(max(sourceRect.width, 176), bounds.width - 24)
-            : min(max(sourceRect.width, 176), bounds.width - 24)
+        let searchHeight: CGFloat = showsSearch ? 37 : 0
+        let height = min(maxContentHeight + searchHeight, max(showsSearch ? 96 : 32, searchHeight + listHeight))
+        let width = min(max(sourceRect.width, showsSearch ? 176 : 0), bounds.width - 24)
 
         var x = sourceRect.minX
         x = max(bounds.minX + 12, min(x, bounds.maxX - width - 12))
@@ -233,7 +236,7 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
         else { return UITableViewCell() }
         cell.configure(option: option,
                        selected: selectedValues.contains(option.value),
-                       multiple: allowsMultiple)
+                       multiple: allowsMultiple, selectStyle: !showsSearch)
         return cell
     }
 

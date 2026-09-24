@@ -1810,8 +1810,9 @@ public final class AniListClient: NSObject {
     // MARK: - Airing schedule
 
     func fetchAiringForMonthResult(_ month: Date,
+                                   onList: Bool = false,
                                    completion: @escaping (Result<[AiringScheduleEntry], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        let seasonWindow = scheduleSeasonWindow(around: Date())
+        let seasonWindow = scheduleSeasonWindow(around: month)
         var variables: [String: Any] = [
             "seasonCurrent": seasonWindow.current.season,
             "seasonYearCurrent": seasonWindow.current.year,
@@ -1821,6 +1822,17 @@ public final class AniListClient: NSObject {
             "seasonYearNext": seasonWindow.next.year,
             "formatNot": "TV_SHORT"
         ]
+        if onList {
+            if TrackerAccountManager.shared.isLoggedIn(.anilist) { variables["onList"] = true }
+            else {
+                let ids = LocalTracking.shared.scheduleMediaIDs()
+                guard !ids.isEmpty else {
+                    DispatchQueue.main.async { completion(.success([])) }
+                    return nil
+                }
+                variables["ids"] = ids
+            }
+        }
         if let nsfw = AniListUtil.nsfwGenreFilter { variables["nsfw"] = nsfw }
 
         return requestExecutor.execute(query: AniListQueries.schedule,
@@ -1904,7 +1916,7 @@ public final class AniListClient: NSObject {
         guard let id = intValue(object["id"]) else { return nil }
         let title = object["title"] as? [String: Any]
         let cover = object["coverImage"] as? [String: Any]
-        return AnimeItem(
+        var item = AnimeItem(
             id: id,
             titleEnglish: title?["english"] as? String,
             titleRomaji: title?["romaji"] as? String,
@@ -1918,6 +1930,14 @@ public final class AniListClient: NSObject {
             genres: [],
             description: nil,
             coverColor: cover?["color"] as? String)
+        if let entry = object["mediaListEntry"] as? [String: Any] {
+            item.mediaListEntry = AnimeItem.MediaListEntry(listID: intValue(entry["id"]) ?? 0,
+                status: entry["status"] as? String, progress: intValue(entry["progress"]) ?? 0,
+                score: 0, repeatCount: 0, customLists: [])
+        } else if !TrackerAccountManager.shared.isLoggedIn(.anilist) {
+            item.mediaListEntry = LocalTracking.shared.entry(for: id)
+        }
+        return item
     }
 
     // MARK: - Per-media airing schedule
@@ -2040,8 +2060,10 @@ public final class AniListClient: NSObject {
 
             var fanartURL: String? = nil
             var clearlogoURL: String? = nil
-            if let data,
+            var validImagesResponse = false
+            if error == nil, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let data,
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                validImagesResponse = true
                 let backdrops = (json["backdrops"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
                 let posters = (json["posters"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
                 let logos = (json["logos"] as? [[String: Any]] ?? []).sortedByVoteAverageDescending()
@@ -2052,7 +2074,8 @@ public final class AniListClient: NSObject {
             }
             _fanartQueue.async(flags: .barrier) {
                 let cbs = _fanartCallbacks.removeValue(forKey: anilistID) ?? []
-                _fanartFetched.insert(anilistID)
+                // A network failure is not proof that this anime has no logo.
+                if validImagesResponse { _fanartFetched.insert(anilistID) }
                 if let fanartURL { _fanartURLs[anilistID] = fanartURL }
                 if let clearlogoURL { _clearlogoURLs[anilistID] = clearlogoURL }
                 cbs.forEach { cb in DispatchQueue.main.async { cb(fanartURL) } }

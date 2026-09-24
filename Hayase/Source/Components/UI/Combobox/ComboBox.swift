@@ -8,6 +8,9 @@
 import UIKit
 
 final class ComboBox: UIControl {
+    var restingBackgroundColor: UIColor = UIColor.HayaseTheme.muted {
+        didSet { if !isHighlighted { backgroundColor = restingBackgroundColor } }
+    }
     private let valueLabel = UILabel()
     private let caretView = UIImageView()
 
@@ -68,7 +71,7 @@ final class ComboBox: UIControl {
         didSet {
             backgroundColor = isHighlighted
                 ? UIColor.HayaseTheme.accent
-                : UIColor.HayaseTheme.muted
+                : restingBackgroundColor
         }
     }
 }

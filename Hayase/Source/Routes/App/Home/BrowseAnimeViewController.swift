@@ -241,6 +241,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     private var fanartTask: URLSessionDataTask?
     private var currentSidebarBackdropURL: String?
     private var clearlogoTask: URLSessionDataTask?
+    private var artworkGeneration = 0
     private var avatarTasks: [URLSessionDataTask] = []
     private var followingUsersByMediaID: [Int: [AniListUserSummary]] = [:]
     /// Tracks whether the banner is currently in the faded-out (5% opacity) state.
@@ -437,7 +438,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     // Stored constraints toggled between iPhone/iPad layouts
     // Clearlogo uses width constraints (web: w-[30rem] = 480pt on iPad, capped for mobile)
     private var clearlogoWidthMax: NSLayoutConstraint!
-    private var clearlogoHeightMax: NSLayoutConstraint!
     private var clearlogoAspectConstraint: NSLayoutConstraint?
     private var socialTopConstraint: NSLayoutConstraint!
     private var socialLeadingConstraint: NSLayoutConstraint!
@@ -554,8 +554,8 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
         // Clearlogo constraints: web title anchor is w-[900px] max-w-[85%]
         // inside the left column; the logo image itself is w-[30rem].
-        clearlogoWidthMax = clearlogoImageView.widthAnchor.constraint(lessThanOrEqualToConstant: 480)
-        clearlogoHeightMax = clearlogoImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 150)
+        clearlogoWidthMax = clearlogoImageView.widthAnchor.constraint(equalToConstant: 480)
+        clearlogoWidthMax.priority = .defaultHigh
         socialTopConstraint = socialBlock.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16)
         socialLeadingConstraint = socialBlock.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
@@ -610,7 +610,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             titleMaxWidthConstraint,
             descriptionMaxWidthConstraint,
             clearlogoWidthMax,
-            clearlogoHeightMax,
             clearlogoMaxWidthPct,
 
             buttonRow.widthAnchor.constraint(equalToConstant: 280),
@@ -630,8 +629,20 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Switches between iPhone (compact) and iPad (regular) layouts.
     /// iPhone: single column, centered, badges hidden, description below buttons
     /// iPad: two columns, left-aligned left col, right-aligned right col, badges visible
+    private var featuredLayoutKey: Int?
+    private var viewportWidth: CGFloat { window?.rootViewController?.view.bounds.width ?? bounds.width }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyLayoutForSizeClass(isRegular: viewportWidth >= 1024)
+    }
+
     func applyLayoutForSizeClass(isRegular: Bool) {
-        if isRegular {
+        let width = viewportWidth
+        let key = width >= 1024 ? 3 : (width >= 768 ? 2 : (width >= 640 ? 1 : 0))
+        guard featuredLayoutKey != key else { return }
+        featuredLayoutKey = key
+        if width >= 1024 {
             // iPad layout — web lg: breakpoint
             columnsStack.axis = .horizontal
             columnsStack.spacing = 0
@@ -651,7 +662,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             rightColumn.setCustomSpacing(16, after: descriptionLabel)
             // Clearlogo sizing: web w-[30rem] = 480pt
             clearlogoWidthMax.constant = 480
-            clearlogoHeightMax.constant = 150
             gradientView.setCompact(false)
             // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
             descriptionLabel.numberOfLines = 3
@@ -697,7 +707,6 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             genresStack.isHidden = true
             // Clearlogo sizing: web w-[30rem], capped by the parent max-w-[85%].
             clearlogoWidthMax.constant = 480
-            clearlogoHeightMax.constant = 120
             gradientView.setCompact(true)
             // Description: text-xs (0.75rem = 12pt), line-clamp-2
             descriptionLabel.numberOfLines = 2
@@ -722,6 +731,20 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             socialTopConstraint.constant = 16
             socialLeadingConstraint.constant = 16
         }
+        badgeStack.isHidden = width < 640
+        gradientView.setCompact(width < 768)
+        socialTopConstraint.constant = width >= 768 ? 56 : 16
+        socialLeadingConstraint.constant = width >= 768 ? 40 : 16
+        backgroundImageLeadingConstraint.constant = width >= 768 ? -56 : 0
+        gradientLeadingConstraint.constant = width >= 768 ? -56 : 0
+        backgroundImageHeightConstraint.isActive = false
+        gradientHeightConstraint.isActive = false
+        let ratio: CGFloat = width >= 768 ? 90.0 / 80.0 : 80.0 / 70.0
+        backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: ratio)
+        gradientHeightConstraint = gradientView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: ratio)
+        backgroundImageHeightConstraint.isActive = true
+        gradientHeightConstraint.isActive = true
+        if let item = currentItem { updateGenres(for: item, customColor: Self.uiColor(fromHex: item.coverColor) ?? .white) }
     }
 
     override func didMoveToWindow() {
@@ -729,6 +752,10 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         guard window != nil else { return }
         let isRegular = traitCollection.horizontalSizeClass == .regular
         applyLayoutForSizeClass(isRegular: isRegular)
+        if rotationTimer == nil, !items.isEmpty {
+            updateDots()
+            startTimer()
+        }
     }
 
     // MARK: Configuration
@@ -736,7 +763,12 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     func configure(with items: [AnimeItem]) {
         // full-banner.svelte: shuffleAndFilter(media).filter(bannerImage || trailer).slice(0, 5)
         let filtered = Self.shuffle(items).filter { $0.bannerURL != nil || $0.trailerYouTubeID != nil }
-        self.items = filtered.isEmpty ? Array(Self.shuffle(items).prefix(5)) : Array(filtered.prefix(5))
+        let nextItems = Array(filtered.prefix(5))
+        if self.items.map(\.id) == nextItems.map(\.id), !nextItems.isEmpty {
+            self.items = nextItems
+            return
+        }
+        self.items = nextItems
         followingUsersByMediaID = [:]
         currentIndex = 0
         rebuildDots()
@@ -747,6 +779,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
 
     private func displayItem(animated: Bool) {
         guard currentIndex < items.count else { return }
+        artworkGeneration += 1
         let item = items[currentIndex]
         let block = {
             // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
@@ -809,10 +842,14 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 self.playButton.setTitle("  Watch Now", for: .normal)
             }
         }
-        if animated {
-            UIView.transition(with: contentView, duration: 0.4, options: .transitionCrossDissolve, animations: block)
-        } else {
-            block()
+        block()
+        if animated && !UIAccessibility.isReduceMotionEnabled {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.8
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+            contentView.layer.add(fade, forKey: "featured-fade-in")
         }
         loadBanner(for: item)
         loadClearlogo(for: item)
@@ -857,35 +894,21 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         avatarTasks.forEach { $0.cancel() }
         avatarTasks = []
         avatarContainer.subviews.forEach { $0.removeFromSuperview() }
-        guard !users.isEmpty else {
-            avatarContainerWidthConstraint.constant = 32
-            return
-        }
-
-        let size: CGFloat = 32
-        let overlap: CGFloat = 8
-        avatarContainerWidthConstraint.constant = size + CGFloat(max(0, users.count - 1)) * (size - overlap)
-
-        for (index, user) in users.enumerated() {
-            let imageView = UIImageView()
-            imageView.backgroundColor = UIColor.HayaseTheme.background
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = size / 2
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            avatarContainer.addSubview(imageView)
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor,
-                                                   constant: CGFloat(index) * (size - overlap)),
-                imageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: size),
-                imageView.heightAnchor.constraint(equalToConstant: size)
-            ])
-            if let initial = user.name.first {
-                imageView.image = Self.avatarFallbackImage(String(initial).uppercased(), size: size)
+        avatarContainerWidthConstraint.constant = 32 + CGFloat(max(0, users.count - 1)) * 28
+        guard !users.isEmpty else { return }
+        let profiles = FollowerAvatarStackView()
+        profiles.configure(users: users, avatarSize: 32, ringWidth: 4) { id, completion in
+            AniListClient.shared.fetchUserProfileResult(id: id) { result in
+                completion(try? result.get())
             }
-            loadAvatar(for: user, into: imageView)
         }
+        profiles.translatesAutoresizingMaskIntoConstraints = false
+        avatarContainer.addSubview(profiles)
+        NSLayoutConstraint.activate([
+            profiles.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            profiles.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            profiles.heightAnchor.constraint(equalToConstant: 32),
+        ])
     }
 
     private func loadAvatar(for user: AniListUserSummary, into imageView: UIImageView) {
@@ -970,40 +993,47 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         fanartTask?.cancel()
         fanartTask = nil
         currentSidebarBackdropURL = nil
+        backgroundImageView.image = nil
+        onBackdropImageChanged?(nil, nil)
+        let generation = artworkGeneration
         let biv = backgroundImageView
         let bannerFallback = item.bannerURL ?? item.coverURL
         // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
         // fall back to AniList banner. Single image load = no visible flicker/swap.
         AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
+            guard let self, self.artworkGeneration == generation else { return }
             let urlStr = fanartURL ?? bannerFallback
             guard let urlStr, let url = URL(string: urlStr) else {
                 DispatchQueue.main.async {
+                    guard self.artworkGeneration == generation else { return }
                     biv.image = nil
-                    self?.onBackdropImageChanged?(nil, nil)
+                    self.onBackdropImageChanged?(nil, nil)
                 }
                 return
             }
             DispatchQueue.main.async {
-                self?.currentSidebarBackdropURL = urlStr
-                self?.onBackdropImageChanged?(urlStr, nil)
-                self?.publishSidebarBackdrop(urlString: urlStr,
+                guard self.artworkGeneration == generation else { return }
+                self.currentSidebarBackdropURL = urlStr
+                self.onBackdropImageChanged?(urlStr, nil)
+                self.publishSidebarBackdrop(urlString: urlStr,
                                              scrollOffset: CGFloat(0),
-                                             alpha: self?.bannerHidden == true ? CGFloat(0.05) : CGFloat(1))
+                                             alpha: self.bannerHidden ? CGFloat(0.05) : CGFloat(1))
             }
             if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
                 DispatchQueue.main.async {
-                    self?.applyContentMode(for: cached)
+                    guard self.artworkGeneration == generation else { return }
+                    self.applyContentMode(for: cached)
                     biv.image = cached
-                    self?.onBackdropImageChanged?(urlStr, cached)
+                    self.onBackdropImageChanged?(urlStr, cached)
                 }
                 return
             }
             let captured = urlStr
-            self?.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
+            self.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
                 guard let data, let image = UIImage(data: data) else { return }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
-                    guard self?.currentSidebarBackdropURL == captured else { return }
+                    guard self?.artworkGeneration == generation, self?.currentSidebarBackdropURL == captured else { return }
                     self?.applyContentMode(for: image)
                     UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
                                       options: .transitionCrossDissolve,
@@ -1011,7 +1041,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     self?.onBackdropImageChanged?(captured, image)
                 }
             }
-            self?.fanartTask?.resume()
+            self.fanartTask?.resume()
         }
     }
 
@@ -1025,18 +1055,20 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// If found, displays the logo image and hides the text title. Otherwise keeps text.
     /// Matches Hayase full-banner.svelte:
     ///   `{#await episodesCached(current.id) then metadata}`
-    ///   `{@const src = metadata?.images?.find(i => i.coverType === 'Clearlogo')?.url}`
+    /// Highest-voted English TMDB logo with aspect ratio greater than 1.2.
     private func loadClearlogo(for item: AnimeItem) {
         clearlogoTask?.cancel()
         clearlogoTask = nil
         let itemID = item.id
+        let generation = artworkGeneration
         AniListClient.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
-            guard let self = self else { return }
+            guard let self, self.artworkGeneration == generation else { return }
             // Make sure we're still displaying the same item (rotation may have advanced)
             guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
             guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
                 // No clearlogo available — show text title as fallback
                 DispatchQueue.main.async {
+                    guard self.artworkGeneration == generation else { return }
                     guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
                     UIView.animate(withDuration: 0.3) {
                         self.titleLabel.isHidden = false
@@ -1055,6 +1087,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                     // Download failed — show text title as fallback
                     DispatchQueue.main.async {
                         guard let self,
+                              self.artworkGeneration == generation,
                               self.currentIndex < self.items.count,
                               self.items[self.currentIndex].id == itemID else { return }
                         UIView.animate(withDuration: 0.3) {
@@ -1065,6 +1098,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
                 }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
+                    guard self?.artworkGeneration == generation else { return }
                     self?.showClearlogo(image, forItemID: itemID)
                 }
             }
@@ -1080,7 +1114,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             equalTo: clearlogoImageView.widthAnchor,
             multiplier: image.size.height / max(image.size.width, 1)
         )
-        clearlogoAspectConstraint?.priority = .defaultHigh
+        clearlogoAspectConstraint?.priority = UILayoutPriority(999)
         clearlogoAspectConstraint?.isActive = true
         clearlogoImageView.image = image
         UIView.animate(withDuration: 0.3) {
@@ -1199,7 +1233,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
     /// Each pill matches web: variant='ghost' !text-custom bg-primary/10 h-7 font-bold rounded
     private func updateGenres(for item: AnimeItem, customColor: UIColor) {
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard traitCollection.horizontalSizeClass == .regular else {
+        guard viewportWidth >= 1024 else {
             genresStack.isHidden = true
             return
         }
@@ -1385,6 +1419,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
         super.prepareForReuse()
         rotationTimer?.invalidate()
         rotationTimer = nil
+        artworkGeneration += 1
         bannerTask?.cancel()
         bannerTask = nil
         fanartTask?.cancel()
@@ -1415,6 +1450,7 @@ private final class FeaturedBannerCell: UICollectionViewCell {
             rotationTimer = nil
         }
     }
+
 
     // MARK: - Scroll-driven effects (called by the parent VC)
 
@@ -1544,9 +1580,12 @@ private final class SkeletonBannerCell: UICollectionViewCell {
         for (i, bar) in bars.enumerated() {
             let barView = HayaseSkeleton.makeBlock(cornerRadius: 4)
             stack.addArrangedSubview(barView)
+            let preferredWidth = barView.widthAnchor.constraint(equalToConstant: bar.width)
+            preferredWidth.priority = .defaultHigh
             NSLayoutConstraint.activate([
                 barView.heightAnchor.constraint(equalToConstant: bar.height),
-                barView.widthAnchor.constraint(equalToConstant: bar.width),
+                preferredWidth,
+                barView.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
             ])
 
             shimmerViews.append(barView)
@@ -1566,8 +1605,8 @@ private final class SkeletonBannerCell: UICollectionViewCell {
         // Pin stack to bottom-left with pl-5 (20pt) pb-5 (20pt) padding
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -48),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
         ])
 
         startPulse()
@@ -1928,7 +1967,7 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func makeHomeLayout() -> UICollectionViewLayout {
-        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let isRegular = (view.window?.rootViewController?.view.bounds.width ?? view.bounds.width) >= 768
         let viewH = view.bounds.height > 0 ? view.bounds.height : UIScreen.main.bounds.height
         let computedBannerHeight = FeaturedBannerCell.bannerHeight(isRegular: isRegular, viewHeight: viewH)
         return UICollectionViewCompositionalLayout { sectionIndex, _ -> NSCollectionLayoutSection? in

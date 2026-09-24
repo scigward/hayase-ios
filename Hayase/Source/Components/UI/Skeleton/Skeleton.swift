@@ -29,7 +29,7 @@ enum HayaseSkeleton {
         let pulse = CABasicAnimation(keyPath: "opacity")
         pulse.fromValue = 1
         pulse.toValue = 0.5
-        pulse.duration = 2
+        pulse.duration = 1 // Tailwind pulse's complete forward/reverse cycle is 2s.
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -47,7 +47,7 @@ final class SkeletonCardCell: UICollectionViewCell {
 
     private let coverPlaceholder: UIView = {
         let view = UIView()
-        view.backgroundColor = .black
+        view.backgroundColor = UIColor.HayaseTheme.background
         view.layer.cornerRadius = 4
         view.clipsToBounds = true
         return view
@@ -55,23 +55,23 @@ final class SkeletonCardCell: UICollectionViewCell {
 
     private let titlePlaceholder: UIView = {
         let view = UIView()
-        view.backgroundColor = .black
-        view.layer.cornerRadius = 2
+        view.backgroundColor = UIColor.HayaseTheme.background
+        view.layer.cornerRadius = 4
         view.clipsToBounds = true
         return view
     }()
 
     private let metaPlaceholder: UIView = {
         let view = UIView()
-        view.backgroundColor = .black
-        view.layer.cornerRadius = 2
+        view.backgroundColor = UIColor.HayaseTheme.background
+        view.layer.cornerRadius = 4
         view.clipsToBounds = true
         return view
     }()
 
     private let coverPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
-    private let titlePulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
-    private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 2)
+    private let titlePulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
+    private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
     private lazy var pulseViews = [coverPulse, titlePulse, metaPulse]
 
     override init(frame: CGRect) {
@@ -85,6 +85,7 @@ final class SkeletonCardCell: UICollectionViewCell {
 
         let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titlePlaceholder, metaPlaceholder])
         stack.axis = .vertical
+        stack.alignment = .leading
         stack.spacing = 0
         stack.setCustomSpacing(16, after: coverPlaceholder)
         stack.setCustomSpacing(8, after: titlePlaceholder)

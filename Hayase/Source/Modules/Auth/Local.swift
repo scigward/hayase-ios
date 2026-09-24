@@ -198,6 +198,10 @@ final class LocalTracking {
         mediaIDs(withStatuses: ["CURRENT", "REPEATING"])
     }
 
+    func scheduleMediaIDs() -> [Int] {
+        mediaIDs(withStatuses: ["CURRENT", "PLANNING", "COMPLETED", "PAUSED", "REPEATING"])
+    }
+
     private func mediaIDs(withStatuses statuses: Set<String>) -> [Int] {
         entriesLock.lock()
         defer { entriesLock.unlock() }

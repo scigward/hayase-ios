@@ -74,12 +74,12 @@ final class CommandItemCell: UITableViewCell {
         ])
     }
 
-    func configure(option: CommandOption, selected: Bool, multiple: Bool) {
+    func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {
         titleLabel.text = option.label
         checkContainer.layer.borderWidth = multiple ? 1 : 0
         checkContainer.layer.borderColor = UIColor.HayaseTheme.primary.cgColor
-        checkContainer.backgroundColor = selected ? UIColor.HayaseTheme.primary : .clear
-        checkView.tintColor = UIColor.HayaseTheme.primaryForeground
+        checkContainer.backgroundColor = selected && !selectStyle ? UIColor.HayaseTheme.primary : .clear
+        checkView.tintColor = selectStyle ? UIColor.HayaseTheme.foreground : UIColor.HayaseTheme.primaryForeground
         checkView.isHidden = !selected
 
         checkLeadingConstraint?.isActive = multiple
