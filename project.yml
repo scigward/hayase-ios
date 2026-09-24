@@ -52,6 +52,10 @@ targets:
           - Info.plist
           - WebTorrentBackend/**
           - TorrentClientGeoIP/**
+          - RichText/**
+      - path: Hayase/Resources/RichText
+        type: folder
+        buildPhase: resources
     settings:
       base:
         INFOPLIST_FILE: Hayase/Resources/Info.plist

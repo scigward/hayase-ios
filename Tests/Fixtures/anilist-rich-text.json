@@ -1,0 +1,163 @@
+[
+  {
+    "name": "paragraphs",
+    "input": "First paragraph\n\nSecond paragraph",
+    "expectedHTML": "<p>First paragraph</p><p>Second paragraph</p>\n"
+  },
+  {
+    "name": "soft breaks",
+    "input": "First line\nSecond line",
+    "expectedHTML": "<p>First line<br>Second line</p>\n"
+  },
+  {
+    "name": "nested emphasis",
+    "input": "**bold and *italic***, ~~gone~~, foo_bar_baz",
+    "expectedHTML": "<p><strong>bold and <em>italic</em></strong>, <del>gone</del>, foo_bar_baz</p>\n"
+  },
+  {
+    "name": "escaped syntax",
+    "input": "\\*literal\\* &amp; &#x1f600; <not-a-tag>text</not-a-tag>",
+    "expectedHTML": "<p>*literal* &amp; 😀 text</p>\n"
+  },
+  {
+    "name": "nested lists",
+    "input": "1. First\n   - nested **bold**\n   - nested two\n2. Second",
+    "expectedHTML": "<ol><li>First<ul><li>nested <strong>bold</strong></li><li>nested two</li></ul></li><li>Second</li></ol>\n"
+  },
+  {
+    "name": "fenced blank lines",
+    "input": "```swift\nlet x = 1\n\nprint(x)\n```",
+    "expectedHTML": "<pre><code>let x = 1\n\nprint(x)\n</code></pre>\n"
+  },
+  {
+    "name": "inline code",
+    "input": "Use `a < b && x_y` here",
+    "expectedHTML": "<p>Use <code>a &lt; b &amp;&amp; x_y</code> here</p>\n"
+  },
+  {
+    "name": "reference links",
+    "input": "[Anime][show]\n\n[show]: https://anilist.co/anime/1/Cowboy-Bebop/",
+    "expectedHTML": "<p><a href=\"/#/app/anime/1\">Anime</a></p>\n"
+  },
+  {
+    "name": "autolinks",
+    "input": "https://example.com/test?q=one&two=three",
+    "expectedHTML": "<p><a href=\"https://example.com/test?q=one&amp;two=three\" target=\"_blank\" rel=\"noopener noreferrer\">https://example.com/test?q=one&amp;two=three</a></p>\n"
+  },
+  {
+    "name": "balanced destination",
+    "input": "[link](https://example.com/wiki/Some_(thing))",
+    "expectedHTML": "<p><a href=\"https://example.com/wiki/Some_(thing)\" target=\"_blank\" rel=\"noopener noreferrer\">link</a></p>\n"
+  },
+  {
+    "name": "headings",
+    "input": "# One\n\n## Two\n\n###### Six",
+    "expectedHTML": "<h1>One</h1><h2>Two</h2>\nSix\n"
+  },
+  {
+    "name": "blockquote",
+    "input": "> One\n>\n> **Two**\n>\n> - nested",
+    "expectedHTML": "<blockquote><p>One</p><p><strong>Two</strong></p><ul><li>nested</li></ul></blockquote>\n"
+  },
+  {
+    "name": "image markdown",
+    "input": "![a & b](https://example.com/a.png \"title\")",
+    "expectedHTML": "<p><img src=\"https://example.com/a.png\"></p>\n"
+  },
+  {
+    "name": "image anilist",
+    "input": "img50%(https://example.com/a.png)",
+    "expectedHTML": "<img width=\"50%\" src=\"https://example.com/a.png\">"
+  },
+  {
+    "name": "spoiler",
+    "input": "before ~!secret **words**!~ after",
+    "expectedHTML": "<p>before </p><details><summary>Spoiler, click to view</summary>secret <strong>words</strong></details> after<p></p>\n"
+  },
+  {
+    "name": "multiline spoiler",
+    "input": "~!one\n\ntwo!~",
+    "expectedHTML": "<details><summary>Spoiler, click to view</summary>one<p>two</p></details><p></p>\n"
+  },
+  {
+    "name": "center",
+    "input": "~~~center **bold**~~~",
+    "expectedHTML": "<p></p><center>center <strong>bold</strong></center><p></p>\n"
+  },
+  {
+    "name": "mention",
+    "input": "Hello @User42",
+    "expectedHTML": "<p>Hello <a href=\"#\" target=\"_blank\" rel=\"noopener noreferrer\">@User42</a></p>\n"
+  },
+  {
+    "name": "youtube",
+    "input": "youtube(https://www.youtube.com/watch?v=dQw4w9WgXcQ)",
+    "expectedHTML": "<p><iframe credentialless=\"\" title=\"youtube-embed\" allow=\"autoplay\" allowfullscreen=\"\" src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&amp;autoplay=0&amp;controls=1&amp;mute=0&amp;disablekb=1&amp;loop=1&amp;playlist=dQw4w9WgXcQ&amp;cc_lang_pref=ja\"></iframe></p>\n",
+    "intentionalDifference": "Explicitly close iframe instead of swallowing following markup."
+  },
+  {
+    "name": "webm",
+    "input": "webm(https://example.com/a.webm)",
+    "expectedHTML": "<p><video muted=\"\" loop=\"\" controls=\"\"><source src=\"https://example.com/a.webm\" type=\"video/webm\">Your browser does not support the video tag.</video></p>\n"
+  },
+  {
+    "name": "raw html",
+    "input": "<div><p><b>Bold</b><br>New <i>line</i></p></div>",
+    "expectedHTML": "<div><p><b>Bold</b><br>New <i>line</i></p></div>"
+  },
+  {
+    "name": "details",
+    "input": "<details><summary>Open</summary><p>inside</p></details>",
+    "expectedHTML": "<details><summary>Open</summary><p>inside</p></details>"
+  },
+  {
+    "name": "malformed html",
+    "input": "<b><i>crossed</b> nesting</i><p>last",
+    "expectedHTML": "<p><b><i>crossed</i></b><i> nesting</i></p><p>last</p>\n"
+  },
+  {
+    "name": "table filtered",
+    "input": "| A | B |\n| - | - |\n| 1 | 2 |",
+    "expectedHTML": "\n\n\n1\n2\n\n\n"
+  },
+  {
+    "name": "task list filtered",
+    "input": "- [x] complete\n- [ ] pending",
+    "expectedHTML": "<ul><li> complete</li><li> pending</li></ul>\n"
+  },
+  {
+    "name": "script injection",
+    "input": "<script>alert(1)</script><img src=x onerror=alert(1)>safe",
+    "expectedHTML": "<img src=\"x\">safe"
+  },
+  {
+    "name": "entity protocol",
+    "input": "<a href='jav&#x61;script:alert(1)'>bad</a>",
+    "expectedHTML": "<p><a>bad</a></p>\n"
+  },
+  {
+    "name": "svg injection",
+    "input": "<svg><g onload=alert(1)></g></svg>ok",
+    "expectedHTML": "<p>ok</p>\n"
+  },
+  {
+    "name": "attribute quotes",
+    "input": "<img alt='>' src='https://example.com/a.png'><p title='a>b'>ok</p>",
+    "expectedHTML": "<p><img src=\"https://example.com/a.png\"></p><p>ok</p><p></p>\n"
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "expectedHTML": ""
+  },
+  {
+    "name": "unicode",
+    "input": "日本語 🎉 مرحبا **한글**",
+    "expectedHTML": "<p>日本語 🎉 مرحبا <strong>한글</strong></p>\n"
+  },
+  {
+    "name": "br html",
+    "input": "a<br>b",
+    "expectedHTML": "<p>a<br>b</p>\n"
+  }
+]
