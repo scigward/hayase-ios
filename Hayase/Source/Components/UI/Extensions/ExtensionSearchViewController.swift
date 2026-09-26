@@ -166,7 +166,7 @@ final class ExtensionSearchViewController: UIViewController {
     private var pendingEntity: Torrents?
     private var pendingPlayer: VideoPlayerViewController?
     private var isOpeningPlayer = false
-    private var playbackDismissAnimator: UIViewPropertyAnimator?
+    private var isDismissingForPlayback = false
     private var metadataObserver: NSObjectProtocol?
     private var isResolvingPendingMetadata = false
 
@@ -1107,31 +1107,21 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     private func dismissSearchForPlayback(completion: @escaping () -> Void) {
-        guard presentingViewController != nil else { completion(); return }
         view.endEditing(true)
         view.isUserInteractionEnabled = false
+        isDismissingForPlayback = true
         let began = CACurrentMediaTime()
-        let finish = { [self] in
-            dismiss(animated: false) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, 0.3 - (CACurrentMediaTime() - began)),
-                                               execute: completion)
-            }
+        let completeAfterWebDelay = { [weak self] in
+            self?.isDismissingForPlayback = false
+            let remaining = max(0, 0.3 - (CACurrentMediaTime() - began))
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: completion)
         }
-        guard !UIAccessibility.isReduceMotionEnabled else { finish(); return }
-        (presentationController as? BottomDialogPresentationController)?.fadeForPlayback()
-        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 0),
-                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 0))
-        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: timing)
-        animator.addAnimations { [weak self] in
-            self?.view.alpha = 0
-            self?.view.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+
+        guard presentingViewController != nil else {
+            completeAfterWebDelay()
+            return
         }
-        animator.addCompletion { [weak self] _ in
-            self?.playbackDismissAnimator = nil
-            finish()
-        }
-        playbackDismissAnimator = animator
-        animator.startAnimation()
+        dismiss(animated: !UIAccessibility.isReduceMotionEnabled, completion: completeAfterWebDelay)
     }
 
     // The route changes once, before fetching. The same player is hydrated on completion.
@@ -1396,6 +1386,11 @@ extension ExtensionSearchViewController: UIViewControllerTransitioningDelegate {
                                 presenting: UIViewController?,
                                 source: UIViewController) -> UIPresentationController? {
         return BottomDialogPresentationController(presentedViewController: presented, presenting: presenting)
+    }
+
+    func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        guard isDismissingForPlayback else { return nil }
+        return ExtensionSearchPlaybackDismissAnimator()
     }
 }
 
@@ -1887,15 +1882,44 @@ private extension UIColor {
 // Top corners 12px, bottom corners square. Border on top/left/right (not bottom).
 // Max width 1024px (max-w-5xl).
 
+/// SearchModal closes with flyAndScale before the player route is entered.
+private final class ExtensionSearchPlaybackDismissAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+    private let duration: TimeInterval = 0.2
+
+    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval {
+        duration
+    }
+
+    func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
+        guard let fromView = transitionContext.view(forKey: .from) else {
+            transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
+            return
+        }
+
+        let timing = UICubicTimingParameters(
+            controlPoint1: CGPoint(x: 1.0 / 3.0, y: 1),
+            controlPoint2: CGPoint(x: 2.0 / 3.0, y: 1)
+        )
+        let animator = UIViewPropertyAnimator(duration: duration, timingParameters: timing)
+        animator.addAnimations {
+            fromView.alpha = 0
+            fromView.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+        }
+        animator.addCompletion { position in
+            let completed = position == .end && !transitionContext.transitionWasCancelled
+            if !completed {
+                fromView.alpha = 1
+                fromView.transform = .identity
+            }
+            transitionContext.completeTransition(completed)
+        }
+        animator.startAnimation()
+    }
+}
+
 /// Custom presentation controller that positions the dialog as a bottom-anchored
 /// sheet matching the web interface's Dialog.Content exactly.
 final class BottomDialogPresentationController: UIPresentationController {
-
-    func fadeForPlayback() {
-        UIView.animate(withDuration: 0.15, delay: 0, options: .curveLinear) {
-            self.dimmingView.alpha = 0
-        }
-    }
 
     /// Dimming overlay behind the dialog (mirrors web Dialog.Overlay custom-bg + backdrop blur).
     private let dimmingView = HayaseStripedBackdropView()

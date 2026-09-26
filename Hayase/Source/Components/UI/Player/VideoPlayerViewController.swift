@@ -409,10 +409,6 @@ final class VideoPlayerViewController: UIViewController {
         loadCurrentVideo()
         scheduleHide()
         MiniPlayerManager.shared.refreshLoadingState(for: self)
-        if UIDevice.current.userInterfaceIdiom == .phone,
-           Router.shared.currentRoute == .player, !isMinimizing {
-            enterFullscreenPresentation()
-        }
     }
     var torrentHandle: TorrentHandle?
     var videoService: VideoService?
@@ -590,8 +586,7 @@ final class VideoPlayerViewController: UIViewController {
     /// Throttle watch-progress saves to avoid writing UserDefaults on every
     /// position callback. Saves every 5 seconds during active playback.
     private var lastProgressSaveTime: Date = .distantPast
-    private var fullscreenPortal: FullscreenPortalState?
-    private var isFullscreenTransitioning = false
+    private var isFullscreenPresentation = false
 
     private struct SkippableChapter: Equatable {
         let title: String
@@ -795,6 +790,7 @@ final class VideoPlayerViewController: UIViewController {
     /// NOT minimizing, and from MiniPlayerManager when the user closes the
     /// mini-player.
     func tearDownPlayer() {
+        exitFullscreenPresentation()
         onCancelMetadataLoading?()
         onCancelMetadataLoading = nil
         metadataLoadingOwner = nil
@@ -3039,111 +3035,35 @@ final class VideoPlayerViewController: UIViewController {
         present(optionsVC, animated: true)
     }
 
-    private var isFullscreenPresentation: Bool {
-        fullscreenPortal != nil
+    func enterFullscreenForPlayerRouteIfNeeded() {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              Router.shared.currentRoute == .player,
+              !isMinimizing else { return }
+        enterFullscreenPresentation()
     }
 
     private func toggleFullscreenPresentation() {
-        guard !isFullscreenTransitioning else { return }
-
         if isFullscreenPresentation {
             exitFullscreenPresentation()
-        } else if hayaseShouldEmbedPlayerInShell {
+        } else {
             enterFullscreenPresentation()
         }
     }
 
-    private struct FullscreenPortalState {
-        let overlay: UIView
-        let placeholder: UIView
-        weak var originalSuperview: UIView?
-        let originalIndex: Int
-        let originalFrame: CGRect
-        let originalAutoresizingMask: UIView.AutoresizingMask
-        let originalTranslatesAutoresizingMaskIntoConstraints: Bool
-    }
-
     private func enterFullscreenPresentation() {
-        guard fullscreenPortal == nil,
-              let window = view.window,
-              let originalSuperview = view.superview else { return }
-
-        let originalIndex = originalSuperview.subviews.firstIndex(of: view) ?? originalSuperview.subviews.count
-        let placeholder = UIView(frame: view.frame)
-        placeholder.backgroundColor = view.backgroundColor ?? .black
-        placeholder.autoresizingMask = view.autoresizingMask
-        placeholder.isUserInteractionEnabled = false
-
-        let overlay = UIView(frame: window.bounds)
-        overlay.backgroundColor = .black
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-
-        let state = FullscreenPortalState(
-            overlay: overlay,
-            placeholder: placeholder,
-            originalSuperview: originalSuperview,
-            originalIndex: originalIndex,
-            originalFrame: view.frame,
-            originalAutoresizingMask: view.autoresizingMask,
-            originalTranslatesAutoresizingMaskIntoConstraints: view.translatesAutoresizingMaskIntoConstraints
-        )
-
-        isFullscreenTransitioning = true
-        fullscreenPortal = state
-
-        UIView.performWithoutAnimation {
-            view.removeFromSuperview()
-            originalSuperview.insertSubview(placeholder, at: min(originalIndex, originalSuperview.subviews.count))
-            window.addSubview(overlay)
-
-            view.translatesAutoresizingMaskIntoConstraints = true
-            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            view.frame = overlay.bounds
-            overlay.addSubview(view)
-
-            overlay.layoutIfNeeded()
-            view.layoutIfNeeded()
-        }
-
-        isFullscreenTransitioning = false
+        guard !isFullscreenPresentation else { return }
+        isFullscreenPresentation = true
+        hayaseSidebarController?.setPlayerFullscreenActive(true)
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
     }
 
     private func exitFullscreenPresentation() {
-        guard let state = fullscreenPortal else { return }
-        guard let originalSuperview = state.originalSuperview else {
-            cleanupBrokenFullscreenPortal()
-            return
-        }
-
-        isFullscreenTransitioning = true
-
-        UIView.performWithoutAnimation {
-            view.removeFromSuperview()
-            state.placeholder.removeFromSuperview()
-            state.overlay.removeFromSuperview()
-
-            view.translatesAutoresizingMaskIntoConstraints = state.originalTranslatesAutoresizingMaskIntoConstraints
-            view.autoresizingMask = state.originalAutoresizingMask
-            view.frame = state.originalFrame
-            originalSuperview.insertSubview(view, at: min(state.originalIndex, originalSuperview.subviews.count))
-
-            originalSuperview.layoutIfNeeded()
-            view.layoutIfNeeded()
-        }
-
-        fullscreenPortal = nil
-        isFullscreenTransitioning = false
+        guard isFullscreenPresentation else { return }
+        isFullscreenPresentation = false
+        hayaseSidebarController?.setPlayerFullscreenActive(false)
         setNeedsStatusBarAppearanceUpdate()
         setNeedsUpdateOfHomeIndicatorAutoHidden()
-    }
-
-    private func cleanupBrokenFullscreenPortal() {
-        fullscreenPortal?.overlay.removeFromSuperview()
-        fullscreenPortal?.placeholder.removeFromSuperview()
-        fullscreenPortal = nil
-        isFullscreenTransitioning = false
     }
 
     // Auto-plays next episode (Hayase web: next() called at EOF)

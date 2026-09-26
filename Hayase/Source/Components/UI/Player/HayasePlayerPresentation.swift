@@ -10,20 +10,26 @@
 import UIKit
 
 extension UIViewController {
-    var hayaseShouldEmbedPlayerInShell: Bool {
-        // player.svelte: SUPPORTS.isMobile && !SUPPORTS.isIPad forces fullscreen.
-        UIDevice.current.userInterfaceIdiom == .pad
-    }
-
     func presentHayasePlayer(_ player: VideoPlayerViewController,
                              animated: Bool = true,
                              completion: (() -> Void)? = nil) {
         player.modalTransitionStyle = .crossDissolve
-        if hayaseShouldEmbedPlayerInShell || player.isLoadingMetadata, let nav = hayaseShellNavigationController() {
+        // Player route ownership must not change depending on how quickly torrent metadata resolves.
+        let usesPlayerRouteHost = Router.shared.currentRoute == .player
+            || UIDevice.current.userInterfaceIdiom == .pad
+            || player.isLoadingMetadata
+        if usesPlayerRouteHost, let nav = hayaseShellNavigationController() {
             let pushPlayer = {
                 nav.setNavigationBarHidden(true, animated: false)
                 nav.navigationBar.isHidden = true
-                nav.pushViewController(player, animated: animated)
+                if nav.topViewController !== player {
+                    if nav.viewControllers.contains(where: { $0 === player }) {
+                        nav.popToViewController(player, animated: false)
+                    } else {
+                        nav.pushViewController(player, animated: animated)
+                    }
+                }
+                player.enterFullscreenForPlayerRouteIfNeeded()
                 if let completion = completion {
                     DispatchQueue.main.asyncAfter(deadline: .now() + (animated ? 0.35 : 0), execute: completion)
                 }
@@ -38,6 +44,15 @@ extension UIViewController {
 
         player.modalPresentationStyle = .fullScreen
         present(player, animated: animated, completion: completion)
+    }
+
+    var hayaseSidebarController: HayaseSidebarController? {
+        var current: UIViewController? = self
+        while let controller = current {
+            if let sidebar = controller as? HayaseSidebarController { return sidebar }
+            current = controller.parent
+        }
+        return presentingViewController?.hayaseSidebarController
     }
 
     func hayaseShellNavigationController() -> UINavigationController? {

@@ -50,6 +50,7 @@ final class HayaseSidebarController: UIViewController {
     private var mobileLauncherHeightConstraint: NSLayoutConstraint?
     private var isMobileMenuOpen = false
     private var isDesktopMode: Bool?
+    private var playerFullscreenActive = false
     private var routeObservationID: UUID?
     private var activeHistorySwipeDirection: HayaseHistorySwipe.Direction?
     private var historySwipe: HayaseHistorySwipe?
@@ -981,14 +982,10 @@ final class HayaseSidebarController: UIViewController {
     private func updateLayoutForCurrentWidth() {
         hideNativeTabNavigation()
         let isDesktop = view.bounds.width >= 768  // Tailwind md = 48rem = 768px
-        guard isDesktopMode != isDesktop else { return }
+        let modeChanged = isDesktopMode != isDesktop
         isDesktopMode = isDesktop
-        sidebarList.superview?.isHidden = !isDesktop
-        mobileLauncher.isHidden = isDesktop
-        sidebarWidthConstraint?.constant = isDesktop ? 56 : 0
-        if !isDesktop {
-            closeMobileMenu(animated: false)
-        }
+        applyPlayerShellChrome(isDesktop: isDesktop)
+        guard modeChanged else { return }
         updateSidebarBackground()
 
         if responsiveIndexRedirect(for: router.currentRoute) != nil {
@@ -997,6 +994,25 @@ final class HayaseSidebarController: UIViewController {
                       let redirectedRoute = self.responsiveIndexRedirect(for: self.router.currentRoute) else { return }
                 self.router.replace(redirectedRoute, hostTabIndex: redirectedRoute.tabIndex)
             }
+        }
+    }
+
+    func setPlayerFullscreenActive(_ active: Bool) {
+        guard playerFullscreenActive != active else { return }
+        playerFullscreenActive = active
+        applyPlayerShellChrome(isDesktop: view.bounds.width >= 768)
+        UIView.performWithoutAnimation {
+            view.layoutIfNeeded()
+        }
+    }
+
+    private func applyPlayerShellChrome(isDesktop: Bool) {
+        let hidesShellChrome = playerFullscreenActive
+        sidebarList.superview?.isHidden = !isDesktop || hidesShellChrome
+        mobileLauncher.isHidden = isDesktop || hidesShellChrome
+        sidebarWidthConstraint?.constant = isDesktop && !hidesShellChrome ? 56 : 0
+        if !isDesktop || hidesShellChrome {
+            closeMobileMenu(animated: false)
         }
     }
 
