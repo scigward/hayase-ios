@@ -76,7 +76,7 @@ enum Settings {
         static let seekDuration = "2"
         static let subtitleLanguage = "eng"
         static let audioLanguage = "jpn"
-        static let subtitleRenderHeight = "720"
+        static let subtitleRenderHeight = "1080"
         static let subtitleStyle = "none"
         static let playerAutoplay = true
         static let playerPause = true
