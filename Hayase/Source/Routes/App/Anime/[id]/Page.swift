@@ -2,6 +2,8 @@
 //  Page.swift
 //  Hayase
 //
+//  Mirrors: src/routes/app/anime/[id]/+page.svelte and src/lib/components/ui/cards/recommendation.svelte
+//
 
 import UIKit
 

@@ -262,10 +262,16 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     func animateIn() {
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut]) {
-            self.alpha = 1
-            self.transform = .identity
+        // preview.svelte: animation 0.3s ease 0s 1 load-in
+        let animator = UIViewPropertyAnimator(
+            duration: 0.3,
+            controlPoint1: CGPoint(x: 0.25, y: 0.1),
+            controlPoint2: CGPoint(x: 0.25, y: 1)
+        ) { [weak self] in
+            self?.alpha = 1
+            self?.transform = .identity
         }
+        animator.startAnimation()
     }
 
     private func updateDetails(for media: AnimeItem) {

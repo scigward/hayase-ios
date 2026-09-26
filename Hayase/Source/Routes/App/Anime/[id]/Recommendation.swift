@@ -13,7 +13,7 @@ final class RecommendationGridCell: UITableViewCell {
     static let reuseID = "RecommendationGridCell"
     static let skeletonItemCount = 50
 
-    let collectionView: UICollectionView
+    let collectionView: AnimeCardCollectionView
 
     private var heightConstraint: NSLayoutConstraint?
 
@@ -65,7 +65,11 @@ final class RecommendationGridCell: UITableViewCell {
         ])
     }
 
-    func configure(itemCount: Int, availableWidth: CGFloat, isRegular: Bool) {
+    func configure(itemCount: Int,
+                   availableWidth: CGFloat,
+                   isRegular: Bool,
+                   componentMountGeneration: UInt) {
+        collectionView.setComponentMountGeneration(componentMountGeneration)
         let sidePad = isRegular
             ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
             : CGFloat(16)
@@ -188,7 +192,8 @@ extension AnimeDetailViewController {
             cell.collectionView.delegate = self
             cell.configure(itemCount: RecommendationGridCell.skeletonItemCount,
                            availableWidth: tableView.bounds.width,
-                           isRegular: traitCollection.horizontalSizeClass == .regular)
+                           isRegular: traitCollection.horizontalSizeClass == .regular,
+                           componentMountGeneration: recommendationComponentMountGeneration)
             return cell
         }
 
@@ -205,7 +210,8 @@ extension AnimeDetailViewController {
         cell.collectionView.delegate = self
         cell.configure(itemCount: recommendations.count,
                        availableWidth: tableView.bounds.width,
-                       isRegular: traitCollection.horizontalSizeClass == .regular)
+                       isRegular: traitCollection.horizontalSizeClass == .regular,
+                       componentMountGeneration: recommendationComponentMountGeneration)
         return cell
     }
 }

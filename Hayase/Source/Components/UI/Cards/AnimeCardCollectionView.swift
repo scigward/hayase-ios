@@ -15,22 +15,45 @@ final class AnimeCardCollectionView: UICollectionView {
     private static let mountDuration: CFTimeInterval = 0.3  // small.svelte: animation 0.3s
 
     private var mountedMediaIDsBySection: [Int: Set<Int>] = [:]
+    private var componentMountGeneration: UInt?
     private var globalMountStartedAt: CFTimeInterval?
     private var sectionMountStartedAt: [Int: CFTimeInterval] = [:]
     private var wasAttachedToWindow = false
     private var phaseInspectionScheduled = false
+
+    override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
+        super.init(frame: frame, collectionViewLayout: layout)
+        configureInterfaceInteraction()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureInterfaceInteraction()
+    }
+
+    private func configureInterfaceInteraction() {
+        // Browser :active begins on pointer-down. UIScrollView defaults to delaying touch-down
+        // while it decides whether the gesture is a scroll, so disable that delay for cards.
+        delaysContentTouches = false
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
 
         let isAttached = window != nil
         if isAttached && !wasAttachedToWindow {
-            mountedMediaIDsBySection.removeAll()
-            sectionMountStartedAt.removeAll()
-            globalMountStartedAt = CACurrentMediaTime()
-            requestMountForVisibleCardsOnNextRunLoop()
+            beginFreshComponentTree()
         }
         wasAttachedToWindow = isAttached
+    }
+
+
+    /// Identifies a logical component mount when UIKit reuses the same collection view object.
+    /// A new generation is equivalent to Svelte destroying and recreating the card subtree.
+    func setComponentMountGeneration(_ generation: UInt) {
+        guard componentMountGeneration != generation else { return }
+        componentMountGeneration = generation
+        beginFreshComponentTree()
     }
 
     override func reloadData() {
@@ -93,6 +116,14 @@ final class AnimeCardCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         inspectVisibleContentPhases()
+    }
+
+
+    private func beginFreshComponentTree() {
+        mountedMediaIDsBySection.removeAll()
+        sectionMountStartedAt.removeAll()
+        globalMountStartedAt = CACurrentMediaTime()
+        requestMountForVisibleCardsOnNextRunLoop()
     }
 
     private func schedulePhaseInspection() {

@@ -1805,6 +1805,7 @@ class AnimeDetailViewController: UIViewController {
     private var hasStartedInitialAnimeLoads = false
 
     var activeSection: Section = .episodes
+    var recommendationComponentMountGeneration: UInt = 0
     var embeddedThreadID: Int?
     var embeddedThreadTitle: String?
     var embeddedThreadViewController: ThreadDetailViewController?
@@ -2593,6 +2594,10 @@ class AnimeDetailViewController: UIViewController {
             4: .recommendations
         ]
         guard let sec = sectionMap[index] else { return }
+        if sec == .recommendations, activeSection != .recommendations {
+            // +page.svelte conditionally destroys/recreates Recommendation on every tab re-entry.
+            recommendationComponentMountGeneration &+= 1
+        }
         activeSection = sec
         let contentRange = Section.episodes.rawValue..<Section.allCases.count
         tableView.reloadSections(IndexSet(integersIn: contentRange), with: .automatic)
