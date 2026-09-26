@@ -2,7 +2,7 @@
 //  Layout.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/anime/[id]/+page.svelte (Tabs.Root bound value state)
+//  Mirrors: src/routes/app/anime/[id]/+layout.svelte (cover trigger), src/routes/app/anime/[id]/+page.svelte (Tabs.Root bound value state)
 //
 
 import UIKit
@@ -482,7 +482,7 @@ final class AnimeTagChipButton: UIButton {
 
 // MARK: - AnimeInfoHeaderView
 
-final class AnimeInfoHeaderView: UIView {
+final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Callbacks
 
@@ -549,7 +549,6 @@ final class AnimeInfoHeaderView: UIView {
         let v = UIView()
         v.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0)
         v.isUserInteractionEnabled = false
-        v.alpha = 0
         return v
     }()
 
@@ -575,7 +574,7 @@ final class AnimeInfoHeaderView: UIView {
     private let romajiLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 16, weight: .light)
-        l.textColor = UIColor(white: 0.649, alpha: 1.0)
+        l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 1
         l.setContentCompressionResistancePriority(.init(760), for: .vertical)
         l.isHidden = true
@@ -757,6 +756,8 @@ final class AnimeInfoHeaderView: UIView {
 
     private var coverImageTask: URLSessionDataTask?
     private var displayedCoverURL: String?
+    private var coverScaleAnimator: UIViewPropertyAnimator?
+    private var coverOverlayAnimator: UIViewPropertyAnimator?
     private var bannerHidden = false
     private var hasTrailer = false
     private var rawDescription: String?
@@ -832,8 +833,11 @@ final class AnimeInfoHeaderView: UIView {
             coverButton.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor),
             coverButton.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor),
         ])
-        coverButton.addTarget(self, action: #selector(coverTouchDown), for: [.touchDown, .touchDragEnter])
-        coverButton.addTarget(self, action: #selector(coverTouchEnded), for: [.touchCancel, .touchDragExit, .touchUpOutside])
+        let coverPress = UILongPressGestureRecognizer(target: self, action: #selector(coverPressChanged(_:)))
+        coverPress.minimumPressDuration = 0
+        coverPress.cancelsTouchesInView = false
+        coverPress.delegate = self
+        coverButton.addGestureRecognizer(coverPress)
         coverButton.addTarget(self, action: #selector(coverTapped), for: .touchUpInside)
 
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
@@ -1255,33 +1259,74 @@ final class AnimeInfoHeaderView: UIView {
     @objc private func anilistTapped()     { animateTap(anilistButton);     onOpenAniList?() }
     @objc private func malTapped()         { animateTap(malButton);         onOpenMAL?() }
     @objc private func coverTapped() {
-        setCoverSelected(false, animated: true)
         onOpenCover?(displayedCoverURL, coverImageView.image)
     }
 
-    @objc private func coverTouchDown() {
-        setCoverSelected(true, animated: true)
+    @objc private func coverPressChanged(_ recognizer: UILongPressGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            setCoverSelected(true, animated: true)
+        case .ended, .cancelled, .failed:
+            setCoverSelected(false, animated: true)
+        default:
+            break
+        }
     }
 
-    @objc private func coverTouchEnded() {
-        setCoverSelected(false, animated: true)
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
     }
 
     private func setCoverSelected(_ selected: Bool, animated: Bool) {
-        let changes = {
-            self.coverImageView.transform = selected ? CGAffineTransform(scaleX: 1.02, y: 1.02) : .identity
-            self.coverOverlayView.alpha = selected ? 1 : 0
+        stopCoverAnimator(coverScaleAnimator)
+        stopCoverAnimator(coverOverlayAnimator)
+
+        let applyScale = { [weak self] in
+            self?.coverImageView.transform = selected
+                ? CGAffineTransform(scaleX: 1.02, y: 1.02)
+                : .identity
+        }
+        let applyOverlay = { [weak self] in
+            guard let self else { return }
             self.coverOverlayView.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(selected ? 0.5 : 0)
             self.coverOverlayIcon.alpha = selected ? 1 : 0
-            self.coverOverlayIcon.transform = selected ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
+            self.coverOverlayIcon.transform = selected
+                ? .identity
+                : CGAffineTransform(scaleX: 0.75, y: 0.75)
         }
+
         guard animated else {
-            changes()
+            applyScale()
+            applyOverlay()
             return
         }
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-            changes()
-        }
+
+        // transition-transform duration-200: Tailwind's default cubic-bezier(0.4, 0, 0.2, 1).
+        let scaleAnimator = UIViewPropertyAnimator(
+            duration: 0.2,
+            controlPoint1: CGPoint(x: 0.4, y: 0),
+            controlPoint2: CGPoint(x: 0.2, y: 1),
+            animations: applyScale
+        )
+        coverScaleAnimator = scaleAnimator
+        scaleAnimator.startAnimation()
+
+        // Overlay/icon: duration-300 transition-all ease-out.
+        let overlayAnimator = UIViewPropertyAnimator(
+            duration: 0.3,
+            controlPoint1: CGPoint(x: 0, y: 0),
+            controlPoint2: CGPoint(x: 0.2, y: 1),
+            animations: applyOverlay
+        )
+        coverOverlayAnimator = overlayAnimator
+        overlayAnimator.startAnimation()
+    }
+
+    private func stopCoverAnimator(_ animator: UIViewPropertyAnimator?) {
+        guard let animator, animator.state == .active else { return }
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .current)
     }
 
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {

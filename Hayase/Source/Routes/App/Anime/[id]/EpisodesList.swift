@@ -3,7 +3,7 @@
 //  Hayase
 //
 //  Created by scigward.
-//  Mirrors: routes/app/anime/[id]/EpisodesList.svelte
+//  Mirrors: src/lib/components/EpisodesList.svelte
 //
 
 import UIKit
@@ -145,6 +145,15 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
     private let ratingBadge = EpisodeRatingBadgeView()
 
+    private let fillerClipView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.layer.cornerRadius = EpisodeCardStyle.cardRadius  // rounded-md
+        view.clipsToBounds = true  // EpisodesList.svelte: card overflow-hidden clips the filler into the outer radius
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
     private let fillerBadge: PaddedLabel = {
         let l = PaddedLabel()
         l.text = "Filler"
@@ -276,8 +285,6 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
         playOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
         playOverlayView.addSubview(playOverlayIcon)
-        fillerBadge.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(fillerBadge)
 
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         progressFill.translatesAutoresizingMaskIntoConstraints = false
@@ -328,6 +335,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         textStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textStack)
 
+        fillerClipView.translatesAutoresizingMaskIntoConstraints = false
+        fillerBadge.translatesAutoresizingMaskIntoConstraints = false
+        fillerClipView.addSubview(fillerBadge)
+        addSubview(fillerClipView)
+
         thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
         thumbWidthPreferred.priority = UILayoutPriority(999)
         thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.thumbnailMaxWidth)
@@ -373,8 +385,12 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 
-            fillerBadge.trailingAnchor.constraint(equalTo: trailingAnchor),
-            fillerBadge.bottomAnchor.constraint(equalTo: bottomAnchor),
+            fillerClipView.topAnchor.constraint(equalTo: topAnchor),
+            fillerClipView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            fillerClipView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            fillerClipView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            fillerBadge.trailingAnchor.constraint(equalTo: fillerClipView.trailingAnchor),
+            fillerBadge.bottomAnchor.constraint(equalTo: fillerClipView.bottomAnchor),
         ])
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
