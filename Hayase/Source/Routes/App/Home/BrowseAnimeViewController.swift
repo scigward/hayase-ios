@@ -2,6 +2,8 @@
 //  BrowseAnimeViewController.swift
 //  Hayase
 //
+//  Mirrors: src/routes/app/home/+page.svelte and src/lib/components/ui/cards/query.svelte
+//
 //  Hayase-inspired UI:
 //  • Section 0 = rotating hero banner (full-banner.svelte replica, FeaturedBannerCell)
 //  • Sections 1..n = horizontal-scroll poster rows (small.svelte cards, 115×200pt)
@@ -1919,7 +1921,7 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func setupCollectionView() {
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
+        collectionView = AnimeCardCollectionView(frame: .zero, collectionViewLayout: makeHomeLayout())
         // Interface draws BannerImage behind the scrollable page. Keep the
         // collection clear so the extended 90vh fade can show behind the
         // first section without being painted over by a hard black viewport.

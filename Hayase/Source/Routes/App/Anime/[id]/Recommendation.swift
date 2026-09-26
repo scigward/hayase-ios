@@ -2,7 +2,7 @@
 //  Hayase
 //
 //  Created by scigward.
-//  Mirrors: routes/app/anime/[id]/recommendation.svelte
+//  Mirrors: src/lib/components/ui/cards/recommendation.svelte and src/lib/components/ui/cards/small.svelte
 //
 
 import UIKit
@@ -24,14 +24,14 @@ final class RecommendationGridCell: UITableViewCell {
         layout.minimumLineSpacing = 16
         layout.itemSize = CGSize(width: AnimeCollectionViewCell.outerWidth,
                                  height: AnimeCollectionViewCell.outerHeight)
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView = AnimeCardCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setup()
     }
 
     required init?(coder: NSCoder) {
         let layout = UICollectionViewFlowLayout()
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView = AnimeCardCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(coder: coder)
         setup()
     }

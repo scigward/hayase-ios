@@ -2,9 +2,9 @@
 //  SearchViewController.swift
 //  NyaiS
 //
+//  Mirrors: src/routes/app/search/+page.svelte and src/lib/components/ui/cards/query.svelte
+//
 //  Hayase-style AniList anime search tab.
-//  Ported from src/routes/app/search/+page.svelte + values.ts
-//  Source: https://github.com/scigward/interface
 //
 //  Mobile layout:
 //  Title label + input + [camera] [bolt]  - always visible
@@ -868,7 +868,7 @@ class SearchViewController: UIViewController {
     // MARK: - Collection view
 
     private func setupCollectionView() {
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
+        collectionView = AnimeCardCollectionView(frame: .zero, collectionViewLayout: makeLayout())
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = Self.bgBackground
         collectionView.delegate = self; collectionView.dataSource = self

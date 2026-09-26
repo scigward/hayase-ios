@@ -2,6 +2,8 @@
 //  AnimeCollectionViewCell.swift
 //  Hayase
 //
+//  Mirrors: src/lib/components/ui/cards/small.svelte and src/app.css (@keyframes load-in, global :active scale)
+//
 //  Matches Hayase's small.svelte exactly:
 //    • Outer item w-[11.5rem] h-[323px] with p-4, matching small.svelte
 //    • Inner cover area w-[9.5rem] h-[13.5rem] = 152×216pt
@@ -14,6 +16,23 @@
 //
 
 import UIKit
+
+// MARK: - Interface card mount animation
+
+// small.svelte: .item { animation: 0.3s ease 0s 1 load-in; }
+// app.css load-in: translate3d(0, 1.2rem, 0) scale(0.95) -> none.
+private enum InterfaceAnimeCardLoadAnimation {
+    static let animationKey = "interfaceLoadIn"
+    static let duration: TimeInterval = 0.3
+    static let offsetY: CGFloat = 19.2  // 1.2rem = 19.2px at the 16px root size
+    static let scale: CGFloat = 0.95
+    static let controlPoint1 = CGPoint(x: 0.25, y: 0.1)  // CSS ease
+    static let controlPoint2 = CGPoint(x: 0.25, y: 1)
+
+    static var initialTransform: CGAffineTransform {
+        CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: offsetY)
+    }
+}
 
 // MARK: - Shared Image Cache (internal so BrowseAnimeViewController can use it)
 
@@ -34,6 +53,9 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     static let coverHeight: CGFloat = 216
 
     // MARK: Views
+
+    /// small.svelte `.item`: mount animation lives here so the outer press transform can compose with it.
+    private let itemView = UIView()
 
     /// Cover image — fills top 74.5% of cell (matches h-[13.5rem] on a 152:290 card)
     private let coverImageView: UIImageView = {
@@ -86,10 +108,15 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     private var currentURLString: String?
     private var imageTask: URLSessionDataTask?
+    private var pressAnimator: UIViewPropertyAnimator?
     private(set) var configuredAnimeItem: AnimeItem?
     var hoverProvider: (() -> Void)?
     var unhoverProvider: (() -> Void)?
     private var hoverGesture: UIHoverGestureRecognizer?
+
+    override var isHighlighted: Bool {
+        didSet { updateInterfacePressedState() }
+    }
 
     // MARK: Init
 
@@ -113,6 +140,16 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         layer.masksToBounds = false
         contentView.clipsToBounds = false
         contentView.layer.masksToBounds = false
+
+        itemView.backgroundColor = .clear
+        itemView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(itemView)
+        NSLayoutConstraint.activate([
+            itemView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            itemView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            itemView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            itemView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
 
         if #available(iOS 13.0, *) {
             let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
@@ -161,13 +198,13 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
         cardStack.setCustomSpacing(8, after: titleRow)        // meta pt-2 = 8pt minimum
         cardStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(cardStack)
+        itemView.addSubview(cardStack)
 
         NSLayoutConstraint.activate([
-            cardStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.contentPadding),
-            cardStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.contentPadding),
-            cardStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.contentPadding),
-            cardStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.contentPadding),
+            cardStack.topAnchor.constraint(equalTo: itemView.topAnchor, constant: Self.contentPadding),
+            cardStack.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding),
+            cardStack.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -Self.contentPadding),
+            cardStack.bottomAnchor.constraint(equalTo: itemView.bottomAnchor, constant: -Self.contentPadding),
 
             // h-[13.5rem] over w-[9.5rem].  Tie it to the inner card width so the same
             // cell still scales correctly if reused in grids with different item widths.
@@ -182,6 +219,69 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             statusDotView.widthAnchor.constraint(equalToConstant: 8.8),
             statusDotView.heightAnchor.constraint(equalToConstant: 8.8),
         ])
+    }
+
+
+    // MARK: - Interface mount animation
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        requestInterfaceMountAnimation()
+    }
+
+    func requestInterfaceMountAnimation() {
+        guard let mediaID = configuredAnimeItem?.id,
+              let collectionView = enclosingAnimeCardCollectionView() else { return }
+        collectionView.requestMountAnimation(for: self, mediaID: mediaID)
+    }
+
+    func playInterfaceLoadInAnimation(startedAt: CFTimeInterval) {
+        itemView.layer.removeAnimation(forKey: InterfaceAnimeCardLoadAnimation.animationKey)
+        itemView.transform = .identity
+
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = CATransform3DMakeAffineTransform(InterfaceAnimeCardLoadAnimation.initialTransform)
+        animation.toValue = CATransform3DIdentity
+        animation.duration = InterfaceAnimeCardLoadAnimation.duration
+        animation.timingFunction = CAMediaTimingFunction(
+            controlPoints: Float(InterfaceAnimeCardLoadAnimation.controlPoint1.x),
+            Float(InterfaceAnimeCardLoadAnimation.controlPoint1.y),
+            Float(InterfaceAnimeCardLoadAnimation.controlPoint2.x),
+            Float(InterfaceAnimeCardLoadAnimation.controlPoint2.y)
+        )
+        animation.beginTime = itemView.layer.convertTime(startedAt, from: nil)
+        itemView.layer.add(animation, forKey: InterfaceAnimeCardLoadAnimation.animationKey)
+    }
+
+    private func enclosingAnimeCardCollectionView() -> AnimeCardCollectionView? {
+        var candidate = superview
+        while let view = candidate {
+            if let collectionView = view as? AnimeCardCollectionView { return collectionView }
+            candidate = view.superview
+        }
+        return nil
+    }
+
+    // app.css: :active { transition: all 0.1s ease-in-out; transform: scale(0.98); }
+    private func updateInterfacePressedState() {
+        pressAnimator?.stopAnimation(true)
+        pressAnimator = nil
+
+        guard isHighlighted else {
+            contentView.transform = .identity
+            return
+        }
+
+        let animator = UIViewPropertyAnimator(
+            duration: 0.1,
+            controlPoint1: CGPoint(x: 0.42, y: 0),
+            controlPoint2: CGPoint(x: 0.58, y: 1)
+        ) { [weak self] in
+            self?.contentView.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+        }
+        pressAnimator = animator
+        animator.startAnimation()
     }
 
     // MARK: - Configuration
@@ -266,6 +366,11 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        itemView.layer.removeAnimation(forKey: InterfaceAnimeCardLoadAnimation.animationKey)
+        pressAnimator?.stopAnimation(true)
+        pressAnimator = nil
+        itemView.transform = .identity
+        contentView.transform = .identity
         imageTask?.cancel()
         imageTask = nil
         currentURLString = nil
