@@ -3291,6 +3291,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
     func renderer(_ renderer: MPVWrapper, didChangeLoading isLoading: Bool) {
         // Torrent is never paused, so no safety-valve resume is needed.
         updateBuffering(isLoading)
+        if !isLoading {
+            ExternalDisplayManager.shared.videoDidBecomeReady(self)
+        }
 
         // isLoading=false fires at MPV_EVENT_PLAYBACK_RESTART — mpv has a
         // decoded frame ready at the new position. Clear isSeeking so

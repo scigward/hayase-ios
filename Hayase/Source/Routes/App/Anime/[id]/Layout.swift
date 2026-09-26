@@ -2,7 +2,7 @@
 //  Layout.swift
 //  Hayase
 //
-//  Mirrors: src/routes/app/anime/[id]/+layout.svelte (cover trigger), src/routes/app/anime/[id]/+page.svelte (Tabs.Root bound value state)
+//  Mirrors: src/routes/app/anime/[id]/+layout.svelte (cover trigger), src/routes/app/anime/[id]/+page.svelte (Tabs.Root bound value state), src/app.css (:active interaction)
 //
 
 import UIKit
@@ -2240,6 +2240,9 @@ class AnimeDetailViewController: UIViewController {
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.delegate = self
         tableView.dataSource = self
+        // Browser :active begins on pointer-down. This table wraps nested card collections, so
+        // its default delayed touch delivery must not postpone the inner card highlight.
+        tableView.delaysContentTouches = false
         tableView.bounces = false
         tableView.alwaysBounceVertical = false
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)

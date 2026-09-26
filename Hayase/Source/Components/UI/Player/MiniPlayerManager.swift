@@ -136,6 +136,42 @@ final class MiniPlayerManager {
     /// Whether the container last snapped to the right side (`true`) or left (`false`).
     private var isSnappedToRight = true
 
+    private func hostPlayerSurfaceInMiniContainer(_ player: VideoPlayerViewController, inner: UIView) {
+        if ExternalDisplayManager.shared.updateLocalPresentationHost(
+            for: player,
+            view: inner,
+            layout: .fillBounds
+        ) {
+            return
+        }
+
+        let surface = player.surfaceView
+        surface.translatesAutoresizingMaskIntoConstraints = true
+        surface.frame = inner.bounds
+        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        inner.insertSubview(surface, at: 0)
+    }
+
+    private func hostPlayerSurfaceInFullscreen(_ player: VideoPlayerViewController) {
+        if ExternalDisplayManager.shared.updateLocalPresentationHost(
+            for: player,
+            view: player.view,
+            layout: .pinnedToEdges
+        ) {
+            return
+        }
+
+        let surface = player.surfaceView
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        player.view.insertSubview(surface, at: 0)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: player.view.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: player.view.bottomAnchor),
+            surface.leadingAnchor.constraint(equalTo: player.view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: player.view.trailingAnchor),
+        ])
+    }
+
     // MARK: - Session State Persistence (Hayase server.active store)
 
     /// UserDefaults key for persisting the active mini-player session.
@@ -197,13 +233,10 @@ final class MiniPlayerManager {
         window.rootViewController?.view.addSubview(container)
         containerView = container
 
-        // Reparent the MPV surface into the mini-player container.
-        let surface = player.surfaceView
-        surface.translatesAutoresizingMaskIntoConstraints = true
+        // Reparent locally, or just move the external-output placeholder while
+        // the external display keeps ownership of the actual MPV surface.
         guard let inner = container.viewWithTag(innerContainerTag) else { return }
-        surface.frame = inner.bounds
-        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        inner.insertSubview(surface, at: 0)
+        hostPlayerSurfaceInMiniContainer(player, inner: inner)
 
         // Add mini-player controls overlay.
         addOverlay(to: container)
@@ -284,16 +317,9 @@ final class MiniPlayerManager {
         miniCastProgressFillWidth = nil
         miniCastProgressContainer = nil
 
-        // Reparent the surface back into the player VC's view.
-        let surface = player.surfaceView
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        player.view.insertSubview(surface, at: 0)
-        NSLayoutConstraint.activate([
-            surface.topAnchor.constraint(equalTo: player.view.topAnchor),
-            surface.bottomAnchor.constraint(equalTo: player.view.bottomAnchor),
-            surface.leadingAnchor.constraint(equalTo: player.view.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: player.view.trailingAnchor),
-        ])
+        // Restore the local presentation target. If external output owns the
+        // surface, only its placeholder moves until that output ends.
+        hostPlayerSurfaceInFullscreen(player)
 
         // Tear down the mini-player window.
         externalStripeOverlayView?.removeFromSuperview()
@@ -1375,13 +1401,10 @@ final class MiniPlayerManager {
         window.rootViewController?.view.addSubview(container)
         containerView = container
 
-        // Reparent the MPV surface into the mini-player container.
-        let surface = player.surfaceView
-        surface.translatesAutoresizingMaskIntoConstraints = true
+        // Reparent locally, or just move the external-output placeholder while
+        // the external display keeps ownership of the actual MPV surface.
         guard let inner = container.viewWithTag(innerContainerTag) else { return }
-        surface.frame = inner.bounds
-        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        inner.insertSubview(surface, at: 0)
+        hostPlayerSurfaceInMiniContainer(player, inner: inner)
 
         addOverlay(to: container)
 

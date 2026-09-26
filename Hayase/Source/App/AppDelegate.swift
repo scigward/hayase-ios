@@ -32,8 +32,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("⚠️ AVAudioSession setup failed: \(error)")
         }
 
-        // Start listening for AirPlay / external screen connections so video
-        // frames are routed to the external display (not just audio).
+        // Observe external-display availability from launch without claiming
+        // the display. A dedicated window is created only for active video.
         _ = ExternalDisplayManager.shared
 
         // Force TorrentService initialization so libtorrent restores previous
