@@ -3,7 +3,7 @@
 //  Hayase
 //
 //  Created by scigward.
-//  Mirrors: lib/components/ui/profile/Profile.svelte
+//  Mirrors: lib/components/ui/profile/Profile.svelte; lib/components/ui/avatar/avatars.svelte (FollowerAvatarStackView overlap cutout)
 //
 //  Added in this pass: an optional `detailFetcher` on
 //  `FollowerAvatarStackView.configure`/`ProfileButton`, for callers whose
@@ -64,14 +64,9 @@ final class FollowerAvatarStackView: UIStackView {
                                        avatarSize: avatarSize,
                                        ringWidth: ringWidth,
                                        ringColor: ringColor,
-                                       imageInset: cutoutBorder == nil ? 0 : 1,
+                                       imageInset: 0,
                                        detailFetcher: detailFetcher)
             button.translatesAutoresizingMaskIntoConstraints = false
-            if cutoutBorder != nil {
-                button.layer.cornerRadius = avatarSize / 2
-                button.layer.borderWidth = 1
-                button.layer.borderColor = UIColor.HayaseTheme.primary.cgColor
-            }
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: avatarSize),
                 button.heightAnchor.constraint(equalToConstant: avatarSize),
