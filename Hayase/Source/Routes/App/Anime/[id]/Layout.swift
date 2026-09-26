@@ -1282,8 +1282,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         stopCoverAnimator(coverScaleAnimator)
         stopCoverAnimator(coverOverlayAnimator)
 
-        let applyScale = { [weak self] in
-            self?.coverImageView.transform = selected
+        let applyScale: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.coverImageView.transform = selected
                 ? CGAffineTransform(scaleX: 1.02, y: 1.02)
                 : .identity
         }
