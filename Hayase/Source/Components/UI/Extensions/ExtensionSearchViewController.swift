@@ -1388,9 +1388,14 @@ extension ExtensionSearchViewController: UIViewControllerTransitioningDelegate {
         return BottomDialogPresentationController(presentedViewController: presented, presenting: presenting)
     }
 
+    func animationController(forPresented presented: UIViewController,
+                             presenting: UIViewController,
+                             source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        ExtensionSearchDialogAnimator(presenting: true)
+    }
+
     func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        guard isDismissingForPlayback else { return nil }
-        return ExtensionSearchPlaybackDismissAnimator()
+        ExtensionSearchDialogAnimator(presenting: false)
     }
 }
 
@@ -1882,18 +1887,33 @@ private extension UIColor {
 // Top corners 12px, bottom corners square. Border on top/left/right (not bottom).
 // Max width 1024px (max-w-5xl).
 
-/// SearchModal closes with flyAndScale before the player route is entered.
-private final class ExtensionSearchPlaybackDismissAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+/// Matches Dialog.Content's 200ms flyAndScale in both directions.
+private final class ExtensionSearchDialogAnimator: NSObject, UIViewControllerAnimatedTransitioning {
     private let duration: TimeInterval = 0.2
+    private let presenting: Bool
+
+    init(presenting: Bool) { self.presenting = presenting }
 
     func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval {
         duration
     }
 
     func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
-        guard let fromView = transitionContext.view(forKey: .from) else {
+        let key: UITransitionContextViewKey = presenting ? .to : .from
+        guard let animatedView = transitionContext.view(forKey: key) else {
             transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
             return
+        }
+
+        if presenting {
+            guard let toViewController = transitionContext.viewController(forKey: .to) else {
+                transitionContext.completeTransition(false)
+                return
+            }
+            animatedView.frame = transitionContext.finalFrame(for: toViewController)
+            transitionContext.containerView.addSubview(animatedView)
+            animatedView.alpha = 0
+            animatedView.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
         }
 
         let timing = UICubicTimingParameters(
@@ -1902,14 +1922,18 @@ private final class ExtensionSearchPlaybackDismissAnimator: NSObject, UIViewCont
         )
         let animator = UIViewPropertyAnimator(duration: duration, timingParameters: timing)
         animator.addAnimations {
-            fromView.alpha = 0
-            fromView.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+            animatedView.alpha = self.presenting ? 1 : 0
+            animatedView.transform = self.presenting
+                ? .identity
+                : CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
         }
         animator.addCompletion { position in
             let completed = position == .end && !transitionContext.transitionWasCancelled
             if !completed {
-                fromView.alpha = 1
-                fromView.transform = .identity
+                animatedView.alpha = self.presenting ? 0 : 1
+                animatedView.transform = self.presenting
+                    ? CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+                    : .identity
             }
             transitionContext.completeTransition(completed)
         }

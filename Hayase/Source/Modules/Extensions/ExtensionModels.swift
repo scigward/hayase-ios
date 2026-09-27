@@ -203,7 +203,18 @@ struct TorrentQuery {
 
     /// Build from an AnimeItem + episode context (mirrors Extensions.createTitles)
     static func make(from item: AnimeItem, episode: Int, resolution: String) -> TorrentQuery {
-        let mediaJSON = item.extensionMediaJSON ?? fallbackMediaJSON(from: item)
+        var mediaJSON = item.extensionMediaJSON ?? fallbackMediaJSON(from: item)
+        // Partial AniList payloads can omit the connection, while extensions
+        // expect the interface's media.relations.edges array to be present.
+        if let relations = mediaJSON["relations"] as? [String: Any] {
+            if !(relations["edges"] is [[String: Any]]) {
+                mediaJSON["relations"] = ["edges": [[String: Any]]()]
+            }
+        } else {
+            mediaJSON["relations"] = ["edges": [[String: Any]]()]
+        }
+        if !(mediaJSON["genres"] is [String]) { mediaJSON["genres"] = [String]() }
+        if !(mediaJSON["synonyms"] is [String]) { mediaJSON["synonyms"] = [String]() }
 
         // Build titles list — mirrors Extensions.createTitles exactly:
         //   const grouped = [...new Set(
@@ -346,7 +357,6 @@ struct TorrentQuery {
     }
 
     private static func relationConnectionJSON(_ relations: [AnimeRelation]) -> Any {
-        guard !relations.isEmpty else { return NSNull() }
         return [
             "edges": relations.map { relation in
                 [

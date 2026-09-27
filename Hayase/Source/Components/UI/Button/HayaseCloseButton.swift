@@ -29,14 +29,15 @@ final class HayaseCloseButton: UIButton {
                        dy: -max(0, (44 - bounds.height) / 2)).contains(point)
     }
 
-    // Radix Cross2 uses a thinner, smaller cross than Lucide's X.
-    private static let crossImage: UIImage = UIGraphicsImageRenderer(size: CGSize(width: 15, height: 15)).image { context in
+    // Radix Cross2 is a 15x15 glyph rendered at 16px in the interface.
+    private static let crossImage: UIImage = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).image { _ in
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: 4, y: 4))
-        path.addLine(to: CGPoint(x: 11, y: 11))
-        path.move(to: CGPoint(x: 11, y: 4))
-        path.addLine(to: CGPoint(x: 4, y: 11))
-        path.lineWidth = 1
+        let scale: CGFloat = 16 / 15
+        path.move(to: CGPoint(x: 3.625 * scale, y: 3.625 * scale))
+        path.addLine(to: CGPoint(x: 11.375 * scale, y: 11.375 * scale))
+        path.move(to: CGPoint(x: 11.375 * scale, y: 3.625 * scale))
+        path.addLine(to: CGPoint(x: 3.625 * scale, y: 11.375 * scale))
+        path.lineWidth = 1.15 * scale
         path.lineCapStyle = .round
         UIColor.black.setStroke()
         path.stroke()
