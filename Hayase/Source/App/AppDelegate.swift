@@ -64,10 +64,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // MARK: - URL Scheme Handling
 
-    /// Handle incoming URLs from the `hayase://` URL scheme.
-    /// This is the fallback path for OAuth callbacks that bypass
-    /// ASWebAuthenticationSession (e.g. user returns via Safari externally).
+    /// Handle incoming URLs from the `hayase://` URL scheme, including the
+    /// invite handoff emitted by hayase.watch/w2g/<code>.
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        if url.scheme?.lowercased() == "hayase", url.host?.lowercased() == "w2g" {
+            guard let code = Self.w2gInviteCode(from: url) else { return false }
+            // The website opens this scheme while the app may still be launching.
+            // Let the storyboard shell install and observe the router first.
+            DispatchQueue.main.async { [weak self] in
+                self?.installSidebarShellIfNeeded()
+                guard let shell = self?.window?.rootViewController as? HayaseSidebarController else { return }
+                shell.loadViewIfNeeded()
+                Router.shared.navigate(.w2g(id: code))
+            }
+            return true
+        }
+
         // AniList implicit grant: hayase://#access_token=xxx&token_type=Bearer&expires_in=xxx
         if let fragment = url.fragment {
             let params = fragment.components(separatedBy: "&")
@@ -91,6 +103,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         return false
+    }
+
+    private static func w2gInviteCode(from url: URL) -> String? {
+        guard url.user == nil, url.password == nil, url.port == nil,
+              url.query == nil, url.fragment == nil else { return nil }
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count == 1, components[0].utf8.count == 8,
+              components[0].utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else {
+            return nil
+        }
+        return components[0].lowercased()
     }
 
     // MARK: - Background / Termination
