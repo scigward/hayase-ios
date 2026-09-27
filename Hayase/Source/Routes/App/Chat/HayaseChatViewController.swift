@@ -829,11 +829,14 @@ private final class IRCMessageCell: UITableViewCell {
 
         nameLabel.font = .nunito(ofSize: 14, weight: .bold)
         nameLabel.textColor = UIColor.HayaseTheme.foreground
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(nameLabel)
 
         timeLabel.font = .nunito(ofSize: 10)
         timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(timeLabel)
 
@@ -856,6 +859,9 @@ private final class IRCMessageCell: UITableViewCell {
             nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
             timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
             timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
+            timeLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+            headerRow.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 4),
+            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -4),
 
             bubbleLabel.topAnchor.constraint(equalTo: bubbleBackground.topAnchor, constant: 8),
             bubbleLabel.leadingAnchor.constraint(equalTo: bubbleBackground.leadingAnchor, constant: 12),

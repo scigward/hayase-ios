@@ -1,4 +1,4 @@
-// W2GViewController.swift — W2G lobby page with chat, user list, invite/quit
+// W2GViewController.swift — route-created W2G lobby with chat, user list, invite/quit
 // Mirrors: hayase-app/interface/src/routes/app/w2g/[id]/+page.svelte
 //
 // Layout (matching the web):
@@ -43,22 +43,15 @@ final class W2GViewController: UIViewController {
 
     private var client: W2GClient? { W2GLobby.shared.client }
 
-    /// Tracks whether we are showing the landing (create/join) or the lobby (chat) UI.
+    /// The web root route creates a lobby and redirects immediately; there is no landing page.
     private var isShowingLobby = false
 
     private var lobbyObserver: NSObjectProtocol?
-
-    // MARK: - Landing UI Elements (shown when no lobby is active)
-
-    private let landingScrollView = UIScrollView()
-    private let landingStack = UIStackView()
-    private let landingTitleLabel = UILabel()
-    private let landingSubtitleLabel = UILabel()
-    private let landingSeparator = UIView()
-    private let createButton = UIButton(type: .system)
-    private let joinSeparatorLabel = UILabel()
-    private let joinCodeField = UITextField()
-    private let joinButton = UIButton(type: .system)
+    private var pendingWebTorrentPlayer: VideoPlayerViewController?
+    private var pendingWebTorrentService: VideoService?
+    private var pendingWebTorrentObserver: NSObjectProtocol?
+    private var pendingWebTorrentResolving = false
+    private var pendingNativePlayer: VideoPlayerViewController?
 
     // MARK: - Lobby UI Elements (shown when a lobby is active)
 
@@ -84,7 +77,7 @@ final class W2GViewController: UIViewController {
         view.backgroundColor = .black
         navigationItem.title = "Watch Together"
 
-        // Listen for lobby changes so we can swap between landing/lobby.
+        // Keep the lobby view in sync with route-driven create/join/quit changes.
         lobbyObserver = NotificationCenter.default.addObserver(
             forName: W2GLobby.didChange, object: nil, queue: .main
         ) { [weak self] _ in
@@ -96,14 +89,17 @@ final class W2GViewController: UIViewController {
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
 
-        setupLandingUI()
         setupLobbyUI()
-        updateUI()
+        if case .w2g(let id) = Router.shared.currentRoute {
+            applyRoute(id: id)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        updateUI()
+        if case .w2g(let id) = Router.shared.currentRoute {
+            applyRoute(id: id)
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -118,35 +114,37 @@ final class W2GViewController: UIViewController {
         if let obs = lobbyObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        if let obs = pendingWebTorrentObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
     }
 
     // MARK: - State Management
 
-    private func updateUI() {
-        let hasLobby = client != nil
-        if hasLobby && !isShowingLobby {
-            showLobbyUI()
-        } else if !hasLobby && isShowingLobby {
-            showLandingUI()
-        } else if !hasLobby {
-            showLandingUI()
+    func applyRoute(id: String?) {
+        if let id, !id.isEmpty {
+            W2GLobby.shared.joinLobby(code: id)
         } else {
+            W2GLobby.shared.createHostLobby(media: currentPlayerMediaState())
+        }
+        if isViewLoaded { updateUI() }
+    }
+
+    private func updateUI() {
+        if client != nil && !isShowingLobby {
+            showLobbyUI()
+        } else if client != nil {
             // Already showing lobby, just refresh
             codeLabel.text = client?.code ?? ""
             reloadData()
+        } else {
+            isShowingLobby = false
+            for view in lobbyViews { view.isHidden = true }
         }
-    }
-
-    private func showLandingUI() {
-        isShowingLobby = false
-        landingScrollView.isHidden = false
-        // Hide lobby elements
-        for v in lobbyViews { v.isHidden = true }
     }
 
     private func showLobbyUI() {
         isShowingLobby = true
-        landingScrollView.isHidden = true
         // Show lobby elements
         for v in lobbyViews { v.isHidden = false }
 
@@ -155,101 +153,10 @@ final class W2GViewController: UIViewController {
         reloadData()
     }
 
-    /// All lobby-specific views (hidden when showing landing).
+    /// All lobby views are hidden when the route is leaving.
     private var lobbyViews: [UIView] {
         [titleLabel, codeLabel, subtitleLabel, separatorView,
          chatTableView, userListTableView, bottomBar]
-    }
-
-    // MARK: - Landing UI Setup (create/join page, mirrors web /app/w2g/+page.ts)
-
-    private func setupLandingUI() {
-        landingScrollView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(landingScrollView)
-
-        landingStack.axis = .vertical
-        landingStack.spacing = 16
-        landingStack.alignment = .fill
-        landingStack.translatesAutoresizingMaskIntoConstraints = false
-        landingScrollView.addSubview(landingStack)
-
-        // Title
-        landingTitleLabel.text = "Watch Together"
-        landingTitleLabel.font = .nunito(ofSize: 24, weight: .bold)
-        landingTitleLabel.textColor = .white
-
-        // Subtitle
-        landingSubtitleLabel.text = "Watch videos together with friends in real-time. Create a lobby or join an existing one."
-        landingSubtitleLabel.font = .nunito(ofSize: 14)
-        landingSubtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        landingSubtitleLabel.numberOfLines = 0
-
-        // Separator
-        landingSeparator.backgroundColor = UIColor(white: 0.2, alpha: 1)
-        landingSeparator.translatesAutoresizingMaskIntoConstraints = false
-
-        // Create lobby button
-        createButton.setTitle("Create Lobby", for: .normal)
-        createButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
-        createButton.setTitleColor(.white, for: .normal)
-        createButton.backgroundColor = UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)
-        createButton.layer.cornerRadius = 10
-        createButton.addTarget(self, action: #selector(createLobbyTapped), for: .touchUpInside)
-        createButton.translatesAutoresizingMaskIntoConstraints = false
-
-        // "or join" label
-        joinSeparatorLabel.text = "or join an existing lobby"
-        joinSeparatorLabel.font = .nunito(ofSize: 14)
-        joinSeparatorLabel.textColor = UIColor(white: 0.5, alpha: 1)
-        joinSeparatorLabel.textAlignment = .center
-
-        // Join code field
-        joinCodeField.placeholder = "Enter lobby code"
-        joinCodeField.font = .nunito(ofSize: 16)
-        joinCodeField.textColor = .white
-        joinCodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
-        joinCodeField.layer.cornerRadius = 10
-        joinCodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 0))
-        joinCodeField.leftViewMode = .always
-        joinCodeField.autocapitalizationType = .none
-        joinCodeField.autocorrectionType = .no
-        joinCodeField.returnKeyType = .join
-        joinCodeField.delegate = self
-        joinCodeField.translatesAutoresizingMaskIntoConstraints = false
-
-        // Join button
-        joinButton.setTitle("Join Lobby", for: .normal)
-        joinButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
-        joinButton.setTitleColor(.white, for: .normal)
-        joinButton.backgroundColor = UIColor(white: 0.15, alpha: 1)
-        joinButton.layer.cornerRadius = 10
-        joinButton.addTarget(self, action: #selector(joinLobbyTapped), for: .touchUpInside)
-        joinButton.translatesAutoresizingMaskIntoConstraints = false
-
-        landingStack.addArrangedSubview(landingTitleLabel)
-        landingStack.addArrangedSubview(landingSubtitleLabel)
-        landingStack.addArrangedSubview(landingSeparator)
-        landingStack.addArrangedSubview(createButton)
-        landingStack.addArrangedSubview(joinSeparatorLabel)
-        landingStack.addArrangedSubview(joinCodeField)
-        landingStack.addArrangedSubview(joinButton)
-
-        let safe = view.safeAreaLayoutGuide
-        NSLayoutConstraint.activate([
-            landingScrollView.topAnchor.constraint(equalTo: safe.topAnchor),
-            landingScrollView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
-            landingScrollView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-            landingScrollView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
-
-            landingStack.topAnchor.constraint(equalTo: landingScrollView.topAnchor, constant: 24),
-            landingStack.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 24),
-            landingStack.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -24),
-
-            landingSeparator.heightAnchor.constraint(equalToConstant: 0.5),
-            createButton.heightAnchor.constraint(equalToConstant: 48),
-            joinCodeField.heightAnchor.constraint(equalToConstant: 48),
-            joinButton.heightAnchor.constraint(equalToConstant: 48),
-        ])
     }
 
     // MARK: - Lobby UI Setup (chat + user list, mirrors web /app/w2g/[id]/+page.svelte)
@@ -259,7 +166,7 @@ final class W2GViewController: UIViewController {
         setupMainContent()
         setupBottomBar()
         setupLobbyConstraints()
-        // Start hidden — landing is shown first
+        // The route creates/joins the lobby before revealing its UI.
         for v in lobbyViews { v.isHidden = true }
     }
 
@@ -485,30 +392,9 @@ final class W2GViewController: UIViewController {
         view.endEditing(true)
     }
 
-    @objc private func createLobbyTapped() {
-        // Mirrors web /app/w2g/+page.ts:
-        //   const lastVal = get(server.last)
-        //   w2globby.value ??= new W2GClient(code, true,
-        //     lastVal?.media.id ? { mediaId: lastVal.media.id, episode: lastVal.episode, torrent: lastVal.id } : undefined)
-        //
-        // Grab the currently-playing torrent state (like web's `server.last`)
-        // so peers who join later receive the host's media via `sendInitialSessionState`.
-        let media = currentPlayerMediaState()
-        W2GLobby.shared.createHostLobby(media: media)
-        // updateUI() is called automatically via the W2GLobby.didChange notification.
-    }
-
-    @objc private func joinLobbyTapped() {
-        guard let code = joinCodeField.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !code.isEmpty else { return }
-        joinCodeField.resignFirstResponder()
-        // Mirrors web /app/w2g/[id]/+page.ts: joins an existing lobby by code.
-        W2GLobby.shared.joinLobby(code: code)
-    }
-
     @objc private func quitTapped() {
+        Router.shared.navigate(.home)
         W2GLobby.shared.leave()
-        // updateUI() swaps back to landing via the notification.
     }
 
     @objc private func inviteTapped() {
@@ -600,12 +486,17 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
 // MARK: - UITextFieldDelegate
 
 extension W2GViewController: UITextFieldDelegate {
+    func textField(_ textField: UITextField,
+                   shouldChangeCharactersIn range: NSRange,
+                   replacementString string: String) -> Bool {
+        guard textField === messageField,
+              let current = textField.text,
+              let editRange = Range(range, in: current) else { return true }
+        return current.replacingCharacters(in: editRange, with: string).count <= 256
+    }
+
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        if textField === joinCodeField {
-            joinLobbyTapped()
-        } else {
-            sendCurrentMessage()
-        }
+        sendCurrentMessage()
         return true
     }
 }
@@ -641,10 +532,12 @@ extension W2GViewController: W2GClientDelegate {
     func w2gClientMessagesDidChange(_ client: W2GClient) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let wasNearNewest = self.chatTableView.contentOffset.y <= 80
+            let sentLocally = client.messages.last?.type == .outgoing
             self.chatTableView.reloadData()
-            // Auto-scroll to newest message (row 0 in flipped table).
-            // Mirrors web's `overflow-anchor: auto` + `content-end`.
-            if (client.messages.count) > 0 {
+            // The reversed web message list preserves the reader's position
+            // while they inspect older messages; sending always reveals ours.
+            if !client.messages.isEmpty && (wasNearNewest || sentLocally) {
                 self.chatTableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
             }
         }
@@ -720,36 +613,29 @@ extension W2GViewController {
         let hash = mediaState.torrent
         let anilistID = mediaState.mediaId
         let episode = mediaState.episode
-        guard !hash.isEmpty else { return }
+        guard !hash.isEmpty, anilistID > 0 else { return }
 
         // Close any existing mini-player before starting a new session.
         MiniPlayerManager.shared.close()
 
-        // Show a HUD while preparing.
-        let hud = UIAlertController(title: "W2G", message: "Adding torrent from host…", preferredStyle: .alert)
-        present(hud, animated: true)
-
         // Mirrors web: `const media = (await client.single(mediaId)).data?.Media`
-        // Fetch AniList info first (if we have an ID), then add the torrent.
-        if anilistID > 0 {
-            AniListClient.shared.fetchAnimeByIdsResult([anilistID]) { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .success(let items):
-                    self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: items.first, hud: hud)
-                case .failure(let error):
-                    NSLog("[W2G] AniList lookup failed: %@", error.description)
-                    self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: nil, hud: hud)
-                }
+        // The interface only calls playHash when AniList supplies the media.
+        AniListClient.shared.fetchAnimeByIdsResult([anilistID]) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let items):
+                guard let media = items.first else { return }
+                self.continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: media)
+            case .failure(let error):
+                NSLog("[W2G] AniList lookup failed: %@", error.description)
             }
-        } else {
-            continueW2GPlay(hash: hash, anilistID: anilistID, episode: episode, animeItem: nil, hud: hud)
         }
     }
 
     /// Second half of `playW2GMedia`: add the torrent by hash and present the player.
     /// Mirrors web's `server.play(torrent, media, episode)`.
-    private func continueW2GPlay(hash: String, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
+    private func continueW2GPlay(hash: String, anilistID: Int, episode: Int, animeItem: AnimeItem?) {
+        guard client?.media?.torrent == hash else { return }
         let entity = findOrCreateW2GTorrent(hash: hash, anilistID: anilistID, animeItem: animeItem)
 
         // Set initial AniList state (mirrors web: `client.setInitialState(media, episode)`).
@@ -760,15 +646,22 @@ extension W2GViewController {
             playW2GWebTorrent(entity: entity,
                               anilistID: anilistID,
                               episode: episode,
-                              animeItem: animeItem,
-                              hud: hud)
+                              animeItem: animeItem)
         case .native:
+            let player = VideoPlayerViewController()
+            pendingNativePlayer = player
+            player.beginMetadataLoading(owner: self)
+            player.onCancelMetadataLoading = { [weak self, weak player] in
+                guard let self, self.pendingNativePlayer === player else { return }
+                self.pendingNativePlayer = nil
+            }
+            Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
             playW2GNative(hash: hash,
                           entity: entity,
                           anilistID: anilistID,
                           episode: episode,
                           animeItem: animeItem,
-                          hud: hud)
+                          player: player)
         }
     }
 
@@ -819,13 +712,13 @@ extension W2GViewController {
         return entity
     }
 
-    private func playW2GNative(hash: String, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
+    private func playW2GNative(hash: String, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController) {
         // Add the torrent by hash (magnet URI).
         // Mirrors web: `native.playTorrent(torrent, media.id, episode)`.
         guard let handle = TorrentService.sharedTorrentService.readdTorrent(hash: hash, magnetLink: nil) else {
-            hud.dismiss(animated: true) { [weak self] in
-                self?.showW2GError("Could not add the host's torrent.")
-            }
+            pendingNativePlayer = nil
+            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not add the host's torrent."]))
             return
         }
 
@@ -834,47 +727,49 @@ extension W2GViewController {
                                   anilistID: anilistID,
                                   episode: episode,
                                   animeItem: animeItem,
-                                  hud: hud)
+                                  player: player)
     }
 
-    private func playW2GWebTorrent(entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController) {
-        hud.message = "Fetching WebTorrent metadata…"
-
+    private func playW2GWebTorrent(entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?) {
+        cleanupPendingWebTorrent()
+        let player = VideoPlayerViewController()
+        pendingWebTorrentPlayer = player
+        player.beginMetadataLoading(owner: self)
+        player.onCancelMetadataLoading = { [weak self, weak player] in
+            guard let self, self.pendingWebTorrentPlayer === player else { return }
+            self.cleanupPendingWebTorrent()
+        }
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
         let videoService = VideoService(torrentEntity: entity, episode: episode)
+        pendingWebTorrentService = videoService
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        var observer: NSObjectProtocol?
-        var didFinish = false
-
-        let finish: (Result<[Videos], Error>) -> Void = { [weak self, weak videoService] result in
-            guard let self else { return }
-            guard !didFinish else { return }
-            didFinish = true
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-
-            hud.dismiss(animated: true) { [weak self, weak videoService] in
-                guard let self, let videoService else { return }
-                switch result {
-                case .success(let videos):
-                    self.presentW2GWebTorrentPlayer(videoService: videoService,
-                                                    entity: entity,
-                                                    videos: videos,
-                                                    anilistID: anilistID,
-                                                    episode: episode,
-                                                    animeItem: animeItem)
-                case .failure(let error):
-                    self.showW2GError(error.localizedDescription)
-                }
+        let finish: (Result<[Videos], Error>) -> Void = { [weak self, weak videoService, weak player] result in
+            guard let self, let videoService, let player,
+                  self.pendingWebTorrentService === videoService,
+                  self.pendingWebTorrentPlayer === player else { return }
+            switch result {
+            case .success(let videos):
+                guard !self.pendingWebTorrentResolving else { return }
+                self.pendingWebTorrentResolving = true
+                self.presentW2GWebTorrentPlayer(player: player,
+                                                videoService: videoService,
+                                                entity: entity,
+                                                videos: videos,
+                                                anilistID: anilistID,
+                                                episode: episode,
+                                                animeItem: animeItem)
+            case .failure(let error):
+                self.cleanupPendingWebTorrent()
+                player.finishMetadataLoading(error: error)
             }
         }
 
-        observer = NotificationCenter.default.addObserver(
+        pendingWebTorrentObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
             object: nil,
             queue: .main
         ) { [weak videoService] _ in
-            guard let videoService else { return }
+            guard let videoService, videoService.hasFinishedUpdatingLocalVideos else { return }
 
             let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
             fetch.predicate = NSPredicate(format: "torrents == %@", entity)
@@ -891,8 +786,8 @@ extension W2GViewController {
 
         videoService.UpdateLocalVideo()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak videoService] in
-            guard !didFinish else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self, weak videoService] in
+            guard let self, self.pendingWebTorrentService === videoService else { return }
             let error = videoService?.lastError ?? NSError(
                 domain: "Hayase.W2G.WebTorrent",
                 code: 1,
@@ -901,13 +796,66 @@ extension W2GViewController {
         }
     }
 
-    private func presentW2GWebTorrentPlayer(videoService: VideoService,
+    private func cleanupPendingWebTorrent() {
+        pendingWebTorrentResolving = false
+        if let observer = pendingWebTorrentObserver {
+            NotificationCenter.default.removeObserver(observer)
+            pendingWebTorrentObserver = nil
+        }
+        pendingWebTorrentService = nil
+        pendingWebTorrentPlayer = nil
+    }
+
+    private func presentW2GWebTorrentPlayer(player: VideoPlayerViewController,
+                                            videoService: VideoService,
                                             entity: Torrents,
                                             videos: [Videos],
                                             anilistID: Int,
                                             episode: Int,
                                             animeItem: AnimeItem?) {
         guard !videos.isEmpty else { return }
+        if let animeItem {
+            TorrentBatchResolver().resolveItemsByAnime(from: videos,
+                                                       targetEpisode: episode,
+                                                       targetMedia: animeItem,
+                                                       name: { $0.videoName }) { [weak self, weak player] result in
+                guard let self, let player else { return }
+                self.finishW2GWebTorrentPlayer(player: player,
+                                               videoService: videoService,
+                                               entity: entity,
+                                               videos: videos,
+                                               anilistID: anilistID,
+                                               episode: episode,
+                                               animeItem: animeItem,
+                                               resolvedFiles: result.resolvedFiles,
+                                               resolvedTarget: result.target?.item)
+            }
+        } else {
+            finishW2GWebTorrentPlayer(player: player,
+                                      videoService: videoService,
+                                      entity: entity,
+                                      videos: videos,
+                                      anilistID: anilistID,
+                                      episode: episode,
+                                      animeItem: nil,
+                                      resolvedFiles: [],
+                                      resolvedTarget: nil)
+        }
+    }
+
+    private func finishW2GWebTorrentPlayer(player: VideoPlayerViewController,
+                                           videoService: VideoService,
+                                           entity: Torrents,
+                                           videos: [Videos],
+                                           anilistID: Int,
+                                           episode: Int,
+                                           animeItem: AnimeItem?,
+                                           resolvedFiles: [TorrentBatchResolver.ResolvedItem<Videos>],
+                                           resolvedTarget: Videos?) {
+        guard pendingWebTorrentPlayer === player,
+              pendingWebTorrentService === videoService,
+              client?.media?.torrent == entity.torrentHashString else { return }
+        cleanupPendingWebTorrent()
         let sortedVideos = videos.sorted {
             let left = $0.videoIndex?.intValue ?? Int.max
             let right = $1.videoIndex?.intValue ?? Int.max
@@ -915,10 +863,24 @@ extension W2GViewController {
             return ($0.videoName ?? "") < ($1.videoName ?? "")
         }
 
-        let selectedPosition: Int
+        let indexedResolvedFile: TorrentBatchResolver.ResolvedItem<Videos>?
         if let clientIndex = W2GLobby.shared.client?.index,
-           clientIndex >= 0,
-           clientIndex < sortedVideos.count {
+           !resolvedFiles.isEmpty {
+            indexedResolvedFile = resolvedFiles[safe: clientIndex]
+        } else {
+            indexedResolvedFile = nil
+        }
+        let selectedResolvedFile = indexedResolvedFile ?? resolvedFiles.first { file in
+            guard let resolvedTarget else { return false }
+            return file.item == resolvedTarget
+        }
+        let selectedPosition: Int
+        if let selected = selectedResolvedFile?.item ?? resolvedTarget,
+           let index = sortedVideos.firstIndex(of: selected) {
+            selectedPosition = index
+        } else if resolvedFiles.isEmpty,
+                  let clientIndex = W2GLobby.shared.client?.index,
+                  clientIndex >= 0, clientIndex < sortedVideos.count {
             selectedPosition = clientIndex
         } else if let match = sortedVideos.enumerated().first(where: { _, video in
             TorrentBatchResolver.extractEpisodeNumber(from: video.videoName ?? "") == episode
@@ -931,21 +893,23 @@ extension W2GViewController {
         }
 
         let video = sortedVideos[selectedPosition]
-        let index = UInt(video.videoIndex?.intValue ?? selectedPosition)
+        let index = UInt(max(0, video.videoIndex?.intValue ?? selectedPosition))
+        videoService.selectFileForStreaming(index)
         _ = videoService.UpdateFilePathForFileIndex(index)
 
-        MiniPlayerManager.shared.close()
-        let player = VideoPlayerViewController()
+        let selectedMedia = selectedResolvedFile?.media ?? animeItem
         player.videoEntity       = video
         player.torrentHandle     = nil
         player.videoService      = videoService
         player.fileIndex         = index
-        player.anilistID         = anilistID
-        player.episodeNumber     = episode
-        player.totalEpisodes     = (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
+        player.anilistID         = selectedMedia?.id ?? anilistID
+        player.episodeNumber     = selectedResolvedFile?.episodeReference.intValue ?? episode
+        player.totalEpisodes     = selectedMedia.map { TorrentBatchResolver.episodeCount(for: $0) }
+            ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
         player.batchFiles        = []
+        player.resolvedVideoFiles = resolvedFiles
         player.onEpisodeChange   = { [weak self] episode, media in
             self?.handleW2GEpisodeChange(episode: episode,
                                          media: media,
@@ -953,60 +917,52 @@ extension W2GViewController {
                                          fallbackAnimeItem: animeItem,
                                          torrentEntity: entity)
         }
-        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
-    }
-
-    private func showW2GError(_ message: String) {
-        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-        present(alert, animated: true)
+        player.finishMetadataLoading()
     }
 
     /// Polls the torrent handle until metadata is available, then presents the player.
-    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, hud: UIAlertController, attempt: Int = 0) {
+    private func w2gWaitForMetadataAndPlay(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController, attempt: Int = 0) {
+        guard pendingNativePlayer === player else { return }
         let snap = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
             activeHandle.updateSnapshot()
             return activeHandle.snapshot
         }
-        guard let snap else { return }
+        guard let snap else {
+            pendingNativePlayer = nil
+            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not read the host's torrent state."]))
+            return
+        }
 
-        // Update HUD status.
-        let peers = snap.numberOfPeers
         switch snap.state {
         case .downloadingMetadata:
-            hud.message = peers > 0
-                ? "Fetching metadata… (\(peers) peer\(peers == 1 ? "" : "s"))"
-                : "Connecting to DHT and trackers…"
+            break
         case .downloading, .finished, .seeding:
             if !snap.files.isEmpty {
-                // Metadata ready — present the player.
-                hud.dismiss(animated: true) { [weak self] in
-                    self?.presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem)
-                }
+                presentW2GPlayer(handle: handle, entity: entity, anilistID: anilistID,
+                                 episode: episode, animeItem: animeItem, player: player)
                 return
             }
-            hud.message = "Preparing file list…"
         default:
-            hud.message = "Connecting to peers…"
+            break
         }
 
         // 60 attempts × 1s polling = 60s timeout for metadata fetch.
         guard attempt < 60 else {
-            hud.dismiss(animated: true) { [weak self] in
-                let alert = UIAlertController(title: "Timeout", message: "Could not fetch torrent metadata from peers.", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-                self?.present(alert, animated: true)
-            }
+            pendingNativePlayer = nil
+            player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Could not fetch torrent metadata from peers."]))
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, hud: hud, attempt: attempt + 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak player] in
+            guard let player else { return }
+            self?.w2gWaitForMetadataAndPlay(handle: handle, entity: entity, anilistID: anilistID, episode: episode, animeItem: animeItem, player: player, attempt: attempt + 1)
         }
     }
 
     /// Present the video player for a W2G torrent with metadata ready.
-    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?) {
+    private func presentW2GPlayer(handle: TorrentHandle, entity: Torrents, anilistID: Int, episode: Int, animeItem: AnimeItem?, player: VideoPlayerViewController) {
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
 
         // Create a VideoService to manage streaming for this torrent.
@@ -1017,7 +973,10 @@ extension W2GViewController {
         let snapshot = TorrentService.sharedTorrentService.withActiveHandle(handle, default: nil) { activeHandle -> TorrentHandle.Snapshot? in
             activeHandle.snapshot
         }
-        guard let snapshot else { return }
+        guard let snapshot else {
+            failPendingNativePlayback(player, message: "Could not read the host's torrent metadata.")
+            return
+        }
         let files = snapshot.files
         let resolver = TorrentBatchResolver()
         let filenameResolution = resolver.resolveByFilename(files: files, targetEpisode: episode)
@@ -1038,7 +997,10 @@ extension W2GViewController {
             fileIndex(from: Optional(value))
         }
         let initialFile = filenameResolution.target?.entry ?? playableFiles.first
-        guard var targetIndex = fileIndex(from: initialFile?.index) else { return }
+        guard let targetIndex = fileIndex(from: initialFile?.index) else {
+            failPendingNativePlayback(player, message: "The host's torrent has no playable video.")
+            return
+        }
 
         // Ensure Video CoreData entities exist for the torrent's files.
         // VideoService.UpdateLocalVideo populates these asynchronously, but for
@@ -1067,8 +1029,10 @@ extension W2GViewController {
             try? context.save()
         }
 
-        let presentResolved: (UInt, [TorrentBatchResolver.ResolvedFile]) -> Void = { [weak self] resolvedIndex, batchFiles in
-            guard let self else { return }
+        let presentResolved: (UInt, [TorrentBatchResolver.ResolvedFile]) -> Void = { [weak self, weak player] resolvedIndex, batchFiles in
+            guard let self, let player,
+                  self.pendingNativePlayer === player,
+                  self.client?.media?.torrent == entity.torrentHashString else { return }
             var targetIndex = resolvedIndex
 
             // Upstream W2G sends the playlist index. The web maps that index
@@ -1084,15 +1048,17 @@ extension W2GViewController {
             }
 
             let targetVideo = videos.first { ($0.videoIndex?.intValue ?? -1) == Int(targetIndex) } ?? videos.first
-            guard let video = targetVideo else { return }
+            guard let video = targetVideo else {
+                self.failPendingNativePlayback(player, message: "The host's torrent has no playable video.")
+                return
+            }
 
             vs.selectFileForStreaming(targetIndex)
             _ = vs.UpdateFilePathForFileIndex(targetIndex)
 
             let media = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.media
 
-            MiniPlayerManager.shared.close()
-            let player = VideoPlayerViewController()
+            self.pendingNativePlayer = nil
             player.videoEntity       = video
             player.torrentHandle     = handle
             player.videoService      = vs
@@ -1110,7 +1076,7 @@ extension W2GViewController {
                                              fallbackAnimeItem: animeItem,
                                              torrentEntity: entity)
             }
-            Router.shared.navigateToPlayer(player, hostTabIndex: self.hayaseTabIndex)
+            player.finishMetadataLoading()
         }
 
         if let targetMedia = animeItem ?? w2gResolverTargetMedia(entity: entity, anilistID: anilistID) {
@@ -1121,6 +1087,13 @@ extension W2GViewController {
         } else {
             presentResolved(targetIndex, filenameResolution.resolvedFiles)
         }
+    }
+
+    private func failPendingNativePlayback(_ player: VideoPlayerViewController, message: String) {
+        guard pendingNativePlayer === player else { return }
+        pendingNativePlayer = nil
+        player.finishMetadataLoading(error: NSError(domain: "Hayase.W2G.Native", code: 4,
+            userInfo: [NSLocalizedDescriptionKey: message]))
     }
 
     private func handleW2GEpisodeChange(episode: Int,
@@ -1238,9 +1211,10 @@ extension W2GViewController {
 
 private final class W2GChatCell: UITableViewCell {
     static let reuseID = "W2GChatCell"
+    private static let avatarSize: CGFloat = 32
 
     // Subviews
-    private let avatarImageView = UIImageView()
+    private let profileStack = FollowerAvatarStackView()
     private let headerRow = UIView()       // contains name + time
     private let nameLabel = UILabel()
     private let timeLabel = UILabel()
@@ -1260,26 +1234,26 @@ private final class W2GChatCell: UITableViewCell {
         selectionStyle = .none
 
         let cv = contentView
-        let avatarSize: CGFloat = 32  // w-10 h-10 p-1 → visible 32pt
+        let avatarSize = Self.avatarSize  // w-10 h-10 p-1 → visible 32pt
 
-        // Avatar: rounded-full mt-auto
-        avatarImageView.layer.cornerRadius = avatarSize / 2
-        avatarImageView.clipsToBounds = true
-        avatarImageView.contentMode = .scaleAspectFill
-        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(avatarImageView)
+        // ChatProfile uses the same shared profile/avatar component as global chat.
+        profileStack.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(profileStack)
 
         // Header row (name + time)
         headerRow.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(headerRow)
 
         nameLabel.font = .nunito(ofSize: 14, weight: .bold) // text-sm
-        nameLabel.textColor = .white
+        nameLabel.textColor = UIColor.HayaseTheme.foreground
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(nameLabel)
 
         timeLabel.font = .nunito(ofSize: 10) // text-[10px]
-        timeLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(timeLabel)
 
@@ -1288,22 +1262,25 @@ private final class W2GChatCell: UITableViewCell {
         cv.addSubview(bubbleBackground)
 
         bubbleLabel.font = .nunito(ofSize: 12) // text-xs
-        bubbleLabel.textColor = .white
+        bubbleLabel.textColor = UIColor.HayaseTheme.foreground
         bubbleLabel.numberOfLines = 0
         bubbleLabel.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackground.addSubview(bubbleLabel)
 
         // --- Always-active constraints ---
         NSLayoutConstraint.activate([
-            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
-            avatarImageView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
+            profileStack.widthAnchor.constraint(equalToConstant: avatarSize),
+            profileStack.heightAnchor.constraint(equalToConstant: avatarSize),
+            profileStack.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
 
             nameLabel.topAnchor.constraint(equalTo: headerRow.topAnchor),
             nameLabel.bottomAnchor.constraint(equalTo: headerRow.bottomAnchor),
             nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
             timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
             timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
+            timeLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
+            headerRow.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 4),
+            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -4),
 
             bubbleLabel.topAnchor.constraint(equalTo: bubbleBackground.topAnchor, constant: 8),
             bubbleLabel.leadingAnchor.constraint(equalTo: bubbleBackground.leadingAnchor, constant: 12),
@@ -1319,17 +1296,17 @@ private final class W2GChatCell: UITableViewCell {
         headerHiddenConstraint = bubbleBackground.topAnchor.constraint(equalTo: cv.topAnchor, constant: 2)
 
         incomingConstraints = [
-            avatarImageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
-            headerRow.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
-            bubbleBackground.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            profileStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
+            headerRow.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
+            bubbleBackground.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
             // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
             bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -100),
         ]
 
         outgoingConstraints = [
-            avatarImageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
-            headerRow.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
-            bubbleBackground.trailingAnchor.constraint(equalTo: avatarImageView.leadingAnchor, constant: -8),
+            profileStack.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
+            headerRow.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
+            bubbleBackground.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
             // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
             bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 100),
         ]
@@ -1344,8 +1321,7 @@ private final class W2GChatCell: UITableViewCell {
         headerVisibleConstraint.isActive = false
         headerHiddenConstraint.isActive = false
         headerTopConstraint.isActive = false
-        avatarImageView.image = nil
-        avatarImageView.alpha = 1
+        profileStack.reset()
     }
 
     func configure(with message: W2GChatMessage, showHeader: Bool, showAvatar: Bool) {
@@ -1365,33 +1341,36 @@ private final class W2GChatCell: UITableViewCell {
         headerHiddenConstraint.isActive = !showHeader
 
         // Avatar — visible only for last message in group (mt-auto positioning)
-        avatarImageView.alpha = showAvatar ? 1 : 0
-        if showAvatar { loadAvatar(url: message.user.avatarURL) }
+        if showAvatar {
+            let summary = AniListUserSummary(id: Int(message.user.id) ?? 0,
+                                             name: message.user.name,
+                                             avatarURL: message.user.avatarURL)
+            profileStack.configure(users: [summary],
+                                   avatarSize: Self.avatarSize,
+                                   ringWidth: 4,
+                                   ringColor: UIColor.HayaseTheme.background) { id, completion in
+                guard !message.user.guest else {
+                    completion(nil)
+                    return
+                }
+                AniListClient.shared.fetchUserProfileResult(id: id) { result in
+                    completion(try? result.get())
+                }
+            }
+        } else {
+            profileStack.reset()
+        }
 
         // Bubble color: bg-muted (incoming) vs bg-theme (outgoing)
-        bubbleBackground.backgroundColor = isOutgoing
-            ? UIColor(red: 0.35, green: 0.6, blue: 1.0, alpha: 1.0)
-            : UIColor(white: 0.15, alpha: 1.0)
+        bubbleBackground.backgroundColor = isOutgoing ? UIColor.HayaseTheme.theme : UIColor.HayaseTheme.muted
 
         // Corner rounding — web: rounded-t-xl + one bottom corner
         // Incoming: all except bottom-left (rounded-r-xl)
-        // Outgoing: all except bottom-right (rounded-l-xl)
+        // The static rounded-r-xl also applies to outgoing messages in Messages.svelte.
         bubbleBackground.layer.cornerRadius = 12
         bubbleBackground.layer.maskedCorners = isOutgoing
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner]
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
     }
 
-    private func loadAvatar(url: String?) {
-        avatarImageView.image = nil
-        let urlStr = url ?? W2GChatUser.defaultAvatarURL
-        guard let url = URL(string: urlStr) else {
-            avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1)
-            return
-        }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let img = UIImage(data: data) else { return }
-            DispatchQueue.main.async { self?.avatarImageView.image = img }
-        }.resume()
-    }
 }

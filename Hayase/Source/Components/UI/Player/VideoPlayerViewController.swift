@@ -1573,6 +1573,13 @@ final class VideoPlayerViewController: UIViewController {
             return
         }
 
+        if !resolvedVideoFiles.isEmpty {
+            guard let file = resolvedVideoFiles[safe: newIndex],
+                  !matchesVideo(file, fileIndex) else { return }
+            switchToResolvedVideoFile(file)
+            return
+        }
+
         guard newIndex >= 0, newIndex < allVideos.count else { return }
         let video = allVideos[newIndex]
         guard video.videoIndex?.uintValue != fileIndex else { return }

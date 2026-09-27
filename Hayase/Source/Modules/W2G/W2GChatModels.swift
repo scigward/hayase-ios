@@ -15,6 +15,7 @@ struct W2GChatUser: Codable, Equatable {
     let id: String
     let name: String
     let avatarURL: String?
+    let guest: Bool
 
     /// AniList default avatar, used as fallback for guests (mirrors web's `?? 'https://s4.anilist.co/...'`).
     static let defaultAvatarURL = "https://s4.anilist.co/file/anilistcdn/user/avatar/large/default.png"
@@ -25,17 +26,18 @@ struct W2GChatUser: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, avatar
+        case id, name, avatar, guest
     }
 
     private struct AvatarWrapper: Codable, Equatable {
         let large: String?
     }
 
-    init(id: String, name: String, avatarURL: String?) {
+    init(id: String, name: String, avatarURL: String?, guest: Bool = false) {
         self.id = id
         self.name = name
         self.avatarURL = avatarURL
+        self.guest = guest
     }
 
     init(from decoder: Decoder) throws {
@@ -49,6 +51,7 @@ struct W2GChatUser: Codable, Equatable {
             id = "unknown"
         }
         name = try container.decode(String.self, forKey: .name)
+        guest = (try? container.decode(Bool.self, forKey: .guest)) ?? false
         // Web sends avatar as { large: "url" }; decode the nested object.
         if let wrapper = try? container.decode(AvatarWrapper.self, forKey: .avatar) {
             avatarURL = wrapper.large
@@ -68,6 +71,7 @@ struct W2GChatUser: Codable, Equatable {
             try container.encode(id, forKey: .id)
         }
         try container.encode(name, forKey: .name)
+        try container.encode(guest, forKey: .guest)
         // Encode avatar as { large: "url" } to match web format.
         if let url = avatarURL {
             try container.encode(AvatarWrapper(large: url), forKey: .avatar)
@@ -81,13 +85,13 @@ struct W2GChatUser: Codable, Equatable {
         if let viewer = TrackerAccountManager.shared.viewer(for: .anilist) {
             return W2GChatUser(id: viewer.id, name: viewer.name, avatarURL: viewer.avatarURL)
         }
-        return W2GChatUser(id: W2GClient.generateRandomHex(length: 16), name: "Guest", avatarURL: nil)
+        return W2GChatUser(id: W2GClient.generateRandomHex(length: 16), name: "Guest", avatarURL: nil, guest: true)
     }
 }
 
-/// `isGuest` uses `ChatListUser`'s default (`false`) — W2G has no guest
-/// concept distinct from a regular participant the way IRC does.
-extension W2GChatUser: ChatListUser {}
+extension W2GChatUser: ChatListUser {
+    var isGuest: Bool { guest }
+}
 
 // MARK: - ChatMessage
 

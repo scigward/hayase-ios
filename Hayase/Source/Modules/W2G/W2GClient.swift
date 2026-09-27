@@ -203,7 +203,7 @@ final class W2GClient {
     /// Called when the local user changes media (torrent).
     /// Mirrors web `mediaChange(media)`.
     func mediaChange(_ media: W2GMediaState) {
-        if self.media != media {
+        if self.media?.torrent != media.torrent {
             self.media = media
             self.isHost = true
             sendToPeers(W2GEvent.mediaEvent(media))
@@ -407,7 +407,7 @@ final class W2GClient {
 
         case .message:
             guard let text = event.payload.value as? String else { return }
-            let user = peers[peer.id]?.user ?? W2GChatUser(id: peer.id, name: "Unknown", avatarURL: nil)
+            let user = peers[peer.id]?.user ?? W2GChatUser(id: peer.id, name: "Unknown", avatarURL: nil, guest: true)
             let msg = W2GChatMessage(message: text, user: user, type: .incoming, date: Date())
             messages.append(msg)
             DispatchQueue.main.async { [weak self] in

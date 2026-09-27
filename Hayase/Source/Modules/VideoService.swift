@@ -23,6 +23,7 @@ public class VideoService: NSObject {
     /// match the ongoing background update stream and fire LocalVideosDidUpdateNotification
     /// before any video rows exist — resulting in a blank table with no spinner.
     private var coreDataIsReady = false
+    var hasFinishedUpdatingLocalVideos: Bool { coreDataIsReady || lastError != nil }
 
     init(torrentEntity: Torrents, episode: Int = 0, backendKind: TorrentBackendKind? = nil) {
         self.torrentEntity = torrentEntity

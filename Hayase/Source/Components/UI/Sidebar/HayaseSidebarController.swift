@@ -856,6 +856,8 @@ final class HayaseSidebarController: UIViewController {
         switch route {
         case .search(let state):
             (navigationController.viewControllers.first as? SearchViewController)?.applyRouteState(state)
+        case .w2g(let id):
+            (navigationController.viewControllers.first as? W2GViewController)?.applyRoute(id: id)
         case .client(let clientRoute):
             (navigationController.viewControllers.first as? DownloadsViewController)?.applyRoute(clientRoute)
         case .settings(let settingsRoute):
