@@ -594,9 +594,9 @@ final class ExtensionCell: UITableViewCell {
             items.append(.badge("\(ratio.stringValue) Ratio"))
         }
         items.append(.badge(config.media.capitalized))
-        // Language emoji flags (Hayase: font-twemoji text-xl leading-none)
+        // Language flags use the same Twemoji artwork as interface's font-twemoji.
         if let langs = config.languages, !langs.isEmpty {
-            let flags = langs.compactMap { codeToEmoji($0) }.joined()
+            let flags = langs.filter { TwemojiFlagArtwork.emoji(for: $0) != nil }
             if !flags.isEmpty { items.append(.flags(flags)) }
         }
         badgesView.setItems(items)
@@ -687,18 +687,6 @@ final class RepoCell: UITableViewCell {
     }
 }
 
-// MARK: - Country code → emoji flag (mirrors codeToEmoji from $lib/utils)
-
-private func codeToEmoji(_ code: String) -> String? {
-    let base: UInt32 = 127397
-    var emoji = ""
-    for scalar in code.uppercased().unicodeScalars {
-        guard let emojiScalar = Unicode.Scalar(base + scalar.value) else { return nil }
-        emoji.append(Character(emojiScalar))
-    }
-    return emoji.isEmpty ? nil : emoji
-}
-
 // MARK: - BadgeFlowView
 // Implements Hayase's `flex-wrap gap-2` badge row.
 // Contains regular pill badges (bg-neutral-900, rounded, font-bold) and optional emoji flags.
@@ -709,7 +697,7 @@ final class BadgeFlowView: UIView {
         /// Standard badge: rounded bg-neutral-900 pill with bold text, px-3 py-0.5
         case badge(String, color: UIColor? = nil)
         /// Language emoji flags: text-xl, no background
-        case flags(String)
+        case flags([String])
     }
 
     // UILabel subclass that adds px-3 (12pt) horizontal and py-0.5 (2pt) vertical padding,
@@ -728,7 +716,7 @@ final class BadgeFlowView: UIView {
         }
     }
 
-    private var labels: [UILabel] = []
+    private var labels: [UIView] = []
     private var measuredWidth: CGFloat = 0
     private let hSpacing: CGFloat = 8   // gap-2 = 8pt
     private var vSpacing: CGFloat = 4
@@ -751,11 +739,8 @@ final class BadgeFlowView: UIView {
                 l.clipsToBounds = true
                 addSubview(l)
                 return l
-            case .flags(let text):
-                let l = UILabel()
-                l.text = text
-                l.font = .nunito(ofSize: 20)  // text-xl = 20pt
-                l.textColor = .white
+            case .flags(let codes):
+                let l = TwemojiFlagsView(codes: codes)
                 addSubview(l)
                 return l
             }

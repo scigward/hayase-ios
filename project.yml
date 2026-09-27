@@ -53,7 +53,11 @@ targets:
           - WebTorrentBackend/**
           - TorrentClientGeoIP/**
           - RichText/**
+          - Twemoji/**
       - path: Hayase/Resources/RichText
+        type: folder
+        buildPhase: resources
+      - path: Hayase/Resources/Twemoji
         type: folder
         buildPhase: resources
     settings:

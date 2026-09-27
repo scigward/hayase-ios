@@ -61,12 +61,8 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
         if let ratio = config.ratio, ratio != .null, ratio != .number(0) { items.append(.badge("\(ratio.stringValue) Ratio")) }
         items.append(.badge(config.media.capitalized))
         if let languages = config.languages {
-            let flags = languages.map { code in
-                String(String.UnicodeScalarView(code.uppercased().unicodeScalars.compactMap {
-                    (65...90).contains($0.value) ? UnicodeScalar(127397 + $0.value) : nil
-                }))
-            }.joined()
-            items.append(.flags(flags))
+            let flags = languages.filter { TwemojiFlagArtwork.emoji(for: $0) != nil }
+            if !flags.isEmpty { items.append(.flags(flags)) }
         }
         badges.setItems(items, fontSize: 14, rowSpacing: 8,
                        background: UIColor.HayaseTheme.accent, foreground: UIColor.HayaseTheme.foreground)

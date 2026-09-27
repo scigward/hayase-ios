@@ -8,12 +8,7 @@
 import UIKit
 
 final class PeerCountryCellContent: UIView {
-    private let emojiLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 20)
-        label.textAlignment = .center
-        return label
-    }()
+    private let flagView = TwemojiFlagView()
 
     private let countryLabel: UILabel = {
         let label = UILabel()
@@ -36,7 +31,7 @@ final class PeerCountryCellContent: UIView {
     }
 
     private func setup() {
-        let stack = UIStackView(arrangedSubviews: [emojiLabel, countryLabel])
+        let stack = UIStackView(arrangedSubviews: [flagView, countryLabel])
         stack.axis = .horizontal
         stack.spacing = 8
         stack.alignment = .center
@@ -44,7 +39,7 @@ final class PeerCountryCellContent: UIView {
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            emojiLabel.widthAnchor.constraint(equalToConstant: 24),
+            flagView.widthAnchor.constraint(equalToConstant: 24),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -53,7 +48,7 @@ final class PeerCountryCellContent: UIView {
 
     func configure(ip: String) {
         representedIP = ip
-        emojiLabel.text = nil
+        flagView.configure(code: nil)
         countryLabel.text = "?"
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -61,22 +56,13 @@ final class PeerCountryCellContent: UIView {
             DispatchQueue.main.async {
                 guard let self, self.representedIP == ip else { return }
                 guard let location else {
-                    self.emojiLabel.text = nil
+                    self.flagView.configure(code: nil)
                     self.countryLabel.text = "?"
                     return
                 }
-                self.emojiLabel.text = Self.codeToEmoji(location.country)
+                self.flagView.configure(code: location.country)
                 self.countryLabel.text = location.country
             }
         }
-    }
-
-    private static func codeToEmoji(_ code: String) -> String {
-        if code == "ALL" { return "🌎" }
-        let base: UInt32 = 0x1F1E6 - 65
-        let scalars = code.uppercased().unicodeScalars.compactMap { scalar -> UnicodeScalar? in
-            UnicodeScalar(base + scalar.value)
-        }
-        return scalars.map { String($0) }.joined()
     }
 }

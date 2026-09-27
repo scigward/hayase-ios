@@ -1,6 +1,9 @@
 import http from 'node:http'
 import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
+import { writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
@@ -31,12 +34,14 @@ const sessionID = `${Date.now().toString(36)}-${Math.random().toString(36).slice
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
   const index = args.indexOf(name)
-  return index >= 0 && args[index + 1] ? args[index + 1] : fallback
+  return index >= 0 && args[index + 1] && !args[index + 1].startsWith('--')
+    ? args[index + 1] : fallback
 }
 
 const port = Number(arg('--port', '43817'))
-const downloadPath = arg('--download-path', '')
-const tempPath = arg('--temp-path', downloadPath)
+const startupErrorPath = arg('--startup-error-path', '')
+let downloadPath = arg('--download-path', '')
+let tempPath = arg('--temp-path', downloadPath)
 
 const DEFAULT_SETTINGS = Object.freeze({
   torrentPersist: false,
@@ -580,17 +585,48 @@ async function handleRPC (payload) {
   }
 }
 
+function reportStartupError (error) {
+  const message = error?.stack ?? error?.message ?? String(error)
+  if (startupErrorPath) {
+    try { writeFileSync(startupErrorPath, message) } catch { /* device log remains available */ }
+  }
+  record('error', message)
+  process.exitCode = 1
+}
+
 process.on('unhandledRejection', error => {
+  if (status.phase === 'booting') {
+    reportStartupError(error)
+    return
+  }
   record('error', error?.message ?? error)
 })
 
 process.on('uncaughtException', error => {
+  if (status.phase === 'booting') {
+    reportStartupError(error)
+    return
+  }
   record('error', error?.message ?? error)
 })
 
-await mkdir(downloadPath || tempPath, { recursive: true })
-await mkdir(tempPath || downloadPath, { recursive: true })
-setPhase('listening')
+// A failed directory preflight used to be swallowed by the global exception
+// handler. Node then drained its event loop and returned code 0, hiding the
+// actual startup failure from the app. Use the writable temp directory when a
+// configured location is unavailable, and keep the real error if that fails.
+const fallbackPath = join(tmpdir(), 'HayaseWebTorrent')
+async function usableDirectory (candidate, fallback, label) {
+  try {
+    await mkdir(candidate, { recursive: true })
+    return candidate
+  } catch (error) {
+    record('warning', `${label} unavailable (${error?.message ?? error}); using ${fallback}`)
+    await mkdir(fallback, { recursive: true })
+    return fallback
+  }
+}
+downloadPath = await usableDirectory(downloadPath || fallbackPath, fallbackPath, 'Download directory')
+tempPath = await usableDirectory(tempPath || downloadPath, downloadPath, 'Temporary directory')
 
 http.createServer(async (request, response) => {
   try {
@@ -630,4 +666,4 @@ http.createServer(async (request, response) => {
       error: { message: error?.message ?? String(error) }
     }))
   }
-}).listen(port, '127.0.0.1')
+}).on('error', reportStartupError).listen(port, '127.0.0.1', () => setPhase('listening'))

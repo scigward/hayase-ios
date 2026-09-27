@@ -15,6 +15,7 @@ enum WebTorrentBackendError: LocalizedError {
     case emptyTorrentFile(String)
     case startupTimedOut
     case nodeExited(Int32)
+    case nodeStartupFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +36,8 @@ enum WebTorrentBackendError: LocalizedError {
             return "WebTorrent bridge did not become ready in time."
         case .nodeExited(let code):
             return "NodeMobile exited unexpectedly with code \(code). Restart the app before trying the WebTorrent backend again."
+        case .nodeStartupFailed(let reason):
+            return "WebTorrent could not start: \(reason)"
         }
     }
 }
@@ -59,6 +62,8 @@ final class WebTorrentBackend {
     private var startState: StartState = .idle
     private var pendingStarts: [(Result<Void, Error>) -> Void] = []
     private let port = 43817
+    private let startupErrorURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("HayaseWebTorrent-startup-error.txt")
     private lazy var bridge = WebTorrentBridgeClient(port: port)
 
     private init() {}
@@ -221,7 +226,7 @@ final class WebTorrentBackend {
 
     private func ensureStarted(completion: @escaping (Result<Void, Error>) -> Void) {
         if case .exited(let code) = NodeMobileRuntime.shared.currentState {
-            let error = WebTorrentBackendError.nodeExited(code)
+            let error = nodeExitError(code)
             lock.lock()
             startState = .failed(error)
             lock.unlock()
@@ -266,14 +271,18 @@ final class WebTorrentBackend {
         let settings = TorrentBackendSettings()
 
         do {
+            try? FileManager.default.removeItem(at: startupErrorURL)
             try NodeMobileRuntime.shared.start(scriptURL: scriptURL, arguments: [
                 "--port", "\(port)",
                 "--download-path", settings.path,
                 "--temp-path", tempPath,
+                "--startup-error-path", startupErrorURL.path,
             ])
             waitForBridge(attempt: 0, lastError: nil)
         } catch NodeMobileRuntimeError.alreadyStarted {
             waitForBridge(attempt: 0, lastError: nil)
+        } catch NodeMobileRuntimeError.exited(let code) {
+            finishStart(.failure(nodeExitError(code)))
         } catch {
             finishStart(.failure(error))
         }
@@ -292,7 +301,7 @@ final class WebTorrentBackend {
                     return
                 }
                 if case .exited(let code) = NodeMobileRuntime.shared.currentState {
-                    self.finishStart(.failure(WebTorrentBackendError.nodeExited(code)))
+                    self.finishStart(.failure(self.nodeExitError(code)))
                     return
                 }
                 guard attempt < 80 else {
@@ -304,6 +313,15 @@ final class WebTorrentBackend {
                 }
             }
         }
+    }
+
+    private func nodeExitError(_ code: Int32) -> Error {
+        if let details = try? String(contentsOf: startupErrorURL, encoding: .utf8),
+           let firstLine = details.split(separator: "\n").first,
+           !firstLine.isEmpty {
+            return WebTorrentBackendError.nodeStartupFailed(String(firstLine))
+        }
+        return WebTorrentBackendError.nodeExited(code)
     }
 
     private func finishStart(_ result: Result<Void, Error>) {
