@@ -36,55 +36,44 @@ private enum TitleUtils {
 
     struct Term { let text: String; let color: UIColor }
 
-    // Ordered — first match wins per category
-    static let termPatterns: [(pattern: NSRegularExpression, term: Term)] = build()
-
-    private static func build() -> [(pattern: NSRegularExpression, term: Term)] {
-        let pairs: [(String, Term)] = [
-            // Resolution (lime)
-            (#"\b2160p\b"#,              Term(text: "2160p",    color: lime)),
-            (#"\b4K\b"#,                 Term(text: "4K",       color: lime)),
-            (#"\b1080p\b"#,              Term(text: "1080p",    color: lime)),
-            (#"\b720p\b"#,               Term(text: "720p",     color: lime)),
-            (#"\b480p\b"#,               Term(text: "480p",     color: lime)),
-            // Video codec (blue)
-            (#"\b(?:HEVC|H\.265|x265|H265)\b"#, Term(text: "HEVC",     color: blue)),
-            (#"\bAV1\b"#,                        Term(text: "AV1",      color: blue)),
-            (#"\b(?:10[- ]?[Bb]it|HI10P?|Hi10P?)\b"#, Term(text: "10 Bit", color: blue)),
-            (#"\bHI444P{1,2}\b"#,        Term(text: "HI444",    color: blue)),
-            // Source (dark red)
-            (#"\b(?:BD|BDRip|BluRay|Blu-Ray|Blu_Ray)\b"#, Term(text: "BD",   color: darkRed)),
-            (#"\b(?:DVD|DVDRip|DVD-RIP)\b"#,               Term(text: "DVD",  color: darkRed)),
-            // Audio (orange)
-            (#"\bFLAC(?:X[234])?\b"#,   Term(text: "FLAC",      color: orange)),
-            (#"\bTrueHD5\.1\b"#,        Term(text: "TrueHD 5.1",color: orange)),
-            (#"\bEAC3|E-AC-3\b"#,       Term(text: "EAC3",       color: orange)),
-            (#"\bAAC(?:X[234])?\b"#,    Term(text: "AAC",         color: orange)),
-            (#"\bAC3\b"#,               Term(text: "AC3",         color: orange)),
-            (#"\b5\.1(?:CH)?\b"#,       Term(text: "5.1",         color: orange)),
-            // Multi-sub (yellow)
-            (#"\b(?:MULTI.?SUBS?)\b"#,  Term(text: "Multi Sub",  color: yellow)),
-            (#"\b(?:DUAL.?AUDIO)\b"#,   Term(text: "Dual Audio", color: yellow)),
-        ]
-        return pairs.compactMap { (pat, term) in
-            guard let rx = try? NSRegularExpression(pattern: pat, options: .caseInsensitive)
-            else { return nil }
-            return (rx, term)
+    private static let termMapping: [String: Term] = {
+        var mapping: [String: Term] = [:]
+        func add(_ names: [String], _ text: String, _ color: UIColor) {
+            for name in names { mapping[name] = Term(text: text, color: color) }
         }
-    }
+        add(["5.1", "5.1CH"], "5.1", orange)
+        add(["TRUEHD5.1"], "TrueHD 5.1", orange)
+        add(["AAC", "AACX2", "AACX3", "AACX4"], "AAC", orange)
+        add(["AC3"], "AC3", orange)
+        add(["EAC3", "E-AC-3"], "EAC3", orange)
+        add(["FLAC", "FLACX2", "FLACX3", "FLACX4"], "FLAC", orange)
+        add(["VORBIS"], "Vorbis", orange)
+        add(["DUALAUDIO", "DUAL AUDIO"], "Dual Audio", yellow)
+        add(["10BIT", "10BITS", "10-BIT", "10-BITS", "HI10", "HI10P"], "10 Bit", blue)
+        add(["HI444", "HI444P", "HI444PP"], "HI444", blue)
+        add(["HEVC", "H265", "H.265", "X265"], "HEVC", blue)
+        add(["AV1"], "AV1", blue)
+        add(["BD", "BDRIP", "BLURAY", "BLU-RAY"], "BD", darkRed)
+        add(["DVD5", "DVD9", "DVD-R2J", "DVDRIP", "DVD", "DVD-RIP", "R2DVD", "R2J", "R2JDVD", "R2JDVDRIP"], "DVD", darkRed)
+        add(["MULTISUB", "MULTI-SUB", "MULTI SUB", "MULTISUBS", "MULTI-SUBS", "MULTI SUBS"], "Multi Sub", yellow)
+        return mapping
+    }()
 
-    /// Extract tech terms from torrent title — mirrors sanitiseTerms()
+    /// Match SearchModal.svelte's Anitomy categories, ordering, aliases and deduplication.
     static func sanitise(_ title: String) -> [Term] {
-        let ns = title as NSString
-        let range = NSRange(location: 0, length: ns.length)
+        let parser = Anitomy()
+        parser.parse(title)
         var seen = Set<String>()
         var result: [Term] = []
-        for (rx, term) in termPatterns {
-            if rx.firstMatch(in: title, range: range) != nil {
-                if !seen.contains(term.text) {
-                    seen.insert(term.text)
-                    result.append(term)
-                }
+        let resolution = parser.get(.videoResolution)
+        if !resolution.isEmpty {
+            result.append(Term(text: resolution, color: lime))
+        }
+        let categories: [ElementCategory] = [.videoTerm, .audioTerm, .source, .subtitles]
+        for category in categories {
+            for rawTerm in parser.getAll(category) {
+                guard let term = termMapping[rawTerm.uppercased()], seen.insert(term.text).inserted else { continue }
+                result.append(term)
             }
         }
         return result
@@ -313,7 +302,9 @@ final class ExtensionSearchViewController: UIViewController {
         bannerImageView = UIImageView()
         bannerImageView.contentMode = .scaleAspectFill
         bannerImageView.clipsToBounds = true
-        bannerImageView.alpha = 0.4          // Hayase: class='opacity-40'
+        // Banner passes its class through Load to both wrapper and image:
+        // opacity-40 × opacity-40 = 0.16 effective image opacity.
+        bannerImageView.alpha = 0.16
         bannerImageView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(bannerImageView)
 
@@ -439,16 +430,26 @@ final class ExtensionSearchViewController: UIViewController {
         filterField.layer.cornerRadius = 6  // rounded-md
         filterField.layer.borderWidth = 1
         filterField.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        // Web: input pl-9, search glyph absolute left-3. Keep the text inset
+        // and icon position independent of UITextField's leftView layout.
+        filterField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
         filterField.leftViewMode = .always
-        let magIcon = UIImageView(image: UIImage.hayaseIcon("search", pointSize: 16))
-        magIcon.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
-        magIcon.contentMode = .center
-        magIcon.frame = CGRect(x: 0, y: 0, width: 36, height: 36)  // pl-9 = 2.25rem = 36pt left padding for icon area
-        filterField.leftView = magIcon
         filterField.delegate = self
         filterField.addTarget(self, action: #selector(filterChanged), for: .editingChanged)
         filterField.translatesAutoresizingMaskIntoConstraints = false
         controlsView.addSubview(filterField)
+        let magIcon = UIImageView(image: UIImage.hayaseIcon("search", pointSize: 16))
+        magIcon.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
+        magIcon.contentMode = .scaleAspectFit
+        magIcon.isUserInteractionEnabled = false
+        magIcon.translatesAutoresizingMaskIntoConstraints = false
+        controlsView.addSubview(magIcon)
+        NSLayoutConstraint.activate([
+            magIcon.leadingAnchor.constraint(equalTo: filterField.leadingAnchor, constant: 12),
+            magIcon.centerYAnchor.constraint(equalTo: filterField.centerYAnchor),
+            magIcon.widthAnchor.constraint(equalToConstant: 16),
+            magIcon.heightAnchor.constraint(equalToConstant: 16),
+        ])
 
         // Episode field
         let epLabel = UILabel()
@@ -1731,7 +1732,7 @@ final class TorrentResultCell: UITableViewCell {
     private static func makeBadgeLabel() -> PaddedLabel {
         let l = PaddedLabel()
         l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
-        l.font = .nunito(ofSize: 11)  // text-[.7rem] = 11.2px ≈ 11pt, normal weight
+        l.font = .nunito(ofSize: 11.2)
         l.layer.cornerRadius = 4      // rounded (0.25rem = 4px)
         l.clipsToBounds = true
         l.layer.borderWidth = 1
@@ -1750,6 +1751,19 @@ final class TorrentResultCell: UITableViewCell {
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
                 .draw(in: rect)
         }.withRenderingMode(.alwaysOriginal)
+    }
+
+    private static func setBadgeText(_ text: String, on label: PaddedLabel, color: UIColor, weight: UIFont.Weight) {
+        // The result row has leading-none: 11.2px line box plus py-1, rather
+        // than UIKit's taller default label line box plus the same padding.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 11.2
+        paragraph.maximumLineHeight = 11.2
+        label.attributedText = NSAttributedString(string: text, attributes: [
+            .font: UIFont.nunito(ofSize: 11.2, weight: weight),
+            .foregroundColor: color,
+            .paragraphStyle: paragraph,
+        ])
     }
 
     /// Creates a dot separator label matching web `.details span+span::before { content: '•' }`
@@ -1845,22 +1859,22 @@ final class TorrentResultCell: UITableViewCell {
             switch rtype.lowercased() {
             case "best":
                 // background: #1d2d1e; border: #53da33; color: #53da33
-                typeBadgeLabel.text = "Best Release"
-                typeBadgeLabel.textColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
+                let color = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
+                Self.setBadgeText("Best Release", on: typeBadgeLabel, color: color, weight: .regular)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.176, blue: 0.118, alpha: 1)
-                typeBadgeLabel.layer.borderColor = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1).cgColor
+                typeBadgeLabel.layer.borderColor = color.cgColor
             case "alt":
                 // background: #391d20; border: #c52d2d; color: #c52d2d
-                typeBadgeLabel.text = "Alt Release"
-                typeBadgeLabel.textColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1)
+                let color = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1)
+                Self.setBadgeText("Alt Release", on: typeBadgeLabel, color: color, weight: .regular)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.220, green: 0.114, blue: 0.125, alpha: 1)
-                typeBadgeLabel.layer.borderColor = UIColor(red: 0.773, green: 0.176, blue: 0.176, alpha: 1).cgColor
+                typeBadgeLabel.layer.borderColor = color.cgColor
             default: // "batch"
                 // background: #1d2031; border: #2d5ec5; color: #2d5ec5
-                typeBadgeLabel.text = "Batch"
-                typeBadgeLabel.textColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1)
+                let color = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1)
+                Self.setBadgeText("Batch", on: typeBadgeLabel, color: color, weight: .regular)
                 typeBadgeLabel.backgroundColor = UIColor(red: 0.114, green: 0.125, blue: 0.192, alpha: 1)
-                typeBadgeLabel.layer.borderColor = UIColor(red: 0.176, green: 0.369, blue: 0.773, alpha: 1).cgColor
+                typeBadgeLabel.layer.borderColor = color.cgColor
             }
             typeBadgeLabel.isHidden = false
         } else {
@@ -1901,10 +1915,9 @@ final class TorrentResultCell: UITableViewCell {
         for term in TitleUtils.sanitise(title).reversed() {
             let l = PaddedLabel()
             l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
-            l.text = term.text
-            l.font = .nunito(ofSize: 11, weight: .bold)  // text-[.7rem] font-bold
             // Use Rec.601 brightness to pick contrasting text colour (mirrors web text-contrast-filter)
-            l.textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
+            let textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
+            Self.setBadgeText(term.text, on: l, color: textColor, weight: .bold)
             l.backgroundColor = term.color
             l.layer.cornerRadius = 4  // rounded
             l.clipsToBounds = true
