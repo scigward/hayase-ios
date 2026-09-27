@@ -23,6 +23,7 @@ final class ThreadPostView: UIView {
     private let dateContainer = UIStackView()
     private let badgeStack = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
+    private var canLike = false
     var onContentHeightChange: (() -> Void)?
     private var onLike: (() -> Void)?
     private var onReply: (() -> Void)?
@@ -136,8 +137,9 @@ final class ThreadPostView: UIView {
         dateLabel.text = thread?.sinceString ?? ""
 
         let canInteract = !(thread?.isLocked ?? false) && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        canLike = canInteract && thread != nil
         likeButton.setFilled(thread?.isLiked ?? false)
-        likeButton.isEnabled = canInteract && thread != nil
+        likeButton.isEnabled = canLike
         replyButton.isEnabled = canInteract && thread != nil
 
         bodyHost.arrangedSubviews.forEach { view in
@@ -179,7 +181,18 @@ final class ThreadPostView: UIView {
         return badge
     }
 
+    func updateLike(isLiked: Bool, count: Int) {
+        statsView.updateLikes(count: count, liked: isLiked)
+        likeButton.setFilled(isLiked)
+        finishLikeAttempt()
+    }
+
+    func finishLikeAttempt() {
+        likeButton.isEnabled = canLike
+    }
+
     @objc private func likeTapped() {
+        likeButton.isEnabled = false
         onLike?()
     }
 

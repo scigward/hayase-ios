@@ -22,6 +22,7 @@ final class ThreadDetailViewController: UIViewController {
     private var currentPage = 1
     private var currentThread: AniListThread?
     private var currentCommentsPage: AniListCommentPage?
+    private weak var postView: ThreadPostView?
     var routeThreadID: Int { threadID }
 
     init(threadID: Int,
@@ -161,6 +162,7 @@ final class ThreadDetailViewController: UIViewController {
         contentStack.addArrangedSubview(makeHeader(title: thread?.title ?? threadTitle))
 
         let postView = ThreadPostView()
+        self.postView = postView
         postView.onContentHeightChange = { [weak self] in
             self?.notifyContentHeightChanged()
         }
@@ -169,8 +171,7 @@ final class ThreadDetailViewController: UIViewController {
                            onNavigatePath: { [weak self] path in
             self?.navigate(path: path)
         }, onLike: { [weak self] in
-            guard let thread else { return }
-            self?.toggleThreadLike(thread)
+            self?.toggleThreadLike()
         }, onReply: { [weak self] in
             guard let thread else { return }
             self?.presentWriter(threadID: thread.id)
@@ -356,16 +357,22 @@ final class ThreadDetailViewController: UIViewController {
 
 
     // MARK: - Actions
-    private func toggleThreadLike(_ thread: AniListThread) {
+    private func toggleThreadLike() {
+        guard let thread = currentThread else { return }
         guard !thread.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
         AniListForumClient.shared.toggleLikeResult(id: thread.id,
                                                    type: "THREAD",
                                                    wasLiked: thread.isLiked ?? false) { [weak self] result in
+            guard let self else { return }
             switch result {
-            case .success:
-                self?.fetchThread()
+            case .success(let state):
+                guard self.currentThread?.id == thread.id else { return }
+                self.currentThread?.isLiked = state.isLiked
+                self.currentThread?.likeCount = state.likeCount
+                self.postView?.updateLike(isLiked: state.isLiked, count: state.likeCount)
             case .failure(let error):
-                self?.showActionError(error.localizedDescription)
+                self.postView?.finishLikeAttempt()
+                self.showActionError(error.localizedDescription)
             }
         }
     }
@@ -375,12 +382,26 @@ final class ThreadDetailViewController: UIViewController {
         AniListForumClient.shared.toggleLikeResult(id: comment.id,
                                                    type: "THREAD_COMMENT",
                                                    wasLiked: comment.isLiked ?? false) { [weak self] result in
+            guard let self else { return }
             switch result {
-            case .success:
-                self?.fetchComments(page: self?.currentPage ?? 1)
+            case .success(let state):
+                self.updateVisibleCommentLike(id: comment.id, isLiked: state.isLiked, count: state.likeCount)
             case .failure(let error):
-                self?.showActionError(error.localizedDescription)
+                self.finishVisibleCommentLikeAttempt(id: comment.id)
+                self.showActionError(error.localizedDescription)
             }
+        }
+    }
+
+    private func updateVisibleCommentLike(id: Int, isLiked: Bool, count: Int) {
+        for case let view as ThreadCommentView in contentStack.arrangedSubviews {
+            if view.updateLike(commentID: id, isLiked: isLiked, count: count) { break }
+        }
+    }
+
+    private func finishVisibleCommentLikeAttempt(id: Int) {
+        for case let view as ThreadCommentView in contentStack.arrangedSubviews {
+            if view.finishLikeAttempt(commentID: id) { break }
         }
     }
 

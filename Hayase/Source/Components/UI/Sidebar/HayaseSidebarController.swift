@@ -986,6 +986,7 @@ final class HayaseSidebarController: UIViewController {
         isDesktopMode = isDesktop
         applyPlayerShellChrome(isDesktop: isDesktop)
         guard modeChanged else { return }
+        closeMobileMenu(animated: false)
         updateSidebarBackground()
 
         if responsiveIndexRedirect(for: router.currentRoute) != nil {
@@ -1000,6 +1001,7 @@ final class HayaseSidebarController: UIViewController {
     func setPlayerFullscreenActive(_ active: Bool) {
         guard playerFullscreenActive != active else { return }
         playerFullscreenActive = active
+        if active { closeMobileMenu(animated: false) }
         applyPlayerShellChrome(isDesktop: view.bounds.width >= 768)
         UIView.performWithoutAnimation {
             view.layoutIfNeeded()
@@ -1011,9 +1013,6 @@ final class HayaseSidebarController: UIViewController {
         sidebarList.superview?.isHidden = !isDesktop || hidesShellChrome
         mobileLauncher.isHidden = isDesktop || hidesShellChrome
         sidebarWidthConstraint?.constant = isDesktop && !hidesShellChrome ? 56 : 0
-        if !isDesktop || hidesShellChrome {
-            closeMobileMenu(animated: false)
-        }
     }
 
     private func responsiveIndexRedirect(for route: Route) -> Route? {

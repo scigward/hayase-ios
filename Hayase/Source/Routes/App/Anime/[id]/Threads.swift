@@ -103,6 +103,13 @@ final class ThreadStatsView: UIView {
         repliesLabel.text = "\(replies)"
         lockView.isHidden = !locked
     }
+
+    func updateLikes(count: Int, liked: Bool) {
+        likesIconView.image = liked
+            ? HayaseIcon.filledImage("heart", pointSize: 12)
+            : UIImage.hayaseIcon("heart", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular))
+        likesLabel.text = "\(count)"
+    }
 }
 
 // MARK: - ThreadCardView

@@ -8,7 +8,7 @@
 import UIKit
 
 final class ThreadCommentView: UIView {
-    private let comment: AniListThreadComment
+    private var comment: AniListThreadComment
     private let isLocked: Bool
     private let depth: Int
     private let rootCommentID: Int
@@ -34,6 +34,7 @@ final class ThreadCommentView: UIView {
     private let dateLabel = UILabel()
     private let dateContainer = UIStackView()
     private var bodyHeightConstraint: NSLayoutConstraint?
+    private var childViews: [ThreadCommentView] = []
 
     init(comment: AniListThreadComment,
          isLocked: Bool,
@@ -119,6 +120,7 @@ final class ThreadCommentView: UIView {
         bodyHost.layoutMargins = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
         bodyHost.isLayoutMarginsRelativeArrangement = true
         rootStack.addArrangedSubview(bodyHost)
+        rootStack.setCustomSpacing(8, after: headerRow)
 
         footerRow.axis = .horizontal
         footerRow.alignment = .center
@@ -166,7 +168,7 @@ final class ThreadCommentView: UIView {
         dateLabel.text = comment.sinceString
 
         let viewerID = Int(TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "")
-        let canInteract = !isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        let canInteract = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
         let isOwner = viewerID == comment.user?.id
         likeButton.setFilled(comment.isLiked ?? false)
         likeButton.isEnabled = canInteract
@@ -202,6 +204,7 @@ final class ThreadCommentView: UIView {
                                               onReply: onReply,
                                               onEdit: onEdit,
                                               onDelete: onDelete)
+            childViews.append(childView)
             childView.translatesAutoresizingMaskIntoConstraints = false
             wrapper.addSubview(childView)
             NSLayoutConstraint.activate([
@@ -215,7 +218,30 @@ final class ThreadCommentView: UIView {
     }
 
     @objc private func likeTapped() {
+        likeButton.isEnabled = false
         onLike(comment)
+    }
+
+    @discardableResult
+    func updateLike(commentID: Int, isLiked: Bool, count: Int) -> Bool {
+        if comment.id == commentID {
+            comment.isLiked = isLiked
+            comment.likeCount = count
+            (likeStack.arrangedSubviews.compactMap { $0 as? UILabel }.first { $0.tag == 88 })?.text = "\(count)"
+            likeButton.setFilled(isLiked)
+            finishLikeAttempt(commentID: commentID)
+            return true
+        }
+        return childViews.contains { $0.updateLike(commentID: commentID, isLiked: isLiked, count: count) }
+    }
+
+    @discardableResult
+    func finishLikeAttempt(commentID: Int) -> Bool {
+        if comment.id == commentID {
+            likeButton.isEnabled = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+            return true
+        }
+        return childViews.contains { $0.finishLikeAttempt(commentID: commentID) }
     }
 
     @objc private func replyTapped() {

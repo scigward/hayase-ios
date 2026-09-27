@@ -307,10 +307,10 @@ struct AniListThread {
     let userID: Int?
     let viewCount: Int
     let replyCount: Int
-    let likeCount: Int
+    var likeCount: Int
     let isLocked: Bool
     let isSubscribed: Bool?
-    let isLiked: Bool?
+    var isLiked: Bool?
     let createdAt: TimeInterval
     let user: AniListUserSummary?
     let userName: String?

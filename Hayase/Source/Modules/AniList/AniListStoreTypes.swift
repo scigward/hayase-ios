@@ -16,8 +16,8 @@ struct AniListSingleTitle {
 struct AniListThreadComment {
     let id: Int
     let comment: String
-    let isLiked: Bool?
-    let likeCount: Int
+    var isLiked: Bool?
+    var likeCount: Int
     let createdAt: TimeInterval
     let user: AniListUserSummary?
     let childComments: Any?
