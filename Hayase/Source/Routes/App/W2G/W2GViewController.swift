@@ -1,4 +1,4 @@
-// W2GViewController.swift — route-created W2G lobby with chat, user list, invite/quit
+// W2GViewController.swift — W2G create/join screen and lobby with chat, user list, invite/quit
 // Mirrors: hayase-app/interface/src/routes/app/w2g/[id]/+page.svelte
 //
 // Layout (matching the web):
@@ -43,10 +43,23 @@ final class W2GViewController: UIViewController {
 
     private var client: W2GClient? { W2GLobby.shared.client }
 
-    /// The web root route creates a lobby and redirects immediately; there is no landing page.
+    /// The native root route offers manual joining; the web root auto-creates a lobby.
     private var isShowingLobby = false
 
     private var lobbyObserver: NSObjectProtocol?
+
+    // MARK: - Landing UI Elements (shown when no lobby is active)
+
+    private let landingScrollView = UIScrollView()
+    private let landingStack = UIStackView()
+    private let landingTitleLabel = UILabel()
+    private let landingSubtitleLabel = UILabel()
+    private let landingSeparator = UIView()
+    private let createButton = UIButton(type: .system)
+    private let joinSeparatorLabel = UILabel()
+    private let joinCodeField = UITextField()
+    private let joinButton = UIButton(type: .system)
+
     private var pendingWebTorrentPlayer: VideoPlayerViewController?
     private var pendingWebTorrentService: VideoService?
     private var pendingWebTorrentObserver: NSObjectProtocol?
@@ -77,7 +90,7 @@ final class W2GViewController: UIViewController {
         view.backgroundColor = .black
         navigationItem.title = "Watch Together"
 
-        // Keep the lobby view in sync with route-driven create/join/quit changes.
+        // Keep the landing and lobby views in sync with create/join/quit changes.
         lobbyObserver = NotificationCenter.default.addObserver(
             forName: W2GLobby.didChange, object: nil, queue: .main
         ) { [weak self] _ in
@@ -89,6 +102,7 @@ final class W2GViewController: UIViewController {
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
 
+        setupLandingUI()
         setupLobbyUI()
         if case .w2g(let id) = Router.shared.currentRoute {
             applyRoute(id: id)
@@ -124,8 +138,6 @@ final class W2GViewController: UIViewController {
     func applyRoute(id: String?) {
         if let id, !id.isEmpty {
             W2GLobby.shared.joinLobby(code: id)
-        } else {
-            W2GLobby.shared.createHostLobby(media: currentPlayerMediaState())
         }
         if isViewLoaded { updateUI() }
     }
@@ -138,13 +150,19 @@ final class W2GViewController: UIViewController {
             codeLabel.text = client?.code ?? ""
             reloadData()
         } else {
-            isShowingLobby = false
-            for view in lobbyViews { view.isHidden = true }
+            showLandingUI()
         }
+    }
+
+    private func showLandingUI() {
+        isShowingLobby = false
+        landingScrollView.isHidden = false
+        for view in lobbyViews { view.isHidden = true }
     }
 
     private func showLobbyUI() {
         isShowingLobby = true
+        landingScrollView.isHidden = true
         // Show lobby elements
         for v in lobbyViews { v.isHidden = false }
 
@@ -153,10 +171,87 @@ final class W2GViewController: UIViewController {
         reloadData()
     }
 
-    /// All lobby views are hidden when the route is leaving.
+    /// All lobby-specific views are hidden while the landing screen is shown.
     private var lobbyViews: [UIView] {
         [titleLabel, codeLabel, subtitleLabel, separatorView,
          chatTableView, userListTableView, bottomBar]
+    }
+
+    // MARK: - Landing UI Setup (native manual create/join screen)
+
+    private func setupLandingUI() {
+        landingScrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(landingScrollView)
+
+        landingStack.axis = .vertical
+        landingStack.spacing = 16
+        landingStack.alignment = .fill
+        landingStack.translatesAutoresizingMaskIntoConstraints = false
+        landingScrollView.addSubview(landingStack)
+
+        landingTitleLabel.text = "Watch Together"
+        landingTitleLabel.font = .nunito(ofSize: 24, weight: .bold)
+        landingTitleLabel.textColor = .white
+
+        landingSubtitleLabel.text = "Watch videos together with friends in real-time. Create a lobby or join an existing one."
+        landingSubtitleLabel.font = .nunito(ofSize: 14)
+        landingSubtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        landingSubtitleLabel.numberOfLines = 0
+
+        landingSeparator.backgroundColor = UIColor(white: 0.2, alpha: 1)
+
+        createButton.setTitle("Create Lobby", for: .normal)
+        createButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
+        createButton.setTitleColor(.white, for: .normal)
+        createButton.backgroundColor = UIColor(red: 0.35, green: 0.6, blue: 1, alpha: 1)
+        createButton.layer.cornerRadius = 10
+        createButton.addTarget(self, action: #selector(createLobbyTapped), for: .touchUpInside)
+
+        joinSeparatorLabel.text = "or join an existing lobby"
+        joinSeparatorLabel.font = .nunito(ofSize: 14)
+        joinSeparatorLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        joinSeparatorLabel.textAlignment = .center
+
+        joinCodeField.placeholder = "Enter lobby code"
+        joinCodeField.font = .nunito(ofSize: 16)
+        joinCodeField.textColor = .white
+        joinCodeField.backgroundColor = UIColor(white: 0.1, alpha: 1)
+        joinCodeField.layer.cornerRadius = 10
+        joinCodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16, height: 0))
+        joinCodeField.leftViewMode = .always
+        joinCodeField.autocapitalizationType = .none
+        joinCodeField.autocorrectionType = .no
+        joinCodeField.returnKeyType = .join
+        joinCodeField.delegate = self
+
+        joinButton.setTitle("Join Lobby", for: .normal)
+        joinButton.titleLabel?.font = .nunito(ofSize: 16, weight: .semibold)
+        joinButton.setTitleColor(.white, for: .normal)
+        joinButton.backgroundColor = UIColor(white: 0.15, alpha: 1)
+        joinButton.layer.cornerRadius = 10
+        joinButton.addTarget(self, action: #selector(joinLobbyTapped), for: .touchUpInside)
+
+        for item in [landingTitleLabel, landingSubtitleLabel, landingSeparator,
+                     createButton, joinSeparatorLabel, joinCodeField, joinButton] {
+            landingStack.addArrangedSubview(item)
+        }
+
+        let safe = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            landingScrollView.topAnchor.constraint(equalTo: safe.topAnchor),
+            landingScrollView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            landingScrollView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            landingScrollView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+            landingStack.topAnchor.constraint(equalTo: landingScrollView.contentLayoutGuide.topAnchor, constant: 24),
+            landingStack.bottomAnchor.constraint(equalTo: landingScrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+            landingStack.leadingAnchor.constraint(equalTo: landingScrollView.contentLayoutGuide.leadingAnchor, constant: 24),
+            landingStack.trailingAnchor.constraint(equalTo: landingScrollView.contentLayoutGuide.trailingAnchor, constant: -24),
+            landingStack.widthAnchor.constraint(equalTo: landingScrollView.frameLayoutGuide.widthAnchor, constant: -48),
+            landingSeparator.heightAnchor.constraint(equalToConstant: 0.5),
+            createButton.heightAnchor.constraint(equalToConstant: 48),
+            joinCodeField.heightAnchor.constraint(equalToConstant: 48),
+            joinButton.heightAnchor.constraint(equalToConstant: 48),
+        ])
     }
 
     // MARK: - Lobby UI Setup (chat + user list, mirrors web /app/w2g/[id]/+page.svelte)
@@ -166,7 +261,7 @@ final class W2GViewController: UIViewController {
         setupMainContent()
         setupBottomBar()
         setupLobbyConstraints()
-        // The route creates/joins the lobby before revealing its UI.
+        // Start hidden until a lobby is created or joined.
         for v in lobbyViews { v.isHidden = true }
     }
 
@@ -392,8 +487,18 @@ final class W2GViewController: UIViewController {
         view.endEditing(true)
     }
 
+    @objc private func createLobbyTapped() {
+        W2GLobby.shared.createHostLobby(media: currentPlayerMediaState())
+    }
+
+    @objc private func joinLobbyTapped() {
+        guard let code = joinCodeField.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !code.isEmpty else { return }
+        joinCodeField.resignFirstResponder()
+        W2GLobby.shared.joinLobby(code: code)
+    }
+
     @objc private func quitTapped() {
-        Router.shared.navigate(.home)
         W2GLobby.shared.leave()
     }
 
@@ -496,7 +601,11 @@ extension W2GViewController: UITextFieldDelegate {
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        sendCurrentMessage()
+        if textField === joinCodeField {
+            joinLobbyTapped()
+        } else {
+            sendCurrentMessage()
+        }
         return true
     }
 }
