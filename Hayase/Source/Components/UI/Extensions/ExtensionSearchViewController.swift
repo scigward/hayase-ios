@@ -1547,7 +1547,7 @@ final class TorrentResultCell: UITableViewCell {
         let sv = UIStackView(arrangedSubviews: [spacer])
         sv.axis = .horizontal
         sv.spacing = 8
-        sv.alignment = .center
+        sv.alignment = .top // extension icons use self-start in SearchModal.svelte
         sv.layoutMargins = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 0)
         sv.isLayoutMarginsRelativeArrangement = true
         return sv
@@ -1587,6 +1587,8 @@ final class TorrentResultCell: UITableViewCell {
         sv.axis = .horizontal
         sv.spacing = 8  // ml-2 = 0.5rem = 8px
         sv.alignment = .center
+        sv.layoutMargins = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0)
+        sv.isLayoutMarginsRelativeArrangement = true
         return sv
     }()
 
@@ -1624,13 +1626,14 @@ final class TorrentResultCell: UITableViewCell {
         leftBottom.axis = .horizontal
         leftBottom.spacing = 0
         leftBottom.alignment = .center
+        leftBottom.setCustomSpacing(2, after: typeBadgeLabel) // mr-0.5
 
         // Bottom-right: tech term badges
         let bottomSpacer = UIView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let bottomRow = UIStackView(arrangedSubviews: [leftBottom, bottomSpacer, termsStack])
         bottomRow.axis = .horizontal
-        bottomRow.spacing = 6
+        bottomRow.spacing = 0
         bottomRow.alignment = .center
 
         // Content column (no left icon on mobile — matches Hayase mobile layout)
@@ -1660,8 +1663,8 @@ final class TorrentResultCell: UITableViewCell {
             // size 1.2rem ≈ 19px. Position updated in configure() for responsive sizing.
             badgeTopConstraint,
             badgeLeadingConstraint,
-            badgeCheckView.widthAnchor.constraint(equalToConstant: 19),
-            badgeCheckView.heightAnchor.constraint(equalToConstant: 19),
+            badgeCheckView.widthAnchor.constraint(equalToConstant: 19.2),
+            badgeCheckView.heightAnchor.constraint(equalToConstant: 19.2),
 
             leftIconContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
             leftIconContainer.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
@@ -1731,7 +1734,8 @@ final class TorrentResultCell: UITableViewCell {
     /// Web: rounded px-3 py-1 border text-[.7rem] — proper 12px/4px insets, 4px radius, 1px border.
     private static func makeBadgeLabel() -> PaddedLabel {
         let l = PaddedLabel()
-        l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
+        // The web border adds 1px outside each side of px-3 py-1.
+        l.contentInsets = UIEdgeInsets(top: 5, left: 13, bottom: 5, right: 13)
         l.font = .nunito(ofSize: 11.2)
         l.layer.cornerRadius = 4      // rounded (0.25rem = 4px)
         l.clipsToBounds = true
@@ -1739,19 +1743,52 @@ final class TorrentResultCell: UITableViewCell {
         return l
     }
 
-    /// Renders BadgeCheck like interface: green/currentColor fill with black lucide stroke.
+    /// Renders the exact Lucide BadgeCheck outline with the interface fill and stroke.
     private static func makeBadgeCheckImage(fill: UIColor, size: CGFloat) -> UIImage? {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
         return renderer.image { _ in
             let rect = CGRect(x: 0, y: 0, width: size, height: size)
-            UIImage.hayaseFilledIcon("badge-check", pointSize: size)?
-                .withTintColor(fill, renderingMode: .alwaysOriginal)
-                .draw(in: rect)
+            let outline = UIBezierPath()
+            outline.move(to: CGPoint(x: 3.85, y: 8.62))
+            var start = CGPoint(x: 3.85, y: 8.62)
+            for end in [
+                CGPoint(x: 8.63, y: 3.85), CGPoint(x: 15.37, y: 3.85),
+                CGPoint(x: 20.15, y: 8.63), CGPoint(x: 20.15, y: 15.37),
+                CGPoint(x: 15.38, y: 20.15), CGPoint(x: 8.63, y: 20.15),
+                CGPoint(x: 3.85, y: 15.38), CGPoint(x: 3.85, y: 8.62),
+            ] {
+                // SVG's eight clockwise radius-4 arcs (icons/badge-check.svg).
+                let dx = end.x - start.x, dy = end.y - start.y
+                let chord: CGFloat = sqrt(dx * dx + dy * dy)
+                let height: CGFloat = sqrt(max(0, 16 - chord * chord / 4))
+                let center = CGPoint(x: (start.x + end.x) / 2 - dy / chord * height,
+                                     y: (start.y + end.y) / 2 + dx / chord * height)
+                let a0 = atan2(start.y - center.y, start.x - center.x)
+                let a1 = atan2(end.y - center.y, end.x - center.x)
+                let angle = (a1 - a0 + 2 * .pi).truncatingRemainder(dividingBy: 2 * .pi)
+                let tangent: CGFloat = (4.0 / 3.0) * tan(angle / 4) * 4
+                outline.addCurve(to: end,
+                                 controlPoint1: CGPoint(x: start.x - sin(a0) * tangent, y: start.y + cos(a0) * tangent),
+                                 controlPoint2: CGPoint(x: end.x + sin(a1) * tangent, y: end.y - cos(a1) * tangent))
+                start = end
+            }
+            outline.close()
+            let context = UIGraphicsGetCurrentContext()
+            context?.saveGState()
+            context?.scaleBy(x: size / 24, y: size / 24)
+            fill.setFill()
+            outline.fill()
+            context?.restoreGState()
             UIImage.hayaseIcon("badge-check", pointSize: size)?
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
                 .draw(in: rect)
         }.withRenderingMode(.alwaysOriginal)
     }
+
+    private static let highBadgeImage = makeBadgeCheckImage(
+        fill: UIColor(red: 83.0 / 255.0, green: 218.0 / 255.0, blue: 51.0 / 255.0, alpha: 1), size: 19.2)
+    private static let mediumBadgeImage = makeBadgeCheckImage(
+        fill: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.2), size: 19.2)
 
     private static func setBadgeText(_ text: String, on label: PaddedLabel, color: UIColor, weight: UIFont.Weight) {
         // The result row has leading-none: 11.2px line box plus py-1, rather
@@ -1767,10 +1804,11 @@ final class TorrentResultCell: UITableViewCell {
     }
 
     /// Creates a dot separator label matching web `.details span+span::before { content: '•' }`
-    private static func makeDotSeparator() -> UILabel {
-        let l = UILabel()
-        l.text = " • "
+    private static func makeDotSeparator() -> PaddedLabel {
+        let l = PaddedLabel()
+        l.text = "•"
         l.font = .nunito(ofSize: 6.4) // font-size: .4rem = 6.4px
+        l.contentInsets = UIEdgeInsets(top: 0, left: 4.8, bottom: 0, right: 4.8)
         l.textColor = UIColor(red: 0.451, green: 0.451, blue: 0.451, alpha: 1) // #737373
         l.setContentHuggingPriority(.required, for: .horizontal)
         l.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -1801,12 +1839,10 @@ final class TorrentResultCell: UITableViewCell {
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
         case "high":
-            let green = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1) // #53da33
-            badgeCheckView.image = Self.makeBadgeCheckImage(fill: green, size: 19)
+            badgeCheckView.image = Self.highBadgeImage
             badgeCheckView.isHidden = false
         case "medium":
-            // Web: text-muted-foreground/20 — muted foreground (≈ white 0.65) at 20% opacity
-            badgeCheckView.image = Self.makeBadgeCheckImage(fill: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.2), size: 19)
+            badgeCheckView.image = Self.mediumBadgeImage
             badgeCheckView.isHidden = false
         default:
             badgeCheckView.isHidden = true
@@ -1832,7 +1868,8 @@ final class TorrentResultCell: UITableViewCell {
 
         // ── Extension icons (mirrors config.icon <img> top-right)
         extIconsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for extId in result.extensionIds.sorted() {
+        let orderedExtensions = result.extensionOrder + result.extensionIds.subtracting(Set(result.extensionOrder)).sorted()
+        for extId in orderedExtensions {
             if let config = configs[extId], let url = URL(string: config.icon) {
                 let iv = UIImageView()
                 iv.contentMode = .scaleToFill
@@ -1855,8 +1892,8 @@ final class TorrentResultCell: UITableViewCell {
 
         // ── Type badge (mirrors Best Release/Alt Release/Batch spans)
         // Web: rounded px-3 py-1 mr-0.5 border — PaddedLabel handles px-3 py-1 insets
-        if let rtype = result.type, !rtype.isEmpty {
-            switch rtype.lowercased() {
+        if let rtype = result.type, ["best", "alt", "batch"].contains(rtype) {
+            switch rtype {
             case "best":
                 // background: #1d2d1e; border: #53da33; color: #53da33
                 let color = UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 1)
@@ -1916,7 +1953,7 @@ final class TorrentResultCell: UITableViewCell {
             let l = PaddedLabel()
             l.contentInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12) // py-1 px-3
             // Use Rec.601 brightness to pick contrasting text colour (mirrors web text-contrast-filter)
-            let textColor = term.color.isLight ? UIColor(white: 0.05, alpha: 1) : .white
+            let textColor = term.color.isLight ? UIColor.black : .white
             Self.setBadgeText(term.text, on: l, color: textColor, weight: .bold)
             l.backgroundColor = term.color
             l.layer.cornerRadius = 4  // rounded

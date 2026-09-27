@@ -109,6 +109,8 @@ struct TorrentResult {
     var type: String? = nil
     /// Which extension(s) returned this result
     var extensionIds: Set<String> = []
+    /// Set iteration is unordered; web Set preserves the arrival order of provider icons.
+    var extensionOrder: [String] = []
     // Swift synthesises a memberwise init since no init is declared in the body.
     // Required fields: title, link, hash. All others have defaults.
 }

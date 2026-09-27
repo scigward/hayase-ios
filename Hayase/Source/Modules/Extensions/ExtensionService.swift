@@ -573,7 +573,11 @@ final class ExtensionService {
         group.addTask { @MainActor in
             do {
                 var results = try await operation()
-                for index in results.indices { results[index].extensionIds.insert(extId) }
+                for index in results.indices {
+                    if results[index].extensionIds.insert(extId).inserted {
+                        results[index].extensionOrder.append(extId)
+                    }
+                }
                 let counted = await Self.updatePeerCountsWithTimeout(results)
                 return SearchChunk(extensionId: extId, method: method, results: counted, error: nil)
             } catch {
@@ -636,7 +640,16 @@ final class ExtensionService {
         for entry in entries {
             if var existing = seen[entry.hash] {
                 // Merge extension IDs
-                existing.extensionIds.formUnion(entry.extensionIds)
+                for id in entry.extensionOrder {
+                    if existing.extensionIds.insert(id).inserted {
+                        existing.extensionOrder.append(id)
+                    }
+                }
+                for id in entry.extensionIds.sorted() {
+                    if existing.extensionIds.insert(id).inserted {
+                        existing.extensionOrder.append(id)
+                    }
+                }
                 // Take better accuracy (lower rank = better)
                 let eRank = accuracyRank[entry.accuracy]    ?? 2
                 let xRank = accuracyRank[existing.accuracy] ?? 2
