@@ -7,44 +7,12 @@
 /// mini-player mode: a 22rem-wide floating window at the bottom-right corner,
 /// draggable, with click-to-restore. The torrent session stays alive.
 ///
-/// This iOS port uses a dedicated UIWindow (PassthroughWindow) to host the
-/// mini-player. The window sits at a higher window level than normal content,
-/// guaranteeing the mini-player is always visible — even after the fullscreen
-/// player is dismissed and the presenting view controller's view is shown.
-/// Touches outside the mini-player container pass through to the main window.
+/// Keep the mini-player in the app shell, above route content but below modal
+/// presentations. This mirrors the web wrapper's z-[49] below dialog portals'
+/// z-50, so their single striped backdrop covers the mini-player too.
 import UIKit
 import LibTorrent
 import CoreData
-
-// MARK: - PassthroughWindow
-
-/// A UIWindow that passes touches through to the window behind it unless the
-/// touch lands on a visible subview (the mini-player container). This lets the
-/// mini-player float above all content without blocking interaction with the
-/// rest of the app.
-private final class PassthroughWindow: UIWindow {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hit = super.hitTest(point, with: event)
-        // If the hit is the window itself or the root VC's transparent view,
-        // return nil so the touch falls through to the window below.
-        if hit === self || hit === rootViewController?.view {
-            return nil
-        }
-        return hit
-    }
-}
-
-/// Root VC for the PassthroughWindow. Transparent, supports all orientations,
-/// and repositions the mini-player container on layout changes (rotation).
-private final class PassthroughRootViewController: UIViewController {
-    override var shouldAutorotate: Bool { true }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
-    override var prefersStatusBarHidden: Bool { true }
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        MiniPlayerManager.shared.repositionContainer()
-    }
-}
 
 final class MiniPlayerManager {
 
@@ -99,25 +67,18 @@ final class MiniPlayerManager {
     /// visible so all player/streaming state is preserved.
     private(set) var activePlayer: VideoPlayerViewController?
 
-    /// Dedicated window for the mini-player, above normal content.
-    private var miniWindow: PassthroughWindow?
+    /// The shell's root view owns the mini-player; UIKit presentations are
+    /// layered above it in the same window.
+    private weak var hostView: UIView?
 
-    /// The floating container inside the mini-player window.
+    /// The floating container inside the app shell.
     private var containerView: UIView?
 
     /// The play/pause button in the mini-player overlay.
     private var playPauseButton: UIButton?
 
-    /// Active modal striped-backdrop count. The mini-player normally floats above
-    /// app content in its own window, so app-level Dialog overlays do not cover it.
-    /// Keep this ref-counted so overlapping dialogs cannot leave the stripe stuck on.
-    private var externalStripeOverlayCount = 0
-
-    /// Non-interactive visual overlay applied only while a striped app dialog is active.
-    private var externalStripeOverlayView: HayaseStripedBackdropView?
-
     /// True when the mini-player is currently visible.
-    var isActive: Bool { miniWindow != nil && activePlayer != nil }
+    var isActive: Bool { containerView != nil && activePlayer != nil }
 
     // MARK: - Dragging state (Hayase pointer events)
 
@@ -135,6 +96,17 @@ final class MiniPlayerManager {
     private var revealedFrame: CGRect = .zero
     /// Whether the container last snapped to the right side (`true`) or left (`false`).
     private var isSnappedToRight = true
+    private var isSnappedToTop = false
+
+    func containsMiniPlayer(_ view: UIView?) -> Bool {
+        guard let container = containerView else { return false }
+        var candidate = view
+        while let current = candidate {
+            if current === container { return true }
+            candidate = current.superview
+        }
+        return false
+    }
 
     private func hostPlayerSurfaceInMiniContainer(_ player: VideoPlayerViewController, inner: UIView) {
         if ExternalDisplayManager.shared.updateLocalPresentationHost(
@@ -218,19 +190,13 @@ final class MiniPlayerManager {
         if let existing = activePlayer, existing !== player {
             close()
         }
+        guard let host = miniPlayerHost() else { return }
         activePlayer = player
-
-        // Prefer the player's current scene; route-driven modal exits fall back to the connected foreground scene below.
-        let playerScene = player.view.window?.windowScene
-
-        // Create a dedicated window for the mini-player so it floats above
-        // all content regardless of which view controller is presented.
-        let window = makePassthroughWindow(preferredScene: playerScene)
-        miniWindow = window
+        hostView = host
 
         // Create the mini-player container (shadow + rounded corners).
         let container = makeContainer()
-        window.rootViewController?.view.addSubview(container)
+        host.addSubview(container)
         containerView = container
 
         // Reparent locally, or just move the external-output placeholder while
@@ -240,7 +206,6 @@ final class MiniPlayerManager {
 
         // Add mini-player controls overlay.
         addOverlay(to: container)
-        updateExternalStripeOverlay(animated: false)
 
         player.onCastStateChanged = { [weak self] in
             guard let self, let container = self.containerView else { return }
@@ -250,9 +215,10 @@ final class MiniPlayerManager {
             self?.updateMiniCastProgress(elapsed: elapsed, duration: duration)
         }
 
-        // Root view transitions fade wrapper.svelte with the destination; do the same for the separate native mini window.
+        // Root view transitions fade wrapper.svelte with the destination.
         isTucked = false
         isSnappedToRight = true
+        isSnappedToTop = false
         repositionContainer()
         container.alpha = fadeIn ? 0 : 1
         if fadeIn {
@@ -321,13 +287,10 @@ final class MiniPlayerManager {
         // surface, only its placeholder moves until that output ends.
         hostPlayerSurfaceInFullscreen(player)
 
-        // Tear down the mini-player window.
-        externalStripeOverlayView?.removeFromSuperview()
-        externalStripeOverlayView = nil
+        // Remove the mini-player from the shell before presenting the player.
         container.removeFromSuperview()
         containerView = nil
-        miniWindow?.isHidden = true
-        miniWindow = nil
+        hostView = nil
 
         // Restore the player route. iPhone presents fullscreen; iPad returns
         // to the app shell route so the sidebar remains visible.
@@ -368,12 +331,11 @@ final class MiniPlayerManager {
                 container.alpha = 0
                 container.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
             }, completion: { [weak self] _ in
-                self?.externalStripeOverlayView?.removeFromSuperview()
-                self?.externalStripeOverlayView = nil
                 container.removeFromSuperview()
-                self?.containerView = nil
-                self?.miniWindow?.isHidden = true
-                self?.miniWindow = nil
+                if self?.containerView === container {
+                    self?.containerView = nil
+                    self?.hostView = nil
+                }
             })
         }
 
@@ -381,141 +343,47 @@ final class MiniPlayerManager {
         activePlayer = nil
     }
 
-    // MARK: - External striped backdrop
-
-    /// Called by app-level dialog presentation controllers when their
-    /// `custom-bg backdrop-blur-sm` overlay is active. The mini-player lives in
-    /// a higher window, so it needs a matching local overlay instead of relying
-    /// on the presenting window's backdrop.
-    func beginExternalStripeOverlay() {
-        externalStripeOverlayCount += 1
-        updateExternalStripeOverlay(animated: true)
-    }
-
-    /// Balances `beginExternalStripeOverlay()`. Never lets the counter go
-    /// negative, which prevents a stale always-striped mini-player state.
-    func endExternalStripeOverlay() {
-        externalStripeOverlayCount = max(0, externalStripeOverlayCount - 1)
-        updateExternalStripeOverlay(animated: true)
-    }
-
-    private func updateExternalStripeOverlay(animated: Bool) {
-        guard let inner = containerView?.viewWithTag(innerContainerTag) else {
-            externalStripeOverlayView = nil
-            return
-        }
-
-        let shouldShow = externalStripeOverlayCount > 0
-        if shouldShow {
-            let overlay = externalStripeOverlayView ?? HayaseStripedBackdropView()
-            externalStripeOverlayView = overlay
-            overlay.frame = inner.bounds
-            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            overlay.isUserInteractionEnabled = false
-            if overlay.superview !== inner {
-                overlay.alpha = 0
-                inner.addSubview(overlay)
-            } else {
-                inner.bringSubviewToFront(overlay)
-            }
-            animateStripeOverlay(overlay, alpha: 1, animated: animated)
-        } else if let overlay = externalStripeOverlayView {
-            animateStripeOverlay(overlay, alpha: 0, animated: animated) { [weak self, weak overlay] in
-                overlay?.removeFromSuperview()
-                if self?.externalStripeOverlayView === overlay {
-                    self?.externalStripeOverlayView = nil
-                }
-            }
-        }
-    }
-
-    private func animateStripeOverlay(_ overlay: UIView,
-                                      alpha: CGFloat,
-                                      animated: Bool,
-                                      completion: (() -> Void)? = nil) {
-        let changes = { overlay.alpha = alpha }
-        guard animated else {
-            changes()
-            completion?()
-            return
-        }
-        UIView.animate(withDuration: 0.15,
-                       delay: 0,
-                       options: [.curveEaseOut, .beginFromCurrentState],
-                       animations: changes) { _ in
-            completion?()
-        }
-    }
-
     // MARK: - Layout
 
     /// Repositions the mini-player container to the bottom-right corner,
-    /// accounting for current screen bounds and safe area insets. Called:
+    /// accounting for the shell's logical bounds and safe area insets. Called:
     /// - Immediately in minimize() so the container is positioned correctly
     /// - In the dismiss completion to adjust for safe area changes
-    /// - From the root VC's viewDidLayoutSubviews for rotation handling
+    /// - From the shell's viewDidLayoutSubviews for rotation handling
     func repositionContainer() {
         guard let container = containerView,
-              let window = miniWindow,
+              let host = hostView,
               !isDragging else { return }
-        let bounds = window.bounds
-        let size = miniSize(in: window)
-        let safeBottom = window.safeAreaInsets.bottom
+        let bounds = host.bounds
+        let size = miniSize(in: host)
+        let safeBottom = host.safeAreaInsets.bottom
         let frame = CGRect(
-            x: bounds.width - size.width - edgePadding,
-            y: bounds.height - size.height - safeBottom - edgePadding,
+            x: isSnappedToRight ? bounds.width - size.width - edgePadding : edgePadding,
+            y: isSnappedToTop ? edgePadding + host.safeAreaInsets.top : bounds.height - size.height - safeBottom - edgePadding,
             width: size.width, height: size.height)
         revealedFrame = frame
-        isSnappedToRight = true
         container.bounds.size = size
         if let inner = container.viewWithTag(innerContainerTag) {
             inner.frame = CGRect(origin: .zero, size: size)
         }
         if isTucked {
             var tuckedFrame = frame
-            tuckedFrame.origin.x = bounds.width - peekWidth
+            tuckedFrame.origin.x = isSnappedToRight ? bounds.width - peekWidth : -(frame.width - peekWidth)
             container.frame = tuckedFrame
         } else {
             container.frame = frame
         }
     }
 
-    // MARK: - Window + Container creation
+    // MARK: - Host + Container creation
 
-    private func miniSize(in window: UIWindow) -> CGSize {
-        let visibleWidth = max(peekWidth, min(maxOuterWidth, window.bounds.width) - (edgePadding * 2))
+    private func miniSize(in host: UIView) -> CGSize {
+        let visibleWidth = max(peekWidth, min(maxOuterWidth, host.bounds.width) - (edgePadding * 2))
         return CGSize(width: visibleWidth, height: visibleWidth * 9 / 16)
     }
 
-    /// Creates the dedicated passthrough window for the mini-player.
-    /// - Parameter preferredScene: The window scene to use. Pass the
-    ///   player's `view.window?.windowScene` captured before dismiss.
-    private func makePassthroughWindow(preferredScene: UIWindowScene? = nil) -> PassthroughWindow {
-        let window = PassthroughWindow(frame: UIScreen.main.bounds)
-        // Attach to a window scene (required on iOS 13+). Without a scene,
-        // the window is silently invisible. Use the preferred scene first
-        // (captured from the player's window), then fall back to any
-        // connected scene — don't filter by foregroundActive only, since
-        // the scene may briefly be in a different state during transitions.
-        let scene = preferredScene
-            ?? UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive })
-            ?? UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first
-        if let scene = scene {
-            window.windowScene = scene
-        }
-        // Above normal windows but below alerts/keyboards.
-        window.windowLevel = .normal + 1
-        window.backgroundColor = .clear
-        window.isUserInteractionEnabled = true
-        let rootVC = PassthroughRootViewController()
-        rootVC.view.backgroundColor = .clear
-        window.rootViewController = rootVC
-        window.isHidden = false
-        return window
+    private func miniPlayerHost() -> UIView? {
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController?.view
     }
 
     /// Builds the floating mini-player container view (Hayase wrapper.svelte
@@ -733,7 +601,7 @@ final class MiniPlayerManager {
     /// nearest corner (Hayase's endDragging logic).
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard let container = containerView,
-              let rootView = miniWindow?.rootViewController?.view else { return }
+              let rootView = hostView else { return }
         let translation = gesture.translation(in: rootView)
 
         switch gesture.state {
@@ -779,31 +647,32 @@ final class MiniPlayerManager {
     /// the center is in, then snaps to the corresponding corner.
     private func snapToNearestCorner() {
         guard let container = containerView,
-              let window = miniWindow else { return }
+              let host = hostView else { return }
         let center = container.center
-        let safeInsets = window.safeAreaInsets
+        let safeInsets = host.safeAreaInsets
 
-        let isTop = center.y < window.bounds.height / 2
-        let isLeft = center.x < window.bounds.width / 2
+        let isTop = center.y < host.bounds.height / 2
+        let isLeft = center.x < host.bounds.width / 2
 
         let targetX: CGFloat
         let targetY: CGFloat
 
-        let size = miniSize(in: window)
+        let size = miniSize(in: host)
 
         if isLeft {
             targetX = edgePadding
         } else {
-            targetX = window.bounds.width - size.width - edgePadding
+            targetX = host.bounds.width - size.width - edgePadding
         }
 
         if isTop {
             targetY = edgePadding + safeInsets.top
         } else {
-            targetY = window.bounds.height - size.height - safeInsets.bottom - edgePadding
+            targetY = host.bounds.height - size.height - safeInsets.bottom - edgePadding
         }
 
         isSnappedToRight = !isLeft
+        isSnappedToTop = isTop
         let targetFrame = CGRect(
             x: targetX, y: targetY,
             width: size.width, height: size.height)
@@ -831,13 +700,13 @@ final class MiniPlayerManager {
     /// `--padding-right: calc(100% - 3rem)`.
     private func tuck() {
         guard let container = containerView,
-              let window = miniWindow,
+              let host = hostView,
               !isDragging else { return }
         isTucked = true
 
         var tuckedFrame = revealedFrame
         if isSnappedToRight {
-            tuckedFrame.origin.x = window.bounds.width - peekWidth
+            tuckedFrame.origin.x = host.bounds.width - peekWidth
         } else {
             tuckedFrame.origin.x = -(revealedFrame.width - peekWidth)
         }
@@ -1391,14 +1260,14 @@ final class MiniPlayerManager {
         if let existing = activePlayer, existing !== player {
             close()
         }
+        guard let host = miniPlayerHost() else { return }
         activePlayer = player
         player.isMinimizing = true
 
-        let window = makePassthroughWindow(preferredScene: nil)
-        miniWindow = window
+        hostView = host
 
         let container = makeContainer()
-        window.rootViewController?.view.addSubview(container)
+        host.addSubview(container)
         containerView = container
 
         // Reparent locally, or just move the external-output placeholder while
@@ -1420,6 +1289,7 @@ final class MiniPlayerManager {
         // at the edge on launch, user taps to reveal).
         isTucked = true
         isSnappedToRight = true
+        isSnappedToTop = false
         repositionContainer()
         container.alpha = 1
         player.resumeStatsUpdates()

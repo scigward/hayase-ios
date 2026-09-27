@@ -123,6 +123,7 @@ final class HayaseSidebarController: UIViewController {
         updateLayoutForCurrentWidth()
         updateSidebarBackground()
         hideHostedNavigationBars()
+        MiniPlayerManager.shared.repositionContainer()
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -1207,6 +1208,7 @@ extension HayaseSidebarController: UITabBarControllerDelegate, UIGestureRecogniz
     // Buttons near the screen edge stay tappable: the history swipe never competes for a touch that lands on a control.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer is UIPanGestureRecognizer else { return true }
+        if MiniPlayerManager.shared.containsMiniPlayer(touch.view) { return false }
         var candidate: UIView? = touch.view
         while let view = candidate {
             if view is UIControl { return false }

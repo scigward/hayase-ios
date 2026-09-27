@@ -2100,8 +2100,6 @@ final class BottomDialogPresentationController: UIPresentationController {
 
     override func presentationTransitionWillBegin() {
         guard let containerView = containerView else { return }
-        MiniPlayerManager.shared.beginExternalStripeOverlay()
-
         dimmingView.frame = containerView.bounds
         dimmingView.alpha = 0
         containerView.insertSubview(dimmingView, at: 0)
@@ -2115,14 +2113,7 @@ final class BottomDialogPresentationController: UIPresentationController {
         })
     }
 
-    override func presentationTransitionDidEnd(_ completed: Bool) {
-        if !completed {
-            MiniPlayerManager.shared.endExternalStripeOverlay()
-        }
-    }
-
     override func dismissalTransitionWillBegin() {
-        MiniPlayerManager.shared.endExternalStripeOverlay()
         presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
             self.dimmingView.alpha = 0
         })
@@ -2131,8 +2122,6 @@ final class BottomDialogPresentationController: UIPresentationController {
     override func dismissalTransitionDidEnd(_ completed: Bool) {
         if completed {
             dimmingView.removeFromSuperview()
-        } else {
-            MiniPlayerManager.shared.beginExternalStripeOverlay()
         }
     }
 

@@ -107,9 +107,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Fallback: retry the mini-player restore once the scene is
-        // confirmed foregroundActive. The initial async dispatch from
-        // didFinishLaunchingWithOptions may fire before the window scene
-        // is fully active, causing makePassthroughWindow to fail silently.
+        // foregroundActive. The initial async dispatch may run before the
+        // shell's root view is ready to host the mini-player.
         guard !hasEnteredForeground else { return }
         hasEnteredForeground = true
         MiniPlayerManager.shared.restoreSessionIfNeeded()
