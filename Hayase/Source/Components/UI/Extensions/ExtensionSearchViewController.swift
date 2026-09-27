@@ -185,6 +185,13 @@ final class ExtensionSearchViewController: UIViewController {
     private var episodeField: UITextField!
     private var resolutionComboBox: ComboBox!
     private var autoSelectButton: UIButton!
+    private var controlsRow: UIStackView!
+    private var controlsHeightConstraint: NSLayoutConstraint!
+    private var controlsRowHeightConstraint: NSLayoutConstraint!
+    private var controlLeadingConstraints: [NSLayoutConstraint] = []
+    private var controlTrailingConstraints: [NSLayoutConstraint] = []
+    private var controlsAreWrapped = false
+    private var minimumUnwrappedControlsWidth: CGFloat = 0
     /// Progress overlay on Auto Select button (mirrors web ProgressButton animation)
     private var progressOverlay: UIView!
 
@@ -196,6 +203,11 @@ final class ExtensionSearchViewController: UIViewController {
     private var errorView: UIView!
     private var errorLabel: UILabel!
     private var skeletonView: UIStackView!
+    private var skeletonLeadingConstraint: NSLayoutConstraint!
+    private var skeletonTrailingConstraint: NSLayoutConstraint!
+    private var skeletonWidthConstraint: NSLayoutConstraint!
+    private var stateLeadingConstraints: [NSLayoutConstraint] = []
+    private var stateTrailingConstraints: [NSLayoutConstraint] = []
 
     private let resolutionOptions: [(value: String, label: String)] = [
         ("2160", "2160p"),
@@ -270,6 +282,9 @@ final class ExtensionSearchViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateControlsLayout(for: view.bounds.width)
+        updateSkeletonPadding(for: view.bounds.width)
+        updateStatePadding(for: view.bounds.width)
         // Interface keeps the dark gradient as a sibling overlay, not inside the 40% image layer.
         if let container = bannerContainerView { bannerGradientLayer?.frame = container.bounds }
         // Keep close button above all sibling views (state views, skeleton, etc.)
@@ -390,8 +405,8 @@ final class ExtensionSearchViewController: UIViewController {
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
 
-        // Web: px-4 sm:px-6 → 16px on mobile (<640px), 24px on ≥640px (iPad formSheet)
-        let hPad: CGFloat = (view.window?.bounds.width ?? UIScreen.main.bounds.width) >= 640 ? 24 : 16
+        // The web breakpoint follows the dialog viewport, not the device's full screen.
+        let hPad: CGFloat = view.bounds.width >= 640 ? 24 : 16
 
         let controlsView = UIView()
         controlsView.backgroundColor = .clear     // transparent — banner visible behind controls
@@ -489,7 +504,11 @@ final class ExtensionSearchViewController: UIViewController {
         let resStack = UIStackView(arrangedSubviews: [resLabel, resolutionComboBox])
         resStack.axis = .horizontal; resStack.spacing = 8; resStack.alignment = .center
 
-        let controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
+        let episodeWidth = epLabel.intrinsicContentSize.width + 8 + 128
+        let resolutionWidth = resLabel.intrinsicContentSize.width + 8 + 128
+        minimumUnwrappedControlsWidth = 2 * max(episodeWidth, resolutionWidth) + 16
+
+        controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
         controlsRow.axis = .horizontal; controlsRow.distribution = .fillEqually
         controlsRow.spacing = 16; controlsRow.alignment = .center
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -513,6 +532,21 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isUserInteractionEnabled = false
         progressOverlay.translatesAutoresizingMaskIntoConstraints = false
         autoSelectButton.addSubview(progressOverlay)
+        controlsHeightConstraint = controlsView.heightAnchor.constraint(equalToConstant: 220)
+        controlsRowHeightConstraint = controlsRow.heightAnchor.constraint(equalToConstant: 36)
+        controlLeadingConstraints = [
+            titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+            autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
+        ]
+        controlTrailingConstraints = [
+            titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
+            filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
+            controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
+            autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
+        ]
+        NSLayoutConstraint.activate(controlLeadingConstraints + controlTrailingConstraints)
         NSLayoutConstraint.activate([
             progressOverlay.topAnchor.constraint(equalTo: autoSelectButton.topAnchor),
             progressOverlay.bottomAnchor.constraint(equalTo: autoSelectButton.bottomAnchor),
@@ -528,36 +562,49 @@ final class ExtensionSearchViewController: UIViewController {
             controlsView.topAnchor.constraint(equalTo: view.topAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            controlsView.heightAnchor.constraint(equalToConstant: 220),
+            controlsHeightConstraint,
 
             // Anime title (web: text-2xl font-bold, first child of pt-8 + space-y-4 container)
             titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 32),
-            titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
-            titleLabel.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
 
             filterField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-            filterField.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
-            filterField.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
             filterField.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
 
             controlsRow.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 16),
-            controlsRow.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
-            controlsRow.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
-            controlsRow.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
+            controlsRowHeightConstraint,
 
-            episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),  // flexible width, grows to fill
+            episodeField.widthAnchor.constraint(greaterThanOrEqualToConstant: 128),  // web w-32 grow
             episodeField.heightAnchor.constraint(equalToConstant: 36),  // h-9
-            resolutionComboBox.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            resolutionComboBox.widthAnchor.constraint(greaterThanOrEqualToConstant: 128),
             resolutionComboBox.heightAnchor.constraint(equalToConstant: 36),
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
-            autoSelectButton.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
-            autoSelectButton.trailingAnchor.constraint(equalTo: controlsView.trailingAnchor, constant: -hPad),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px (web size='default')
         ])
 
         // headerView is the bottom edge that tableView.topAnchor pins to
         self.headerView = controlsView
+    }
+
+    private func updateControlsLayout(for width: CGFloat) {
+        guard width > 0, let controlsRow else { return }
+        let padding: CGFloat = width >= 640 ? 24 : 16
+        for constraint in controlLeadingConstraints where constraint.constant != padding {
+            constraint.constant = padding
+        }
+        for constraint in controlTrailingConstraints where constraint.constant != -padding {
+            constraint.constant = -padding
+        }
+
+        // SearchModal.svelte uses flex-wrap. Each control has a 128px input,
+        // so a narrow dialog needs two 36px rows with the same 16px gap.
+        let wrapped = width - 2 * padding < minimumUnwrappedControlsWidth
+        guard wrapped != controlsAreWrapped else { return }
+        controlsAreWrapped = wrapped
+        controlsRow.axis = wrapped ? .vertical : .horizontal
+        controlsRow.alignment = wrapped ? .fill : .center
+        controlsRowHeightConstraint.constant = wrapped ? 88 : 36
+        controlsHeightConstraint.constant = wrapped ? 272 : 220
     }
 
     // MARK: - Colour helpers (mirror Hayase's colors() utility + text-contrast logic)
@@ -657,6 +704,9 @@ final class ExtensionSearchViewController: UIViewController {
             let bar4 = UIView(); bar4.backgroundColor = shimmerColor; bar4.layer.cornerRadius = 4
             bar4.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(bar4)
+            let bar5 = UIView(); bar5.backgroundColor = shimmerColor; bar5.layer.cornerRadius = 4
+            bar5.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(bar5)
 
             NSLayoutConstraint.activate([
                 // h-4 w-40 mt-2
@@ -679,6 +729,10 @@ final class ExtensionSearchViewController: UIViewController {
                 bar4.leadingAnchor.constraint(equalTo: bar3.trailingAnchor, constant: 8),
                 bar4.heightAnchor.constraint(equalToConstant: 8),
                 bar4.widthAnchor.constraint(equalToConstant: 80),
+                bar5.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+                bar5.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+                bar5.heightAnchor.constraint(equalToConstant: 8),
+                bar5.widthAnchor.constraint(equalToConstant: 80),
             ])
 
             skeletonView.addArrangedSubview(card)
@@ -703,7 +757,7 @@ final class ExtensionSearchViewController: UIViewController {
         let noResultLabel = UILabel()
         noResultLabel.text = "No results found.\nTry specifying a torrent manually by pasting a magnet link or torrent file into the filter bar."
         noResultLabel.font = .nunito(ofSize: 18) // text-lg
-        noResultLabel.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
+        noResultLabel.textColor = UIColor.HayaseTheme.mutedForeground
         noResultLabel.textAlignment = .center
         noResultLabel.numberOfLines = 0
         let emptyStack = UIStackView(arrangedSubviews: [oopsLabel, noResultLabel])
@@ -712,10 +766,9 @@ final class ExtensionSearchViewController: UIViewController {
         emptyStack.translatesAutoresizingMaskIntoConstraints = false
         emptyView.addSubview(emptyStack)
         NSLayoutConstraint.activate([
-            emptyStack.topAnchor.constraint(equalTo: emptyView.topAnchor),
-            emptyStack.bottomAnchor.constraint(equalTo: emptyView.bottomAnchor),
-            emptyStack.leadingAnchor.constraint(equalTo: emptyView.leadingAnchor),
-            emptyStack.trailingAnchor.constraint(equalTo: emptyView.trailingAnchor),
+            emptyStack.centerYAnchor.constraint(equalTo: emptyView.centerYAnchor),
+            emptyStack.leadingAnchor.constraint(equalTo: emptyView.leadingAnchor, constant: 20),
+            emptyStack.trailingAnchor.constraint(equalTo: emptyView.trailingAnchor, constant: -20),
         ])
         view.addSubview(emptyView)
 
@@ -729,7 +782,7 @@ final class ExtensionSearchViewController: UIViewController {
         errTitle.textColor = .white
         errTitle.textAlignment = .center
         errorLabel = UILabel()
-        errorLabel.textColor = UIColor(white: 0.45, alpha: 1) // text-muted-foreground
+        errorLabel.textColor = UIColor.HayaseTheme.mutedForeground
         errorLabel.font = .nunito(ofSize: 18) // text-lg
         errorLabel.textAlignment = .center
         errorLabel.numberOfLines = 0
@@ -739,15 +792,26 @@ final class ExtensionSearchViewController: UIViewController {
         errStack.translatesAutoresizingMaskIntoConstraints = false
         errorView.addSubview(errStack)
         NSLayoutConstraint.activate([
-            errStack.topAnchor.constraint(equalTo: errorView.topAnchor),
-            errStack.bottomAnchor.constraint(equalTo: errorView.bottomAnchor),
-            errStack.leadingAnchor.constraint(equalTo: errorView.leadingAnchor),
-            errStack.trailingAnchor.constraint(equalTo: errorView.trailingAnchor),
+            errStack.centerYAnchor.constraint(equalTo: errorView.centerYAnchor),
+            errStack.leadingAnchor.constraint(equalTo: errorView.leadingAnchor, constant: 20),
+            errStack.trailingAnchor.constraint(equalTo: errorView.trailingAnchor, constant: -20),
         ])
         view.addSubview(errorView)
 
         // Web: px-4 sm:px-6 → responsive horizontal padding for skeleton/state views
         let skelPad: CGFloat = (view.window?.bounds.width ?? UIScreen.main.bounds.width) >= 640 ? 24 : 16
+        skeletonLeadingConstraint = skeletonView.leadingAnchor.constraint(equalTo: skeletonScroll.leadingAnchor, constant: skelPad)
+        skeletonTrailingConstraint = skeletonView.trailingAnchor.constraint(equalTo: skeletonScroll.trailingAnchor, constant: -skelPad)
+        skeletonWidthConstraint = skeletonView.widthAnchor.constraint(equalTo: skeletonScroll.widthAnchor, constant: -skelPad * 2)
+        stateLeadingConstraints = [
+            emptyView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: skelPad),
+            errorView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: skelPad),
+        ]
+        stateTrailingConstraints = [
+            emptyView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -skelPad),
+            errorView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -skelPad),
+        ]
+        NSLayoutConstraint.activate(stateLeadingConstraints + stateTrailingConstraints)
 
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
@@ -759,19 +823,36 @@ final class ExtensionSearchViewController: UIViewController {
             skeletonScroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             skeletonScroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             skeletonView.topAnchor.constraint(equalTo: skeletonScroll.topAnchor),
-            skeletonView.leadingAnchor.constraint(equalTo: skeletonScroll.leadingAnchor, constant: skelPad),
-            skeletonView.trailingAnchor.constraint(equalTo: skeletonScroll.trailingAnchor, constant: -skelPad),
-            skeletonView.widthAnchor.constraint(equalTo: skeletonScroll.widthAnchor, constant: -skelPad * 2),
+            skeletonLeadingConstraint,
+            skeletonTrailingConstraint,
+            skeletonWidthConstraint,
 
-            emptyView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
-            emptyView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
-            emptyView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
-            emptyView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
-            errorView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
-            errorView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
-            errorView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
-            errorView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            emptyView.topAnchor.constraint(equalTo: tableView.topAnchor, constant: 8),
+            emptyView.heightAnchor.constraint(equalToConstant: 320),
+            errorView.topAnchor.constraint(equalTo: tableView.topAnchor, constant: 8),
+            errorView.heightAnchor.constraint(equalToConstant: 320),
         ])
+    }
+
+    private func updateSkeletonPadding(for width: CGFloat) {
+        guard width > 0, skeletonLeadingConstraint != nil else { return }
+        let padding: CGFloat = width >= 640 ? 24 : 16
+        if skeletonLeadingConstraint.constant != padding {
+            skeletonLeadingConstraint.constant = padding
+            skeletonTrailingConstraint.constant = -padding
+            skeletonWidthConstraint.constant = -padding * 2
+        }
+    }
+
+    private func updateStatePadding(for width: CGFloat) {
+        guard width > 0 else { return }
+        let padding: CGFloat = width >= 640 ? 24 : 16
+        for constraint in stateLeadingConstraints where constraint.constant != padding {
+            constraint.constant = padding
+        }
+        for constraint in stateTrailingConstraints where constraint.constant != -padding {
+            constraint.constant = -padding
+        }
     }
 
     // MARK: - Search
@@ -1418,8 +1499,9 @@ final class TorrentResultCell: UITableViewCell {
     /// Card container — stored for highlight effects
     private let cardView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.HayaseTheme.card
+        v.backgroundColor = UIColor.HayaseTheme.muted
         v.layer.cornerRadius = 6  // rounded-md (0.375rem = 6px)
+        v.clipsToBounds = true  // web card has overflow-hidden
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
@@ -1453,7 +1535,7 @@ final class TorrentResultCell: UITableViewCell {
     private let extIconsStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 4
+        sv.spacing = 8  // gap-2
         sv.alignment = .center
         return sv
     }()
@@ -1474,7 +1556,7 @@ final class TorrentResultCell: UITableViewCell {
     private let filenameLabel: UILabel = {
         let l = UILabel()
         l.font = .nunito(ofSize: 11)
-        l.textColor = UIColor(white: 0.64, alpha: 1) // text-muted-foreground HSL(240,5%,64.9%) ≈ #a1a1aa
+        l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingTail
         return l
@@ -1512,7 +1594,7 @@ final class TorrentResultCell: UITableViewCell {
         backgroundColor = UIColor.HayaseTheme.background
         selectionStyle = .none
 
-        // Card: theme-default --card hsl(0 0% 4%), 6px radius, mb-2 p-3
+        // Card: bg-muted, 6px radius, mb-2 p-3
         // Hayase px-4 sm:px-6 on the container → we use 16px card inset
         contentView.addSubview(cardView)
 
@@ -1636,7 +1718,7 @@ final class TorrentResultCell: UITableViewCell {
             } else {
                 self.cardView.layer.borderWidth = 0
                 self.cardView.layer.borderColor = nil
-                self.cardView.backgroundColor = UIColor.HayaseTheme.card
+                self.cardView.backgroundColor = UIColor.HayaseTheme.muted
                 self.cardView.transform = .identity
                 self.cardView.layer.shadowOpacity = 0
                 self.groupLabel.textColor = .white
@@ -1681,12 +1763,10 @@ final class TorrentResultCell: UITableViewCell {
         return l
     }
 
-    func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white) {
-        let title = result.title
-        accentColor = accent
-
-        // Responsive card margins: px-4 (16pt), sm:px-6 (24pt), md icon row at 768px.
-        let viewportWidth = window?.bounds.width ?? UIScreen.main.bounds.width
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let viewportWidth = contentView.bounds.width
+        guard viewportWidth > 0 else { return }
         let hPad: CGFloat = viewportWidth >= 640 ? 24 : 16
         cardLeadingConstraint.constant = hPad
         cardTrailingConstraint.constant = -hPad
@@ -1695,11 +1775,14 @@ final class TorrentResultCell: UITableViewCell {
         leftIconContainer.isHidden = !usesWideCard
         contentLeadingConstraint.constant = usesWideCard ? 100 : 20
         groupRow.layoutMargins.left = usesWideCard ? 0 : 24
-
-        // Responsive BadgeCheck position: top-4 left-4 (16px) mobile, md:top-3 md:left-3 (12px) iPad
         let badgeInset: CGFloat = usesWideCard ? 12 : 16
         badgeTopConstraint.constant = badgeInset
         badgeLeadingConstraint.constant = badgeInset
+    }
+
+    func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white) {
+        let title = result.title
+        accentColor = accent
 
         // ── BadgeCheck (mirrors accuracy === 'high' → green, 'medium' → muted, else hidden)
         switch result.accuracy {
