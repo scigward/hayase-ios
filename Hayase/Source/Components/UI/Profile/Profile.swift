@@ -3,7 +3,8 @@
 //  Hayase
 //
 //  Created by scigward.
-//  Mirrors: lib/components/ui/profile/Profile.svelte; lib/components/ui/avatar/avatars.svelte (FollowerAvatarStackView overlap cutout)
+//  Mirrors: src/lib/components/ui/profile/Profile.svelte; src/lib/components/ui/avatar/avatar-image.svelte;
+//  src/lib/components/ui/avatar/avatars.svelte (FollowerAvatarStackView overlap cutout)
 //
 //  Added in this pass: an optional `detailFetcher` on
 //  `FollowerAvatarStackView.configure`/`ProfileButton`, for callers whose
@@ -20,6 +21,144 @@
 //
 
 import UIKit
+import ImageIO
+
+private final class ProfileAvatarImageAsset: NSObject {
+    let poster: UIImage
+    let animationFrames: [CGImage]
+    let keyTimes: [NSNumber]
+    let duration: TimeInterval
+    let repeatCount: Float
+    let memoryCost: Int
+
+    init(poster: UIImage,
+         animationFrames: [CGImage] = [],
+         keyTimes: [NSNumber] = [],
+         duration: TimeInterval = 0,
+         repeatCount: Float = 0,
+         memoryCost: Int) {
+        self.poster = poster
+        self.animationFrames = animationFrames
+        self.keyTimes = keyTimes
+        self.duration = duration
+        self.repeatCount = repeatCount
+        self.memoryCost = memoryCost
+    }
+
+    var isAnimated: Bool {
+        animationFrames.count > 1 && keyTimes.count == animationFrames.count + 1 && duration > 0
+    }
+}
+
+private enum ProfileAvatarImageStore {
+    private static let cache: NSCache<NSString, ProfileAvatarImageAsset> = {
+        let cache = NSCache<NSString, ProfileAvatarImageAsset>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+
+    static func cacheKey(urlString: String, pixelSize: Int) -> NSString {
+        "\(urlString)#avatar-px=\(pixelSize)" as NSString
+    }
+
+    static func asset(for key: NSString) -> ProfileAvatarImageAsset? {
+        cache.object(forKey: key)
+    }
+
+    static func store(_ asset: ProfileAvatarImageAsset, for key: NSString) {
+        cache.setObject(asset, forKey: key, cost: asset.memoryCost)
+    }
+
+    static func decode(data: Data, pointSize: CGFloat, scale: CGFloat) -> ProfileAvatarImageAsset? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return nil }
+
+        let pixelSize = max(1, Int(ceil(pointSize * scale)))
+        let frameCount = CGImageSourceGetCount(source)
+        guard frameCount > 0 else { return nil }
+
+        if frameCount == 1 {
+            guard let frame = thumbnail(from: source, index: 0, pixelSize: pixelSize) else {
+                guard let image = UIImage(data: data) else { return nil }
+                let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? pixelSize * pixelSize * 4
+                return ProfileAvatarImageAsset(poster: image, memoryCost: cost)
+            }
+            let poster = UIImage(cgImage: frame, scale: scale, orientation: .up)
+            return ProfileAvatarImageAsset(
+                poster: poster,
+                memoryCost: frame.bytesPerRow * frame.height
+            )
+        }
+
+        var frames: [CGImage] = []
+        var durations: [TimeInterval] = []
+        frames.reserveCapacity(frameCount)
+        durations.reserveCapacity(frameCount)
+
+        for index in 0..<frameCount {
+            guard let frame = thumbnail(from: source, index: index, pixelSize: pixelSize) else {
+                return nil
+            }
+            frames.append(frame)
+            durations.append(frameDuration(from: source, index: index))
+        }
+
+        let totalDuration = durations.reduce(0, +)
+        guard let firstFrame = frames.first, totalDuration > 0 else { return nil }
+
+        var elapsed: TimeInterval = 0
+        var keyTimes = durations.map { duration -> NSNumber in
+            defer { elapsed += duration }
+            return NSNumber(value: elapsed / totalDuration)
+        }
+        keyTimes.append(1)
+
+        let poster = UIImage(cgImage: firstFrame, scale: scale, orientation: .up)
+        let cost = frames.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+        return ProfileAvatarImageAsset(
+            poster: poster,
+            animationFrames: frames,
+            keyTimes: keyTimes,
+            duration: totalDuration,
+            repeatCount: gifRepeatCount(from: source),
+            memoryCost: cost
+        )
+    }
+
+    private static func thumbnail(from source: CGImageSource,
+                                  index: Int,
+                                  pixelSize: Int) -> CGImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: pixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
+    }
+
+    private static func frameDuration(from source: CGImageSource, index: Int) -> TimeInterval {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any] else {
+            return 0.1
+        }
+        let unclamped = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? NSNumber)?.doubleValue
+        let clamped = (gif[kCGImagePropertyGIFDelayTime] as? NSNumber)?.doubleValue
+        let duration = unclamped ?? clamped ?? 0.1
+        return duration > 0 ? duration : 0.1
+    }
+
+    private static func gifRepeatCount(from source: CGImageSource) -> Float {
+        guard let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
+              let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any],
+              let loops = gif[kCGImagePropertyGIFLoopCount] as? NSNumber else {
+            return .infinity
+        }
+        let loopCount = loops.intValue
+        return loopCount == 0 ? .infinity : Float(loopCount)
+    }
+}
 
 final class FollowerAvatarStackView: UIStackView {
     private var buttons: [ProfileButton] = []
@@ -197,8 +336,12 @@ private final class ProfileButton: UIControl {
 }
 
 private final class ProfileAvatarView: UIView {
+    private static let animationKey = "profileAvatarAnimation"
+
     private var imageTask: URLSessionDataTask?
+    private var activeAvatarURL: String?
     private let user: AniListUserSummary
+    private let avatarSize: CGFloat
     private let imageView = UIImageView()
     private let fallbackLabel = UILabel()
     private let skeletonView = UIView()
@@ -211,6 +354,7 @@ private final class ProfileAvatarView: UIView {
          ringWidth: CGFloat,
          ringColor: UIColor) {
         self.user = user
+        self.avatarSize = avatarSize
         self.ringWidth = ringWidth
         self.ringColor = ringColor
         super.init(frame: .zero)
@@ -286,27 +430,57 @@ private final class ProfileAvatarView: UIView {
             skeletonView.isHidden = true
             return
         }
-        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
-            imageView.image = cached
-            fallbackLabel.isHidden = true
-            skeletonView.isHidden = true
+
+        let displayScale = UIScreen.main.scale
+        let pixelSize = max(1, Int(ceil(avatarSize * displayScale)))
+        let cacheKey = ProfileAvatarImageStore.cacheKey(urlString: urlString, pixelSize: pixelSize)
+        activeAvatarURL = urlString
+
+        if let cached = ProfileAvatarImageStore.asset(for: cacheKey) {
+            apply(cached)
             return
         }
+
         startSkeleton()
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self else { return }
             guard let data,
-                  let image = UIImage(data: data) else {
-                DispatchQueue.main.async { self.stopSkeleton(showFallback: true) }
+                  let asset = ProfileAvatarImageStore.decode(
+                    data: data,
+                    pointSize: self.avatarSize,
+                    scale: displayScale
+                  ) else {
+                DispatchQueue.main.async {
+                    guard self.activeAvatarURL == urlString else { return }
+                    self.stopSkeleton(showFallback: true)
+                }
                 return
             }
-            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+
+            ProfileAvatarImageStore.store(asset, for: cacheKey)
             DispatchQueue.main.async {
-                self.imageView.image = image
-                self.stopSkeleton(showFallback: false)
+                guard self.activeAvatarURL == urlString else { return }
+                self.apply(asset)
             }
         }
         imageTask?.resume()
+    }
+
+    private func apply(_ asset: ProfileAvatarImageAsset) {
+        imageView.layer.removeAnimation(forKey: Self.animationKey)
+        imageView.image = asset.poster
+
+        if asset.isAnimated, let lastFrame = asset.animationFrames.last {
+            let animation = CAKeyframeAnimation(keyPath: "contents")
+            animation.values = asset.animationFrames.map { $0 as Any } + [lastFrame as Any]
+            animation.keyTimes = asset.keyTimes
+            animation.duration = asset.duration
+            animation.repeatCount = asset.repeatCount
+            animation.calculationMode = .discrete
+            imageView.layer.add(animation, forKey: Self.animationKey)
+        }
+
+        stopSkeleton(showFallback: false)
     }
 
     private func startSkeleton() {
@@ -321,8 +495,10 @@ private final class ProfileAvatarView: UIView {
     }
 
     func prepareForReuse() {
+        activeAvatarURL = nil
         imageTask?.cancel()
         imageTask = nil
+        imageView.layer.removeAnimation(forKey: Self.animationKey)
         HayaseSkeleton.stopPulse(on: skeletonView)
     }
 }

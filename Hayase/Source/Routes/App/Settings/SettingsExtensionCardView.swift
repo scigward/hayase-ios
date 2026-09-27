@@ -1,4 +1,4 @@
-// Mirrors: src/lib/components/ui/extensions/ExtensionCard.svelte
+// Mirrors: src/lib/components/ui/extensions/ExtensionCard.svelte; src/lib/components/ui/extensions/ExtensionSettings.svelte
 import UIKit
 
 final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate {
@@ -135,6 +135,7 @@ final class SettingsExtensionCardView: UIView, UIContextMenuInteractionDelegate 
     private func iconButton(_ icon: String, label: String) -> UIButton {
         let button = GhostButton(frame: .zero)
         button.setImage(UIImage.hayaseIcon(icon), for: .normal)
+        button.tintColor = UIColor.HayaseTheme.foreground
         button.accessibilityLabel = label
         button.widthAnchor.constraint(equalToConstant: 26).isActive = true
         button.heightAnchor.constraint(equalToConstant: 26).isActive = true
