@@ -1796,10 +1796,13 @@ final class TorrentResultCell: UITableViewCell {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 11.2
         paragraph.maximumLineHeight = 11.2
+        paragraph.alignment = .center
+        label.textAlignment = .center
         label.attributedText = NSAttributedString(string: text, attributes: [
             .font: UIFont.nunito(ofSize: 11.2, weight: weight),
             .foregroundColor: color,
             .paragraphStyle: paragraph,
+            .baselineOffset: -1.5,
         ])
     }
 
