@@ -368,10 +368,7 @@ final class ExtensionSearchViewController: UIViewController {
         // Close button (X) — mirrors web Dialog close button (absolute right-4 top-4)
         // Shown when presented modally; dismisses the modal on tap.
         if isPresentedModally {
-            closeButton = UIButton(type: .system)
-            closeButton.setImage(UIImage.hayaseIcon("x", pointSize: 16), for: .normal)
-            closeButton.tintColor = UIColor.HayaseTheme.foreground
-            closeButton.backgroundColor = .clear
+            closeButton = HayaseCloseButton()
             closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
             // Ensure touches always reach the button
