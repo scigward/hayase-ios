@@ -315,6 +315,9 @@ final class AnimeTagChipButton: UIButton {
 
     private let blurredTitleView = UIImageView()
     private var blurredTitleCacheKey: String?
+    private var spoilerFrames: [Int: UIImage] = [:]
+    private var lastRevealed: Bool?
+    private var isPointerOverTitle = false
 
     override var isHighlighted: Bool {
         didSet { updateSpoilerRendering() }
@@ -348,6 +351,18 @@ final class AnimeTagChipButton: UIButton {
         blurredTitleView.contentMode = .center
         blurredTitleView.isHidden = true
         addSubview(blurredTitleView)
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(spoilerHover(_:))))
+    }
+
+    @objc private func spoilerHover(_ gesture: UIHoverGestureRecognizer) {
+        isPointerOverTitle = (gesture.state == .began || gesture.state == .changed)
+            && (titleLabel?.frame.contains(gesture.location(in: self)) ?? false)
+        updateSpoilerRendering()
+    }
+
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        updateSpoilerRendering()
     }
 
     override func layoutSubviews() {
@@ -424,59 +439,80 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func updateSpoilerRendering() {
-        guard isSpoilerChip, !isHighlighted else {
+        guard isSpoilerChip else {
             titleLabel?.alpha = 1
             blurredTitleView.isHidden = true
+            blurredTitleView.layer.removeAnimation(forKey: "spoilerFilter")
+            lastRevealed = nil
             return
         }
-
+        // Tailwind select = hover, focus-visible, active. Blur only the text,
+        // never the button's background or dashed border.
+        let revealed = isHighlighted || isFocused || isPointerOverTitle
+        let shouldAnimate = lastRevealed != nil && lastRevealed != revealed
+            && window != nil && !UIAccessibility.isReduceMotionEnabled
         titleLabel?.alpha = 0
         blurredTitleView.isHidden = false
-        renderBlurredTitleIfNeeded()
+        renderBlurredTitleIfNeeded(animated: shouldAnimate)
+        guard let clear = spoilerFrames[0], let blurred = spoilerFrames[12] else { return }
+        lastRevealed = revealed
+        blurredTitleView.image = revealed ? clear : blurred
+        guard shouldAnimate, spoilerFrames.count == 13 else { return }
+
+        // transition-[filter]: 150ms, Tailwind's cubic-bezier(0.4,0,0.2,1).
+        // Cached Gaussian samples animate the filter itself, not two cross-fading texts.
+        let indices = revealed ? Array((0...12).reversed()) : Array(0...12)
+        let frames = indices.compactMap { spoilerFrames[$0] }
+        var values: [Any] = frames.compactMap { $0.cgImage }
+        if let current = blurredTitleView.layer.presentation()?.contents, !values.isEmpty {
+            values[0] = current
+        }
+        let animation = CAKeyframeAnimation(keyPath: "contents")
+        animation.values = values
+        animation.keyTimes = (0..<values.count).map { NSNumber(value: Double($0) / Double(values.count - 1)) }
+        animation.calculationMode = .discrete
+        animation.duration = 0.15
+        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)
+        blurredTitleView.layer.add(animation, forKey: "spoilerFilter")
     }
 
-    private func renderBlurredTitleIfNeeded() {
-        guard let text = title(for: .normal), !text.isEmpty else {
-            blurredTitleView.image = nil
-            blurredTitleCacheKey = nil
-            return
-        }
-
+    private func renderBlurredTitleIfNeeded(animated: Bool) {
+        guard let text = title(for: .normal), !text.isEmpty, bounds.height > 0 else { return }
         let font = titleLabel?.font ?? .systemFont(ofSize: 14)
-        let color = titleColor(for: .normal) ?? UIColor.HayaseTheme.mutedForeground
+        let color = currentTitleColor
+        let scale = window?.screen.scale ?? UIScreen.main.scale
         let size = text.size(withAttributes: [.font: font])
-        let targetSize = CGSize(width: ceil(size.width) + 36, height: max(ceil(size.height), bounds.height) + 36)
-        let key = "\(text)|\(font.pointSize)|\(bounds.height)|\(color.description)"
-        guard key != blurredTitleCacheKey else { return }
-        blurredTitleCacheKey = key
-
+        let targetSize = CGSize(width: ceil(size.width) + 36, height: ceil(size.height) + 36)
+        let key = "\(text)|\(font.fontName)|\(font.pointSize)|\(scale)|\(color.description)"
+        if key != blurredTitleCacheKey {
+            blurredTitleCacheKey = key
+            spoilerFrames.removeAll()
+        }
+        // Render just the endpoints on initial layout. Intermediate radii are
+        // generated once, only when this particular tag is interacted with.
+        let steps = animated ? Array(0...12) : [0, 12]
+        guard steps.contains(where: { spoilerFrames[$0] == nil }) else { return }
         let format = UIGraphicsImageRendererFormat()
-        format.scale = UIScreen.main.scale
+        format.scale = scale
         format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let textImage = renderer.image { _ in
-            let rect = CGRect(x: (targetSize.width - size.width) / 2,
-                              y: (targetSize.height - size.height) / 2,
-                              width: size.width,
-                              height: size.height)
-            text.draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
+        let textImage = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            text.draw(at: CGPoint(x: (targetSize.width - size.width) / 2,
+                                 y: (targetSize.height - size.height) / 2),
+                      withAttributes: [.font: font, .foregroundColor: color])
         }
-
-        guard let cgImage = textImage.cgImage else {
-            blurredTitleView.image = textImage
-            return
-        }
-
+        guard let cgImage = textImage.cgImage else { return }
         let input = CIImage(cgImage: cgImage)
-        let filter = CIFilter(name: "CIGaussianBlur")
-        filter?.setValue(input, forKey: kCIInputImageKey)
-        filter?.setValue(6.0 * textImage.scale, forKey: kCIInputRadiusKey)
-        guard let output = filter?.outputImage?.cropped(to: input.extent),
-              let rendered = Self.blurContext.createCGImage(output, from: input.extent) else {
-            blurredTitleView.image = textImage
-            return
+        for step in steps where spoilerFrames[step] == nil {
+            if step == 0 { spoilerFrames[step] = textImage; continue }
+            let output = input.applyingFilter("CIGaussianBlur",
+                parameters: [kCIInputRadiusKey: CGFloat(step) / 2 * scale])
+            guard let rendered = Self.blurContext.createCGImage(output, from: input.extent) else {
+                spoilerFrames.removeAll()
+                blurredTitleView.image = nil
+                return
+            }
+            spoilerFrames[step] = UIImage(cgImage: rendered, scale: scale, orientation: .up)
         }
-        blurredTitleView.image = UIImage(cgImage: rendered, scale: textImage.scale, orientation: textImage.imageOrientation)
     }
 }
 
@@ -1772,7 +1808,15 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         btn.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(isTag ? 0.4 : 1)
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6
-        btn.layer.masksToBounds = true
+        // CSS filter paints beyond the text/button box; clipping here chops
+        // the 6px Gaussian halo off at the top and bottom of spoiler tags.
+        btn.layer.masksToBounds = false
+        if isTag {
+            btn.layer.shadowColor = UIColor.black.cgColor
+            btn.layer.shadowOpacity = 0.05
+            btn.layer.shadowOffset = CGSize(width: 0, height: 1)
+            btn.layer.shadowRadius = 1
+        }
         btn.dashedBorder = isTag
         btn.isSpoilerChip = isSpoiler
         btn.translatesAutoresizingMaskIntoConstraints = false

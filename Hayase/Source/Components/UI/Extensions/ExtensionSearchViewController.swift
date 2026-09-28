@@ -181,6 +181,43 @@ final class ExtensionSearchViewController: UIViewController {
     private var controlTrailingConstraints: [NSLayoutConstraint] = []
     private var controlsAreWrapped = false
     private var minimumUnwrappedControlsWidth: CGFloat = 0
+    private var equalInputWidths: NSLayoutConstraint!
+    private var bannerUsesWideArtwork: Bool?
+    private var bannerRequestGeneration = 0
+
+    private func updateBanner(for width: CGFloat) {
+        guard width > 0, bannerImageView != nil else { return }
+        let wide = width >= 768
+        guard bannerUsesWideArtwork != wide else { return }
+        bannerUsesWideArtwork = wide
+        bannerRequestGeneration += 1
+        let generation = bannerRequestGeneration
+        bannerImageView.image = nil
+        let load: (String?) -> Void = { [weak self] source in
+            guard let self, self.bannerRequestGeneration == generation,
+                  let source, let url = URL(string: source) else { return }
+            if let cached = SharedImageCache.shared.object(forKey: source as NSString) {
+                self.bannerImageView.image = cached
+                return
+            }
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let data, let image = UIImage(data: data) else { return }
+                SharedImageCache.shared.setObject(image, forKey: source as NSString)
+                DispatchQueue.main.async {
+                    guard let self, self.bannerRequestGeneration == generation else { return }
+                    self.bannerImageView.image = image
+                }
+            }.resume()
+        }
+        if wide, let id = animeItem?.id {
+            let fallback = resolvedBannerFallback()
+            AniListClient.fetchFanartURL(anilistID: id) { source in
+                DispatchQueue.main.async { load(source ?? fallback) }
+            }
+        } else {
+            load(resolvedCoverFallback())
+        }
+    }
     /// Progress overlay on Auto Select button (mirrors web ProgressButton animation)
     private var progressOverlay: UIView!
 
@@ -269,9 +306,16 @@ final class ExtensionSearchViewController: UIViewController {
         if pendingPlayer == nil { cleanupPendingState() }
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        // Switch the constraints before Auto Layout solves a newly compact width.
+        updateControlsLayout(for: view.bounds.width)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateControlsLayout(for: view.bounds.width)
+        updateBanner(for: view.bounds.width)
         updateSkeletonPadding(for: view.bounds.width)
         updateStatePadding(for: view.bounds.width)
         // Interface keeps the dark gradient as a sibling overlay, not inside the 40% image layer.
@@ -287,7 +331,7 @@ final class ExtensionSearchViewController: UIViewController {
         // height 0 when Auto Layout can't resolve the circular dependency.
         // Fix: TWO separate views, each with an explicit heightAnchor constant.
         //   bannerView  → 144pt (max-h-36, always visible, never 0)
-        //   controlsView → 220pt (32+28+16+36+16+36+16+36+4)
+        //   controlsView → 236pt, or 288pt when the two inputs wrap.
         // tableView.top = controlsView.bottom → always correct.
         // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -319,44 +363,7 @@ final class ExtensionSearchViewController: UIViewController {
         // Anime title — shown via the titleLabel in controlsView (not navigation bar)
         // Sits on the dark gradient zone → always readable. One line, truncated.
 
-        // Banner image source — mirrors web Banner component's breakpoint behavior:
-        //   md (iPad regular): AniZip v2 TMDB backdrop → poster → AniList banner → YouTube → cover
-        //   mobile (compact): cover(media) = coverImage → banner fallback
-        let isRegular = traitCollection.horizontalSizeClass == .regular
-        if isRegular, let anilistID = animeItem?.id {
-            // iPad — fetch AniZip v2 TMDB artwork, fall back to AniList banner → YouTube → cover
-            let bannerFallback = resolvedBannerFallback()
-            AniListClient.fetchFanartURL(anilistID: anilistID) { [weak self] fanartURL in
-                let urlStr = fanartURL ?? bannerFallback
-                guard let urlStr, let url = URL(string: urlStr) else { return }
-                if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                    DispatchQueue.main.async { self?.bannerImageView.image = cached }
-                    return
-                }
-                URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                    if let data, let img = UIImage(data: data) {
-                        SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
-                        DispatchQueue.main.async { self?.bannerImageView.image = img }
-                    }
-                }.resume()
-            }
-        } else {
-            // iPhone — use cover image directly (matches web: cover(media) on non-md)
-            let urlStr = resolvedCoverFallback()
-            if let urlStr, let url = URL(string: urlStr) {
-                if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                    bannerImageView.image = cached
-                } else {
-                    URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                        if let data, let img = UIImage(data: data) {
-                            SharedImageCache.shared.setObject(img, forKey: urlStr as NSString)
-                            DispatchQueue.main.async { self?.bannerImageView.image = img }
-                        }
-                    }.resume()
-                }
-            }
-        }
-
+        updateBanner(for: view.bounds.width)
         NSLayoutConstraint.activate([
             // bannerView: from very top of screen (under transparent nav bar)
             bannerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -390,8 +397,8 @@ final class ExtensionSearchViewController: UIViewController {
             ])
         }
 
-        // ── 2. CONTROLS VIEW — EXPLICIT height 220pt, pinned to bannerView.bottom ───
-        // height = 32 (top, web pt-8) + 28 (title) + 16 (space-y-4) + 36 (filter h-9) + 16 (space-y-4) + 36 (row h-9) + 16 (space-y-4) + 36 (button h-9) + 4 (bottom buffer) = 220
+        // Controls overlay the banner: 32pt top + 32pt title + three 36pt
+        // controls + three 16pt gaps + 16pt gap before the result viewport.
         // Matches web: pt-8 (32px) + space-y-4 (16px gaps) + title + filter + row + button
         let accentColor = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
         let contrastColor = Self.luminanceContrastColor(for: accentColor)
@@ -507,10 +514,10 @@ final class ExtensionSearchViewController: UIViewController {
 
         let episodeWidth = epLabel.intrinsicContentSize.width + 8 + 128
         let resolutionWidth = resLabel.intrinsicContentSize.width + 8 + 128
-        minimumUnwrappedControlsWidth = 2 * max(episodeWidth, resolutionWidth) + 16
+        minimumUnwrappedControlsWidth = episodeWidth + resolutionWidth + 16
 
         controlsRow = UIStackView(arrangedSubviews: [epStack, resStack])
-        controlsRow.axis = .horizontal; controlsRow.distribution = .fillEqually
+        controlsRow.axis = .horizontal; controlsRow.distribution = .fill
         controlsRow.spacing = 16; controlsRow.alignment = .center
         controlsRow.translatesAutoresizingMaskIntoConstraints = false
         controlsView.addSubview(controlsRow)
@@ -533,7 +540,8 @@ final class ExtensionSearchViewController: UIViewController {
         progressOverlay.isUserInteractionEnabled = false
         progressOverlay.translatesAutoresizingMaskIntoConstraints = false
         autoSelectButton.addSubview(progressOverlay)
-        controlsHeightConstraint = controlsView.heightAnchor.constraint(equalToConstant: 220)
+        controlsHeightConstraint = controlsView.heightAnchor.constraint(equalToConstant: 236)
+        equalInputWidths = episodeField.widthAnchor.constraint(equalTo: resolutionComboBox.widthAnchor)
         controlsRowHeightConstraint = controlsRow.heightAnchor.constraint(equalToConstant: 36)
         controlLeadingConstraints = [
             titleLabel.leadingAnchor.constraint(equalTo: controlsView.leadingAnchor, constant: hPad),
@@ -567,6 +575,7 @@ final class ExtensionSearchViewController: UIViewController {
 
             // Anime title (web: text-2xl font-bold, first child of pt-8 + space-y-4 container)
             titleLabel.topAnchor.constraint(equalTo: controlsView.topAnchor, constant: 32),
+            titleLabel.heightAnchor.constraint(equalToConstant: 32), // text-2xl line-height
 
             filterField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
             filterField.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px
@@ -578,6 +587,8 @@ final class ExtensionSearchViewController: UIViewController {
             episodeField.heightAnchor.constraint(equalToConstant: 36),  // h-9
             resolutionComboBox.widthAnchor.constraint(greaterThanOrEqualToConstant: 128),
             resolutionComboBox.heightAnchor.constraint(equalToConstant: 36),
+            // Both web inputs start at w-32 and receive the same flex-grow space.
+            equalInputWidths,
 
             autoSelectButton.topAnchor.constraint(equalTo: controlsRow.bottomAnchor, constant: 16),
             autoSelectButton.heightAnchor.constraint(equalToConstant: 36),  // h-9 = 2.25rem = 36px (web size='default')
@@ -602,10 +613,11 @@ final class ExtensionSearchViewController: UIViewController {
         let wrapped = width - 2 * padding < minimumUnwrappedControlsWidth
         guard wrapped != controlsAreWrapped else { return }
         controlsAreWrapped = wrapped
+        equalInputWidths.isActive = !wrapped
         controlsRow.axis = wrapped ? .vertical : .horizontal
         controlsRow.alignment = wrapped ? .fill : .center
         controlsRowHeightConstraint.constant = wrapped ? 88 : 36
-        controlsHeightConstraint.constant = wrapped ? 272 : 220
+        controlsHeightConstraint.constant = wrapped ? 288 : 236
     }
 
     // MARK: - Colour helpers (mirror Hayase's colors() utility + text-contrast logic)
@@ -1556,7 +1568,7 @@ final class TorrentResultCell: UITableViewCell {
     // Simplified filename
     private let filenameLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 11)
+        l.font = .nunito(ofSize: 11.2)
         l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingTail
@@ -1612,13 +1624,15 @@ final class TorrentResultCell: UITableViewCell {
         // Web: pl-6 on compact cards, md:pl-0 when the 80px file icon is visible.
         groupRow.insertArrangedSubview(groupLabel, at: 0)
         groupRow.addArrangedSubview(extIconsStack)
+        groupLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        extIconsStack.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         // Bottom-left: type badge + seeders + size + date (mirrors web details row)
         // Web: text-[.7rem] = 11.2px ≈ 11pt, normal weight. .details span+span::before for dots.
-        seedersLabel.font = .nunito(ofSize: 11)  // normal weight (web inherits from parent)
-        sizeLabel.font = .nunito(ofSize: 11)
+        seedersLabel.font = .nunito(ofSize: 11.2)
+        sizeLabel.font = .nunito(ofSize: 11.2)
         sizeLabel.textColor = UIColor.white.withAlphaComponent(0.8) // text-white/80
-        dateLabel.font = .nunito(ofSize: 11)
+        dateLabel.font = .nunito(ofSize: 11.2)
         dateLabel.textColor = UIColor.white.withAlphaComponent(0.8) // text-white/80
 
         // [typeBadge • seeders • size • date] with dot separators
@@ -1631,13 +1645,21 @@ final class TorrentResultCell: UITableViewCell {
         // Bottom-right: tech term badges
         let bottomSpacer = UIView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        bottomSpacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
+        for label in [typeBadgeLabel, seedersLabel, sizeLabel, dateLabel, dot1, dot2, dot3] {
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
         let bottomRow = UIStackView(arrangedSubviews: [leftBottom, bottomSpacer, termsStack])
         bottomRow.axis = .horizontal
         bottomRow.spacing = 0
         bottomRow.alignment = .center
 
         // Content column (no left icon on mobile — matches Hayase mobile layout)
-        let contentCol = UIStackView(arrangedSubviews: [groupRow, filenameLabel, bottomRow])
+        // Web text-nowrap never squeezes badges/details to fit. The card clips
+        // horizontal overflow instead; only the filename has an ellipsis.
+        let contentCol = UIStackView(arrangedSubviews: [
+            Self.clippedRow(groupRow), filenameLabel, Self.clippedRow(bottomRow),
+        ])
         contentCol.axis = .vertical
         contentCol.distribution = .equalSpacing  // justify-between (web h-20 flex-col justify-between)
         contentCol.translatesAutoresizingMaskIntoConstraints = false
@@ -1653,11 +1675,11 @@ final class TorrentResultCell: UITableViewCell {
         badgeLeadingConstraint = badgeCheckView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16)
 
         NSLayoutConstraint.activate([
-            // Card: mb-2 (4pt top/bottom gap) + responsive side inset
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            // Card: mb-2 (8pt below, no leading gap) + responsive side inset
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor),
             cardLeadingConstraint,
             cardTrailingConstraint,
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
             // BadgeCheck — absolute top-left (mobile: top-4 left-4 = 16px, iPad md: top-3 left-3 = 12px)
             // size 1.2rem ≈ 19px. Position updated in configure() for responsive sizing.
@@ -1680,7 +1702,7 @@ final class TorrentResultCell: UITableViewCell {
             contentCol.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
             contentCol.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
             contentCol.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
-            contentCol.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            contentCol.heightAnchor.constraint(equalToConstant: 80),
         ])
     }
 
@@ -1741,6 +1763,25 @@ final class TorrentResultCell: UITableViewCell {
         l.clipsToBounds = true
         l.layer.borderWidth = 1
         return l
+    }
+
+    /// A CSS nowrap flex row may exceed min-w-0's available width. Preserve its
+    /// intrinsic content and let overflow-hidden clip it, rather than shrinking text.
+    private static func clippedRow(_ row: UIView) -> UIView {
+        let viewport = UIView()
+        viewport.clipsToBounds = true
+        row.translatesAutoresizingMaskIntoConstraints = false
+        viewport.addSubview(row)
+        let preferredWidth = row.widthAnchor.constraint(equalTo: viewport.widthAnchor)
+        preferredWidth.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: viewport.leadingAnchor),
+            row.topAnchor.constraint(equalTo: viewport.topAnchor),
+            row.bottomAnchor.constraint(equalTo: viewport.bottomAnchor),
+            row.widthAnchor.constraint(greaterThanOrEqualTo: viewport.widthAnchor),
+            preferredWidth,
+        ])
+        return viewport
     }
 
     /// Renders the exact Lucide BadgeCheck outline with the interface fill and stroke.
@@ -1961,6 +2002,7 @@ final class TorrentResultCell: UITableViewCell {
             l.backgroundColor = term.color
             l.layer.cornerRadius = 4  // rounded
             l.clipsToBounds = true
+            l.setContentCompressionResistancePriority(.required, for: .horizontal)
             termsStack.addArrangedSubview(l)
         }
     }
@@ -2091,7 +2133,7 @@ final class BottomDialogPresentationController: UIPresentationController {
         let x = (containerView.bounds.width - width) / 2
         // top = 16px from viewport top (web: centered + mt-2 + max-h-[calc(100%-1rem)])
         // bottom = flush with viewport bottom (web: extends to 100vh)
-        let topInset: CGFloat = 16
+        let topInset: CGFloat = containerView.safeAreaInsets.top + 16
         let height = containerView.bounds.height - topInset
         return CGRect(x: x, y: topInset, width: width, height: height)
     }
@@ -2134,7 +2176,7 @@ final class BottomDialogPresentationController: UIPresentationController {
         presentedView?.frame = frameOfPresentedViewInContainerView
 
         // lg:rounded-t-xl (12px top corners) + !rounded-b-none (square bottom)
-        presentedView?.layer.cornerRadius = 12
+        presentedView?.layer.cornerRadius = bounds.width >= 1024 ? 12 : (bounds.width >= 640 ? 8 : 0)
         presentedView?.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         presentedView?.clipsToBounds = true
 
@@ -2155,7 +2197,8 @@ final class BottomDialogPresentationController: UIPresentationController {
 
     /// Draw border path on top + left + right edges only (no bottom).
     private func updateBorderPath(_ layer: CAShapeLayer, in bounds: CGRect) {
-        let r: CGFloat = 12
+        let viewportWidth = containerView?.bounds.width ?? bounds.width
+        let r: CGFloat = viewportWidth >= 1024 ? 12 : (viewportWidth >= 640 ? 8 : 0)
         let path = UIBezierPath()
         // Start at bottom-left, go up to top-left corner, arc, go right to top-right corner, arc, go down to bottom-right
         path.move(to: CGPoint(x: 0, y: bounds.height))
