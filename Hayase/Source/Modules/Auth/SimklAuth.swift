@@ -55,6 +55,7 @@ final class SimklAuth {
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
+                TrackerErrorToast.report(provider: "Simkl", data: data, response: response, error: error)
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
             }
@@ -63,6 +64,7 @@ final class SimklAuth {
                   let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["access_token"] as? String else {
+                TrackerErrorToast.report(provider: "Simkl", data: data, response: response, error: error)
                 DispatchQueue.main.async { completion(.failure(AuthError.invalidResponse)) }
                 return
             }
@@ -94,13 +96,14 @@ final class SimklAuth {
         request.setValue(clientID, forHTTPHeaderField: "simkl-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let account = json["account"] as? [String: Any],
                   let id = (account["id"] as? NSNumber)?.stringValue else {
+                TrackerErrorToast.report(provider: "Simkl", data: data, response: response, error: error)
                 completion(nil)
                 return
             }

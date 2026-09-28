@@ -166,20 +166,26 @@ extension SettingsViewController {
 
     func exportSettings() {
         guard let data = try? SettingsFileService.exportData() else {
-            presentMessage(title: "Export Failed", message: "The current settings could not be encoded.")
+            AppErrorToast.show("Failed to export settings to file.", title: "Failed to export settings", duration: 4)
             return
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hayase-settings.json")
         do {
             try data.write(to: url, options: .atomic)
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.completionWithItemsHandler = { _, _, _, error in
+                guard error != nil else { return }
+                DispatchQueue.main.async {
+                    AppErrorToast.show("Failed to export settings to file.", title: "Failed to export settings", duration: 4)
+                }
+            }
             if let popover = activity.popoverPresentationController {
                 popover.sourceView = view
                 popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
             }
             present(activity, animated: true)
         } catch {
-            presentMessage(title: "Export Failed", message: error.localizedDescription)
+            AppErrorToast.show("Failed to export settings to file.", title: "Failed to export settings", duration: 4)
         }
     }
 
@@ -194,7 +200,8 @@ extension SettingsViewController {
             reloadContent()
             presentMessage(title: "Settings Imported", message: "Your settings were imported successfully.")
         } catch {
-            presentMessage(title: "Import Failed", message: error.localizedDescription)
+            AppErrorToast.show("Failed to import settings from file, make sure the selected file is valid JSON.",
+                title: "Failed to import settings", duration: 4)
         }
     }
 

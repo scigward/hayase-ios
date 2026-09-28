@@ -173,7 +173,10 @@ final class SettingsExtensionsView: UIView, SettingsResponsiveView {
         importButton.setTitle("Importing extensions....", for: .normal)
         Task { @MainActor [weak self] in
             do { try await ExtensionService.shared.importExtension(from: address) }
-            catch { if let self { SettingsToast.show(error.localizedDescription, in: self.parent?.view ?? self) } }
+            catch {
+                guard !Task.isCancelled else { return }
+                AppErrorToast.show(error.localizedDescription, title: (error as? ExtensionError)?.toastTitle ?? "Invalid extension URI")
+            }
             self?.importButton.isEnabled = true
             self?.importButton.setTitle("Import Extensions", for: .normal)
             self?.reload()

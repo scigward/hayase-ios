@@ -131,13 +131,20 @@ final class ExtensionService {
     func importExtension(from rawURL: String) async throws {
         let generation = self.generation
         guard let url = jsonurl(rawURL) else {
-            throw ExtensionError.invalidURL("Invalid extension manifest URL: \(rawURL)")
+            throw ExtensionError.invalidURL("Make sure the link you provided is a valid JSON config for Hayase")
         }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let data: Data
+        do {
+            let response = try await URLSession.shared.data(from: url)
+            data = response.0
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw ExtensionError.invalidURL("Make sure the link you provided is a valid JSON config for Hayase")
+        }
         guard generation == self.generation else { throw CancellationError() }
         guard let newConfigs = try? decoder.decode([ExtensionConfig].self, from: data) else {
-            throw ExtensionError.invalidManifest("Make sure the link is a valid JSON config for Hayase")
+            throw ExtensionError.invalidURL("Make sure the link you provided is a valid JSON config for Hayase")
         }
 
         var attemptedOverrides: [String] = []
@@ -145,7 +152,7 @@ final class ExtensionService {
 
         for c in newConfigs {
             guard validateConfig(c) else {
-                throw ExtensionError.invalidManifest("Extension config for '\(c.name)' is invalid")
+                throw ExtensionError.invalidManifest("Make sure the link you provided is a valid extension config for Hayase")
             }
             if configs[c.id] != nil {
                 attemptedOverrides.append(c.id)
@@ -162,8 +169,7 @@ final class ExtensionService {
 
         if !attemptedOverrides.isEmpty {
             throw ExtensionError.alreadyExists(
-                "Extensions already exist and were not imported: \(attemptedOverrides.joined(separator: ", "))\n" +
-                "Delete the existing extensions first to override them.")
+                "The following extensions already exist and were not imported: \n\n\(attemptedOverrides.joined(separator: ", "))\n\nIf you want to override them, please delete the existing extensions first.")
         }
     }
 
@@ -717,7 +723,7 @@ final class ExtensionService {
                         print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
                         return
                     }
-                    await self.loadWorker(url: url, id: config.id)
+                    await self.loadWorker(url: url, id: config.id, showErrors: false)
                 }
             }
         }
@@ -745,7 +751,7 @@ final class ExtensionService {
     }
 
     /// mirrors CodeManager._loadWorker — creates/replaces a WKWebView worker
-    private func loadWorker(url: URL, id: String) async {
+    private func loadWorker(url: URL, id: String, showErrors: Bool = true) async {
         let generation = self.generation
         // Destroy old worker first
         if let old = workers[id] {
@@ -761,6 +767,15 @@ final class ExtensionService {
             }
             workers[id] = worker
             print("ExtensionService: loaded worker for \(id)")
+            // storage.ts tests workers after loading, but suppresses startup toasts.
+            do {
+                _ = try await worker.test()
+            } catch {
+                if showErrors, options[id]?.enabled == true,
+                   generation == self.generation, !Task.isCancelled {
+                    AppErrorToast.show(error.localizedDescription, title: "Extension \(id) Failed to load!")
+                }
+            }
         } catch {
             print("ExtensionService: failed to load worker for \(id): \(error)")
         }
@@ -806,6 +821,15 @@ enum ExtensionError: LocalizedError {
     case alreadyExists(String)
     case noExtensions(String)
     case callFailed(String)
+
+    var toastTitle: String {
+        switch self {
+        case .invalidURL: return "Invalid extension URI"
+        case .invalidManifest: return "Invalid extension config"
+        case .alreadyExists: return "Extension Already Exists!"
+        case .noExtensions, .callFailed: return "Extension Error"
+        }
+    }
 
     var errorDescription: String? {
         switch self {

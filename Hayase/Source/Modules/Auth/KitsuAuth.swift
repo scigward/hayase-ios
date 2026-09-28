@@ -23,10 +23,11 @@ final class KitsuAuth {
         let body = "grant_type=password&username=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         request.httpBody = body.data(using: .utf8)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["access_token"] as? String else {
+                TrackerErrorToast.report(provider: "Kitsu", data: data, response: response, error: error)
                 DispatchQueue.main.async { completion(false) }
                 return
             }
@@ -49,7 +50,7 @@ final class KitsuAuth {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.api+json", forHTTPHeaderField: "Accept")
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataArray = json["data"] as? [[String: Any]],
@@ -57,6 +58,7 @@ final class KitsuAuth {
                   let id = user["id"] as? String,
                   let attributes = user["attributes"] as? [String: Any],
                   let name = attributes["name"] as? String else {
+                TrackerErrorToast.report(provider: "Kitsu", data: data, response: response, error: error)
                 completion(nil)
                 return
             }

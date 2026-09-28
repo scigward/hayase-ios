@@ -173,7 +173,7 @@ final class HayaseDebugViewController: UIViewController {
 
     @objc private func saveLogs() {
         let output = StreamingLogger.shared.entries.map(\.displayString).joined(separator: "\n")
-        share(Data(output.utf8), name: "hayase-logs", extension: "log")
+        share(Data(output.utf8), name: "hayase-logs", extension: "log", errorTitle: "Failed to copy logs!")
     }
 
     @objc private func saveSettings() {
@@ -253,24 +253,27 @@ final class HayaseDebugViewController: UIViewController {
         share(data, name: name, extension: "json")
     }
 
-    private func share(_ data: Data, name: String, extension fileExtension: String) {
+    private func share(_ data: Data, name: String, extension fileExtension: String,
+                       errorTitle: String = "Failed to save file!") {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).\(fileExtension)")
         do {
             try data.write(to: url, options: .atomic)
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.completionWithItemsHandler = { _, _, _, error in
+                guard let error else { return }
+                DispatchQueue.main.async { AppErrorToast.show(error.localizedDescription, title: errorTitle) }
+            }
             if let popover = activity.popoverPresentationController {
                 popover.sourceView = view
                 popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
             }
             present(activity, animated: true)
         } catch {
-            showError(error.localizedDescription)
+            AppErrorToast.show(error.localizedDescription, title: errorTitle)
         }
     }
 
     private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Failed to Save File", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        AppErrorToast.show(message, title: "Failed to save file!")
     }
 }

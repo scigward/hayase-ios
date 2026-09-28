@@ -278,16 +278,12 @@ final class ExtensionsViewController: UIViewController {
                 self.importField.text = ""
                 self.reload()
             } catch {
-                self.showError(error.localizedDescription)
+                guard !Task.isCancelled else { return }
+                AppErrorToast.show(error.localizedDescription, title: (error as? ExtensionError)?.toastTitle ?? "Invalid extension URI")
             }
         }
     }
 
-    private func showError(_ msg: String) {
-        let alert = UIAlertController(title: "Import Error", message: msg, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
 
     // MARK: - Delete
 

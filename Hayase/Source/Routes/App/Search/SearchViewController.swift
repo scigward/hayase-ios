@@ -1191,7 +1191,7 @@ class SearchViewController: UIViewController {
         fetchResults(reset: true)
     }
 
-    /// Shows an error alert when trace.moe found nothing.
+    /// Mirrors search/+page.svelte's failed trace lookup toast.
     private func finishTrace(success: Bool) {
         isTracing = false
         cameraButton.tintColor = Self.mutedFg
@@ -1200,12 +1200,8 @@ class SearchViewController: UIViewController {
         collectionView.reloadData()
         guard !success else { return }
         emptyLabel.isHidden = !animeResults.isEmpty
-        let alert = UIAlertController(
-            title: "Image Search",
-            message: "Couldn't find anime for the specified image.\nTry removing black bars or using a more detailed image.",
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        AppErrorToast.show("You can also paste an URL to an image.",
+            title: "Couldn't find anime for specified image! Try to remove black bars, or use a more detailed image.", duration: 4)
     }
 
     // MARK: - Fetch by IDs (trace.moe results)

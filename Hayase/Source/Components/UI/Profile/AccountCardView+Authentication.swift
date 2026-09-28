@@ -3,6 +3,12 @@ import UIKit
 import AuthenticationServices
 
 extension HayaseAccountCardView {
+    private static func reportLoginError(_ error: Error?) {
+        guard let error else { return }
+        if let nativeError = error as? ASWebAuthenticationSessionError,
+           nativeError.code == .canceledLogin { return }
+        AppErrorToast.show(error.localizedDescription, title: "Login failed!")
+    }
     // MARK: - AniList Login
 
 
@@ -19,6 +25,7 @@ extension HayaseAccountCardView {
             DispatchQueue.main.async { [weak self] in
                 self?.authSession = nil
                 self?.authPresentationContext = nil
+                Self.reportLoginError(error)
                 guard let callbackURL = callbackURL, error == nil else { return }
 
                 // AniList implicit grant puts the token in the URL fragment:
@@ -66,7 +73,6 @@ extension HayaseAccountCardView {
             KitsuAuth.login(email: email?.input.text ?? "", password: password?.input.text ?? "") { success in
                 DispatchQueue.main.async {
                     if success { dialog?.close() }
-                    else if let dialog { SettingsToast.show("Login failed! Please check your credentials and try again.", in: dialog.view) }
                 }
             }
         }, for: .touchUpInside)
@@ -92,6 +98,7 @@ extension HayaseAccountCardView {
             DispatchQueue.main.async { [weak self] in
                 self?.authSession = nil
                 self?.authPresentationContext = nil
+                Self.reportLoginError(error)
                 guard let callbackURL = callbackURL, error == nil else { return }
 
                 // MAL PKCE flow returns the code in the query string:
@@ -125,19 +132,14 @@ extension HayaseAccountCardView {
             DispatchQueue.main.async { [weak self] in
                 self?.authSession = nil
                 self?.authPresentationContext = nil
+                Self.reportLoginError(error)
                 guard error == nil,
                       let callbackURL,
                       let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
                       components.queryItems?.first(where: { $0.name == "state" })?.value == state,
                       let code = components.queryItems?.first(where: { $0.name == "code" })?.value else { return }
-                SimklAuth.completeLogin(code: code) { result in
-                    if case .failure(let error) = result {
-                        DispatchQueue.main.async { [weak vc] in
-                            guard let vc else { return }
-                            SettingsToast.show("Login failed!\n" + error.localizedDescription, in: vc.view)
-                        }
-                    }
-                }
+                // The provider reports the original API error once, as on the web.
+                SimklAuth.completeLogin(code: code) { _ in }
             }
         }
         let context = AniListAuthPresentationContext(anchor: vc)

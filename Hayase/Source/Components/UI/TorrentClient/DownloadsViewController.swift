@@ -1689,7 +1689,7 @@ class DownloadsViewController: UIViewController {
                     guard let self else { return }
                     self.libraryActionInFlight = false
                     self.updateLibrarySelectionLabel()
-                    if case .failure(let error) = result { self.showLibraryActionError(error) }
+                    if case .failure(let error) = result { self.showLibraryActionError(error, title: "Failed to rescan torrents") }
                     else { SettingsToast.show("Rescan complete", in: self.view) }
                     self.update()
                 }
@@ -2149,7 +2149,7 @@ class DownloadsViewController: UIViewController {
                         self.libraryActionInFlight = false
                         if case .failure(let error) = result {
                             self.updateLibrarySelectionLabel()
-                            self.showLibraryActionError(error)
+                            self.showLibraryActionError(error, title: "Failed to delete torrents")
                             return
                         }
                         self.webLibraryEntries.removeAll { hashes.contains($0.hash) }
@@ -2191,9 +2191,9 @@ class DownloadsViewController: UIViewController {
 
     // MARK: - UI helpers
 
-    private func showLibraryActionError(_ error: Error) {
+    private func showLibraryActionError(_ error: Error, title: String) {
         NSLog("[Torrent Library] %@", error.localizedDescription)
-        SettingsToast.show(error.localizedDescription, in: view)
+        AppErrorToast.show(error.localizedDescription, title: title, duration: 4)
     }
 
     @objc private func libraryHeaderTapped(_ sender: UIButton) {

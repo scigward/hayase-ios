@@ -49,10 +49,11 @@ final class MALAuth {
         let body = "client_id=\(clientID)&grant_type=authorization_code&code=\(code)&code_verifier=\(codeVerifier)"
         request.httpBody = body.data(using: .utf8)
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["access_token"] as? String else {
+                TrackerErrorToast.report(provider: "MAL", data: data, response: response, error: error)
                 completion(nil)
                 return
             }
@@ -68,11 +69,12 @@ final class MALAuth {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        URLSession.shared.dataTask(with: request) { data, _, _ in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let id = json["id"] as? Int,
                   let name = json["name"] as? String else {
+                TrackerErrorToast.report(provider: "MAL", data: data, response: response, error: error)
                 completion(nil)
                 return
             }

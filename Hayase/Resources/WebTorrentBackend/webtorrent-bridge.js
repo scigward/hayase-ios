@@ -570,6 +570,15 @@ async function handleRPC (payload) {
         setPhase('ready')
         status.files = files.length
         refreshTorrentStatus()
+        // Match interface/client.ts: storage warnings must never delay playback.
+        Promise.resolve().then(() => activeClient.checkAvailableSpace()).then(space => {
+          if (space >= 1e9 || !Number.isFinite(space)) return
+          const units = [' B', ' kB', ' MB', ' GB', ' TB']
+          const exponent = space < 1 ? 0 : Math.min(Math.floor(Math.log(space) / Math.log(1000)), units.length - 1)
+          const available = Number((space / Math.pow(1000, exponent)).toFixed(1)) + units[exponent]
+          record('error', `${available} available, 1GB is the recommended minimum. Consider freeing up some space otherwise issues may occur.`,
+            { userFacing: true, title: 'Low disk space' })
+        }).catch(error => record('warning', error?.message ?? error))
         return files
       } catch (error) {
         status.lastError = error?.message ?? String(error)

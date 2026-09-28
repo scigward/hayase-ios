@@ -32,7 +32,7 @@ final class AniListAuth {
         return components.url ?? URL(string: "https://anilist.co/api/v2/oauth/authorize")!
     }
 
-    static func fetchViewer(token: String, completion: @escaping (TrackerViewer?) -> Void) {
+    static func fetchViewer(token: String, reportLoginFailure: Bool = false, completion: @escaping (TrackerViewer?) -> Void) {
         guard let url = URL(string: "https://graphql.anilist.co") else {
             completion(nil)
             return
@@ -49,10 +49,22 @@ final class AniListAuth {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
                   let viewer = dataObj["Viewer"] as? [String: Any] else {
+                if reportLoginFailure {
+                    let message: String
+                    switch result {
+                    case .failure(.cancelled): completion(nil); return
+                    case .failure(let error): message = error.description
+                    case .success: message = "The server returned an invalid response."
+                    }
+                    DispatchQueue.main.async { AppErrorToast.show(message, title: "Login failed!") }
+                }
                 completion(nil)
                 return
             }
             guard let tv = trackerViewer(from: viewer) else {
+                if reportLoginFailure {
+                    DispatchQueue.main.async { AppErrorToast.show("The server returned an invalid response.", title: "Login failed!") }
+                }
                 completion(nil)
                 return
             }
@@ -110,7 +122,7 @@ final class AniListAuth {
     static func completeLogin(token: String, expiresIn: TimeInterval? = nil) {
         let expiresAt = expiresIn.map { Date().addingTimeInterval($0) }
         TrackerAccountManager.shared.setToken(token, for: .anilist, expiresAt: expiresAt)
-        fetchViewer(token: token) { viewer in
+        fetchViewer(token: token, reportLoginFailure: true) { viewer in
             guard let viewer else {
                 DispatchQueue.main.async {
                     TrackerAccountManager.shared.clearAniListSessionForAuthFailure()
