@@ -400,7 +400,8 @@ final class VideoPlayerViewController: UIViewController {
         onCancelMetadataLoading = nil
         metadataLoadingOwner = nil
         if let error {
-            metadataLoadingView?.showError(error.localizedDescription)
+            metadataLoadingView?.finishWithError()
+            TorrentErrorToast.show(error.localizedDescription)
             return
         }
         metadataLoadingView?.removeFromSuperview()

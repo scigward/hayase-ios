@@ -59,11 +59,12 @@ final class PlayerMetadataLoadingView: UIView {
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    func showError(_ message: String) {
+    func finishWithError() {
         failed = true
         ring.removeAllAnimations()
         ring.isHidden = true
-        text.text = message
-        UIAccessibility.post(notification: .announcement, argument: message)
+        // The interface has no inline error/log panel in its metadata state.
+        // The caller presents the error as a toast; don't leave a fake spinner running.
+        text.isHidden = true
     }
 }

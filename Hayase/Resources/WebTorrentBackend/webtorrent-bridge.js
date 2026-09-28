@@ -69,6 +69,8 @@ let addPatched = false
 let activeTorrent = null
 
 const events = []
+let eventSequence = 0
+const isolatedNZBManagers = new WeakSet()
 const status = {
   version: BRIDGE_VERSION,
   phase: 'booting',
@@ -168,6 +170,7 @@ function setPhase (phase) {
 function record (level, message, detail = {}) {
   const text = message instanceof Error ? message.message : String(message)
   const event = {
+    id: ++eventSequence,
     time: Date.now(),
     level,
     message: text,
@@ -188,6 +191,31 @@ function getInnerClient () {
   if (!client) return null
   const clientSymbol = Object.getOwnPropertySymbols(client).find(symbol => symbol.description === 'client')
   return clientSymbol ? client[clientSymbol] : null
+}
+
+// NZB is an optional webseed, never a prerequisite for peer streaming.
+// torrent-client's initTorrent awaits register(), which itself awaits pool.ready.
+// Keep registration running, but do not let an unavailable NNTP pool reject or
+// delay playTorrent. Scope this to the manager, not arbitrary torrent failures.
+function isolateOptionalNZB () {
+  const key = Object.getOwnPropertySymbols(client ?? {}).find(symbol => symbol.description === 'nzb')
+  const manager = key ? client[key] : null
+  if (!manager || isolatedNZBManagers.has(manager)) return
+  isolatedNZBManagers.add(manager)
+  const reported = new Set()
+  const report = error => {
+    const message = error?.message ?? String(error)
+    if (reported.has(message)) return
+    reported.add(message)
+    record('error', message, { userFacing: true, title: 'Failed to add NZB' })
+  }
+  // Attach immediately: the pool may reject before any torrent is opened.
+  Promise.resolve(manager.pool?.ready).catch(report)
+  const register = manager.register.bind(manager)
+  manager.register = torrent => {
+    Promise.resolve().then(() => register(torrent)).catch(report)
+    return Promise.resolve()
+  }
 }
 
 function torrentWires (torrent) {
@@ -370,7 +398,7 @@ function installClientObservers () {
 
   webtorrent.on?.('torrent', torrent => observeTorrent(torrent))
   webtorrent.on?.('warning', error => record('warning', error?.message ?? error))
-  webtorrent.on?.('error', error => record('error', error?.message ?? error))
+  webtorrent.on?.('error', error => record('error', error?.message ?? error, { userFacing: true }))
 
   if (!addPatched && typeof webtorrent.add === 'function') {
     const originalAdd = webtorrent.add.bind(webtorrent)
@@ -467,6 +495,7 @@ async function loadTorrentClient () {
     const TorrentClient = module.default
     const initialSettings = clientSettings()
     client = new TorrentClient(initialSettings, tempPath)
+    isolateOptionalNZB()
     status.dht = initialSettings.torrentDHT === false
     status.pex = initialSettings.torrentPeX === false
     status.webRTC = false
@@ -513,7 +542,10 @@ async function handleRPC (payload) {
     const currentSettings = clientSettings()
     status.dht = currentSettings.torrentDHT === false
     status.pex = currentSettings.torrentPeX === false
-    if (client) client.updateSettings(currentSettings)
+    if (client) {
+      client.updateSettings(currentSettings)
+      isolateOptionalNZB()
+    }
     return {}
   }
 
@@ -533,7 +565,7 @@ async function handleRPC (payload) {
           // here yet.
           activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0, sessionID, false),
           METADATA_TIMEOUT_MS,
-          () => `Timed out while fetching torrent metadata (${shortStatus()})`
+          () => 'Timed out while fetching torrent metadata'
         )
         setPhase('ready')
         status.files = files.length
@@ -542,7 +574,8 @@ async function handleRPC (payload) {
       } catch (error) {
         status.lastError = error?.message ?? String(error)
         setPhase('failed')
-        throw new Error(`${status.lastError} (${shortStatus()})`)
+        // Keep upstream wording intact; diagnostics remain in /status and /logs.
+        throw error
       }
     }
     case 'library':
@@ -611,7 +644,7 @@ process.on('unhandledRejection', error => {
     reportStartupError(error)
     return
   }
-  record('error', error?.message ?? error)
+  record('error', error?.message ?? error, { userFacing: true })
 })
 
 process.on('uncaughtException', error => {
@@ -619,7 +652,7 @@ process.on('uncaughtException', error => {
     reportStartupError(error)
     return
   }
-  record('error', error?.message ?? error)
+  record('error', error?.message ?? error, { userFacing: true })
 })
 
 // A failed directory preflight used to be swallowed by the global exception

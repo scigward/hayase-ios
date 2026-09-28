@@ -8,6 +8,9 @@
 import Foundation
 
 struct WebTorrentBridgeEvent: Decodable {
+    let id: Int?
+    let userFacing: Bool?
+    let title: String?
     let time: TimeInterval?
     let level: String
     let message: String

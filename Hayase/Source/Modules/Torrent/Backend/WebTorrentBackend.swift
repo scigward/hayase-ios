@@ -65,6 +65,30 @@ final class WebTorrentBackend {
     private let startupErrorURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("HayaseWebTorrent-startup-error.txt")
     private lazy var bridge = WebTorrentBridgeClient(port: port)
+    private var errorTimer: Timer?
+    private var lastErrorEventID = 0
+    private var errorPollInFlight = false
+
+    private func startErrorNotifications() {
+        guard errorTimer == nil else { return }
+        errorTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, !self.errorPollInFlight else { return }
+            self.errorPollInFlight = true
+            self.bridge.status { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.errorPollInFlight = false
+                    guard case .success(let status) = result else { return }
+                    for event in status.events ?? [] {
+                        guard let id = event.id, id > self.lastErrorEventID else { continue }
+                        self.lastErrorEventID = id
+                        guard event.userFacing == true else { continue }
+                        TorrentErrorToast.show(event.message, title: event.title ?? "Torrent Process Error!")
+                    }
+                }
+            }
+        }
+    }
 
     private init() {}
 
@@ -338,6 +362,7 @@ final class WebTorrentBackend {
         switch result {
         case .success:
             startState = .ready
+            DispatchQueue.main.async { [weak self] in self?.startErrorNotifications() }
         case .failure(let error):
             startState = .failed(error)
         }
