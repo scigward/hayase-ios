@@ -278,34 +278,23 @@ enum HayaseIcon {
     }
 
     private static func roundedSeekTriangle(baseX: CGFloat, direction: CGFloat) -> UIBezierPath {
+        // Lucide fast-forward/rewind: three radius-2 SVG arcs, not a concave
+        // Bezier tip. Moving the tip's control points inward made the source
+        // bitmap look clipped; extra canvas padding cannot repair that geometry.
+        // Construct the forward path locally, then reflect it for rewind.
         let path = UIBezierPath()
-        let tipX = baseX + direction * 9.412
-        let shoulderX = baseX + direction * 3.412
-        let controlX1 = baseX + direction * 0.489
-        let controlX2 = baseX + direction * 1.235
-        let controlX3 = baseX + direction * 1.984
-        let controlX4 = baseX + direction * 2.844
-        let tipControlX = tipX - direction * 0.37
-
-        path.move(to: CGPoint(x: baseX, y: 6))
-        path.addCurve(to: CGPoint(x: controlX2, y: 4.151),
-                      controlPoint1: CGPoint(x: baseX, y: 5.193),
-                      controlPoint2: CGPoint(x: controlX1, y: 4.464))
-        path.addCurve(to: CGPoint(x: shoulderX, y: 4.588),
-                      controlPoint1: CGPoint(x: controlX3, y: 3.844),
-                      controlPoint2: CGPoint(x: controlX4, y: 4.016))
-        path.addLine(to: CGPoint(x: tipX, y: 10.59))
-        path.addCurve(to: CGPoint(x: tipX, y: 13.41),
-                      controlPoint1: CGPoint(x: tipControlX, y: 11.36),
-                      controlPoint2: CGPoint(x: tipControlX, y: 12.64))
-        path.addLine(to: CGPoint(x: shoulderX, y: 19.412))
-        path.addCurve(to: CGPoint(x: controlX2, y: 19.849),
-                      controlPoint1: CGPoint(x: controlX4, y: 19.984),
-                      controlPoint2: CGPoint(x: controlX3, y: 20.156))
-        path.addCurve(to: CGPoint(x: baseX, y: 18),
-                      controlPoint1: CGPoint(x: controlX1, y: 19.54),
-                      controlPoint2: CGPoint(x: baseX, y: 18.807))
+        let diagonal = CGFloat(2).squareRoot()
+        path.move(to: CGPoint(x: 0, y: 6))
+        path.addArc(withCenter: CGPoint(x: 2, y: 6), radius: 2,
+                    startAngle: .pi, endAngle: 7 * .pi / 4, clockwise: true)
+        path.addLine(to: CGPoint(x: 8 + diagonal, y: 12 - diagonal))
+        path.addArc(withCenter: CGPoint(x: 8, y: 12), radius: 2,
+                    startAngle: -.pi / 4, endAngle: .pi / 4, clockwise: true)
+        path.addLine(to: CGPoint(x: 2 + diagonal, y: 18 + diagonal))
+        path.addArc(withCenter: CGPoint(x: 2, y: 18), radius: 2,
+                    startAngle: .pi / 4, endAngle: .pi, clockwise: true)
         path.close()
+        path.apply(CGAffineTransform(a: direction, b: 0, c: 0, d: 1, tx: baseX, ty: 0))
         return path
     }
 
