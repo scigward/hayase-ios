@@ -299,9 +299,10 @@ extension AnimeDetailViewController: UITableViewDelegate {
         if embeddedThreadID != nil { return }
         switch Section(rawValue: indexPath.section) {
         case .episodes:
-            if episodeColumnCount >= 2 { break }
-            guard let ep = paginatedEpisodes[safe: indexPath.row] else { return }
-            openExtensionSearch(episode: ep.number)
+            // EpisodeCardView owns taps in both layouts. Its non-cancelling
+            // recognizer also lets UITableView select the row on compact screens;
+            // presenting here too stacks a second independently auto-selecting search.
+            break
         case .threads:
             if threadColumnCount >= 2 { break }
             guard !threadsLoading, !threads.isEmpty else { return }

@@ -31,6 +31,13 @@ import Foundation
 /// to gate defaults across Android/iOS/desktop/AndroidTV, which doesn't apply
 /// to a single-platform app.
 enum Settings {
+    struct DisplayPreferences: Equatable {
+        let title = Settings.titleType
+        let hideSpoilers = Settings.hideSpoilers
+        let showAdultContent = TrackerAccountManager.shared.viewer(for: .anilist)?.displayAdultContent ?? Settings.showHentai
+        let accountLanguage = TrackerAccountManager.shared.viewer(for: .anilist)?.titleLanguage
+    }
+
     /// Posted whenever a setting is written through this type, with the
     /// changed key in `userInfo["key"]`. Follows the same
     /// `NotificationCenter` convention already used elsewhere in the app
@@ -76,6 +83,8 @@ enum Settings {
         static let seekDuration = "2"
         static let subtitleLanguage = "eng"
         static let audioLanguage = "jpn"
+        // Intentional user-requested iOS exception: default to 1080p, not the
+        // interface's mobile 720p default. Preserve this when syncing upstream.
         static let subtitleRenderHeight = "1080"
         static let subtitleStyle = "none"
         static let playerAutoplay = true
@@ -239,8 +248,16 @@ enum Settings {
         set { write(min(max(newValue, 0.3), 2.5), forKey: Keys.uiScale) }
     }
 
+    static let torrentDebugNamespaces = "torrent:*,webtorrent:*,simple-peer,bittorrent-protocol,bittorrent-dht,bittorrent-lsd,torrent-discovery,bittorrent-tracker:*,ut_metadata,nat-pmp,nat-api"
+
     static var debugLevel: String {
-        get { UserDefaults.standard.string(forKey: Keys.debugLevel) ?? Defaults.debugLevel }
+        get {
+            switch UserDefaults.standard.string(forKey: Keys.debugLevel) ?? Defaults.debugLevel {
+            case "torrent": return torrentDebugNamespaces
+            case "ui": return "ui:*"
+            case let value: return value
+            }
+        }
         set { write(newValue, forKey: Keys.debugLevel) }
     }
 

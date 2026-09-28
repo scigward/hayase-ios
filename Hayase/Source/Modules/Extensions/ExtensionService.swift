@@ -98,6 +98,18 @@ final class ExtensionService {
     /// search() awaits this before checking workers, matching Hayase's
     /// `await storage.ready` in getResultsFromExtensions().
     private var readyTask: Task<Void, Never>?
+    private var generation = 0
+
+    /// Clear loaded workers as well as persistence when App Settings resets.
+    func reset() {
+        generation += 1
+        readyTask?.cancel()
+        readyTask = nil
+        workers.values.forEach { $0.destroy() }
+        workers.removeAll()
+        configs.removeAll()
+        options.removeAll()
+    }
 
     // MARK: - Initialisation
 
@@ -117,11 +129,13 @@ final class ExtensionService {
     /// Download and install extensions from a manifest URL.
     /// Mirrors ConfigManager.import(url).
     func importExtension(from rawURL: String) async throws {
+        let generation = self.generation
         guard let url = jsonurl(rawURL) else {
             throw ExtensionError.invalidURL("Invalid extension manifest URL: \(rawURL)")
         }
 
         let (data, _) = try await URLSession.shared.data(from: url)
+        guard generation == self.generation else { throw CancellationError() }
         guard let newConfigs = try? decoder.decode([ExtensionConfig].self, from: data) else {
             throw ExtensionError.invalidManifest("Make sure the link is a valid JSON config for Hayase")
         }
@@ -141,6 +155,7 @@ final class ExtensionService {
         }
 
         let invalidIDs = await downloadScripts(valid)
+        guard generation == self.generation else { throw CancellationError() }
         let good = valid.filter { !invalidIDs.contains($0.id) }
         ensureOptions(ids: good.map(\.id))
         for c in good { configs[c.id] = c }
@@ -187,6 +202,7 @@ final class ExtensionService {
 
     /// Fetch updated configs from all stored update URLs and reload changed extensions.
     func update() async {
+        let generation = self.generation
         let updateURLs = Set(configs.values.compactMap(\.update))
         guard !updateURLs.isEmpty else { return }
 
@@ -203,12 +219,14 @@ final class ExtensionService {
             for await result in group { if let r = result { newConfigs.append(contentsOf: r) } }
         }
 
+        guard generation == self.generation else { return }
         let safeToUpdate = newConfigs.filter { c in
             validateConfig(c) &&
             ((configs[c.id]?.update == c.update && c.version != configs[c.id]?.version) || configs[c.id] == nil)
         }
 
         let invalidIDs = await downloadScripts(safeToUpdate, update: true)
+        guard generation == self.generation else { return }
         let good = safeToUpdate.filter { !invalidIDs.contains($0.id) }
         ensureOptions(ids: good.map(\.id))
         for c in good { configs[c.id] = c }
@@ -708,8 +726,10 @@ final class ExtensionService {
     /// mirrors CodeManager.downloadScripts — resolves the esm.sh URL and loads the worker
     @discardableResult
     private func downloadScripts(_ cfgs: [ExtensionConfig], update: Bool = false) async -> [String] {
+        let generation = self.generation
         var invalid: [String] = []
         for config in cfgs {
+            guard generation == self.generation, !Task.isCancelled else { break }
             if workers[config.id] != nil && !update { continue }
             guard let url = jsurl(config.code) else {
                 print("ExtensionService: invalid code URL for \(config.id): \(config.code)")
@@ -726,6 +746,7 @@ final class ExtensionService {
 
     /// mirrors CodeManager._loadWorker — creates/replaces a WKWebView worker
     private func loadWorker(url: URL, id: String) async {
+        let generation = self.generation
         // Destroy old worker first
         if let old = workers[id] {
             old.destroy()
@@ -734,6 +755,10 @@ final class ExtensionService {
         let worker = ExtensionWorker(id: id)
         do {
             try await worker.load(extensionURL: url)
+            guard generation == self.generation, !Task.isCancelled else {
+                worker.destroy()
+                return
+            }
             workers[id] = worker
             print("ExtensionService: loaded worker for \(id)")
         } catch {

@@ -768,6 +768,12 @@ final class VideoPlayerViewController: UIViewController {
                 self.pipController?.setAutomaticStartEnabled(Settings.playerAutoPiP)
             } else if key == Settings.Keys.minimalPlayerUI {
                 self.statsHUD.isHidden = Settings.minimalPlayerUI
+            } else if key == Settings.Keys.deband {
+                self.surface.mpv.setDeband(Settings.deband)
+            } else if key == Settings.Keys.subtitleStyle {
+                self.surface.mpv.applySubtitleStyle()
+            } else if key == Settings.Keys.debugLevel {
+                self.surface.mpv.applyLoggingLevel()
             }
         })
     }
@@ -3001,10 +3007,8 @@ final class VideoPlayerViewController: UIViewController {
             self?.selectPlaylistVideo(video)
         }
 
-        optionsVC.onToggleDeband = { [weak self] in
-            let newValue = !Settings.deband
-            Settings.deband = newValue
-            self?.surface.mpv.setDeband(newValue)
+        optionsVC.onToggleDeband = {
+            Settings.deband.toggle()
         }
 
         optionsVC.onTogglePiP = { [weak self] in

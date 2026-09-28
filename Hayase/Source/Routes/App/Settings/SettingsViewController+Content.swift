@@ -125,7 +125,7 @@ extension SettingsViewController {
 
     private func makeCombo(row: Row, key: String, options: [(key: String, label: String)], defaultKey: String) -> ComboBox {
         let combo = ComboBox(frame: .zero)
-        let value = UserDefaults.standard.string(forKey: key) ?? defaultKey
+        let value = key == Settings.Keys.debugLevel ? Settings.debugLevel : (UserDefaults.standard.string(forKey: key) ?? defaultKey)
         combo.configure(text: options.first(where: { $0.key == value })?.label ?? value, placeholder: false)
         combo.layer.borderWidth = 1
         combo.layer.borderColor = UIColor.HayaseTheme.input.cgColor

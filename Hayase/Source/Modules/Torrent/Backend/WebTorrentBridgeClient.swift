@@ -114,7 +114,7 @@ final class WebTorrentBridgeClient {
     }
 
     func updateSettings(_ settings: TorrentBackendSettings, completion: ((Result<Void, Error>) -> Void)? = nil) {
-        call(method: "updateSettings", params: ["settings": settings.dictionary()]) { (result: Result<EmptyResult, Error>) in
+        call(method: "updateSettings", params: ["settings": settings.dictionary(), "debug": Settings.debugLevel]) { (result: Result<EmptyResult, Error>) in
             completion?(result.map { _ in () })
         }
     }

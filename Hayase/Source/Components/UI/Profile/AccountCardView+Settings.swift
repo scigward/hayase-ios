@@ -44,7 +44,10 @@ extension HayaseAccountCardView {
         adult.isEnabled = viewer != nil
         adult.addAction(UIAction { [weak adult] _ in
             guard let adult else { return }
-            AniListClient.shared.updateUserResult(displayAdultContent: adult.isOn) { result in
+            adult.isEnabled = false
+            AniListClient.shared.updateUserResult(displayAdultContent: adult.isOn) { [weak adult] result in
+                adult?.isEnabled = TrackerAccountManager.shared.viewer(for: .anilist) != nil
+                adult?.setOn(TrackerAccountManager.shared.viewer(for: .anilist)?.displayAdultContent ?? false, animated: true)
                 if case .failure(let error) = result {
                     NSLog("[Settings] Failed to update NSFW setting: %@", error.localizedDescription)
                 }

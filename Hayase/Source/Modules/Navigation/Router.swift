@@ -291,6 +291,9 @@ final class Router {
     }
 
     private func notify(_ route: Route, kind: NavigationKind, options: NavigationOptions = NavigationOptions()) {
+        if Settings.debugLevel == "*" || Settings.debugLevel == "ui:*" {
+            NSLog("[ui:router] %@ (%@)", route.path, String(describing: kind))
+        }
         observers.values.forEach { $0(route, kind, options) }
     }
 }

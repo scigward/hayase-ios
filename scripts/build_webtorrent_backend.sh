@@ -115,6 +115,15 @@ export default {
 }
 EOF
 
+  # Expose the bundled debug singleton: enabling a separate node_modules copy
+  # would leave the torrent client's bundled namespaces unchanged.
+  cat > .hayase-node-mobile-stubs/debug.js <<'EOF'
+const debug = require('../node_modules/debug/src/browser.js')
+globalThis.hayaseSetDebug = namespaces => debug.enable(namespaces)
+debug.enable(globalThis.hayaseDebugNamespaces || '')
+module.exports = debug
+EOF
+
   run_pnpm dlx "esbuild@${ESBUILD_VERSION}" index.ts \
     --bundle \
     --platform=node \
@@ -124,7 +133,7 @@ EOF
     --alias:http-tracker=./node_modules/bittorrent-tracker/lib/client/http-tracker.js \
     --alias:@silentbot1/nat-api=./.hayase-node-mobile-stubs/nat-api.js \
     --alias:node-datachannel=./.hayase-node-mobile-stubs/node-datachannel.js \
-    --alias:debug=./node_modules/debug/src/browser.js \
+    --alias:debug=./.hayase-node-mobile-stubs/debug.js \
     --outfile="${OUTPUT_DIR}/index.js"
 )
 

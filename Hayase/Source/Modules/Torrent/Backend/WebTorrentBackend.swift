@@ -70,8 +70,15 @@ final class WebTorrentBackend {
 
     func applySettings() {
         ensureStarted { [weak self] result in
-            guard case .success = result else { return }
-            self?.bridge.updateSettings(TorrentBackendSettings())
+            if case .failure(let error) = result {
+                StreamingLogger.shared.error("Failed to apply torrent settings: \(error.localizedDescription)")
+                return
+            }
+            self?.bridge.updateSettings(TorrentBackendSettings()) { result in
+                if case .failure(let error) = result {
+                    StreamingLogger.shared.error("Failed to apply torrent settings: \(error.localizedDescription)")
+                }
+            }
         }
     }
 

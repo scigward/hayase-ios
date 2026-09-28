@@ -81,6 +81,7 @@ extension SettingsViewController {
         "pref_torrentLocation", "pref_nzbDomain", "pref_nzbLogin",
         "pref_nzbPassword", "pref_nzbPort", "pref_nzbPoolSize",
         Settings.Keys.streamedDownload, Settings.Keys.persistFiles,
+        Settings.Keys.debugLevel,
     ]
 
     /// If `key` is a torrent-session setting, re-apply settings to the live session.
@@ -99,7 +100,7 @@ extension SettingsViewController {
         let picker = CommandPopoverViewController(
             title: title, placeholder: "Search...",
             groups: [CommandGroup(options: options.map { CommandOption(value: $0.key, label: $0.label) })],
-            selectedValues: [UserDefaults.standard.string(forKey: key) ?? defaultKey],
+            selectedValues: [key == Settings.Keys.debugLevel ? Settings.debugLevel : (UserDefaults.standard.string(forKey: key) ?? defaultKey)],
             allowsMultiple: false, sourceView: anchor)
         picker.onSelectionChanged = { [weak self, weak anchor] values in
             guard let value = values.first else { return }
@@ -151,7 +152,10 @@ extension SettingsViewController {
                 SettingsFileService.resetPreferences()
                 TorrentBackendManager.shared.applyCurrentSettings()
                 HayaseInterfaceScale.apply()
-                self?.reloadContent()
+                self?.previousScale = nil
+                self?.pendingScale = nil
+                self?.scaleTimer?.invalidate()
+                (UIApplication.shared.delegate as? AppDelegate)?.rebuildInterfaceAfterSettingsReset()
             })
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             present(alert, animated: true)

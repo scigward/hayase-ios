@@ -1688,6 +1688,7 @@ private final class SectionHeaderView: UICollectionReusableView {
 // MARK: - BrowseAnimeViewController
 
 class BrowseAnimeViewController: UIViewController {
+    private var renderedDisplayPreferences: Settings.DisplayPreferences?
 
     // MARK: - Layout Constants
 
@@ -1799,6 +1800,16 @@ class BrowseAnimeViewController: UIViewController {
         // back from a detail VC), so the banner could be stuck in the wrong opacity state.
         // Matches the interface: hideBanner.value = false at component init, then re-evaluated.
         syncBannerToCurrentScrollPosition()
+        let preferences = Settings.DisplayPreferences()
+        if let previous = renderedDisplayPreferences, previous != preferences {
+            if previous.showAdultContent != preferences.showAdultContent ||
+                previous.accountLanguage != preferences.accountLanguage {
+                loadSections()
+            } else {
+                collectionView.reloadData()
+            }
+        }
+        renderedDisplayPreferences = preferences
         refreshPersonalSectionsIfLocalListsChanged()
     }
 

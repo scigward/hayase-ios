@@ -48,19 +48,20 @@ const DEFAULT_SETTINGS = Object.freeze({
   torrentDHT: false,
   torrentStreamedDownload: true,
   torrentSpeed: 40,
-  maxConns: 55,
+  maxConns: 80,
   torrentPort: 0,
   dhtPort: 0,
   torrentPeX: false,
   nzbDomain: '',
   nzbLogin: '',
   nzbPassword: '',
-  nzbPort: 0,
-  nzbPoolSize: 0,
+  nzbPort: 119,
+  nzbPoolSize: 4,
   path: ''
 })
 
 let settings = { ...DEFAULT_SETTINGS }
+let settingsRevision = 0
 let client = null
 let loadError = null
 let clientObserversInstalled = false
@@ -126,7 +127,8 @@ function normalizedSettings (value = {}) {
     torrentPersist: Boolean(merged.torrentPersist),
     torrentDHT: Boolean(merged.torrentDHT),
     torrentStreamedDownload: merged.torrentStreamedDownload !== false,
-    torrentSpeed: clampedInteger(merged.torrentSpeed, DEFAULT_SETTINGS.torrentSpeed, 1, 999),
+    torrentSpeed: Number.isFinite(Number(merged.torrentSpeed))
+      ? Math.min(Math.max(Number(merged.torrentSpeed), 1), 999) : DEFAULT_SETTINGS.torrentSpeed,
     maxConns: clampedInteger(merged.maxConns, DEFAULT_SETTINGS.maxConns, 1, 512),
     torrentPort: clampedInteger(merged.torrentPort, DEFAULT_SETTINGS.torrentPort, 0, 65535),
     dhtPort: clampedInteger(merged.dhtPort, DEFAULT_SETTINGS.dhtPort, 0, 65535),
@@ -497,7 +499,17 @@ async function handleRPC (payload) {
   const params = payload.params ?? {}
 
   if (payload.method === 'updateSettings') {
-    settings = normalizedSettings(params.settings ?? {})
+    const revision = ++settingsRevision
+    const updated = normalizedSettings(params.settings ?? {})
+    if (updated.path && updated.path !== downloadPath) {
+      // Folder selection affects the next torrent; existing stores keep their path.
+      await mkdir(updated.path, { recursive: true })
+      if (revision !== settingsRevision) return {}
+      downloadPath = updated.path
+    }
+    globalThis.hayaseDebugNamespaces = typeof params.debug === 'string' ? params.debug : ''
+    globalThis.hayaseSetDebug?.(globalThis.hayaseDebugNamespaces)
+    settings = updated
     const currentSettings = clientSettings()
     status.dht = currentSettings.torrentDHT === false
     status.pex = currentSettings.torrentPeX === false

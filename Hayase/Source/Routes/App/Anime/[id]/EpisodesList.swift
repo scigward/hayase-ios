@@ -143,7 +143,10 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         return l
     }()
 
-    private let ratingBadge = EpisodeRatingBadgeView()
+    private let ratingContent = EpisodeRatingBadgeView()
+    private lazy var ratingBadge = HayaseContentBlurView(content: ratingContent)
+    private lazy var thumbnail = HayaseContentBlurView(content: thumbImageView)
+    private lazy var overview = HayaseContentBlurView(content: overviewLabel)
 
     private let fillerClipView: UIView = {
         let view = UIView()
@@ -234,17 +237,6 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         return iv
     }()
 
-    private let spoilerBlurView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
-        view.alpha = 0.72
-        view.isHidden = true
-        view.isUserInteractionEnabled = false
-        view.layer.cornerRadius = EpisodeCardStyle.cardRadius
-        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        view.clipsToBounds = true
-        return view
-    }()
-
     private var currentImageURL: String?
     private var imageTask: URLSessionDataTask?
 
@@ -279,10 +271,13 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         ringLayer.isHidden = true
         layer.addSublayer(ringLayer)
 
-        [thumbImageView, spoilerBlurView, playOverlayView, runtimeBadge, ratingBadge].forEach {
+        [thumbnail, playOverlayView, runtimeBadge, ratingBadge].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
+        thumbnail.clipsToBounds = true
+        thumbnail.layer.cornerRadius = EpisodeCardStyle.cardRadius
+        thumbnail.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         playOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
         playOverlayView.addSubview(playOverlayIcon)
 
@@ -327,7 +322,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         bottomRow.alignment = .top
         bottomRow.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overviewLabel, spacer, bottomRow])
+        let textStack = UIStackView(arrangedSubviews: [numberLabel, progressBar, overview, spacer, bottomRow])
         textStack.axis = .vertical
         textStack.spacing = 0
         textStack.setCustomSpacing(8, after: numberLabel)
@@ -340,11 +335,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         fillerClipView.addSubview(fillerBadge)
         addSubview(fillerClipView)
 
-        thumbWidthPreferred = thumbImageView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
+        thumbWidthPreferred = thumbnail.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5)
         thumbWidthPreferred.priority = UILayoutPriority(999)
-        thumbMaxWidth = thumbImageView.widthAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.thumbnailMaxWidth)
+        thumbMaxWidth = thumbnail.widthAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.thumbnailMaxWidth)
 
-        textLeadingToThumb = textStack.leadingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: 16)
+        textLeadingToThumb = textStack.leadingAnchor.constraint(equalTo: thumbnail.trailingAnchor, constant: 16)
         textLeadingToCard = textStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         textLeadingToThumb.isActive = true
         textLeadingToCard.isActive = false
@@ -352,31 +347,27 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(lessThanOrEqualToConstant: EpisodeCardStyle.cardHeight),
 
-            thumbImageView.topAnchor.constraint(equalTo: topAnchor),
-            thumbImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            thumbImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            thumbnail.topAnchor.constraint(equalTo: topAnchor),
+            thumbnail.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbnail.bottomAnchor.constraint(equalTo: bottomAnchor),
             thumbWidthPreferred,
             thumbMaxWidth,
 
-            spoilerBlurView.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
-            spoilerBlurView.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor),
-            spoilerBlurView.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor),
-            spoilerBlurView.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor),
 
-            playOverlayView.topAnchor.constraint(equalTo: thumbImageView.topAnchor),
-            playOverlayView.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor),
-            playOverlayView.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor),
-            playOverlayView.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor),
+            playOverlayView.topAnchor.constraint(equalTo: thumbnail.topAnchor),
+            playOverlayView.leadingAnchor.constraint(equalTo: thumbnail.leadingAnchor),
+            playOverlayView.trailingAnchor.constraint(equalTo: thumbnail.trailingAnchor),
+            playOverlayView.bottomAnchor.constraint(equalTo: thumbnail.bottomAnchor),
             playOverlayIcon.centerXAnchor.constraint(equalTo: playOverlayView.centerXAnchor),
             playOverlayIcon.centerYAnchor.constraint(equalTo: playOverlayView.centerYAnchor),
             playOverlayIcon.widthAnchor.constraint(equalToConstant: 24),
             playOverlayIcon.heightAnchor.constraint(equalToConstant: 24),
 
-            runtimeBadge.leadingAnchor.constraint(equalTo: thumbImageView.leadingAnchor, constant: 4),
-            runtimeBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
+            runtimeBadge.leadingAnchor.constraint(equalTo: thumbnail.leadingAnchor, constant: 4),
+            runtimeBadge.bottomAnchor.constraint(equalTo: thumbnail.bottomAnchor, constant: -4),
 
-            ratingBadge.trailingAnchor.constraint(equalTo: thumbImageView.trailingAnchor, constant: -4),
-            ratingBadge.bottomAnchor.constraint(equalTo: thumbImageView.bottomAnchor, constant: -4),
+            ratingBadge.trailingAnchor.constraint(equalTo: thumbnail.trailingAnchor, constant: -4),
+            ratingBadge.bottomAnchor.constraint(equalTo: thumbnail.bottomAnchor, constant: -4),
 
             textLeadingToThumb,
             textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
@@ -449,7 +440,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
         guard active, ratio.isFinite, ratio > 0 else { return }
 
-        let constraint = thumbImageView.heightAnchor.constraint(equalTo: thumbImageView.widthAnchor, multiplier: ratio)
+        let constraint = thumbnail.heightAnchor.constraint(equalTo: thumbnail.widthAnchor, multiplier: ratio)
         // CSS gives the image its natural ratio, then max-h-28 may cap it.
         // Keep the cap authoritative when an episode image is taller than 112pt.
         constraint.priority = UILayoutPriority(750)
@@ -464,9 +455,13 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let ratio = image.size.height / max(image.size.width, 1)
         setThumbnailAspectRatio(ratio, active: true)
 
-        let setImage = { self.thumbImageView.image = image }
+        let setImage = {
+            self.thumbImageView.image = image
+            self.thumbnail.invalidateBlur()
+            self.thumbnail.layoutIfNeeded()
+        }
         if animated {
-            UIView.transition(with: thumbImageView, duration: 0.2,
+            UIView.transition(with: thumbnail, duration: 0.2,
                               options: [.transitionCrossDissolve, .beginFromCurrentState],
                               animations: setImage)
         } else {
@@ -496,10 +491,11 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         let effectiveProgress = isListCompleted ? 0 : anilistProgress
         let isWatchedOnAniList = effectiveProgress > 0 && episode.number <= effectiveProgress && !isListCompleted
         let isTarget = episode.number == effectiveProgress + 1
-        let isSpoiler = hideSpoilers && !isWatchedOnAniList && !isTarget
+        let isSpoiler = hideSpoilers && !isWatchedOnAniList && !isListCompleted && !isRepeating
         thumbImageView.alpha = isWatchedOnAniList ? 0.2 : 1.0
-        spoilerBlurView.isHidden = !isSpoiler
-        overviewLabel.alpha = isSpoiler ? 0.35 : 1
+        thumbnail.radius = isSpoiler ? 6 : 0
+        overview.radius = isSpoiler ? 6 : 0
+        ratingBadge.radius = isSpoiler ? 3 : 0
         alpha = 1.0
 
         progressFill.backgroundColor = accentColor
@@ -537,7 +533,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         }
 
         if let rating = episode.rating {
-            ratingBadge.configure(ratingText: isSpoiler ? "5.00" : rating)
+            ratingContent.configure(ratingText: isSpoiler ? "5.00" : rating)
             ratingBadge.isHidden = false
         } else {
             ratingBadge.isHidden = true
@@ -559,13 +555,13 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
 
         currentImageURL = episode.imageURL
         thumbImageView.image = nil
+        thumbnail.invalidateBlur()
         imageTask?.cancel()
         imageTask = nil
 
         let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
-        thumbImageView.isHidden = !hasImage
+        thumbnail.isHidden = !hasImage
         playOverlayView.isHidden = !hasImage
-        spoilerBlurView.isHidden = !hasImage || !isSpoiler
         runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
         ratingBadge.isHidden = !hasImage || episode.rating == nil
         thumbWidthPreferred.isActive = hasImage
@@ -606,7 +602,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         imageTask = nil
         currentImageURL = nil
         thumbImageView.image = nil
-        thumbImageView.isHidden = false
+        thumbnail.isHidden = false
         thumbWidthPreferred.isActive = true
         thumbMaxWidth.isActive = true
         setThumbnailAspectRatio(EpisodeCardStyle.defaultThumbnailAspectRatio, active: true)
@@ -622,8 +618,9 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         playOverlayView.alpha = 0
         playOverlayIcon.alpha = 0
         playOverlayIcon.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
-        spoilerBlurView.isHidden = true
-        overviewLabel.alpha = 1
+        thumbnail.radius = 0
+        overview.radius = 0
+        ratingBadge.radius = 0
         followerStack.reset()
         setPressed(false, animated: false)
         ringLayer.isHidden = true

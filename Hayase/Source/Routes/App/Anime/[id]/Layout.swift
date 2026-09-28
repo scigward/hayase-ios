@@ -445,7 +445,7 @@ final class AnimeTagChipButton: UIButton {
         let font = titleLabel?.font ?? .systemFont(ofSize: 14)
         let color = titleColor(for: .normal) ?? UIColor.HayaseTheme.mutedForeground
         let size = text.size(withAttributes: [.font: font])
-        let targetSize = CGSize(width: ceil(size.width) + 16, height: max(ceil(size.height), bounds.height))
+        let targetSize = CGSize(width: ceil(size.width) + 36, height: max(ceil(size.height), bounds.height) + 36)
         let key = "\(text)|\(font.pointSize)|\(bounds.height)|\(color.description)"
         guard key != blurredTitleCacheKey else { return }
         blurredTitleCacheKey = key
@@ -470,7 +470,7 @@ final class AnimeTagChipButton: UIButton {
         let input = CIImage(cgImage: cgImage)
         let filter = CIFilter(name: "CIGaussianBlur")
         filter?.setValue(input, forKey: kCIInputImageKey)
-        filter?.setValue(6.0, forKey: kCIInputRadiusKey)
+        filter?.setValue(6.0 * textImage.scale, forKey: kCIInputRadiusKey)
         guard let output = filter?.outputImage?.cropped(to: input.extent),
               let rendered = Self.blurContext.createCGImage(output, from: input.extent) else {
             blurredTitleView.image = textImage
@@ -1339,6 +1339,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     }
 
     func updatePlayButtonTitle(listStatus: String?) {
+        updateScoreSpoiler(listStatus: listStatus)
         let text: String
         switch listStatus {
         case "CURRENT", "REPEATING", "PAUSED": text = "Continue"
@@ -1431,6 +1432,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
                       accent:   accent,
                       contrastColor: contrast)
 
+        updateScoreSpoiler(listStatus: item.mediaListEntry?.status)
         setGenres(item.genres.map { String($0) }, tags: item.tags)
 
         setDescriptionText(item.description)
@@ -1451,6 +1453,14 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         loadImage(from: displayedCoverURL, into: coverImageView, task: &coverImageTask)
     }
 
+    func refreshDisplayPreferences(for item: AnimeItem) {
+        titleLabel.text = AniListUtil.title(for: item)
+        romajiLabel.text = AniListUtil.alternateTitle(for: item)
+        romajiLabel.isHidden = romajiLabel.text == nil
+        setGenres(item.genres.map { String($0) }, tags: item.tags)
+        updateScoreSpoiler(listStatus: item.mediaListEntry?.status)
+    }
+
     func updateBanner(from urlString: String) {
         displayedBannerURL = urlString
         postSidebarBackdrop(urlString: urlString,
@@ -1460,12 +1470,32 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Badges
 
+    private var scoreBadge: BadgeButton?
+    private var displayedScore: Float?
+
+    private func updateScoreSpoiler(listStatus: String?) {
+        guard let badge = scoreBadge, let score = displayedScore else { return }
+        let hidden = Settings.hideSpoilers && (listStatus == "CURRENT" || listStatus == "PLANNING")
+        badge.setTitle(hidden ? "50%" : String(format: "%.0f%%", score), for: .normal)
+        let value = hidden ? 100 : Int(score)
+        badge.normalBgColor = value >= 75 ? UIColor(red: 21/255, green: 128/255, blue: 61/255, alpha: 1)
+            : value >= 65 ? UIColor(red: 251/255, green: 146/255, blue: 60/255, alpha: 1)
+            : UIColor(red: 248/255, green: 113/255, blue: 113/255, alpha: 1)
+        badge.backgroundColor = badge.normalBgColor
+        badge.highlightedBgColor = value >= 75 ? UIColor(red: 22/255, green: 101/255, blue: 52/255, alpha: 1)
+            : value >= 65 ? UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
+            : UIColor(red: 239/255, green: 68/255, blue: 68/255, alpha: 1)
+        badge.setSpoiler(hidden)
+    }
+
     private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
                                 nextEp: Int?, format: String?, season: String?,
                                 duration: Int? = nil, progress: Int? = nil,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        scoreBadge = nil
+        displayedScore = score
 
         let badge1Text: String
         if let eps = episodes, eps > 1 {
@@ -1536,11 +1566,13 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             } else {
                 scoreBG = UIColor(red: 248/255.0, green: 113/255.0, blue: 113/255.0, alpha: 1)
             }
-            badgesStack.addArrangedSubview(makeBadge(text: String(format: "%.0f%%", sc),
+            let badge = makeBadge(text: String(format: "%.0f%%", sc),
                                                       accent: scoreBG,
                                                       contrast: contrastColor,
                                                       filterType: "score",
-                                                      filterValue: "SCORE_DESC"))
+                                                      filterValue: "SCORE_DESC")
+            scoreBadge = badge as? BadgeButton
+            badgesStack.addArrangedSubview(badge)
         }
     }
 
@@ -1593,6 +1625,30 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         var highlightedBgColor: UIColor = .gray
         var filterType: String = ""
         var filterValue: String = ""
+        private let spoilerLabel = UILabel()
+        private lazy var spoilerTitle = HayaseContentBlurView(content: spoilerLabel)
+        private var masksScore = false
+
+        func setSpoiler(_ hidden: Bool) {
+            masksScore = hidden
+            if spoilerTitle.superview == nil {
+                spoilerTitle.isUserInteractionEnabled = false
+                addSubview(spoilerTitle)
+            }
+            spoilerLabel.text = title(for: .normal)
+            spoilerLabel.font = titleLabel?.font
+            spoilerLabel.textColor = titleColor(for: .normal)
+            spoilerTitle.radius = hidden ? 3 : 0
+            spoilerTitle.isHidden = !hidden
+            titleLabel?.alpha = hidden ? 0 : 1
+            setNeedsLayout()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            spoilerTitle.frame = titleLabel?.frame ?? .zero
+            titleLabel?.alpha = masksScore ? 0 : 1
+        }
 
         override var isHighlighted: Bool {
             didSet {
@@ -1761,6 +1817,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 // MARK: - AnimeDetailViewController
 
 class AnimeDetailViewController: UIViewController {
+    private var renderedDisplayPreferences: Settings.DisplayPreferences?
 
     var animeEntity: Animes?
     var animeItem: AnimeItem?
@@ -1983,6 +2040,13 @@ class AnimeDetailViewController: UIViewController {
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         applyViewerStateFromRouteMedia()
+        let preferences = Settings.DisplayPreferences()
+        if let previous = renderedDisplayPreferences, previous != preferences {
+            if let item = animeItem { headerView?.refreshDisplayPreferences(for: item) }
+            headerView?.updatePlayButtonTitle(listStatus: currentListStatus)
+            tableView.reloadData()
+        }
+        renderedDisplayPreferences = preferences
         headerView?.publishSidebarBackdrop()
     }
 
@@ -2689,6 +2753,8 @@ class AnimeDetailViewController: UIViewController {
             return
         }
         while let presented = presenter.presentedViewController {
+            // Also reject a second activation while a search is already opening.
+            if presented is ExtensionSearchViewController { return }
             presenter = presented
         }
         searchVC.prepareOverlayPresentation(from: presenter)

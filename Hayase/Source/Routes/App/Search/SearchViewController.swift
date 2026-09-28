@@ -36,6 +36,7 @@ private enum SearchHeaderItem {
 // MARK: - SearchViewController
 
 class SearchViewController: UIViewController {
+    private var renderedDisplayPreferences: Settings.DisplayPreferences?
 
     // MARK: - Hayase color constants
     private static let bgBlack      = UIColor.black
@@ -172,6 +173,17 @@ class SearchViewController: UIViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
+        }
+        let preferences = Settings.DisplayPreferences()
+        let previousPreferences = renderedDisplayPreferences
+        renderedDisplayPreferences = preferences
+        if let previous = previousPreferences, previous != preferences {
+            collectionView.reloadData()
+            if pendingRouteState == nil, pendingPrefill == nil,
+               previous.showAdultContent != preferences.showAdultContent ||
+                previous.accountLanguage != preferences.accountLanguage {
+                fetchResults(reset: true)
+            }
         }
         if let state = pendingRouteState {
             pendingRouteState = nil

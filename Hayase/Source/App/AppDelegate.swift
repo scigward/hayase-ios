@@ -62,6 +62,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.makeKeyAndVisible()
     }
 
+    /// Native equivalent of the interface restart after clearing its stores.
+    func rebuildInterfaceAfterSettingsReset() {
+        guard let tabs = UIStoryboard(name: "Main", bundle: nil).instantiateInitialViewController() as? UITabBarController else { return }
+        window?.rootViewController = HayaseSidebarController(tabBarController: tabs)
+        window?.makeKeyAndVisible()
+        HayaseInterfaceScale.apply()
+    }
+
     // MARK: - URL Scheme Handling
 
     /// Handle incoming URLs from the `hayase://` URL scheme.

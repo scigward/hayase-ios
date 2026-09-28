@@ -161,6 +161,7 @@ final class MPVWrapper {
             throw RendererError.mpvCreationFailed
         }
         mpv = handle
+        appliedDeband = false
 
         let mpvLogLevel = Settings.debugLevel == "*" ? "debug" : "warn"
         checkError(mpv_request_log_messages(handle, mpvLogLevel))
@@ -207,10 +208,26 @@ final class MPVWrapper {
     /// Mirrors interface `subtitles.ts` dialogue-style overrides. mpv/libass
     /// applies these only to subtitle dialogue it considers safe to override;
     /// embedded signs and typesetting remain governed by the ASS script.
-    private func configureSubtitleStyle(on handle: OpaquePointer) {
+    func applySubtitleStyle() {
+        withHandle(()) { handle in configureSubtitleStyle(on: handle, initializing: false) }
+    }
+
+    func applyLoggingLevel() {
+        withHandle(()) { handle in
+            checkError(mpv_request_log_messages(handle, Settings.debugLevel == "*" ? "debug" : "warn"))
+        }
+    }
+
+    private func configureSubtitleStyle(on handle: OpaquePointer, initializing: Bool = true) {
+        let set: (String, String) -> Void = { name, value in
+            self.checkError(initializing
+                ? mpv_set_option_string(handle, name, value)
+                : mpv_set_property_string(handle, name, value))
+        }
         let selection = Settings.subtitleStyle
         guard selection != "none" else {
-            checkError(mpv_set_option_string(handle, "sub-ass-override", "no"))
+            set("sub-ass-override", "no")
+            set("sub-ass-style-overrides", "")
             return
         }
 
@@ -240,8 +257,8 @@ final class MPVWrapper {
             "Spacing=\(spacing)", "Angle=0", "BorderStyle=1", "Outline=4",
             "Shadow=0", "Alignment=2", "MarginL=135", "MarginR=135", "MarginV=50",
         ].joined(separator: ",")
-        checkError(mpv_set_option_string(handle, "sub-ass-override", "yes"))
-        checkError(mpv_set_option_string(handle, "sub-ass-style-overrides", overrides))
+        set("sub-ass-override", "yes")
+        set("sub-ass-style-overrides", overrides)
     }
     
     func stop() {
@@ -441,6 +458,7 @@ final class MPVWrapper {
     private func handleEvent(_ event: mpv_event) {
         switch event.event_id {
         case MPV_EVENT_FILE_LOADED:
+            setDeband(Settings.deband)
             let hadExternalSubs = !pendingExternalSubtitles.isEmpty
             if hadExternalSubs, let handle = mpv {
                 for (index, subUrl) in pendingExternalSubtitles.enumerated() {
@@ -798,8 +816,12 @@ final class MPVWrapper {
 
     // MARK: - Deband
     
+    private var appliedDeband = false
+
     func setDeband(_ enabled: Bool) {
         withHandle(()) { handle in
+            guard appliedDeband != enabled else { return }
+            appliedDeband = enabled
             if enabled {
                 #if !targetEnvironment(simulator)
                 commandSync(handle, ["set", "hwdec", "videotoolbox-copy"])
@@ -1002,7 +1024,7 @@ final class MPVWrapper {
 final class Logger {
     static let shared = Logger()
     func log(_ message: String, type: String) {
-        let showLogger = UserDefaults.standard.bool(forKey: "pref_showLogger")
+        let showLogger = UserDefaults.standard.bool(forKey: "pref_showLogger") || Settings.debugLevel == "*"
         if showLogger {
             print("[\(type)] \(message)")
         }

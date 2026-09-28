@@ -65,7 +65,7 @@ enum SettingsSectionCatalog {
     // MARK: - Option lists (matching Hayase src/lib/modules/settings/util.ts)
 
     private static let languageCodes: [(key: String, label: String)] = [
-        ("eng", "English"), ("jpn", "Japanese"), ("chi", "Chinese"),
+        ("eng", "English"), ("enm", "English (Weeb)"), ("jpn", "Japanese"), ("chi", "Chinese"),
         ("por", "Portuguese"), ("spa", "Spanish"), ("ger", "German"),
         ("pol", "Polish"), ("cze", "Czech"), ("dan", "Danish"),
         ("gre", "Greek"), ("fin", "Finnish"), ("fre", "French"),
@@ -102,7 +102,7 @@ enum SettingsSectionCatalog {
     ]
 
     private static let debugLevels: [(key: String, label: String)] = [
-        ("", "None"), ("*", "All"), ("torrent", "Torrent"), ("ui", "Interface"),
+        ("", "None"), ("*", "All"), (Settings.torrentDebugNamespaces, "Torrent"), ("ui:*", "Interface"),
     ]
 
     // MARK: - All sections (full data, tagged by tab)
