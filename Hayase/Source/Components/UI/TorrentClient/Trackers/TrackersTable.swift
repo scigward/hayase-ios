@@ -55,7 +55,7 @@ final class TrackerStatusCell: UITableViewCell {
             leechersLabel,
         ])
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = TorrentClientStyle.columnSpacing
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)

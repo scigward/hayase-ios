@@ -21,7 +21,7 @@ enum ColumnHeader {
 
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = TorrentClientStyle.columnSpacing
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(stack)

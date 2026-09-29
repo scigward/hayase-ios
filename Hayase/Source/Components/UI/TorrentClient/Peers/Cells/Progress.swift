@@ -10,7 +10,7 @@ import UIKit
 final class PeerProgressCellContent: UIView {
     private let trackView: UIView = {
         let view = UIView()
-        view.backgroundColor = TorrentClientStyle.accent
+        view.backgroundColor = UIColor.HayaseTheme.secondary
         view.layer.cornerRadius = 3
         view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -28,10 +28,17 @@ final class PeerProgressCellContent: UIView {
         let label = UILabel()
         label.font = .nunito(ofSize: 12)
         label.textColor = TorrentClientStyle.mutedForeground
+        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
 
     private var progress: Double = 0
+
+    // The horizontal row centers this view; UIView has no intrinsic height.
+    // Match mt-1.5 + h-1.5 + mt-1 + text-xs (16px line height).
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 32)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -56,7 +63,7 @@ final class PeerProgressCellContent: UIView {
         NSLayoutConstraint.activate([
             trackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             trackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            trackView.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            trackView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             trackView.heightAnchor.constraint(equalToConstant: 6),
 
             fillView.leadingAnchor.constraint(equalTo: trackView.leadingAnchor),

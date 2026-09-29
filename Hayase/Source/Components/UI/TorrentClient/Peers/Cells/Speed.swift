@@ -53,7 +53,7 @@ final class PeerSpeedCellContent: UIView {
 
         let stack = UIStackView(arrangedSubviews: [imageView, label])
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = 10 // gap-x-2 plus the interface icon's mr-0.5
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)

@@ -17,6 +17,8 @@ enum TorrentClientStyle {
     static let sidebarWidth: CGFloat = 240
     static let sidebarGap: CGFloat = 48
     static let tableCornerRadius: CGFloat = 6
+    // Adjacent interface table cells each contribute px-4 (16px).
+    static let columnSpacing: CGFloat = 32
 
     static var background: UIColor { UIColor.HayaseTheme.background }
     static var foreground: UIColor { UIColor.HayaseTheme.foreground }

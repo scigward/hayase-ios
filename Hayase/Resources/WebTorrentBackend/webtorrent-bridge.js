@@ -593,7 +593,15 @@ async function handleRPC (payload) {
       return statsFromTorrent(torrentByHash(params.hash))
     }
     case 'peerInfo':
-      return await activeClient.peerInfo(params.hash)
+      // speedometer returns fractional bytes/sec. Swift's UInt64 decoding rejects
+      // the WHOLE peer array if even one rate is fractional. Normalize at the
+      // native transport boundary, just as statsFromTorrent does for Overview.
+      return (await activeClient.peerInfo(params.hash)).map(peer => ({
+        ...peer,
+        seeder: Boolean(peer.seeder),
+        speed: { down: numericValue(peer.speed.down), up: numericValue(peer.speed.up) },
+        size: { downloaded: numericValue(peer.size.downloaded), uploaded: numericValue(peer.size.uploaded) }
+      }))
     case 'fileInfo':
       return await activeClient.fileInfo(params.hash)
     case 'trackers':

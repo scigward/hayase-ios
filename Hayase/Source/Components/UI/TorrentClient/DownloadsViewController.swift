@@ -950,12 +950,7 @@ class DownloadsViewController: UIViewController {
     @objc private func handlePeerHeaderTap(_ sender: UIButton) {
         guard let column = PeerSortColumn(rawValue: sender.tag) else { return }
         if peersSortColumn == column {
-            if peersSortAscending {
-                peersSortAscending = false
-            } else {
-                peersSortColumn = nil
-                peersSortAscending = true
-            }
+            peersSortAscending.toggle()
         } else {
             peersSortColumn = column
             peersSortAscending = true
@@ -1073,7 +1068,7 @@ class DownloadsViewController: UIViewController {
                 let group = DispatchGroup()
                 var nextInfo: WebTorrentTorrentInfo?
                 var nextFiles: [WebTorrentFileInfo]?
-                var nextPeers: [WebTorrentPeerInfo] = []
+                var nextPeers: [WebTorrentPeerInfo]?
                 var nextLibrary: [WebTorrentLibraryEntry]?
                 var nextProtocol: WebTorrentProtocolStatus?
                 var nextError: Error?
@@ -1111,6 +1106,9 @@ class DownloadsViewController: UIViewController {
                     manager.webTorrentPeerInfo(hash: requestedHash) { result in
                         DispatchQueue.main.async {
                             if case .success(let peers) = result { nextPeers = peers }
+                            if case .failure(let error) = result {
+                                NSLog("[Torrent Peers] Refresh failed: %@", error.localizedDescription)
+                            }
                             group.leave()
                         }
                     }
@@ -1144,7 +1142,7 @@ class DownloadsViewController: UIViewController {
     private func applyWebTorrentState(status: WebTorrentBridgeStatus?,
                                       info: WebTorrentTorrentInfo?,
                                       files: [WebTorrentFileInfo]?,
-                                      peers: [WebTorrentPeerInfo],
+                                      peers: [WebTorrentPeerInfo]?,
                                       library: [WebTorrentLibraryEntry]?,
                                       protocolStatus: WebTorrentProtocolStatus?,
                                       error: Error?) {
@@ -1155,12 +1153,15 @@ class DownloadsViewController: UIViewController {
                 webProtocol = nil
                 webFileInfos = []
                 webTrackerRows = []
+                webPeerInfos = []
             }
             webStatus = status
         }
         if let info { webInfo = info }
         if let protocolStatus { webProtocol = protocolStatus }
-        webPeerInfos = peers
+        // A failed refresh must not erase the last successful snapshot. A real
+        // empty response still clears disconnected peers; torrent changes reset above.
+        if let peers { webPeerInfos = peers }
         // nil is a failed request; [] is a successful empty response.
         if let library { webLibraryEntries = library }
         webLastError = error
@@ -1518,6 +1519,9 @@ class DownloadsViewController: UIViewController {
         peersTableView.allowsSelection = false
         peersHorizontalScrollView.addSubview(peersTableView)
 
+        let preferredWidth = peersTableView.widthAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor)
+        preferredWidth.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             borderContainer.topAnchor.constraint(equalTo: peersView.topAnchor),
             borderContainer.leadingAnchor.constraint(equalTo: peersView.leadingAnchor),
@@ -1536,6 +1540,7 @@ class DownloadsViewController: UIViewController {
             peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
             peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
             peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant: PeerTableLayout.minimumContentWidth),
+            preferredWidth,
         ])
     }
 
@@ -1644,7 +1649,7 @@ class DownloadsViewController: UIViewController {
         libraryTableView.rowHeight = 56
         libraryTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(libraryTableView)
-        TorrentClientStyle.installScrollableTable(libraryTableView, in: borderContainer, minimumWidth: 1200)
+        TorrentClientStyle.installScrollableTable(libraryTableView, in: borderContainer, minimumWidth: 1280)
 
         NSLayoutConstraint.activate([
             libraryRescanButton.widthAnchor.constraint(equalToConstant: 36),
@@ -1704,7 +1709,7 @@ class DownloadsViewController: UIViewController {
             let query = librarySearchField.text?.lowercased() ?? ""
             webFilteredLibraryEntries = query.isEmpty
                 ? webLibraryEntries
-                : webLibraryEntries.filter { $0.name.lowercased().contains(query) || $0.hash.lowercased().contains(query) }
+                : webLibraryEntries.filter { ($0.name.isEmpty ? $0.hash : $0.name).lowercased().contains(query) }
             if let column = librarySortColumn {
                 webFilteredLibraryEntries.sort {
                     TorrentLibrarySort.less($0, $1, column: column, ascending: librarySortAscending)
@@ -2346,7 +2351,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             if isWebTorrentMode {
                 if webFilteredFileInfos.isEmpty {
-                    return emptyTableCell(text: "No files loaded yet.")
+                    return emptyTableCell(text: "No files downloaded yet.")
                 }
                 guard let cell = tableView.dequeueReusableCell(
                     withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
@@ -2545,11 +2550,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     @objc private func fileColumnHeaderTapped(_ sender: UIButton) {
         guard let col = FileSortColumn(rawValue: sender.tag) else { return }
         if filesSortColumn == col {
-            if filesSortAscending {
-                filesSortAscending = false
-            } else {
-                filesSortColumn = nil   // third tap: clear sort
-            }
+            filesSortAscending.toggle()
         } else {
             filesSortColumn = col
             filesSortAscending = true

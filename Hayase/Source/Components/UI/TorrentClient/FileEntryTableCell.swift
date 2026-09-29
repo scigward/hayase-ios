@@ -30,7 +30,7 @@ final class FileEntryTableCell: UITableViewCell {
         let pv = UIProgressView(progressViewStyle: .bar)
         pv.layer.cornerRadius = 3
         pv.clipsToBounds = true
-        pv.trackTintColor = TorrentClientStyle.accent
+        pv.trackTintColor = UIColor.HayaseTheme.secondary
         pv.progressTintColor = TorrentClientStyle.primary
         return pv
     }()
@@ -68,24 +68,26 @@ final class FileEntryTableCell: UITableViewCell {
         // Progress: bar on top, label below
         let progressStack = UIStackView(arrangedSubviews: [progressBar, progressLabel])
         progressStack.axis = .vertical
-        progressStack.spacing = 2
+        progressStack.spacing = 4
+        progressStack.isLayoutMarginsRelativeArrangement = true
+        progressStack.layoutMargins = UIEdgeInsets(top: 6, left: 0, bottom: 0, right: 0)
         progressStack.alignment = .fill
 
         // Horizontal stack matching column header widths:
-        // File Name (flex) | Size (60) | Progress (70) | Streams (50)
+        // File Name (flex) | Size (80) | Progress (128) | Streams (70)
         let stack = UIStackView(arrangedSubviews: [nameLabel, sizeLabel, progressStack, streamsLabel])
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = TorrentClientStyle.columnSpacing
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
         NSLayoutConstraint.activate([
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
             progressBar.heightAnchor.constraint(equalToConstant: 6),
 

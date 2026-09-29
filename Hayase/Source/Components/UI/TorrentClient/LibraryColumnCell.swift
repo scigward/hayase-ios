@@ -18,7 +18,7 @@ final class LibraryColumnCell: UITableViewCell {
     private let filesLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
     private let sizeLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
     private let statusLabel: UILabel = {
-        let label = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: TorrentClientStyle.foreground)
+        let label = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
         label.textAlignment = .left
         return label
     }()
@@ -35,7 +35,7 @@ final class LibraryColumnCell: UITableViewCell {
         stack.alignment = .center
         return stack
     }()
-    private let dateLabel = LibraryColumnCell.makeLabel(size: 13, weight: .regular, color: TorrentClientStyle.mutedForeground)
+    private let dateLabel = LibraryColumnCell.makeLabel(size: 14, weight: .regular, color: TorrentClientStyle.foreground)
     private let selectButton: UIButton = {
         let button = UIButton(type: .system)
         button.tintColor = TorrentClientStyle.foreground
@@ -92,7 +92,7 @@ final class LibraryColumnCell: UITableViewCell {
 
         let stack = UIStackView(arrangedSubviews: [seriesLabel, episodeLabel, filesLabel, sizeLabel, statusStack, dateLabel, torrentNameLabel, selectButton])
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = TorrentClientStyle.columnSpacing
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
@@ -101,8 +101,8 @@ final class LibraryColumnCell: UITableViewCell {
             stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
             seriesLabel.widthAnchor.constraint(equalToConstant: 288),
             torrentNameLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 288),
@@ -143,7 +143,7 @@ final class LibraryColumnCell: UITableViewCell {
     func configure(entry: WebTorrentLibraryEntry, seriesTitle: String, isSelected: Bool, compact: Bool) {
         applyLayout(compact: compact)
         seriesLabel.text = seriesTitle
-        episodeLabel.text = compact ? "E" + (entry.episode.map { String($0) } ?? "?") : (entry.episode.map { String($0) } ?? "?")
+        episodeLabel.text = entry.episode.map { String($0) } ?? "?"
         filesLabel.text = "\(entry.files)"
         sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(entry.size)
         dateLabel.text = formattedDate(entry.date)
@@ -160,7 +160,7 @@ final class LibraryColumnCell: UITableViewCell {
 
         seriesLabel.text = entity?.animes.map { AniListUtil.title(for: $0) } ?? "?"
         let episodeCount = entity?.videos?.count ?? 0
-        episodeLabel.text = compact ? "E\(episodeCount > 0 ? String(episodeCount) : "?")" : (episodeCount > 0 ? "\(episodeCount)" : "?")
+        episodeLabel.text = episodeCount > 0 ? "\(episodeCount)" : "?"
         torrentNameLabel.text = entity?.torrentName ?? snap?.name ?? handle.infoHashes.best.hex
         filesLabel.text = "\(snap?.files.count ?? 0)"
         sizeLabel.text = TorrentDetailViewController.fastPrettyBytes(snap?.total ?? 0)

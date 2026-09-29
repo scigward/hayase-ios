@@ -9,7 +9,7 @@ import UIKit
 
 enum PeerTableLayout {
     static let contentPadding: CGFloat = 48
-    static let columnSpacing: CGFloat = 8
+    static let columnSpacing = TorrentClientStyle.columnSpacing
     static let ipWidth: CGFloat = 190
     static let clientWidth: CGFloat = 160
     static let progressWidth: CGFloat = 100
@@ -101,7 +101,7 @@ final class PeerInfoCell: UITableViewCell {
             flagsView,
         ])
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = PeerTableLayout.columnSpacing
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
