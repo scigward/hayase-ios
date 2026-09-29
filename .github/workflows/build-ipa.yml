@@ -135,15 +135,6 @@ jobs:
             SYMROOT="$GITHUB_WORKSPACE/build/app" \
             clean build
 
-      - name: Check MPVKit binary
-        run: |
-          set -euo pipefail
-
-          for f in "$HOME"/Library/Developer/Xcode/DerivedData/Hayase-*/SourcePackages/artifacts/mpvkit/MPVKit/MPVKit.xcframework/ios-arm64/MPVKit.framework/MPVKit; do
-            echo "$f"
-            echo "osd-render-height matches: $(grep -a -c 'osd-render-height' "$f" || true)"
-          done
-
       - name: Package IPA
         run: |
           set -euo pipefail
