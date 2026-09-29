@@ -86,6 +86,11 @@ final class HayaseDebugViewController: UIViewController {
             description: "Configure the native streaming, torrent, and player logger.",
             action: #selector(configureStreamingLogger), buttonTitle: "Configure"
         ))
+        stack.addArrangedSubview(makeCard(
+            title: "Exclusive Audio Session",
+            description: "Experiment: stop the player from making the audio session mixable, so other apps' audio no longer plays under the video. Applies from the next player.",
+            action: #selector(configureExclusiveAudio), buttonTitle: "Configure"
+        ))
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -227,13 +232,21 @@ final class HayaseDebugViewController: UIViewController {
     }
 
     @objc private func configureStreamingLogger() {
-        let enabled = UserDefaults.standard.bool(forKey: "pref_showLogger")
-        let alert = UIAlertController(title: "Streaming Logger",
+        presentEnableSheet(title: "Streaming Logger", key: "pref_showLogger")
+    }
+
+    @objc private func configureExclusiveAudio() {
+        presentEnableSheet(title: "Exclusive Audio Session", key: "pref_audioExclusive")
+    }
+
+    private func presentEnableSheet(title: String, key: String) {
+        let enabled = UserDefaults.standard.bool(forKey: key)
+        let alert = UIAlertController(title: title,
                                       message: enabled ? "Currently enabled" : "Currently disabled",
                                       preferredStyle: .actionSheet)
         for option in [("Enable", true), ("Disable", false)] {
             alert.addAction(UIAlertAction(title: option.0, style: .default) { _ in
-                Settings.write(option.1, forKey: "pref_showLogger")
+                Settings.write(option.1, forKey: key)
             })
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))

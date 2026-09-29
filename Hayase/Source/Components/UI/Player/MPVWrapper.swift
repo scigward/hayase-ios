@@ -185,6 +185,11 @@ final class MPVWrapper {
         #endif
         checkError(mpv_set_option_string(handle, "hwdec-codecs", "all"))
         checkError(mpv_set_option_string(handle, "hwdec-software-fallback", "yes"))
+        // Debug-page experiment: keep the app's non-mixable audio session rather
+        // than letting the audio unit switch it to mixable.
+        if UserDefaults.standard.bool(forKey: "pref_audioExclusive") {
+            checkError(mpv_set_option_string(handle, "audio-exclusive", "yes"))
+        }
 
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
@@ -525,13 +530,16 @@ final class MPVWrapper {
             Logger.shared.log("mpv shutdown", type: "Warn")
         case MPV_EVENT_LOG_MESSAGE:
             if let logMessagePointer = event.data?.assumingMemoryBound(to: mpv_event_log_message.self) {
-                let component = String(cString: logMessagePointer.pointee.prefix)
-                let text = String(cString: logMessagePointer.pointee.text)
-                let lower = text.lowercased()
-                if lower.contains("error") {
+                let message = logMessagePointer.pointee
+                let component = String(cString: message.prefix)
+                let text = String(cString: message.text).trimmingCharacters(in: .whitespacesAndNewlines)
+                switch String(cString: message.level) {
+                case "fatal", "error":
                     Logger.shared.log("mpv[\(component)] \(text)", type: "Error")
-                } else if lower.contains("warn") || lower.contains("warning") {
+                case "warn":
                     Logger.shared.log("mpv[\(component)] \(text)", type: "Warn")
+                default:
+                    break
                 }
             }
         default:
