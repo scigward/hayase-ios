@@ -64,7 +64,7 @@ struct ExtensionConfig: Codable, Equatable {
     var version: String
     var description: String?
     var id: String
-    /// "torrent" | "nzb" | "url"
+    /// "torrent" | "nzb" | "subtitle" | "http"
     var type: String
     /// "high" | "medium" | "low"
     var accuracy: String
@@ -83,12 +83,45 @@ struct ExtensionConfig: Codable, Equatable {
     var options: [String: ExtensionOptionDef]?
     var deprecated: Bool? = nil
     var manifestVersion: Int? = nil
+    /// Download rate limit applied to web seeds from an "http" source.
+    var rateLimit: Double? = nil
 }
 
 /// Per-extension user options and enabled state — mirrors ExtensionsOptions in storage.ts
 struct ExtensionOptions: Codable {
     var options: [String: AnyCodableValue]
     var enabled: Bool
+}
+
+/// Mirrors WebSeedFile in types.d.ts
+struct WebSeedFile {
+    let name: String
+    let index: Int?
+}
+
+/// The file(s) an NZB or HTTP source is asked about: the file being played
+/// (`single`) or every file in the torrent (`batch`).
+enum ExtensionFileQuery {
+    case single(WebSeedFile)
+    case batch([WebSeedFile])
+}
+
+/// Mirrors WebSeedResult in types.d.ts
+struct WebSeedResult {
+    let url: String
+    let authorization: String?
+    let index: Int?
+    let rateLimit: Double?
+
+    /// `rateLimit` comes from the extension's config and replaces any the
+    /// extension returned, as extensions.ts spreads it over the result.
+    init?(from dict: [String: Any], rateLimit: Double?, defaultIndex: Int?) {
+        guard let url = dict["url"] as? String else { return nil }
+        self.url = url
+        authorization = dict["authorization"] as? String
+        index = (dict["index"] as? NSNumber)?.intValue ?? defaultIndex
+        self.rateLimit = rateLimit
+    }
 }
 
 /// Mirrors TorrentResult in types.d.ts

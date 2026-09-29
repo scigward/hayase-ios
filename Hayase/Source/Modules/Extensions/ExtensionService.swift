@@ -252,6 +252,12 @@ final class ExtensionService {
                 episode: Int,
                 resolution: String,
                 onUpdate: (([TorrentResult]) -> Void)? = nil) async throws -> [TorrentResult] {
+        let query = await makeQuery(for: item, episode: episode, resolution: resolution)
+        return try await search(query: query, onUpdate: onUpdate)
+    }
+
+    /// Mirrors Extensions._getQueryOptions, which torrent, NZB and HTTP queries share.
+    private func makeQuery(for item: AnimeItem, episode: Int, resolution: String) async -> TorrentQuery {
         let ids = await fetchAniZipData(item: item, episode: episode)
 
         var query = TorrentQuery.make(from: item, episode: episode, resolution: resolution)
@@ -267,8 +273,115 @@ final class ExtensionService {
         // Hayase: const { anidbEid, tvdbId: tvdbEId, absoluteEpisodeNumber } = ALtoAniDBEpisode(...)
         // When unavailable, leave nil — do NOT fallback to eid (anidbEid is a different field).
         query.absoluteEpisodeNumber = ids.absoluteEpisodeNumber
+        return query
+    }
 
-        return try await search(query: query, onUpdate: onUpdate)
+    // MARK: - Extensions.nzbQuery / webSeedQuery (mirrors extensions.ts)
+
+    /// NZB URLs for a torrent from the enabled "nzb" extensions.
+    func nzbURLs(hash: String, name: String, files: ExtensionFileQuery,
+                 item: AnimeItem, episode: Int) async -> [String] {
+        await querySources(type: "nzb", errorTitle: "Error fetching NZB from",
+                           hash: hash, name: name, files: files, item: item, episode: episode,
+                           encodeFile: { $0.name }) { raw, _ in
+            guard let url = raw as? String, !url.isEmpty else { return [] }
+            return [url]
+        }
+    }
+
+    /// Web seeds for a torrent from the enabled "http" extensions.
+    func webSeeds(hash: String, name: String, files: ExtensionFileQuery,
+                  item: AnimeItem, episode: Int) async -> [WebSeedResult] {
+        // worker.ts fills a single result's missing index from the queried file.
+        let singleIndex: Int?
+        if case .single(let file) = files { singleIndex = file.index } else { singleIndex = nil }
+
+        return await querySources(type: "http", errorTitle: "Error fetching webseed from",
+                                  hash: hash, name: name, files: files, item: item, episode: episode,
+                                  encodeFile: { file -> Any in
+            var json: [String: Any] = ["name": file.name]
+            json["index"] = file.index
+            return json
+        }) { raw, config in
+            if let list = raw as? [[String: Any]] {
+                return list.compactMap { WebSeedResult(from: $0, rateLimit: config.rateLimit, defaultIndex: nil) }
+            }
+            guard let dict = raw as? [String: Any],
+                  let seed = WebSeedResult(from: dict, rateLimit: config.rateLimit, defaultIndex: singleIndex) else { return [] }
+            return [seed]
+        }
+    }
+
+    /// Calls `single` or `batch` on every enabled extension of `type`. Timeouts
+    /// are swallowed and other failures are shown per extension, as in extensions.ts.
+    private func querySources<T>(type: String,
+                                 errorTitle: String,
+                                 hash: String,
+                                 name: String,
+                                 files: ExtensionFileQuery,
+                                 item: AnimeItem,
+                                 episode: Int,
+                                 encodeFile: (WebSeedFile) -> Any,
+                                 decode: (Any, ExtensionConfig) -> [T]) async -> [T] {
+        await readyTask?.value
+
+        let sources = workers.compactMap { id, worker -> (worker: ExtensionWorker, config: ExtensionConfig, options: [String: Any])? in
+            guard options[id]?.enabled == true, let config = configs[id], config.type == type else { return nil }
+            return (worker, config, options[id]?.options.mapValues(\.jsonCompatible) ?? [:])
+        }
+        guard !sources.isEmpty else { return [] }
+
+        let method: String
+        let fileQuery: [String: Any]
+        switch files {
+        case .single(let file):
+            method = "single"
+            fileQuery = ["file": encodeFile(file)]
+        case .batch(let list):
+            method = "batch"
+            fileQuery = ["files": list.map(encodeFile)]
+        }
+        // NZBQuery / WebSeedQuery: the anime query without resolution and exclusions.
+        let query = await makeQuery(for: item, episode: episode, resolution: "").toDict()
+            .filter { $0.key != "resolution" && $0.key != "exclusions" }
+            .merging(["hash": hash, "name": name]) { $1 }
+            .merging(fileQuery) { $1 }
+
+        var results: [T] = []
+        await withTaskGroup(of: (config: ExtensionConfig, result: Result<Any, Error>).self) { group in
+            for source in sources {
+                group.addTask { @MainActor in
+                    do {
+                        let raw = try await source.worker.call(method: method, query: query,
+                                                               options: source.options, timeout: 10)
+                        return (source.config, .success(raw))
+                    } catch {
+                        return (source.config, .failure(error))
+                    }
+                }
+            }
+            for await (config, result) in group {
+                let error: Error
+                switch result {
+                case .success(let raw):
+                    results.append(contentsOf: decode(raw, config))
+                    continue
+                case .failure(let failure):
+                    error = failure
+                }
+                let message: String
+                switch error as? ExtensionWorker.WorkerError {
+                case .timedOut?:
+                    continue
+                case .callFailed(let text)?:
+                    message = text
+                default:
+                    message = error.localizedDescription
+                }
+                await AppErrorToast.show(message, title: "\(errorTitle) \(config.name)")
+            }
+        }
+        return results
     }
 
     /// Fetches ALL IDs from api.ani.zip in ONE request.

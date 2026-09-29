@@ -24,6 +24,7 @@ public class VideoService: NSObject {
     /// before any video rows exist — resulting in a blank table with no spinner.
     private var coreDataIsReady = false
     var hasFinishedUpdatingLocalVideos: Bool { coreDataIsReady || lastError != nil }
+    var backendKind: TorrentBackendKind { forcedBackendKind ?? TorrentBackendManager.shared.currentKind }
 
     init(torrentEntity: Torrents, episode: Int = 0, backendKind: TorrentBackendKind? = nil) {
         self.torrentEntity = torrentEntity
@@ -44,7 +45,7 @@ public class VideoService: NSObject {
         coreDataIsReady = false
         lastError = nil
 
-        if (forcedBackendKind ?? TorrentBackendManager.shared.currentKind) == .webtorrent {
+        if backendKind == .webtorrent {
             UpdateLocalVideoWithWebTorrent()
             return
         }
@@ -76,6 +77,8 @@ public class VideoService: NSObject {
                 case .success(let files):
                     self.ClearCurrentTorrentEntityAndVideos()
                     self.InsertVideosFromWebTorrentFiles(files)
+                    WebTorrentWebSeeds.add(hash: files.first?.hash ?? "", mediaID: mediaID, episode: self.requestedEpisode,
+                                           files: .batch(files.map { WebSeedFile(name: $0.name, index: $0.id) }))
                 case .failure(let error):
                     print("VideoService: WebTorrent update failed: \(error.localizedDescription)")
                     self.lastError = error

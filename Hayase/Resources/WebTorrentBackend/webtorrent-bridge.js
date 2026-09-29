@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v7'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v8'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
@@ -618,6 +618,13 @@ async function handleRPC (payload) {
     }
     case 'rescanTorrents':
       await activeClient.rescanTorrents(params.hashes ?? [])
+      return {}
+    // interface's native.createNZB / createHTTPWebSeed
+    case 'createNZB':
+      await activeClient.createNZBWebSeed(params.hash, params.url)
+      return {}
+    case 'createHTTPWebSeed':
+      await activeClient.createHTTPWebSeed(params.hash, params.url, params.authorization, params.index, params.rateLimit)
       return {}
     case 'cachedTorrents':
       return await activeClient.cached()

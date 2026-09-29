@@ -1543,6 +1543,15 @@ final class VideoPlayerViewController: UIViewController {
         updateChapterMarkers()
         updateBuffering(true)
 
+        // player.svelte: web seeds for the file being played.
+        if videoService?.backendKind == .webtorrent,
+           let hash = entity.torrents?.torrentHashString,
+           let name = entity.videoName,
+           let index = entity.videoIndex?.intValue {
+            WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID, episode: episodeNumber,
+                                   files: .single(WebSeedFile(name: name, index: index)))
+        }
+
         // Set up torrent streaming if the file is still downloading.
         setupStreamer { [weak self] in
             guard let self else { return }

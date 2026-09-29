@@ -183,6 +183,22 @@ final class WebTorrentBackend {
         }
     }
 
+    func createNZB(hash: String, url: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.createNZB(hash: hash, url: url, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    func createHTTPWebSeed(hash: String, seed: WebSeedResult, completion: @escaping (Result<Void, Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.createHTTPWebSeed(hash: hash, seed: seed, completion: completion)
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
     // MARK: - Casting
 
     func listDisplays(completion: @escaping (Result<[WebTorrentDisplay], Error>) -> Void) {

@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v7"
+    static let expectedVersion = "hayase-webtorrent-bridge-v8"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -163,6 +163,25 @@ final class WebTorrentBridgeClient {
 
     func deleteTorrents(hashes: [String], completion: @escaping (Result<Void, Error>) -> Void) {
         call(method: "deleteTorrents", params: ["hashes": hashes]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
+    }
+
+    // MARK: - Web seeds (mirrors interface's native.createNZB / createHTTPWebSeed)
+
+    func createNZB(hash: String, url: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        call(method: "createNZB", params: ["hash": hash, "url": url]) { (result: Result<EmptyResult, Error>) in
+            completion(result.map { _ in () })
+        }
+    }
+
+    func createHTTPWebSeed(hash: String, seed: WebSeedResult, completion: @escaping (Result<Void, Error>) -> Void) {
+        // Omit absent fields: torrent-client treats a null file index as present.
+        var params: [String: Any] = ["hash": hash, "url": seed.url]
+        params["authorization"] = seed.authorization
+        params["index"] = seed.index
+        params["rateLimit"] = seed.rateLimit
+        call(method: "createHTTPWebSeed", params: params) { (result: Result<EmptyResult, Error>) in
             completion(result.map { _ in () })
         }
     }

@@ -84,6 +84,14 @@ final class TorrentBackendManager {
         webTorrentBackend.deleteTorrents(hashes: hashes, completion: completion)
     }
 
+    func createWebTorrentNZB(hash: String, url: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        webTorrentBackend.createNZB(hash: hash, url: url, completion: completion)
+    }
+
+    func createWebTorrentHTTPWebSeed(hash: String, seed: WebSeedResult, completion: @escaping (Result<Void, Error>) -> Void) {
+        webTorrentBackend.createHTTPWebSeed(hash: hash, seed: seed, completion: completion)
+    }
+
     // MARK: - Casting (Chromecast/DLNA — WebTorrent backend only, same as interface)
 
     func webTorrentListDisplays(completion: @escaping (Result<[WebTorrentDisplay], Error>) -> Void) {

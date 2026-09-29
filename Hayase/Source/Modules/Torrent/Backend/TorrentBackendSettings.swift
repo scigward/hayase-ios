@@ -51,6 +51,12 @@ struct TorrentBackendSettings: Encodable {
         path = Self.downloadPath(for: defaults.string(forKey: "pref_torrentLocation") ?? "cache")
     }
 
+    /// client.ts only queries NZB extensions once a Usenet server is configured.
+    /// Port and pool size are always set, since they are clamped to at least 1.
+    var hasNZBServer: Bool {
+        !nzbDomain.isEmpty && !nzbLogin.isEmpty && !nzbPassword.isEmpty
+    }
+
     func dictionary() -> [String: Any] {
         return [
             "torrentPersist": torrentPersist,

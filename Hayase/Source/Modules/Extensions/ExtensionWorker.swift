@@ -21,6 +21,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         case notLoaded
         case loadFailed(String)
         case callFailed(String)
+        case timedOut(TimeInterval)
         case jsonSerialisation
 
         var errorDescription: String? {
@@ -28,6 +29,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
             case .notLoaded:             return "Extension worker not loaded"
             case .loadFailed(let msg):   return "Extension load failed: \(msg)"
             case .callFailed(let msg):   return "Extension call failed: \(msg)"
+            case .timedOut(let seconds): return "Extension call failed: Timed out after \(Int(seconds)) seconds."
             case .jsonSerialisation:     return "JSON serialisation error"
             }
         }
@@ -313,17 +315,17 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     /// mirrors TorrentSource.single(query, options)
     func single(query: TorrentQuery, options: [String: Any] = [:]) async throws -> [TorrentResult] {
-        return try await call(method: "single", query: query.toDict(), options: options)
+        return Self.torrentResults(try await call(method: "single", query: query.toDict(), options: options))
     }
 
     /// mirrors TorrentSource.batch(query, options)
     func batch(query: TorrentQuery, options: [String: Any] = [:]) async throws -> [TorrentResult] {
-        return try await call(method: "batch", query: query.toDict(), options: options)
+        return Self.torrentResults(try await call(method: "batch", query: query.toDict(), options: options))
     }
 
     /// mirrors TorrentSource.movie(query, options)
     func movie(query: TorrentQuery, options: [String: Any] = [:]) async throws -> [TorrentResult] {
-        return try await call(method: "movie", query: query.toDict(), options: options)
+        return Self.torrentResults(try await call(method: "movie", query: query.toDict(), options: options))
     }
 
     /// mirrors TorrentSource.test()
@@ -393,9 +395,15 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         pending.removeAll()
     }
 
-    // MARK: - Internal call helper
+    // MARK: - Calls
 
-    private func call(method: String, query: [String: Any], options: [String: Any]) async throws -> [TorrentResult] {
+    /// Calls `method` on the extension module and returns its raw JSON result.
+    /// NZB and HTTP sources share the method names of torrent sources but
+    /// return their own result shapes, so decoding is left to the caller.
+    func call(method: String,
+              query: [String: Any],
+              options: [String: Any],
+              timeout: TimeInterval = 20) async throws -> Any {
         guard webView != nil else { throw WorkerError.notLoaded }
 
         let callId = UUID().uuidString
@@ -413,7 +421,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         // thread that evaluateJavaScript is already blocking. 'void expr' → undefined → no await.
         let js = "void window.__call('\(escapedId)', '\(method)', \(queryJSON), \(optionsJSON));"
 
-        let raw: Any = try await withCheckedThrowingContinuation { cont in
+        return try await withCheckedThrowingContinuation { cont in
             Task { @MainActor [weak self] in
                 guard let self, let webView = self.webView else {
                     cont.resume(throwing: WorkerError.notLoaded)
@@ -422,14 +430,14 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
                 self.pending[callId] = { cont.resume(with: $0) }
 
-                // 20s safety timeout — matches Hayase interface raceWithHandler().
+                // The 20s default matches the interface's raceWithHandler().
                 let timeoutWork = DispatchWorkItem { [weak self] in
                     guard let self, let handler = self.pending.removeValue(forKey: callId) else { return }
                     self.callTimeouts.removeValue(forKey: callId)
-                    handler(.failure(WorkerError.callFailed("Timed out after 20 seconds.")))
+                    handler(.failure(WorkerError.timedOut(timeout)))
                 }
                 self.callTimeouts[callId] = timeoutWork
-                DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeoutWork)
+                DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
 
                 webView.evaluateJavaScript(js) { [weak self] _, err in
                     // Route errors through the pending handler so cont has a single owner.
@@ -441,7 +449,9 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                 }
             }
         }
+    }
 
+    private static func torrentResults(_ raw: Any) -> [TorrentResult] {
         guard let arr = raw as? [[String: Any]] else { return [] }
         return arr.compactMap { TorrentResult(from: $0) }
     }
