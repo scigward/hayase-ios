@@ -145,11 +145,15 @@ final class MPVWrapper {
         }
     }
     
+    /// Restarts decoding from a keyframe with the configured hardware decoder.
+    /// Re-creating the decoder alone resumes mid-GOP: the new VideoToolbox
+    /// session fails every frame up to the next keyframe, and mpv falls back to
+    /// software decoding for the rest of the file.
     private func performDecoderReset() {
-        guard let handle = mpv else { return }
-        if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Resetting decoder: status=\(displayLayer.status.rawValue), requiresFlush=\(displayLayer.requiresFlushToResumeDecoding)") }
+        guard let handle = mpv, let hwdec = getStringProperty(handle: handle, name: "hwdec") else { return }
         commandSync(handle, ["set", "hwdec", "no"])
-        commandSync(handle, ["set", "hwdec", "auto"])
+        commandSync(handle, ["set", "hwdec", hwdec])
+        commandSync(handle, ["seek", "0", "relative+exact"])
     }
     
     deinit {
@@ -184,7 +188,11 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(handle, "hwdec", "videotoolbox"))
         #endif
         checkError(mpv_set_option_string(handle, "hwdec-codecs", "all"))
-        checkError(mpv_set_option_string(handle, "hwdec-software-fallback", "yes"))
+        // Debug-page experiment: schedule frames on the display layer's timebase,
+        // as MPVKit did before 0.41.0-av8, instead of displaying each immediately.
+        if UserDefaults.standard.bool(forKey: "pref_timebaseFrames") {
+            checkError(mpv_set_option_string(handle, "avfoundation-timebase-frames", "yes"))
+        }
         // Debug-page experiment: keep the app's non-mixable audio session rather
         // than letting the audio unit switch it to mixable.
         if UserDefaults.standard.bool(forKey: "pref_audioExclusive") {
