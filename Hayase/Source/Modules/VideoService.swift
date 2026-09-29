@@ -77,7 +77,8 @@ public class VideoService: NSObject {
                 case .success(let files):
                     self.ClearCurrentTorrentEntityAndVideos()
                     self.InsertVideosFromWebTorrentFiles(files)
-                    WebTorrentWebSeeds.add(hash: files.first?.hash ?? "", mediaID: mediaID, episode: self.requestedEpisode,
+                    WebTorrentWebSeeds.add(hash: files.first?.hash ?? "", mediaID: mediaID,
+                                           episode: self.requestedEpisode > 0 ? self.requestedEpisode : nil,
                                            files: .batch(files.map { WebSeedFile(name: $0.name, index: $0.id) }))
                 case .failure(let error):
                     print("VideoService: WebTorrent update failed: \(error.localizedDescription)")

@@ -1548,7 +1548,8 @@ final class VideoPlayerViewController: UIViewController {
            let hash = entity.torrents?.torrentHashString,
            let name = entity.videoName,
            let index = entity.videoIndex?.intValue {
-            WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID, episode: episodeNumber,
+            WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID,
+                                   episode: episodeNumber > 0 ? episodeNumber : nil,
                                    files: .single(WebSeedFile(name: name, index: index)))
         }
 

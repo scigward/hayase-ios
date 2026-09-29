@@ -11,7 +11,8 @@ import Foundation
 /// torrent on the WebTorrent backend, so it also downloads from Usenet and
 /// HTTP mirrors. The libtorrent backend has no web seed support.
 enum WebTorrentWebSeeds {
-    static func add(hash: String, mediaID: Int, episode: Int, files: ExtensionFileQuery) {
+    /// `episode` is nil when it is not known, for example a torrent opened from Downloads.
+    static func add(hash: String, mediaID: Int, episode: Int?, files: ExtensionFileQuery) {
         guard !hash.isEmpty, mediaID > 0 else { return }
         Task { @MainActor in
             guard let item = try? await result({ AniListClient.shared.fetchResolverMediaByIdResult(mediaID, completion: $0) }),
@@ -25,7 +26,7 @@ enum WebTorrentWebSeeds {
 
     @MainActor
     private static func addNZBs(hash: String, name: String, files: ExtensionFileQuery,
-                                item: AnimeItem, episode: Int) async {
+                                item: AnimeItem, episode: Int?) async {
         guard TorrentBackendSettings().hasNZBServer else { return }
         let urls = await ExtensionService.shared.nzbURLs(hash: hash, name: name, files: files,
                                                          item: item, episode: episode)
@@ -40,7 +41,7 @@ enum WebTorrentWebSeeds {
 
     @MainActor
     private static func addHTTPWebSeeds(hash: String, name: String, files: ExtensionFileQuery,
-                                        item: AnimeItem, episode: Int) async {
+                                        item: AnimeItem, episode: Int?) async {
         let seeds = await ExtensionService.shared.webSeeds(hash: hash, name: name, files: files,
                                                            item: item, episode: episode)
         for seed in seeds {

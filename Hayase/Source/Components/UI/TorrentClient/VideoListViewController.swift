@@ -167,7 +167,7 @@ class VideoListViewController: UIViewController {
         setupNotifications()
 
         if let entity = torrentEntity {
-            videoService = VideoService(torrentEntity: entity)
+            videoService = VideoService(torrentEntity: entity, episode: targetEpisode ?? 0)
             loadingIndicator.startAnimating()
             emptyLabel.text = "Connecting to peers…"
             emptyLabel.isHidden = false

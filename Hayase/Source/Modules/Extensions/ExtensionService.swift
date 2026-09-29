@@ -280,7 +280,7 @@ final class ExtensionService {
 
     /// NZB URLs for a torrent from the enabled "nzb" extensions.
     func nzbURLs(hash: String, name: String, files: ExtensionFileQuery,
-                 item: AnimeItem, episode: Int) async -> [String] {
+                 item: AnimeItem, episode: Int?) async -> [String] {
         await querySources(type: "nzb", errorTitle: "Error fetching NZB from",
                            hash: hash, name: name, files: files, item: item, episode: episode,
                            encodeFile: { $0.name }) { raw, _ in
@@ -291,7 +291,7 @@ final class ExtensionService {
 
     /// Web seeds for a torrent from the enabled "http" extensions.
     func webSeeds(hash: String, name: String, files: ExtensionFileQuery,
-                  item: AnimeItem, episode: Int) async -> [WebSeedResult] {
+                  item: AnimeItem, episode: Int?) async -> [WebSeedResult] {
         // worker.ts fills a single result's missing index from the queried file.
         let singleIndex: Int?
         if case .single(let file) = files { singleIndex = file.index } else { singleIndex = nil }
@@ -320,7 +320,7 @@ final class ExtensionService {
                                  name: String,
                                  files: ExtensionFileQuery,
                                  item: AnimeItem,
-                                 episode: Int,
+                                 episode: Int?,
                                  encodeFile: (WebSeedFile) -> Any,
                                  decode: (Any, ExtensionConfig) -> [T]) async -> [T] {
         await readyTask?.value
@@ -342,8 +342,11 @@ final class ExtensionService {
             fileQuery = ["files": list.map(encodeFile)]
         }
         // NZBQuery / WebSeedQuery: the anime query without resolution and exclusions.
-        let query = await makeQuery(for: item, episode: episode, resolution: "").toDict()
-            .filter { $0.key != "resolution" && $0.key != "exclusions" }
+        // An unknown episode is left out, as the interface passes it as undefined;
+        // episode 0 already yields no per-episode ani.zip IDs.
+        let omittedKeys: Set<String> = episode == nil ? ["resolution", "exclusions", "episode"] : ["resolution", "exclusions"]
+        let query = await makeQuery(for: item, episode: episode ?? 0, resolution: "").toDict()
+            .filter { !omittedKeys.contains($0.key) }
             .merging(["hash": hash, "name": name]) { $1 }
             .merging(fileQuery) { $1 }
 
