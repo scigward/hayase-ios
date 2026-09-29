@@ -1,3 +1,4 @@
+# Mirrors codemagic.yaml (hayase_unsigned_ipa). Keep the two in sync.
 name: Build IPA
 
 on:
@@ -9,57 +10,70 @@ jobs:
   build:
     name: Build IPA
     runs-on: macos-latest
+    timeout-minutes: 120
 
     steps:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: Checkout (with all submodules)
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 1
+      - uses: actions/checkout@v4
 
-      - name: Update LibTorrent to latest upstream
-        run: git submodule update --init --recursive Component/LibTorrent-Swift
-
-      - name: Cache SPM packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
-            ~/.swiftpm/cache
-          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Vendor/WebRTC/Package.swift', 'Vendor/NodeMobile/Package.swift') }}
-          restore-keys: |
-            spm-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: brew install xcodegen boost openssl@3 node
-
-      - name: Build WebTorrent backend
-        run: bash ./scripts/build_webtorrent_backend.sh
-
-      - name: Build torrent client GeoIP resources
-        run: bash ./scripts/build_torrent_client_geoip.sh
-
-      - name: Generate Xcode project
-        run: ./scripts/generate_project.sh
-
-      - name: Prepare LibTorrent
-        run: OPENSSL_ROOT_DIR=$(brew --prefix openssl@3) ./Component/LibTorrent-Swift/make.sh
-
-      - name: Generate App Icons
+      - name: Checkout submodules
         run: |
           set -euo pipefail
+
+          git submodule update --init --recursive
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+
+          brew list xcodegen || brew install xcodegen
+          brew list boost || brew install boost
+          brew list openssl@3 || brew install openssl@3
+          brew list node || brew install node
+
+      - name: Build WebTorrent backend
+        run: |
+          set -euo pipefail
+
+          chmod +x ./scripts/build_webtorrent_backend.sh
+          ./scripts/build_webtorrent_backend.sh
+
+      - name: Build torrent client GeoIP resources
+        run: |
+          set -euo pipefail
+
+          chmod +x ./scripts/build_torrent_client_geoip.sh
+          ./scripts/build_torrent_client_geoip.sh
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+
+          chmod +x ./scripts/generate_project.sh
+          ./scripts/generate_project.sh
+
+          test -d Hayase.xcodeproj
+          test -d Hayase.xcworkspace
+          test -d Component/LibTorrent-Swift/LibTorrent.xcodeproj
+
+      - name: Build LibTorrent
+        run: |
+          set -euo pipefail
+
+          chmod +x ./Component/LibTorrent-Swift/make.sh
+          OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
+
+      - name: Generate app icons
+        run: |
+          set -euo pipefail
+
           ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
           cd "$ICON_DIR"
 
-          if [ ! -f "AppIcon.png" ]; then
-            echo "ERROR: Missing $ICON_DIR/AppIcon.png"
-            ls -la
-            exit 1
-          fi
+          test -f AppIcon.png
 
           sips -z 58 58 AppIcon.png --out icon_29@2x.png
           sips -z 87 87 AppIcon.png --out icon_29@3x.png
@@ -78,31 +92,36 @@ jobs:
 
           sips -z 1024 1024 AppIcon.png --out icon_marketing_1024.png
 
-          ls -la
-
-      - name: Resolve SPM dependencies (with retry)
+      - name: Resolve Swift packages
         run: |
+          set -euo pipefail
+
           RESOLVED=false
+
           for attempt in 1 2 3; do
-            echo "=== Resolve attempt $attempt/3 ==="
+            echo "Resolve attempt $attempt/3"
+
             if perl -e 'alarm(300); exec(@ARGV)' -- xcodebuild \
-                -workspace Hayase.xcworkspace \
-                -scheme Hayase \
-                -resolvePackageDependencies \
-                SYMROOT=${{ github.workspace }}/build/app 2>&1; then
+              -workspace Hayase.xcworkspace \
+              -scheme Hayase \
+              -resolvePackageDependencies \
+              SYMROOT="$GITHUB_WORKSPACE/build/app"; then
               RESOLVED=true
               break
             fi
-            echo "Attempt $attempt failed or timed out, retrying in 10s..."
+
             sleep 10
           done
+
           if [ "$RESOLVED" != "true" ]; then
-            echo "ERROR: Failed to resolve SPM packages after 3 attempts"
+            echo "Failed to resolve Swift packages"
             exit 1
           fi
 
       - name: Build Hayase
         run: |
+          set -euo pipefail
+
           xcodebuild \
             -workspace Hayase.xcworkspace \
             -scheme Hayase \
@@ -113,21 +132,38 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            SYMROOT=${{ github.workspace }}/build/app \
+            SYMROOT="$GITHUB_WORKSPACE/build/app" \
             clean build
+
+      - name: Check MPVKit binary
+        run: |
+          set -euo pipefail
+
+          for f in "$HOME"/Library/Developer/Xcode/DerivedData/Hayase-*/SourcePackages/artifacts/mpvkit/MPVKit/MPVKit.xcframework/ios-arm64/MPVKit.framework/MPVKit; do
+            echo "$f"
+            echo "osd-render-height matches: $(grep -a -c 'osd-render-height' "$f" || true)"
+          done
 
       - name: Package IPA
         run: |
-          APP_PATH=$(find build/app -name "Hayase.app" -not -path "*/Build/*" | head -1)
-          echo "Found app at: $APP_PATH"
-          mkdir -p Payload
-          cp -r "$APP_PATH" Payload/Hayase.app
-          zip -r Hayase.ipa Payload
-          echo "IPA created: $(du -sh Hayase.ipa)"
+          set -euo pipefail
 
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+          APP_PATH="$(find build/app -name 'Hayase.app' -not -path '*/Build/*' | head -1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "Hayase.app not found"
+            find build -maxdepth 6 -type d -name "*.app" || true
+            exit 1
+          fi
+
+          echo "Found app at: $APP_PATH"
+
+          rm -rf Payload Hayase.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/Hayase.app
+          zip -r Hayase.ipa Payload
+
+      - uses: actions/upload-artifact@v4
         with:
           name: Hayase
           path: Hayase.ipa
-          retention-days: 14
