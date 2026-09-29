@@ -131,7 +131,7 @@ final class MPVWrapper {
         statusObservation = displayLayer.observe(\.status, options: [.new]) { [weak self] layer, _ in
             guard let self else { return }
             if layer.status == .failed {
-                if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("🔧 Display layer failed - auto-resetting decoder") }
+                Logger.shared.log("Display layer failed, resetting decoder: \(layer.error?.localizedDescription ?? "unknown error")", type: "Error")
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     // AVSampleBufferDisplayLayer does not resume accepting
