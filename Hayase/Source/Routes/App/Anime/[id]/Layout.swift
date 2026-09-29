@@ -309,8 +309,7 @@ final class AnimeTagChipButton: UIButton {
         didSet { updateSpoilerRendering() }
     }
 
-    private let dashClip = CALayer()
-    private let dashEdges: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
+    private let dashedOutline = CAShapeLayer()
     private static let blurContext = CIContext(options: nil)
 
     private let blurredTitleView = UIImageView()
@@ -340,12 +339,9 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
-        dashClip.masksToBounds = true
-        dashClip.isHidden = true
-        layer.addSublayer(dashClip)
-        for edge in dashEdges {
-            dashClip.addSublayer(edge)
-        }
+        dashedOutline.fillColor = UIColor.clear.cgColor
+        dashedOutline.isHidden = true
+        layer.addSublayer(dashedOutline)
 
         blurredTitleView.isUserInteractionEnabled = false
         blurredTitleView.contentMode = .center
@@ -378,53 +374,29 @@ final class AnimeTagChipButton: UIButton {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        dashClip.isHidden = !dashedBorder || bounds.isEmpty
+        dashedOutline.isHidden = !dashedBorder || bounds.isEmpty
         guard dashedBorder, !bounds.isEmpty else { return }
 
         let lineWidth: CGFloat = 2
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let rect = pixelAligned(bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), scale: scale)
 
-        dashClip.frame = bounds
-        dashClip.cornerRadius = layer.cornerRadius
-
-        let edgePaths: [CGPath] = [
-            {
-                let p = UIBezierPath()
-                p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-                p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-                return p.cgPath
-            }(),
-            {
-                let p = UIBezierPath()
-                p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-                p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-                return p.cgPath
-            }(),
-            {
-                let p = UIBezierPath()
-                p.move(to: CGPoint(x: rect.maxX, y: rect.maxY))
-                p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-                return p.cgPath
-            }(),
-            {
-                let p = UIBezierPath()
-                p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-                p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-                return p.cgPath
-            }(),
-        ]
-
-        for (i, edge) in dashEdges.enumerated() {
-            edge.frame = bounds
-            edge.path = edgePaths[i]
-            edge.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-            edge.lineWidth = lineWidth
-            edge.lineCap = .butt
-            edge.lineDashPattern = [6, 4]
-            edge.lineDashPhase = 0
-            edge.contentsScale = scale
-        }
+        // Interface: border-2 border-dashed border-secondary rounded-md.
+        // Follow the rounded border, rather than clipping four square edges.
+        // Inset the centerline so the full 2pt stroke stays inside the chip.
+        let radius = max(0, min(layer.cornerRadius - lineWidth / 2, min(rect.width, rect.height) / 2))
+        let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
+        // Fit complete dash/gap pairs to avoid a short fragment at the seam.
+        let pairCount = max(1, (perimeter / (6 * lineWidth)).rounded())
+        let dashLength = NSNumber(value: Double(perimeter / (2 * pairCount)))
+        dashedOutline.frame = bounds
+        dashedOutline.path = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
+        dashedOutline.strokeColor = UIColor.HayaseTheme.secondary.cgColor
+        dashedOutline.lineWidth = lineWidth
+        dashedOutline.lineCap = .butt
+        dashedOutline.lineDashPattern = [dashLength, dashLength]
+        dashedOutline.lineDashPhase = 0
+        dashedOutline.contentsScale = scale
     }
 
     private func pixelAligned(_ rect: CGRect, scale: CGFloat) -> CGRect {
