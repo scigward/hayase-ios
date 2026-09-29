@@ -311,6 +311,7 @@ final class AnimeTagChipButton: UIButton {
 
     private let dashedOutline = CAShapeLayer()
     private let mirroredOutline = CAShapeLayer()
+    private let dashedRuns = CAShapeLayer()
     private let leftBorderMask = CALayer()
     private let rightBorderMask = CALayer()
     private static let blurContext = CIContext(options: nil)
@@ -342,7 +343,7 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
-        for outline in [dashedOutline, mirroredOutline] {
+        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
             outline.fillColor = UIColor.clear.cgColor
             outline.isHidden = true
             layer.addSublayer(outline)
@@ -383,9 +384,11 @@ final class AnimeTagChipButton: UIButton {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        dashedOutline.isHidden = !dashedBorder || bounds.isEmpty
-        mirroredOutline.isHidden = dashedOutline.isHidden
-        guard dashedBorder, !bounds.isEmpty else { return }
+        let hidden = !dashedBorder || bounds.isEmpty
+        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
+            outline.isHidden = hidden
+        }
+        guard !hidden else { return }
 
         let lineWidth: CGFloat = 2
         let scale = window?.screen.scale ?? UIScreen.main.scale
@@ -406,7 +409,39 @@ final class AnimeTagChipButton: UIButton {
         var reflection = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 2 * rect.midX, ty: 0)
         dashedOutline.path = original
         mirroredOutline.path = original.copy(using: &reflection)
-        for outline in [dashedOutline, mirroredOutline] {
+
+        // Corners and vertical sides keep the mirrored original dashes. Mirroring
+        // cuts the straight top and bottom edges at an arbitrary point of the
+        // pattern, leaving slivers or merged dashes at the centre, so those two
+        // edges are laid out separately and end on half a dash at the mirror axis.
+        let cornerX = rect.minX + radius
+        let segments = horizontalSegments(of: original)
+        var splitX = rect.midX
+        var runPath: CGPath?
+        if let top = stretchedDashes(in: segments, y: rect.minY, from: cornerX, to: rect.midX, dashLength: dashLength),
+           let bottom = stretchedDashes(in: segments, y: rect.maxY, from: cornerX, to: rect.midX, dashLength: dashLength) {
+            splitX = cornerX
+            let path = CGMutablePath()
+            for (y, dashes) in [(rect.minY, top), (rect.maxY, bottom)] {
+                for dash in dashes {
+                    let mirroredStart = 2 * rect.midX - dash.x1
+                    let mirroredEnd = 2 * rect.midX - dash.x0
+                    // A dash touching the axis is one stroke, not two abutting ones.
+                    let touchesAxis = dash.x1 >= rect.midX
+                    path.move(to: CGPoint(x: dash.x0, y: y))
+                    path.addLine(to: CGPoint(x: touchesAxis ? mirroredEnd : dash.x1, y: y))
+                    if !touchesAxis {
+                        path.move(to: CGPoint(x: mirroredStart, y: y))
+                        path.addLine(to: CGPoint(x: mirroredEnd, y: y))
+                    }
+                }
+            }
+            runPath = path
+        }
+        dashedRuns.path = runPath
+        dashedRuns.isHidden = runPath == nil
+
+        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
             outline.frame = bounds
             outline.strokeColor = UIColor.HayaseTheme.secondary.cgColor
             outline.lineWidth = lineWidth
@@ -414,8 +449,77 @@ final class AnimeTagChipButton: UIButton {
             outline.lineDashPattern = nil
             outline.contentsScale = scale
         }
-        leftBorderMask.frame = CGRect(x: 0, y: 0, width: rect.midX, height: bounds.height)
-        rightBorderMask.frame = CGRect(x: rect.midX, y: 0, width: bounds.width - rect.midX, height: bounds.height)
+        let mirroredSplitX = 2 * rect.midX - splitX
+        leftBorderMask.frame = CGRect(x: 0, y: 0, width: splitX, height: bounds.height)
+        rightBorderMask.frame = CGRect(x: mirroredSplitX, y: 0, width: bounds.width - mirroredSplitX, height: bounds.height)
+    }
+
+    private typealias HorizontalSegment = (y: CGFloat, x0: CGFloat, x1: CGFloat)
+
+    private func horizontalSegments(of path: CGPath) -> [HorizontalSegment] {
+        var segments: [HorizontalSegment] = []
+        var current = CGPoint.zero
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            switch element.type {
+            case .moveToPoint:
+                current = element.points[0]
+            case .addLineToPoint:
+                let next = element.points[0]
+                if abs(next.y - current.y) < 0.01 {
+                    segments.append((y: next.y, x0: min(current.x, next.x), x1: max(current.x, next.x)))
+                }
+                current = next
+            case .addQuadCurveToPoint:
+                current = element.points[1]
+            case .addCurveToPoint:
+                current = element.points[2]
+            case .closeSubpath:
+                break
+            @unknown default:
+                break
+            }
+        }
+        return segments
+    }
+
+    /// The original dashes of one straight edge between `start` (where the corner
+    /// arc ends) and `end` (the mirror axis), with the pattern stretched so its last
+    /// piece is half a dash long. The piece nearest the corner is left as it was,
+    /// so the corners keep their approved phase. Returns nil when the dashed
+    /// outline does not have the expected shape.
+    private func stretchedDashes(in segments: [HorizontalSegment],
+                                 y: CGFloat,
+                                 from start: CGFloat,
+                                 to end: CGFloat,
+                                 dashLength: CGFloat) -> [(x0: CGFloat, x1: CGFloat)]? {
+        let tolerance: CGFloat = 0.01
+        let dashes = segments
+            .filter { abs($0.y - y) < tolerance && $0.x1 - $0.x0 > tolerance && $0.x1 > start + tolerance && $0.x0 < end - tolerance }
+            .map { (x0: max($0.x0, start), x1: min($0.x1, end)) }
+            .sorted { $0.x0 < $1.x0 }
+        guard let first = dashes.first else { return nil }
+
+        var boundaries: [CGFloat] = []
+        for dash in dashes {
+            if dash.x0 > start + tolerance { boundaries.append(dash.x0) }
+            if dash.x1 < end - tolerance { boundaries.append(dash.x1) }
+        }
+        guard boundaries.count >= 2, let last = boundaries.last else { return nil }
+
+        let anchor = boundaries.count >= 3 ? boundaries[0] : start
+        let factor = (end - dashLength / 2 - anchor) / (last - anchor)
+        guard factor > 0 else { return nil }
+
+        var result: [(x0: CGFloat, x1: CGFloat)] = []
+        var lower = start
+        var isDash = first.x0 <= start + tolerance
+        for boundary in boundaries.map({ anchor + ($0 - anchor) * factor }) + [end] {
+            if isDash { result.append((x0: lower, x1: boundary)) }
+            lower = boundary
+            isDash.toggle()
+        }
+        return result
     }
 
     private func pixelAligned(_ rect: CGRect, scale: CGFloat) -> CGRect {
