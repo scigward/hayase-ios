@@ -14,6 +14,10 @@ workflows:
       events:
         - push
 
+    cache:
+      cache_paths:
+        - $HOME/.hayase-spm
+
     scripts:
       - name: Checkout submodules
         script: |
@@ -75,6 +79,7 @@ workflows:
               -workspace Hayase.xcworkspace \
               -scheme Hayase \
               -resolvePackageDependencies \
+              -clonedSourcePackagesDirPath "$HOME/.hayase-spm" \
               SYMROOT="$CM_BUILD_DIR/build/app"; then
               RESOLVED=true
               break
@@ -99,6 +104,7 @@ workflows:
             -sdk iphoneos \
             -destination generic/platform=iOS \
             -skipPackageUpdates \
+            -clonedSourcePackagesDirPath "$HOME/.hayase-spm" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
