@@ -386,15 +386,33 @@ final class AnimeTagChipButton: UIButton {
         // Inset the centerline so the full 2pt stroke stays inside the chip.
         let radius = max(0, min(layer.cornerRadius - lineWidth / 2, min(rect.width, rect.height) / 2))
         let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
-        // Fit complete dash/gap pairs to avoid a short fragment at the seam.
-        let pairCount = max(1, (perimeter / (6 * lineWidth)).rounded())
-        let dashLength = NSNumber(value: Double(perimeter / (2 * pairCount)))
+        // Dash one half, then reflect the actual dash geometry. A continuous
+        // perimeter pattern alone does not guarantee matching corner phases.
+        let halfLength = perimeter / 2
+        let pairCount = max(1, (halfLength / (6 * lineWidth)).rounded())
+        let dashLength = halfLength / (2 * pairCount)
+        let left = UIBezierPath()
+        left.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        left.addLine(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        left.addArc(withCenter: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
+                    radius: radius, startAngle: -.pi / 2, endAngle: -.pi, clockwise: false)
+        left.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
+        left.addArc(withCenter: CGPoint(x: rect.minX + radius, y: rect.maxY - radius),
+                    radius: radius, startAngle: .pi, endAngle: .pi / 2, clockwise: false)
+        left.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        // Half a dash at each center seam joins its reflection into a full dash.
+        let dashedLeft = left.cgPath.copy(dashingWithPhase: dashLength / 2,
+                                          lengths: [dashLength, dashLength])
+        let outline = CGMutablePath()
+        outline.addPath(dashedLeft)
+        outline.addPath(dashedLeft, transform: CGAffineTransform(a: -1, b: 0, c: 0, d: 1,
+                                                               tx: 2 * rect.midX, ty: 0))
         dashedOutline.frame = bounds
-        dashedOutline.path = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
+        dashedOutline.path = outline
         dashedOutline.strokeColor = UIColor.HayaseTheme.secondary.cgColor
         dashedOutline.lineWidth = lineWidth
         dashedOutline.lineCap = .butt
-        dashedOutline.lineDashPattern = [dashLength, dashLength]
+        dashedOutline.lineDashPattern = nil // Already dashed before reflection.
         dashedOutline.lineDashPhase = 0
         dashedOutline.contentsScale = scale
     }
