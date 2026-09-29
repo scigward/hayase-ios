@@ -1040,6 +1040,10 @@ final class MPVWrapper {
                 ("volume", "volume"), ("ao-volume", "aoVolume"), ("mute", "mute"), ("ao-mute", "aoMute"),
                 ("volume-gain", "gain"), ("current-ao", "ao"), ("audio-out-params/samplerate", "rate"),
                 ("audio-out-params/channel-count", "channels"), ("audio-out-params/format", "format"),
+                ("audio-codec-name", "codec"), ("audio-params/samplerate", "srcRate"),
+                ("audio-params/hr-channels", "srcChannels"), ("audio-params/format", "srcFormat"),
+                ("avsync", "avsync"), ("total-avsync-change", "avsyncChange"),
+                ("audio-speed-correction", "speedCorrection"),
             ]
             return properties
                 .map { "\($0.1)=\(getStringProperty(handle: handle, name: $0.0) ?? "n/a")" }

@@ -62,6 +62,8 @@ final class PlayerAudioDiagnostics {
             "out=\(outputs)",
             "ch=\(session.outputNumberOfChannels)",
             "rate=\(Int(session.sampleRate))",
+            "ioBuffer=\(Int(session.ioBufferDuration * 1000))ms",
+            "latency=\(Int(session.outputLatency * 1000))ms",
             "otherAudio=\(session.isOtherAudioPlaying)",
         ]
         return fields.joined(separator: " ")
