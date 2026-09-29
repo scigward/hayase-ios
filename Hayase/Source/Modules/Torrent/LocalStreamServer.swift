@@ -761,7 +761,7 @@ final class LocalStreamServer {
                 lastStatusLog = now
             }
             // Log peer/seed count every 5 s so users can see connection status
-            // for low-seeder torrents via the streaming logger overlay.
+            // for low-seeder torrents via the streaming logger.
             if now.timeIntervalSince(lastPeerLog) >= 5.0 {
                 let peerState = withTorrentHandle((peers: 0, seeds: 0, dlMB: "0.0")) { activeHandle -> (peers: Int, seeds: Int, dlMB: String) in
                     guard !isStopped else { return (0, 0, "0.0") }

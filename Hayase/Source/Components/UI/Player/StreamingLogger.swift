@@ -3,12 +3,11 @@
 //  Hayase
 //
 //  A lightweight in-app logger that captures streaming, torrent, and player
-//  errors/warnings and presents them as an overlay in the video player UI.
-//  Errors auto-fade after a configurable duration. Older entries are evicted
+//  errors/warnings for export from the debug page. Older entries are evicted
 //  when the maximum capacity is reached.
 //
 
-import UIKit
+import Foundation
 
 // MARK: - Log entry model
 
@@ -38,13 +37,9 @@ struct StreamingLogEntry {
 // MARK: - StreamingLogger
 
 /// Thread-safe singleton logger that captures streaming/torrent/player events.
-/// Subscribe to `entriesDidChange` to update UI when new entries arrive.
 final class StreamingLogger {
 
     static let shared = StreamingLogger()
-
-    /// Posted on the main thread whenever entries change.
-    static let entriesDidChange = Notification.Name("StreamingLoggerEntriesDidChange")
 
     /// Maximum number of retained entries. Oldest are evicted first.
     private let maxEntries = 200
@@ -80,9 +75,6 @@ final class StreamingLogger {
         lock.lock()
         _entries.removeAll()
         lock.unlock()
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.entriesDidChange, object: nil)
-        }
     }
 
     // MARK: - Private
@@ -94,165 +86,5 @@ final class StreamingLogger {
             _entries.removeFirst(_entries.count - maxEntries)
         }
         lock.unlock()
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.entriesDidChange, object: nil)
-        }
-    }
-}
-
-// MARK: - LogOverlayView
-
-/// A translucent overlay that displays streaming log entries at the bottom-left
-/// of the video player. Shows the most recent entries with color-coded severity.
-/// Tap the overlay to expand/collapse; long-press to copy all entries.
-final class LogOverlayView: UIView {
-
-    /// Maximum visible lines in collapsed mode.
-    private let collapsedLineCount = 3
-
-    /// Maximum visible lines in expanded mode.
-    private let expandedLineCount = 15
-
-    /// Estimated height per monospaced log line (points).
-    private static let lineHeight: CGFloat = 14
-
-    /// Vertical padding above and below the text content (points).
-    private static let verticalPadding: CGFloat = 8
-
-    /// Minimum overlay width so it's always tappable / visible.
-    private static let minWidth: CGFloat = 240
-
-    private let textView = UITextView()
-    private var isExpanded = false
-    private var autoHideWork: DispatchWorkItem?
-    private var heightConstraint: NSLayoutConstraint!
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
-
-    private func setup() {
-        backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        layer.cornerRadius = 6
-        clipsToBounds = true
-        isHidden = true // hidden until first entry
-
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.backgroundColor = .clear
-        textView.textColor = .white
-        textView.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        textView.isEditable = false
-        textView.isScrollEnabled = true
-        textView.showsVerticalScrollIndicator = false
-        textView.textContainerInset = UIEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
-        textView.isUserInteractionEnabled = false
-        addSubview(textView)
-
-        heightConstraint = heightAnchor.constraint(equalToConstant: collapsedHeight)
-
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            heightConstraint,
-            // Ensure the overlay is always wide enough to read and tap.
-            widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minWidth),
-        ])
-
-        // Gestures
-        let tap = UITapGestureRecognizer(target: self, action: #selector(toggleExpand))
-        addGestureRecognizer(tap)
-
-        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(copyLogs))
-        addGestureRecognizer(longPress)
-
-        // Observe log changes
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(onEntriesChanged),
-            name: StreamingLogger.entriesDidChange, object: nil)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    // MARK: - Layout helpers
-
-    private var collapsedHeight: CGFloat { CGFloat(collapsedLineCount) * Self.lineHeight + Self.verticalPadding }
-    private var expandedHeight: CGFloat  { CGFloat(expandedLineCount) * Self.lineHeight + Self.verticalPadding }
-
-    // MARK: - Update
-
-    /// Whether the user wants the logger permanently visible (Settings toggle).
-    private var alwaysVisible: Bool {
-        UserDefaults.standard.bool(forKey: "pref_showLogger")
-    }
-
-    @objc private func onEntriesChanged() {
-        // Don't show the overlay at all unless the user enabled it in Settings.
-        guard alwaysVisible else {
-            isHidden = true
-            return
-        }
-
-        let entries = StreamingLogger.shared.entries
-        guard !entries.isEmpty else {
-            isHidden = true
-            return
-        }
-
-        // Build attributed string with color-coded lines for ALL levels.
-        let maxLines = isExpanded ? expandedLineCount : collapsedLineCount
-        let tail = entries.suffix(maxLines)
-        let attributed = NSMutableAttributedString()
-
-        for (i, entry) in tail.enumerated() {
-            let color: UIColor
-            switch entry.level {
-            case .error: color = UIColor.systemRed
-            case .warn:  color = UIColor.systemYellow
-            case .info:  color = UIColor.white.withAlphaComponent(0.85)
-            }
-            let line = entry.displayString + (i < tail.count - 1 ? "\n" : "")
-            attributed.append(NSAttributedString(
-                string: line,
-                attributes: [
-                    .foregroundColor: color,
-                    .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-                ]))
-        }
-        textView.attributedText = attributed
-        isHidden = false
-        alpha = 1.0
-        autoHideWork?.cancel()
-    }
-
-    // MARK: - Actions
-
-    @objc private func toggleExpand() {
-        isExpanded.toggle()
-        heightConstraint.constant = isExpanded ? expandedHeight : collapsedHeight
-        textView.isScrollEnabled = isExpanded
-        textView.isUserInteractionEnabled = isExpanded
-        UIView.animate(withDuration: 0.2) { self.superview?.layoutIfNeeded() }
-        onEntriesChanged() // refresh visible lines
-    }
-
-    @objc private func copyLogs(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        let all = StreamingLogger.shared.entries.map(\.displayString).joined(separator: "\n")
-        UIPasteboard.general.string = all
-
-        // Brief visual feedback
-        let originalBg = backgroundColor
-        backgroundColor = UIColor.systemGreen.withAlphaComponent(0.3)
-        UIView.animate(withDuration: 0.5) { self.backgroundColor = originalBg }
     }
 }

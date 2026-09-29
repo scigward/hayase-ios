@@ -82,8 +82,8 @@ final class HayaseDebugViewController: UIViewController {
             action: #selector(selectTorrentBackend), buttonTitle: "Select"
         ))
         stack.addArrangedSubview(makeCard(
-            title: "Streaming Logger Overlay",
-            description: "Configure the native playback log overlay.",
+            title: "Streaming Logger",
+            description: "Configure the native streaming, torrent, and player logger.",
             action: #selector(configureStreamingLogger), buttonTitle: "Configure"
         ))
 
@@ -228,7 +228,7 @@ final class HayaseDebugViewController: UIViewController {
 
     @objc private func configureStreamingLogger() {
         let enabled = UserDefaults.standard.bool(forKey: "pref_showLogger")
-        let alert = UIAlertController(title: "Streaming Logger Overlay",
+        let alert = UIAlertController(title: "Streaming Logger",
                                       message: enabled ? "Currently enabled" : "Currently disabled",
                                       preferredStyle: .actionSheet)
         for option in [("Enable", true), ("Disable", false)] {
