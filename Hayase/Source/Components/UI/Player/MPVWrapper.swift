@@ -43,6 +43,7 @@ final class MPVWrapper {
     
     // KVO observation for display layer status
     private var statusObservation: NSKeyValueObservation?
+    private var audioDiagnostics: PlayerAudioDiagnostics?
     
     weak var delegate: MPVWrapperDelegate?
     
@@ -196,6 +197,7 @@ final class MPVWrapper {
         }
 
         observeProperties()
+        audioDiagnostics = PlayerAudioDiagnostics { [weak self] in self?.audioOutputState() ?? "" }
 
         mpv_set_wakeup_callback(handle, { ctx in
             guard let ctx = ctx else { return }
@@ -276,6 +278,7 @@ final class MPVWrapper {
             mpv_terminate_destroy(handle)
             self.mpv = nil
         }
+        audioDiagnostics = nil
         
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -573,6 +576,7 @@ final class MPVWrapper {
                 let newPaused = flag != 0
                 if newPaused != isPaused {
                     isPaused = newPaused
+                    audioDiagnostics?.log("pause=\(newPaused)")
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.delegate?.renderer(self, didChangePause: self.isPaused)
@@ -603,6 +607,7 @@ final class MPVWrapper {
         case "current-ao":
             if let aoName = getStringProperty(handle: handle, name: name) {
                 if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("[MPV] 🔊 Audio output selected: \(aoName)") }
+                audioDiagnostics?.log("audio output: \(aoName)")
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didSelectAudioOutput: aoName)
@@ -1017,6 +1022,20 @@ final class MPVWrapper {
             }
 
             return info
+        }
+    }
+
+    /// Audio state of the mpv instance, for the audio diagnostics log.
+    func audioOutputState() -> String {
+        withHandle("") { handle in
+            let properties = [
+                ("volume", "volume"), ("ao-volume", "aoVolume"), ("mute", "mute"), ("ao-mute", "aoMute"),
+                ("volume-gain", "gain"), ("current-ao", "ao"), ("audio-out-params/samplerate", "rate"),
+                ("audio-out-params/channel-count", "channels"), ("audio-out-params/format", "format"),
+            ]
+            return properties
+                .map { "\($0.1)=\(getStringProperty(handle: handle, name: $0.0) ?? "n/a")" }
+                .joined(separator: " ")
         }
     }
 }
