@@ -86,16 +86,6 @@ final class HayaseDebugViewController: UIViewController {
             description: "Configure the native streaming, torrent, and player logger.",
             action: #selector(configureStreamingLogger), buttonTitle: "Configure"
         ))
-        stack.addArrangedSubview(makeCard(
-            title: "Exclusive Audio Session",
-            description: "Experiment: stop the player from making the audio session mixable, so other apps' audio no longer plays under the video. Applies from the next player.",
-            action: #selector(configureExclusiveAudio), buttonTitle: "Configure"
-        ))
-        stack.addArrangedSubview(makeCard(
-            title: "Timebase Video Frames",
-            description: "Experiment: schedule video frames on the display clock instead of showing each one immediately, as the player did before MPVKit 0.41.0-av8. Applies from the next player.",
-            action: #selector(configureTimebaseFrames), buttonTitle: "Configure"
-        ))
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -237,25 +227,13 @@ final class HayaseDebugViewController: UIViewController {
     }
 
     @objc private func configureStreamingLogger() {
-        presentEnableSheet(title: "Streaming Logger", key: "pref_showLogger")
-    }
-
-    @objc private func configureExclusiveAudio() {
-        presentEnableSheet(title: "Exclusive Audio Session", key: "pref_audioExclusive")
-    }
-
-    @objc private func configureTimebaseFrames() {
-        presentEnableSheet(title: "Timebase Video Frames", key: "pref_timebaseFrames")
-    }
-
-    private func presentEnableSheet(title: String, key: String) {
-        let enabled = UserDefaults.standard.bool(forKey: key)
-        let alert = UIAlertController(title: title,
+        let enabled = UserDefaults.standard.bool(forKey: "pref_showLogger")
+        let alert = UIAlertController(title: "Streaming Logger",
                                       message: enabled ? "Currently enabled" : "Currently disabled",
                                       preferredStyle: .actionSheet)
         for option in [("Enable", true), ("Disable", false)] {
             alert.addAction(UIAlertAction(title: option.0, style: .default) { _ in
-                Settings.write(option.1, forKey: key)
+                Settings.write(option.1, forKey: "pref_showLogger")
             })
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
