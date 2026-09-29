@@ -43,7 +43,6 @@ final class MPVWrapper {
     
     // KVO observation for display layer status
     private var statusObservation: NSKeyValueObservation?
-    private var audioDiagnostics: PlayerAudioDiagnostics?
     
     weak var delegate: MPVWrapperDelegate?
     
@@ -188,16 +187,6 @@ final class MPVWrapper {
         checkError(mpv_set_option_string(handle, "hwdec", "videotoolbox"))
         #endif
         checkError(mpv_set_option_string(handle, "hwdec-codecs", "all"))
-        // Debug-page experiment: schedule frames on the display layer's timebase,
-        // as MPVKit did before 0.41.0-av8, instead of displaying each immediately.
-        if UserDefaults.standard.bool(forKey: "pref_timebaseFrames") {
-            checkError(mpv_set_option_string(handle, "avfoundation-timebase-frames", "yes"))
-        }
-        // Debug-page experiment: keep the app's non-mixable audio session rather
-        // than letting the audio unit switch it to mixable.
-        if UserDefaults.standard.bool(forKey: "pref_audioExclusive") {
-            checkError(mpv_set_option_string(handle, "audio-exclusive", "yes"))
-        }
 
         checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
         checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
@@ -210,7 +199,6 @@ final class MPVWrapper {
         }
 
         observeProperties()
-        audioDiagnostics = PlayerAudioDiagnostics { [weak self] in self?.audioOutputState() ?? "" }
 
         mpv_set_wakeup_callback(handle, { ctx in
             guard let ctx = ctx else { return }
@@ -291,7 +279,6 @@ final class MPVWrapper {
             mpv_terminate_destroy(handle)
             self.mpv = nil
         }
-        audioDiagnostics = nil
         
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -592,7 +579,6 @@ final class MPVWrapper {
                 let newPaused = flag != 0
                 if newPaused != isPaused {
                     isPaused = newPaused
-                    audioDiagnostics?.log("pause=\(newPaused)")
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.delegate?.renderer(self, didChangePause: self.isPaused)
@@ -623,7 +609,6 @@ final class MPVWrapper {
         case "current-ao":
             if let aoName = getStringProperty(handle: handle, name: name) {
                 if UserDefaults.standard.bool(forKey: "pref_showLogger") { print("[MPV] 🔊 Audio output selected: \(aoName)") }
-                audioDiagnostics?.log("audio output: \(aoName)")
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.renderer(self, didSelectAudioOutput: aoName)
@@ -1038,24 +1023,6 @@ final class MPVWrapper {
             }
 
             return info
-        }
-    }
-
-    /// Audio state of the mpv instance, for the audio diagnostics log.
-    func audioOutputState() -> String {
-        withHandle("") { handle in
-            let properties = [
-                ("volume", "volume"), ("ao-volume", "aoVolume"), ("mute", "mute"), ("ao-mute", "aoMute"),
-                ("volume-gain", "gain"), ("current-ao", "ao"), ("audio-out-params/samplerate", "rate"),
-                ("audio-out-params/channel-count", "channels"), ("audio-out-params/format", "format"),
-                ("audio-codec-name", "codec"), ("audio-params/samplerate", "srcRate"),
-                ("audio-params/hr-channels", "srcChannels"), ("audio-params/format", "srcFormat"),
-                ("avsync", "avsync"), ("total-avsync-change", "avsyncChange"),
-                ("audio-speed-correction", "speedCorrection"),
-            ]
-            return properties
-                .map { "\($0.1)=\(getStringProperty(handle: handle, name: $0.0) ?? "n/a")" }
-                .joined(separator: " ")
         }
     }
 }
