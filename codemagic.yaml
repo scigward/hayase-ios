@@ -6,6 +6,9 @@ workflows:
 
     environment:
       xcode: latest
+      vars:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_CLEANUP: 1
 
     triggering:
       events:
@@ -22,10 +25,10 @@ workflows:
         script: |
           set -euo pipefail
 
-          brew list xcodegen || brew install xcodegen
-          brew list boost || brew install boost
-          brew list openssl@3 || brew install openssl@3
-          brew list node || brew install node
+          command -v xcodegen >/dev/null || brew install xcodegen
+          brew list boost >/dev/null || brew install boost
+          brew list openssl@3 >/dev/null || brew install openssl@3
+          command -v node >/dev/null || brew install node
 
       - name: Build WebTorrent backend
         script: |
@@ -58,32 +61,6 @@ workflows:
 
           chmod +x ./Component/LibTorrent-Swift/make.sh
           OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" ./Component/LibTorrent-Swift/make.sh
-
-      - name: Generate app icons
-        script: |
-          set -euo pipefail
-
-          ICON_DIR="Hayase/Resources/Assets.xcassets/AppIcon.appiconset"
-          cd "$ICON_DIR"
-
-          test -f AppIcon.png
-
-          sips -z 58 58 AppIcon.png --out icon_29@2x.png
-          sips -z 87 87 AppIcon.png --out icon_29@3x.png
-          sips -z 80 80 AppIcon.png --out icon_40@2x.png
-          sips -z 120 120 AppIcon.png --out icon_40@3x.png
-          sips -z 120 120 AppIcon.png --out icon_60@2x.png
-          sips -z 180 180 AppIcon.png --out icon_60@3x.png
-
-          sips -z 29 29 AppIcon.png --out icon_ipad_29@1x.png
-          sips -z 58 58 AppIcon.png --out icon_ipad_29@2x.png
-          sips -z 40 40 AppIcon.png --out icon_ipad_40@1x.png
-          sips -z 80 80 AppIcon.png --out icon_ipad_40@2x.png
-          sips -z 76 76 AppIcon.png --out icon_ipad_76@1x.png
-          sips -z 152 152 AppIcon.png --out icon_ipad_76@2x.png
-          sips -z 167 167 AppIcon.png --out icon_ipad_83.5@2x.png
-
-          sips -z 1024 1024 AppIcon.png --out icon_marketing_1024.png
 
       - name: Resolve Swift packages
         script: |
