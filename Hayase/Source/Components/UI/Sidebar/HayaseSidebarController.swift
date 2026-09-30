@@ -18,6 +18,8 @@ final class HayaseSidebarController: UIViewController {
     private static let homeBannerBackdropScrollOffsetKey = "scrollOffset"
     private static let homeBannerBackdropHeightKey = "height"
     private static let homeBannerBackdropRouteKey = "route"
+    private static let homeBannerBackdropMediaKey = "media"
+    private static let homeBannerBackdropClearKey = "clear"
     private static let homeBannerBackdropHomeRoute = "home"
     private static let homeBannerBackdropAnimeRoute = "anime"
     private static let homeBannerBackdropPlayerRoute = "player"
@@ -42,6 +44,8 @@ final class HayaseSidebarController: UIViewController {
     private let sidebarBackdropCoverView = UIView()
     private var sidebarBackdropTask: URLSessionDataTask?
     private var sidebarBackdropURL: String?
+    /// The media the banner belongs to: `bannerSrc`, which banner-image.svelte keys on.
+    private var sidebarBackdropMediaID: Int?
     private var sidebarBackdropAlpha: CGFloat = 0
     private var sidebarBackdropCoverTransitionID = 0
     private var sidebarBackdropHeightConstraint: NSLayoutConstraint?
@@ -463,18 +467,20 @@ final class HayaseSidebarController: UIViewController {
     @objc private func homeBannerBackdropDidChange(_ notification: Notification) {
         let userInfo = notification.userInfo ?? [:]
 
-        // The page banner is route-owned. Ignore late async image/fade updates
-        // from a page that is no longer visible, otherwise the sidebar can keep
-        // a stale detail/home backdrop until the app restarts.
+        // The page banner is route-owned, as `$page.route` gates banner-image.svelte. Ignore late
+        // async image/fade updates from a page that is no longer the current route, otherwise
+        // the sidebar keeps a stale detail/home backdrop until the app restarts.
         let route = userInfo[Self.homeBannerBackdropRouteKey] as? String
         if let route = route {
             if route == Self.homeBannerBackdropPlayerRoute {
                 clearSidebarBackdrop()
                 return
             }
-            if let visibleRoute = visibleBannerBackdropRoute(), route != visibleRoute {
-                return
-            }
+            guard route == currentBannerRoute else { return }
+        }
+        if userInfo[Self.homeBannerBackdropClearKey] as? Bool == true {
+            clearSidebarBackdrop()
+            return
         }
 
         if let height = userInfo[Self.homeBannerBackdropHeightKey] as? CGFloat, height > 0 {
@@ -491,6 +497,13 @@ final class HayaseSidebarController: UIViewController {
 
         if let alpha = userInfo[Self.homeBannerBackdropAlphaKey] as? CGFloat {
             transitionSidebarBackdrop(to: min(max(alpha, 0), 1))
+        }
+
+        // {#key debounced.id}: a banner for another media replaces the old one at once, before
+        // its own image is known.
+        if let mediaID = userInfo[Self.homeBannerBackdropMediaKey] as? Int, mediaID != sidebarBackdropMediaID {
+            flushSidebarBackdropImage()
+            sidebarBackdropMediaID = mediaID
         }
 
         updateSidebarBackground()
@@ -569,16 +582,24 @@ final class HayaseSidebarController: UIViewController {
         }
     }
 
-    private func clearSidebarBackdrop() {
+    /// Drops the banner image, and the load in flight for it, but not the fade state.
+    private func flushSidebarBackdropImage() {
         sidebarBackdropTask?.cancel()
         sidebarBackdropTask = nil
         sidebarBackdropURL = nil
+        sidebarBackdropImageView.layer.removeAllAnimations()
+        sidebarBackdropImageView.subviews.forEach { $0.removeFromSuperview() }
+        sidebarBackdropImageView.image = nil
+    }
+
+    /// `bannerSrc.value = null`.
+    private func clearSidebarBackdrop() {
+        flushSidebarBackdropImage()
+        sidebarBackdropMediaID = nil
         sidebarBackdropAlpha = 0
         sidebarBackdropCoverTransitionID += 1
-        sidebarBackdropImageView.layer.removeAllAnimations()
         sidebarBackdropGradientView.layer.removeAllAnimations()
         sidebarBackdropCoverView.layer.removeAllAnimations()
-        sidebarBackdropImageView.image = nil
         sidebarBackdropImageView.alpha = 0
         sidebarBackdropImageView.transform = .identity
         sidebarBackdropGradientView.alpha = 0
@@ -793,7 +814,7 @@ final class HayaseSidebarController: UIViewController {
             self.updateSidebarBackground()
             // banner-image.svelte drops the banner when navigation ends anywhere but Home or an
             // anime page, so the next one loads in afresh.
-            if self.visibleBannerBackdropRoute() == nil { self.clearSidebarBackdrop() }
+            if !route.keepsBanner { self.clearSidebarBackdrop() }
             self.lastAppliedRoute = route
             self.restoreScrollPositionIfNeeded(for: route, kind: kind, noScroll: options.noScroll)
             self.closeMobileMenu(animated: uiAnimated)
@@ -1052,6 +1073,15 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropCoverView.isHidden = !showsBannerBackdrop
         sidebarBackdropGradientView.setCompact(view.bounds.width < 768)
         sidebarList.backgroundColor = .clear
+    }
+
+    /// The banner route the router is on, if any: the interface's `$page.route` test.
+    private var currentBannerRoute: String? {
+        switch router.currentRoute {
+        case .home: return Self.homeBannerBackdropHomeRoute
+        case .anime, .animeThread: return Self.homeBannerBackdropAnimeRoute
+        default: return nil
+        }
     }
 
     private func visibleBannerBackdropRoute() -> String? {

@@ -22,6 +22,14 @@ enum Route: Hashable {
     case animeThread(animeID: Int, threadID: Int)
     case player
 
+    /// banner-image.svelte's `afterNavigate`: only Home and the anime pages keep a banner.
+    var keepsBanner: Bool {
+        switch self {
+        case .home, .anime, .animeThread: return true
+        default: return false
+        }
+    }
+
     enum ClientRoute: String, Hashable {
         case root = ""
         case overview

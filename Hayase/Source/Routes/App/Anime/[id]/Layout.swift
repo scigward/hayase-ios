@@ -23,6 +23,7 @@ private let hayaseAnimeBannerBackdropAlphaKey = "alpha"
 private let hayaseAnimeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseAnimeBannerBackdropHeightKey = "height"
 private let hayaseAnimeBannerBackdropRouteKey = "route"
+private let hayaseAnimeBannerBackdropMediaKey = "media"
 private let hayaseAnimeBannerBackdropAnimeRoute = "anime"
 
 // MARK: - AnimeDetailBannerBackdropView
@@ -1214,6 +1215,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             hayaseAnimeBannerBackdropHeightKey: currentSidebarBackdropHeight(),
             hayaseAnimeBannerBackdropRouteKey: hayaseAnimeBannerBackdropAnimeRoute,
         ]
+        // The banner belongs to a media (`bannerSrc`); the sidebar drops the old one when it changes.
+        if let anilistId { userInfo[hayaseAnimeBannerBackdropMediaKey] = anilistId }
         if let urlString { userInfo[hayaseAnimeBannerBackdropURLKey] = urlString }
         if let scrollOffset { userInfo[hayaseAnimeBannerBackdropScrollOffsetKey] = scrollOffset }
         if let alpha { userInfo[hayaseAnimeBannerBackdropAlphaKey] = alpha }
@@ -1398,6 +1401,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     func configure(with item: AnimeItem) {
         anilistId = item.id
         malId = item.malId
+        // `$: bannerSrc.value = media` in +layout.svelte: the sidebar's banner switches to this
+        // media now, before its image is known.
+        postSidebarBackdrop(scrollOffset: 0, alpha: bannerHidden ? 0.05 : 1.0)
 
         titleLabel.text = AniListUtil.title(for: item)
         romajiLabel.text = AniListUtil.alternateTitle(for: item)

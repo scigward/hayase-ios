@@ -18,6 +18,8 @@ private let hayaseHomeBannerBackdropAlphaKey = "alpha"
 private let hayaseHomeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseHomeBannerBackdropHeightKey = "height"
 private let hayaseHomeBannerBackdropRouteKey = "route"
+private let hayaseHomeBannerBackdropMediaKey = "media"
+private let hayaseHomeBannerBackdropClearKey = "clear"
 private let hayaseHomeBannerBackdropHomeRoute = "home"
 
 // MARK: - BannerGradientView
@@ -1062,6 +1064,8 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             hayaseHomeBannerBackdropHeightKey: currentBackdropHeight(),
             hayaseHomeBannerBackdropRouteKey: hayaseHomeBannerBackdropHomeRoute,
         ]
+        // The banner belongs to a media (`bannerSrc`); the sidebar drops the old one when it changes.
+        if let mediaID = currentItem?.id { userInfo[hayaseHomeBannerBackdropMediaKey] = mediaID }
         if let urlString { userInfo[hayaseHomeBannerBackdropURLKey] = urlString }
         if let scrollOffset { userInfo[hayaseHomeBannerBackdropScrollOffsetKey] = scrollOffset }
         if let alpha { userInfo[hayaseHomeBannerBackdropAlphaKey] = alpha }
@@ -1088,6 +1092,8 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         currentSidebarBackdropURL = nil
         backgroundImageView.image = nil
         onBackdropImageChanged?(nil, nil)
+        // The sidebar's slice is keyed on the media too: it goes now, not once the image is known.
+        publishSidebarBackdrop()
         bannerGeneration += 1
         let generation = bannerGeneration
         let usesBackdrop = viewportWidth >= 768
@@ -3064,6 +3070,11 @@ extension BrowseAnimeViewController: UISearchResultsUpdating {
         if !isSearching {
             isSearching = true
             homeBackdropView.isHidden = true
+            // The results replace the banner page, so the sidebar's slice of it goes as well.
+            NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange, object: nil, userInfo: [
+                hayaseHomeBannerBackdropRouteKey: hayaseHomeBannerBackdropHomeRoute,
+                hayaseHomeBannerBackdropClearKey: true,
+            ])
             collectionView.setCollectionViewLayout(makeSearchLayout(), animated: false)
             collectionView.reloadData()
         }
