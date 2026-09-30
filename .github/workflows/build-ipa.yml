@@ -106,6 +106,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          chmod +x ./scripts/app_version.sh
+          VERSION="$(./scripts/app_version.sh)"
+          echo "Building Hayase $VERSION"
+
           xcodebuild \
             -workspace Hayase.xcworkspace \
             -scheme Hayase \
@@ -117,6 +121,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${VERSION##*.}" \
             SYMROOT="$GITHUB_WORKSPACE/build/app" \
             clean build
 

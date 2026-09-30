@@ -97,6 +97,10 @@ workflows:
         script: |
           set -euo pipefail
 
+          chmod +x ./scripts/app_version.sh
+          VERSION="$(./scripts/app_version.sh)"
+          echo "Building Hayase $VERSION"
+
           xcodebuild \
             -workspace Hayase.xcworkspace \
             -scheme Hayase \
@@ -108,6 +112,8 @@ workflows:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${VERSION##*.}" \
             SYMROOT="$CM_BUILD_DIR/build/app" \
             clean build
 

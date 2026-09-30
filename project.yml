@@ -11,6 +11,9 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     CLANG_ENABLE_MODULES: YES
     CLANG_ENABLE_OBJC_ARC: YES
+    # CI sets both from scripts/app_version.sh.
+    MARKETING_VERSION: "6.4.0"
+    CURRENT_PROJECT_VERSION: "0"
 
 packages:
   OpenSSL:
