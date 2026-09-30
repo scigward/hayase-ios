@@ -13,6 +13,7 @@ const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
 const MAX_BODY_BYTES = 32 * 1024 * 1024
+const MAX_TORRENT_FILE_BYTES = 20 * 1024 * 1024
 
 // torrent-client's playTorrent() now requires a sessionID (added alongside
 // a background-download/session-priority system: see sessions Map,
@@ -426,6 +427,17 @@ async function withTimeout (promise, timeoutMs, message) {
   }
 }
 
+async function readLimited (stream, limit) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of stream ?? []) {
+    size += chunk.byteLength
+    if (size > limit) throw new Error('Torrent file is too large')
+    chunks.push(chunk)
+  }
+  return new Uint8Array(Buffer.concat(chunks))
+}
+
 async function fetchTorrentFile (url) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TORRENT_FETCH_TIMEOUT_MS)
@@ -441,7 +453,7 @@ async function fetchTorrentFile (url) {
     if (!response.ok) {
       throw new Error(`Torrent file request failed with HTTP ${response.status}`)
     }
-    const data = new Uint8Array(await response.arrayBuffer())
+    const data = await readLimited(response.body, MAX_TORRENT_FILE_BYTES)
     if (!data.byteLength) throw new Error('Torrent file request returned an empty body')
     return data
   } finally {
