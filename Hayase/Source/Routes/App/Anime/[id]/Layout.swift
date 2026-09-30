@@ -685,12 +685,11 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     // EntryEditor trigger: rounded-l-none bg-custom-400 select:!bg-custom-700 text-contrast animated-icon
     private let entryEditorButton: SelectButton = {
         let b = SelectButton()
-        b.setImage(UIImage.hayaseIcon("pencil-line", pointSize: 16), for: .normal)
+        b.setLayeredIcon(.penLine)
         b.restingBackground = UIColor(white: 0.75, alpha: 1)
         b.selectedBackground = UIColor(white: 0.75, alpha: 1)
         b.restingTint = .black
         b.selectedTint = .black
-        b.iconAnimation = .penWiggle
         b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         return b
     }()
@@ -722,15 +721,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     private let trailerButton: SelectButton = {
         let b = SelectButton()
-        let lucideId: String
-        if #available(iOS 16.0, *) {
-            lucideId = "clapperboard"
-        } else {
-            lucideId = "film"
-        }
-        b.setImage(UIImage.hayaseIcon(lucideId, pointSize: 16), for: .normal)
+        b.setLayeredIcon(.clapperboard)
         b.applySecondaryVariant()
-        b.iconAnimation = .clapperboard
         b.isHidden = true
         return b
     }()

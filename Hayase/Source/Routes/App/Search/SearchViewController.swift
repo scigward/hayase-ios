@@ -1468,7 +1468,12 @@ private final class SearchActionItemCell: UICollectionViewCell {
         button.iconAnimation = .wobble   // animated-icon
         return button
     }()
-    private let clearButton = Button(iconName: "trash", pointSize: 16)
+    private let clearButton: Button = {
+        let button = Button(iconName: "trash", pointSize: 16)
+        button.setImage(nil, for: .normal)
+        button.setLayeredIcon(.trash)   // the lid and the bin move apart on hover
+        return button
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)

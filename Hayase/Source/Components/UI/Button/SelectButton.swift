@@ -16,24 +16,16 @@ class SelectButton: UIButton {
         case heartBeat
         /// bookmark.svelte and fileimage.svelte share this one (`primaryAnimation`).
         case wobble
-        case clapperboard
-        case penWiggle
         case boltSpin
 
         /// heart.svelte `heartBeat`: 1.2s ease-in-out, three pulses to 110%.
         /// `primaryAnimation`: 0.5s ease-in-out, a small wobble.
-        /// clapperboard.svelte: the icon swings about its lower left corner, 0.4s ease-in-out.
-        /// pencilline.svelte `penWiggle`: 0.5s ease-in-out, twice.
         /// bolt.svelte `screw-rotate`: a half turn in 1s, ease, three times.
-        func makeAnimation(iconSize: CGSize) -> CAKeyframeAnimation {
+        func makeAnimation() -> CAKeyframeAnimation {
             let animation = CAKeyframeAnimation(keyPath: "transform")
-            func pose(scale: CGFloat = 1, degrees: CGFloat = 0, about: CGPoint = .zero,
-                      shift: CGPoint = .zero) -> NSValue {
-                var transform = CATransform3DMakeTranslation(shift.x + about.x, shift.y + about.y, 0)
-                transform = CATransform3DRotate(transform, degrees * .pi / 180, 0, 0, 1)
-                transform = CATransform3DScale(transform, scale, scale, 1)
-                transform = CATransform3DTranslate(transform, -about.x, -about.y, 0)
-                return NSValue(caTransform3D: transform)
+            func pose(scale: CGFloat = 1, degrees: CGFloat = 0) -> NSValue {
+                let rotation = CATransform3DMakeRotation(degrees * .pi / 180, 0, 0, 1)
+                return NSValue(caTransform3D: CATransform3DScale(rotation, scale, scale, 1))
             }
             switch self {
             case .heartBeat:
@@ -46,27 +38,6 @@ class SelectButton: UIButton {
                 animation.values = [pose(), pose(scale: 1.05, degrees: -7),
                                     pose(scale: 1.05, degrees: 7), pose()]
                 animation.keyTimes = [0, 0.2, 0.4, 1].map { NSNumber(value: $0) }
-            case .clapperboard:
-                // transform-origin 4px 20px of the 24px icon, relative to the layer's centre.
-                let corner = CGPoint(x: (4.0 / 24 - 0.5) * iconSize.width, y: (20.0 / 24 - 0.5) * iconSize.height)
-                animation.duration = 0.4
-                animation.values = [pose(degrees: 0, about: corner), pose(degrees: -10, about: corner),
-                                    pose(degrees: 16, about: corner), pose(degrees: 0, about: corner)]
-                animation.keyTimes = [0, 0.3, 0.6, 1].map { NSNumber(value: $0) }
-            case .penWiggle:
-                // Two wiggles of 0.5s; offsets are in the 24px icon's units.
-                let unit = iconSize.width / 24
-                animation.duration = 1
-                animation.values = [pose(),
-                                    pose(degrees: -0.5, shift: CGPoint(x: -unit, y: 1.5 * unit)),
-                                    pose(),
-                                    pose(degrees: 0.5, shift: CGPoint(x: 1.5 * unit, y: -unit)),
-                                    pose(),
-                                    pose(degrees: -0.5, shift: CGPoint(x: -unit, y: 1.5 * unit)),
-                                    pose(),
-                                    pose(degrees: 0.5, shift: CGPoint(x: 1.5 * unit, y: -unit)),
-                                    pose()]
-                animation.keyTimes = (0...8).map { NSNumber(value: Double($0) / 8) }
             case .boltSpin:
                 animation.duration = 1
                 animation.repeatCount = 3
@@ -101,7 +72,24 @@ class SelectButton: UIButton {
 
     private var isPointerOver = false
     private var appliedSelected = false
-    private var iconSwapOverlay: UIImageView?
+    private var isSwappingIcon = false
+    private var layeredIcon: LayeredIconView?
+
+    /// Uses an icon whose parts animate separately (clapperboard, pencil, trash) instead of an image.
+    func setLayeredIcon(_ kind: LayeredIconView.Kind, size: CGFloat = 16) {
+        layeredIcon?.removeFromSuperview()
+        let icon = LayeredIconView(kind: kind)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: size),
+            icon.heightAnchor.constraint(equalToConstant: size),
+        ])
+        layeredIcon = icon
+        icon.tint = appliedSelected ? selectedTint : restingTint
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -177,9 +165,10 @@ class SelectButton: UIButton {
         UIView.transition(with: self, duration: 0.15,
                           options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState],
                           animations: { self.applyColors() })
-        if selected, let imageView, let animation = iconAnimation?.makeAnimation(iconSize: imageView.bounds.size) {
+        if selected, let imageView, let animation = iconAnimation?.makeAnimation() {
             imageView.layer.add(animation, forKey: "select")
         }
+        layeredIcon?.selectionChanged(selected)
         if selectedIconShift != 0 {
             UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseIn, .allowUserInteraction, .beginFromCurrentState]) {
                 self.imageView?.transform = selected ? CGAffineTransform(translationX: self.selectedIconShift, y: 0) : .identity
@@ -192,39 +181,98 @@ class SelectButton: UIButton {
         let tint = appliedSelected ? selectedTint : restingTint
         tintColor = tint
         setTitleColor(tint, for: .normal)
+        layeredIcon?.tint = tint
     }
 
     /// TransitionButton: the icon is swapped for another with `scaleBlurFade`, held, and
-    /// swapped back. The blur of that transition is left out; scale and fade are kept.
+    /// swapped back. Each icon scales and blurs as it fades, over 300ms with cubicOut.
     func swapIcon(to image: UIImage?, hold: TimeInterval) {
-        guard let imageView, iconSwapOverlay == nil else { return }
-        let overlay = UIImageView(image: image?.withRenderingMode(.alwaysTemplate))
-        overlay.tintColor = tintColor
-        overlay.frame = imageView.frame
-        overlay.alpha = 0
-        overlay.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
-        addSubview(overlay)
-        iconSwapOverlay = overlay
-        // scaleBlurFade: 300ms, cubicOut.
-        func crossfade(showing overlayVisible: Bool, then completion: (() -> Void)?) {
-            UIViewPropertyAnimator(duration: 0.3,
-                                   controlPoint1: CGPoint(x: 0.33, y: 1),
-                                   controlPoint2: CGPoint(x: 0.68, y: 1)) {
-                imageView.alpha = overlayVisible ? 0 : 1
-                imageView.transform = overlayVisible ? CGAffineTransform(scaleX: 0.01, y: 0.01) : .identity
-                overlay.alpha = overlayVisible ? 1 : 0
-                overlay.transform = overlayVisible ? .identity : CGAffineTransform(scaleX: 0.01, y: 0.01)
-            }.startAnimation()
-            if let completion {
-                DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: completion)
-            }
+        guard let imageView, let base = imageView.image, let image, !isSwappingIcon else { return }
+        isSwappingIcon = true
+        let tint = self.tintColor ?? UIColor.HayaseTheme.foreground
+        let padding = Self.swapBlurRadius * 3
+        let frame = imageView.frame.insetBy(dx: -padding, dy: -padding)
+
+        func makeLayer(_ image: UIImage) -> (layer: CALayer, frames: [CGImage]) {
+            let frames = Self.blurFrames(of: image, tint: tint, padding: padding)
+            let layer = CALayer()
+            layer.frame = frame
+            layer.contents = frames.first
+            layer.contentsScale = UIScreen.main.scale
+            return (layer, frames)
         }
-        crossfade(showing: true) { [weak self] in
-            crossfade(showing: false, then: nil)
+        let outgoing = makeLayer(base)
+        let incoming = makeLayer(image)
+        incoming.layer.opacity = 0
+        self.layer.addSublayer(outgoing.layer)
+        self.layer.addSublayer(incoming.layer)
+        imageView.alpha = 0
+
+        func scaleBlurFade(_ layer: CALayer, frames: [CGImage], entering: Bool) {
+            let group = CAAnimationGroup()
+            let timing = CAMediaTimingFunction(controlPoints: 0.33, 1, 0.68, 1)   // cubicOut
+            let (from, to): (Float, Float) = entering ? (0, 1) : (1, 0)
+            let opacity = CABasicAnimation(keyPath: "opacity")
+            opacity.fromValue = from
+            opacity.toValue = to
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = max(from, 0.001)
+            scale.toValue = max(to, 0.001)
+            let blur = CAKeyframeAnimation(keyPath: "contents")
+            let ordered = entering ? Array(frames.reversed()) : frames
+            blur.values = ordered
+            blur.keyTimes = (0..<ordered.count).map { NSNumber(value: Double($0) / Double(ordered.count - 1)) }
+            blur.calculationMode = .discrete
+            group.animations = [opacity, scale, blur]
+            group.duration = 0.3
+            group.timingFunction = timing
+            layer.add(group, forKey: "scaleBlurFade")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = to
+            layer.transform = CATransform3DMakeScale(CGFloat(max(to, 0.001)), CGFloat(max(to, 0.001)), 1)
+            layer.contents = entering ? frames.first : frames.last
+            CATransaction.commit()
+        }
+
+        scaleBlurFade(outgoing.layer, frames: outgoing.frames, entering: false)
+        scaleBlurFade(incoming.layer, frames: incoming.frames, entering: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
+            scaleBlurFade(incoming.layer, frames: incoming.frames, entering: false)
+            scaleBlurFade(outgoing.layer, frames: outgoing.frames, entering: true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                overlay.removeFromSuperview()
-                self?.iconSwapOverlay = nil
+                outgoing.layer.removeFromSuperlayer()
+                incoming.layer.removeFromSuperlayer()
+                imageView.alpha = 1
+                self?.isSwappingIcon = false
             }
         }
     }
+
+    /// blur(4px) at the start of the swap, in points.
+    private static let swapBlurRadius: CGFloat = 4
+
+    /// The icon in `tint` at each blur from none up to `swapBlurRadius`, on a canvas with room
+    /// for the blur to spread.
+    private static func blurFrames(of image: UIImage, tint: UIColor, padding: CGFloat) -> [CGImage] {
+        let scale = UIScreen.main.scale
+        let size = CGSize(width: image.size.width + 2 * padding, height: image.size.height + 2 * padding)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let tinted = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.withTintColor(tint, renderingMode: .alwaysOriginal)
+                .draw(at: CGPoint(x: padding, y: padding))
+        }
+        guard let cgImage = tinted.cgImage else { return [] }
+        let input = CIImage(cgImage: cgImage)
+        let context = CIContext()
+        let steps = 8
+        return (0...steps).compactMap { step in
+            guard step > 0 else { return cgImage }
+            let output = input.applyingFilter("CIGaussianBlur",
+                parameters: [kCIInputRadiusKey: swapBlurRadius * CGFloat(step) / CGFloat(steps) * scale])
+            return context.createCGImage(output, from: input.extent)
+        }
+    }
+
 }
