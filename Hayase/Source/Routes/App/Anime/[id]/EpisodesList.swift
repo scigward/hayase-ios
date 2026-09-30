@@ -916,27 +916,28 @@ final class PaginationBarView: UIView {
         return l
     }()
 
-    private let prevButton: UIButton = {
-        let b = UIButton(type: .system)
+    // variant='ghost' animated-icon: the chevron slides 3px toward its side while selected.
+    private let prevButton: SelectButton = {
+        let b = SelectButton()
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.setImage(UIImage.hayaseIcon("chevron-left", withConfiguration: config), for: .normal)
-        b.tintColor = .white
+        b.applyGhostVariant()
+        b.selectedIconShift = -3
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
         b.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        b.layer.cornerRadius = 6
         return b
     }()
 
-    private let nextButton: UIButton = {
-        let b = UIButton(type: .system)
+    private let nextButton: SelectButton = {
+        let b = SelectButton()
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.setImage(UIImage.hayaseIcon("chevron-right", withConfiguration: config), for: .normal)
-        b.tintColor = .white
+        b.applyGhostVariant()
+        b.selectedIconShift = 3
         b.translatesAutoresizingMaskIntoConstraints = false
         b.widthAnchor.constraint(equalToConstant: 36).isActive = true
         b.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        b.layer.cornerRadius = 6
         return b
     }()
 
@@ -1146,25 +1147,21 @@ final class PaginationBarView: UIView {
                 label.heightAnchor.constraint(equalToConstant: 36).isActive = true
                 pageStack.addArrangedSubview(label)
             } else {
-                let btn = UIButton(type: .system)
+                let btn = SelectButton()
                 btn.setTitle("\(item.page)", for: .normal)
                 btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
                 btn.tag = item.page
                 btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
                 btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
-                btn.layer.cornerRadius = 6
-                btn.clipsToBounds = true
                 btn.addTarget(self, action: #selector(pageTapped(_:)), for: .touchUpInside)
 
+                // variant={page === currentPage ? 'outline' : 'ghost'}
                 if item.page == currentPage {
+                    btn.applyOutlineVariant()
                     btn.layer.borderWidth = 1
-                    btn.layer.borderColor = UIColor(red: 39/255, green: 39/255, blue: 42/255, alpha: 1).cgColor
-                    btn.setTitleColor(.white, for: .normal)
-                    btn.backgroundColor = .clear
+                    btn.layer.borderColor = UIColor.HayaseTheme.input.cgColor   // border-input
                 } else {
-                    btn.layer.borderWidth = 0
-                    btn.setTitleColor(UIColor.HayaseTheme.secondaryForeground, for: .normal)
-                    btn.backgroundColor = .clear
+                    btn.applyGhostVariant()
                 }
 
                 pageStack.addArrangedSubview(btn)

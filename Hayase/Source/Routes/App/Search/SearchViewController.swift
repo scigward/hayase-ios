@@ -42,7 +42,6 @@ class SearchViewController: UIViewController {
     private static let bgBlack      = UIColor.black
     private static let bgBackground = UIColor.HayaseTheme.background
     private static let mutedFg      = UIColor.HayaseTheme.mutedForeground
-    private static let activeBlue   = UIColor(red: 0.369, green: 0.647, blue: 0.953, alpha: 1)
 
     // MARK: - Filter state
     // Hayase: genres/tags, formats and status multi-select; year/season/sort/onList single-select.
@@ -95,7 +94,7 @@ class SearchViewController: UIViewController {
     private var searchInputRow: UIView!
     private var searchField:   Input!
     private var rightButtons:  UIStackView!  // horizontal: camera + bolt
-    private var cameraButton:  UIButton!
+    private var cameraButton:  Button!
     private var boltButton:    Toggle!
 
     // Filter row: compact = horizontal/toggled; regular = wrapped/always visible.
@@ -374,6 +373,7 @@ class SearchViewController: UIViewController {
         searchInputRow.translatesAutoresizingMaskIntoConstraints = false
 
         searchField = Input(placeholder: "Any", iconName: "search")
+        searchField.autocapitalizationType = .words   // capitalize
         searchField.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
         searchInputRow.addSubview(searchField)
         NSLayoutConstraint.activate([
@@ -391,10 +391,12 @@ class SearchViewController: UIViewController {
 
         // Camera button (FileImage) — interface Button variant=outline size=icon border-0.
         cameraButton = Button(iconName: "file-image", pointSize: 16)
+        cameraButton.iconAnimation = .wobble   // animated-icon
         cameraButton.addTarget(self, action: #selector(cameraTapped), for: .touchUpInside)
 
         // Bolt toggle — md:hidden in interface (only on compact screens).
         boltButton = Toggle(iconName: "bolt", pointSize: 18)
+        boltButton.iconAnimation = .boltSpin   // animated-icon
         boltButton.addTarget(self, action: #selector(boltTapped), for: .touchUpInside)
 
         // Right buttons: gap-4, items-end
@@ -844,7 +846,9 @@ class SearchViewController: UIViewController {
 
     private func makeActiveChip(label: String, type: SearchFilterType, apiValue: String) -> UIView {
         let chip = Badge()
-        chip.text = label
+        chip.text = label.split(separator: " ", omittingEmptySubsequences: false)
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")   // capitalize
         chip.accessibilityLabel = label
         chip.accessibilityIdentifier = "\(type.rawValue):\(apiValue)"
         chip.addTarget(self, action: #selector(removeChipTapped(_:)), for: .touchUpInside)
@@ -1121,7 +1125,6 @@ class SearchViewController: UIViewController {
     private func performTraceSearch(imageData: Data) {
         guard !isTracing else { return }
         isTracing = true
-        cameraButton.tintColor = Self.activeBlue   // blue tint while loading
         isShowingSkeleton = true
         collectionView.reloadData()
         emptyLabel.isHidden = true
@@ -1148,7 +1151,6 @@ class SearchViewController: UIViewController {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.isTracing = false
-                self.cameraButton.tintColor = Self.mutedFg
                 self.isShowingSkeleton = false
 
                 guard let data = data,
@@ -1194,7 +1196,6 @@ class SearchViewController: UIViewController {
     /// Mirrors search/+page.svelte's failed trace lookup toast.
     private func finishTrace(success: Bool) {
         isTracing = false
-        cameraButton.tintColor = Self.mutedFg
         isShowingSkeleton = false
         loadingIndicator.stopAnimating()
         collectionView.reloadData()
@@ -1397,7 +1398,11 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
     var onTextChanged: ((String) -> Void)?
 
     private let titleLabel = UILabel()
-    private let searchField = Input(placeholder: "Any", iconName: "search")
+    private let searchField: Input = {
+        let field = Input(placeholder: "Any", iconName: "search")
+        field.autocapitalizationType = .words   // capitalize
+        return field
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1458,7 +1463,11 @@ private final class SearchActionItemCell: UICollectionViewCell {
     var onImageTapped: (() -> Void)?
     var onClearTapped: (() -> Void)?
 
-    private let imageButton = Button(iconName: "file-image", pointSize: 16)
+    private let imageButton: Button = {
+        let button = Button(iconName: "file-image", pointSize: 16)
+        button.iconAnimation = .wobble   // animated-icon
+        return button
+    }()
     private let clearButton = Button(iconName: "trash", pointSize: 16)
 
     override init(frame: CGRect) {
@@ -1492,7 +1501,8 @@ private final class SearchActionItemCell: UICollectionViewCell {
     }
 
     func configure(clearEnabled: Bool) {
-        clearButton.tintColor = clearEnabled
+        // text-blue-400, or text-muted-foreground opacity-50 with nothing to clear
+        clearButton.contentTint = clearEnabled
             ? UIColor(red: 0.376, green: 0.647, blue: 0.980, alpha: 1)
             : UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
     }

@@ -202,6 +202,36 @@ private final class HomeBannerBackdropView: UIView {
     }
 }
 
+// MARK: - ProgressDotView
+// One `.progress-badge` of full-banner.svelte: a bg-primary/20 rounded track (overflow-clip)
+// holding the `.progress-content` fill. The fill is laid out by hand and anchored at its
+// leading edge, because Auto Layout positions a view as if it were anchored at its centre;
+// with a moved anchor it puts the fill half a dot too far left or right.
+
+private final class ProgressDotView: UIView {
+    let fill = UIView()
+
+    init() {
+        super.init(frame: .zero)
+        layer.cornerRadius = 2
+        clipsToBounds = true
+        backgroundColor = UIColor.HayaseTheme.primary.withAlphaComponent(0.2)
+        fill.tag = 999
+        fill.layer.anchorPoint = CGPoint(x: 0, y: 0.5)   // scales from the leading edge
+        addSubview(fill)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        fill.bounds = CGRect(origin: .zero, size: bounds.size)
+        fill.layer.position = CGPoint(x: 0, y: bounds.height / 2)
+    }
+}
+
 // MARK: - FeaturedBannerCell
 // Matches Hayase's full-banner.svelte identically:
 // • Banner height = 70vh (70% of screen height) — matches banner.svelte h-[70vh]
@@ -390,8 +420,8 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     // Play button: bg-custom text-contrast — matches web PlayButton in banner
     // Web: size='default' (h-9 px-4 py-2), base text-sm font-medium + class font-bold
     // So: h-9 = 36pt, text-sm = 14pt, font-bold override, rounded-md (6pt)
-    private let playButton: BannerActionButton = {
-        let b = BannerActionButton()
+    private let playButton: SelectButton = {
+        let b = SelectButton()
         b.setTitle("  Watch Now", for: .normal)
         b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 13), for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
@@ -400,8 +430,8 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
 
     // Favorite button: ghost variant, size='icon' (h-9 w-9 = 36pt) — heart icon, 1rem (16pt).
     // ghost: select:bg-secondary-foreground/20, and the banner adds select:!text-custom.
-    private let favoriteButton: BannerActionButton = {
-        let b = BannerActionButton()
+    private let favoriteButton: SelectButton = {
+        let b = SelectButton()
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
         b.selectedBackground = UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2)
@@ -410,12 +440,12 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     }()
 
     // Bookmark button: same ghost styling as favorite — bookmark icon.
-    private let bookmarkButton: BannerActionButton = {
-        let b = BannerActionButton()
+    private let bookmarkButton: SelectButton = {
+        let b = SelectButton()
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
         b.selectedBackground = UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2)
-        b.iconAnimation = .bookmark
+        b.iconAnimation = .wobble
         return b
     }()
 
@@ -1301,29 +1331,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         dotWidthConstraints.removeAll()
         for i in items.indices {
             // Outer dot: bg-white/20 rounded, overflow clip — matches Hayase's .progress-badge
-            let dot = UIView()
-            dot.layer.cornerRadius = 2
-            dot.clipsToBounds = true
-            dot.backgroundColor = UIColor.white.withAlphaComponent(0.2)
+            let dot = ProgressDotView()
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.heightAnchor.constraint(equalToConstant: 4).isActive = true
             // Hayase: inactive width 1.5rem (24pt), active width 3rem (48pt)
             let wc = dot.widthAnchor.constraint(equalToConstant: i == currentIndex ? 48 : 24)
             wc.isActive = true
             dotWidthConstraints[i] = wc
-
-            // Inner fill view — matches Hayase's .progress-content with fill animation
-            let fill = UIView()
-            fill.tag = 999
-            fill.layer.anchorPoint = CGPoint(x: 0, y: 0.5)   // scales from the leading edge
-            fill.translatesAutoresizingMaskIntoConstraints = false
-            dot.addSubview(fill)
-            NSLayoutConstraint.activate([
-                fill.topAnchor.constraint(equalTo: dot.topAnchor),
-                fill.leadingAnchor.constraint(equalTo: dot.leadingAnchor),
-                fill.trailingAnchor.constraint(equalTo: dot.trailingAnchor),
-                fill.bottomAnchor.constraint(equalTo: dot.bottomAnchor),
-            ])
 
             dotsStack.addArrangedSubview(dot)
 

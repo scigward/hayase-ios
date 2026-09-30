@@ -24,6 +24,8 @@ extension UIColor {
         static let input = UIColor(white: 0.15, alpha: 1)
         /// interface theme-default: --accent hsl(0 0% 8%).
         static let accent = UIColor(white: 0.08, alpha: 1)
+        /// interface theme-default: --accent-foreground hsl(0 0% 98%).
+        static let accentForeground = UIColor(white: 0.98, alpha: 1)
         /// interface theme-default: --ring hsl(0 0% 83.9%).
         static let ring = UIColor(white: 0.839, alpha: 1)
         /// interface theme-default: --secondary hsl(240 3.7% 15.9%).

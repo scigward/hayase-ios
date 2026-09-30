@@ -129,7 +129,7 @@ final class ThreadPaginationView: UIView {
 
     private func pageIconButton(iconName: String, enabled: Bool) -> UIButton {
         let button = Button(iconName: iconName, pointSize: 16)
-        button.backgroundColor = .clear
+        button.applyGhostVariant()
         button.isEnabled = enabled
         button.alpha = enabled ? 1 : 0.5
         return button

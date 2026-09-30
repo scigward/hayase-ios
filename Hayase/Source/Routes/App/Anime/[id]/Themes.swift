@@ -199,10 +199,14 @@ extension AnimeDetailViewController {
             epLabel.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(epLabel)
 
-            let playBtn = UIButton(type: .system)
+            // bg-custom select:!bg-custom-600 text-contrast rounded-full
+            let playBtn = SelectButton()
             playBtn.setImage(UIImage.hayaseFilledIcon("play", pointSize: 9), for: .normal)
-            playBtn.tintColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
-            playBtn.backgroundColor = accentColor
+            let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
+            playBtn.restingTint = contrast
+            playBtn.selectedTint = contrast
+            playBtn.restingBackground = accentColor
+            playBtn.selectedBackground = accentColor.withHSLLightness(0.4)
             playBtn.layer.cornerRadius = 13
             playBtn.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(playBtn)

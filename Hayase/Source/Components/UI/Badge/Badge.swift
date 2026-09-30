@@ -31,7 +31,11 @@ final class Badge: UIControl {
     private func setup() {
         backgroundColor = UIColor.HayaseTheme.primary
         layer.cornerRadius = 6
-        layer.masksToBounds = true
+        // badgeVariants default: shadow (0 1px 3px 0 and 0 1px 2px -1px, both 10% black)
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.1
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        layer.shadowRadius = 1.5
         isAccessibilityElement = true
         accessibilityTraits = [.button]
         translatesAutoresizingMaskIntoConstraints = true

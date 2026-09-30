@@ -9,8 +9,10 @@ import UIKit
 
 final class ComboBox: UIControl {
     var restingBackgroundColor: UIColor = UIColor.HayaseTheme.muted {
-        didSet { if !isHighlighted { backgroundColor = restingBackgroundColor } }
+        didSet { if !appliedSelected { backgroundColor = restingBackgroundColor } }
     }
+    private var isPointerOver = false
+    private var appliedSelected = false
     private let valueLabel = UILabel()
     private let caretView = UIImageView()
 
@@ -27,7 +29,12 @@ final class ComboBox: UIControl {
     private func setup() {
         backgroundColor = UIColor.HayaseTheme.muted
         layer.cornerRadius = 6
-        layer.masksToBounds = true
+        // outline variant, border-0: shadow-sm
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.05
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        layer.shadowRadius = 1
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
         isAccessibilityElement = true
         accessibilityTraits = [.button]
         translatesAutoresizingMaskIntoConstraints = false
@@ -39,7 +46,7 @@ final class ComboBox: UIControl {
 
         caretView.image = UIImage.hayaseIcon("chevrons-up-down")?
             .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular))
-        caretView.tintColor = UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.65)
+        caretView.tintColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.5)   // opacity-50
         caretView.contentMode = .scaleAspectFit
         caretView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -68,10 +75,21 @@ final class ComboBox: UIControl {
     }
 
     override var isHighlighted: Bool {
-        didSet {
-            backgroundColor = isHighlighted
-                ? UIColor.HayaseTheme.accent
-                : restingBackgroundColor
+        didSet { updateSelectState() }
+    }
+
+    @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        isPointerOver = recognizer.state == .began || recognizer.state == .changed
+        updateSelectState()
+    }
+
+    /// select:bg-accent with `transition-colors`: 150ms.
+    private func updateSelectState() {
+        let selected = isHighlighted || isPointerOver
+        guard selected != appliedSelected else { return }
+        appliedSelected = selected
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.backgroundColor = selected ? UIColor.HayaseTheme.accent : self.restingBackgroundColor
         }
     }
 }

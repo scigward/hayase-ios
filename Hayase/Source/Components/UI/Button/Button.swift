@@ -7,7 +7,9 @@
 
 import UIKit
 
-final class Button: UIButton {
+/// `<Button variant='outline' size='icon'>`, border-0: a 36pt square with an icon. Other
+/// variants are set with `applyGhostVariant()` or the colour properties.
+final class Button: SelectButton {
     private let iconName: String
     private let iconPointSize: CGFloat
 
@@ -19,17 +21,11 @@ final class Button: UIButton {
     }
 
     required init?(coder: NSCoder) {
-        self.iconName = "circle-question-mark"
-        self.iconPointSize = 16
-        super.init(coder: coder)
-        setup()
+        nil
     }
 
     private func setup() {
-        backgroundColor = UIColor.HayaseTheme.muted
-        layer.cornerRadius = 6
-        layer.masksToBounds = true
-        tintColor = UIColor.HayaseTheme.foreground
+        applyOutlineVariant()
         contentHorizontalAlignment = .center
         contentVerticalAlignment = .center
         setImage(UIImage.hayaseIcon(iconName)?
@@ -38,13 +34,5 @@ final class Button: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 36).isActive = true
         heightAnchor.constraint(equalToConstant: 36).isActive = true
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            backgroundColor = isHighlighted
-                ? UIColor.HayaseTheme.accent
-                : UIColor.HayaseTheme.muted
-        }
     }
 }

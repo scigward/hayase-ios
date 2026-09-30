@@ -319,9 +319,43 @@ final class AnimeTagChipButton: UIButton {
     private var spoilerFrames: [Int: UIImage] = [:]
     private var lastRevealed: Bool?
     private var isPointerOverTitle = false
+    private var isPointerOver = false
+
+    /// `bg-secondary select:bg-secondary/60`, and `text-secondary-foreground` or the tag's
+    /// `text-muted-foreground`, both `select:!text-custom`.
+    var restingBackground: UIColor = .clear { didSet { applySelectColors(animated: false) } }
+    var selectedBackground: UIColor = .clear { didSet { applySelectColors(animated: false) } }
+    var restingTitleColor: UIColor = .white { didSet { applySelectColors(animated: false) } }
+    var selectedTitleColor: UIColor = .white { didSet { applySelectColors(animated: false) } }
+    private var appliedSelected = false
 
     override var isHighlighted: Bool {
-        didSet { updateSpoilerRendering() }
+        didSet {
+            updateSpoilerRendering()
+            updateSelectState()
+        }
+    }
+
+    private func updateSelectState() {
+        let selected = isHighlighted || isFocused || isPointerOver
+        guard selected != appliedSelected else { return }
+        appliedSelected = selected
+        applySelectColors(animated: true)
+    }
+
+    private func applySelectColors(animated: Bool) {
+        let changes = {
+            self.backgroundColor = self.appliedSelected ? self.selectedBackground : self.restingBackground
+            self.setTitleColor(self.appliedSelected ? self.selectedTitleColor : self.restingTitleColor, for: .normal)
+        }
+        guard animated, window != nil else {
+            changes()
+            return
+        }
+        // transition-colors: 150ms
+        UIView.transition(with: self, duration: 0.15,
+                          options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState],
+                          animations: changes)
     }
 
     override init(frame: CGRect) {
@@ -355,14 +389,17 @@ final class AnimeTagChipButton: UIButton {
     }
 
     @objc private func spoilerHover(_ gesture: UIHoverGestureRecognizer) {
-        isPointerOverTitle = (gesture.state == .began || gesture.state == .changed)
-            && (titleLabel?.frame.contains(gesture.location(in: self)) ?? false)
+        let hovering = gesture.state == .began || gesture.state == .changed
+        isPointerOverTitle = hovering && (titleLabel?.frame.contains(gesture.location(in: self)) ?? false)
+        isPointerOver = hovering
         updateSpoilerRendering()
+        updateSelectState()
     }
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         updateSpoilerRendering()
+        updateSelectState()
     }
 
     override func layoutSubviews() {
@@ -628,66 +665,63 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Action buttons
 
-    private let playButton: UIButton = {
-        let b = UIButton(type: .system)
+    // PlayButton: bg-custom select:!bg-custom-600 text-contrast rounded-r-none, font-bold
+    private let playButton: SelectButton = {
+        let b = SelectButton()
         b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 13), for: .normal)
         b.setTitle("Watch Now", for: .normal)
-        b.tintColor = .black
-        b.setTitleColor(.black, for: .normal)
-        b.backgroundColor = .white
+        b.restingBackground = .white
+        b.selectedBackground = UIColor.white.withHSLLightness(0.4)
+        b.restingTint = .black
+        b.selectedTint = .black
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
         b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
         b.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
         b.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
-        b.layer.cornerRadius = 6
         b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        b.layer.masksToBounds = true
         return b
     }()
 
-    private let entryEditorButton: UIButton = {
-        let b = UIButton(type: .system)
+    // EntryEditor trigger: rounded-l-none bg-custom-400 select:!bg-custom-700 text-contrast animated-icon
+    private let entryEditorButton: SelectButton = {
+        let b = SelectButton()
         b.setImage(UIImage.hayaseIcon("pencil-line", pointSize: 16), for: .normal)
-        b.tintColor = .black
-        b.backgroundColor = UIColor(white: 0.75, alpha: 1)
-        b.layer.cornerRadius = 6
+        b.restingBackground = UIColor(white: 0.75, alpha: 1)
+        b.selectedBackground = UIColor(white: 0.75, alpha: 1)
+        b.restingTint = .black
+        b.selectedTint = .black
+        b.iconAnimation = .penWiggle
         b.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-        b.layer.masksToBounds = true
         return b
     }()
 
-    private let favoriteButton: UIButton = {
-        let b = UIButton(type: .system)
+    // The secondary icon buttons: select:bg-secondary/60, and `select:!text-custom` on the
+    // favourite, bookmark, share and trailer buttons (set once the media's colour is known).
+    private let favoriteButton: SelectButton = {
+        let b = SelectButton()
         b.setImage(UIImage.hayaseIcon("heart", pointSize: 16), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+        b.applySecondaryVariant()
+        b.iconAnimation = .heartBeat
         return b
     }()
 
-    private let bookmarkButton: UIButton = {
-        let b = UIButton(type: .system)
+    private let bookmarkButton: SelectButton = {
+        let b = SelectButton()
         b.setImage(UIImage.hayaseIcon("bookmark", pointSize: 16), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+        b.applySecondaryVariant()
+        b.iconAnimation = .wobble
         return b
     }()
 
-    private let shareButton: UIButton = {
-        let b = UIButton(type: .system)
+    private let shareButton: SelectButton = {
+        let b = SelectButton()
         b.setImage(UIImage.hayaseIcon("share-2", pointSize: 16), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+        b.applySecondaryVariant()
         return b
     }()
 
-    private let trailerButton: UIButton = {
-        let b = UIButton(type: .custom)
+    private let trailerButton: SelectButton = {
+        let b = SelectButton()
         let lucideId: String
         if #available(iOS 16.0, *) {
             lucideId = "clapperboard"
@@ -695,19 +729,15 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             lucideId = "film"
         }
         b.setImage(UIImage.hayaseIcon(lucideId, pointSize: 16), for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+        b.applySecondaryVariant()
+        b.iconAnimation = .clapperboard
         b.isHidden = true
         return b
     }()
 
-    private let anilistButton: UIButton = {
-        let b = UIButton(type: .custom)
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+    private let anilistButton: SelectButton = {
+        let b = SelectButton()
+        b.applySecondaryVariant()
         b.isHidden = true
         let icon = AniListIconView(frame: .zero)
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -722,11 +752,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         return b
     }()
 
-    private let malButton: UIButton = {
-        let b = UIButton(type: .custom)
-        b.backgroundColor = UIColor.HayaseTheme.secondary
-        b.layer.cornerRadius = 6
-        b.layer.masksToBounds = true
+    private let malButton: SelectButton = {
+        let b = SelectButton()
+        b.applySecondaryVariant()
         b.isHidden = true
         let icon = MALIconView(frame: .zero)
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -1241,33 +1269,17 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Actions
 
-    private func animateTap(_ button: UIButton) {
-        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
-            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
-        }) { _ in
-            UIView.animate(withDuration: 0.3, delay: 0,
-                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
-                           options: [], animations: {
-                button.transform = .identity
-            })
-        }
-    }
-
     @objc private func shareTapped() {
-        animateTap(shareButton)
-        shareButton.setImage(UIImage.hayaseIcon("check", pointSize: 16), for: .normal)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.shareButton.setImage(UIImage.hayaseIcon("share-2", pointSize: 16), for: .normal)
-        }
+        shareButton.swapIcon(to: UIImage.hayaseIcon("check", pointSize: 16), hold: 0.8)
         onShare?()
     }
-    @objc private func trailerTapped()     { animateTap(trailerButton);     onPlayTrailer?() }
+    @objc private func trailerTapped()     { onPlayTrailer?() }
     @objc private func playTapped()        { onWatch?() }
-    @objc private func entryEditorTapped() { animateTap(entryEditorButton); onEntryEditor?() }
-    @objc private func favoriteTapped()    { animateTap(favoriteButton);    onFavorite?() }
-    @objc private func bookmarkTapped()    { animateTap(bookmarkButton);    onBookmark?() }
-    @objc private func anilistTapped()     { animateTap(anilistButton);     onOpenAniList?() }
-    @objc private func malTapped()         { animateTap(malButton);         onOpenMAL?() }
+    @objc private func entryEditorTapped() { onEntryEditor?() }
+    @objc private func favoriteTapped()    { onFavorite?() }
+    @objc private func bookmarkTapped()    { onBookmark?() }
+    @objc private func anilistTapped()     { onOpenAniList?() }
+    @objc private func malTapped()         { onOpenMAL?() }
     @objc private func coverTapped() {
         onOpenCover?(displayedCoverURL, coverImageView.image)
     }
@@ -1341,11 +1353,10 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     }
 
     func updateButtonStates(isFavorite: Bool, isOnList: Bool) {
+        // Heart and Bookmark are filled with `fill='currentColor'`; only selection turns them custom.
         favoriteButton.setImage(isFavorite ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart", pointSize: 16), for: .normal)
-        favoriteButton.tintColor = isFavorite ? storedAccentColor : .white
 
         bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark", pointSize: 16), for: .normal)
-        bookmarkButton.tintColor = isOnList ? storedAccentColor : .white
     }
 
     func updatePlayButtonTitle(listStatus: String?) {
@@ -1412,20 +1423,18 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         let accent  = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
         let contrast = ExtensionSearchViewController.luminanceContrastColor(for: accent)
         storedAccentColor = accent
-        playButton.backgroundColor = accent
-        playButton.tintColor = contrast
-        playButton.setTitleColor(contrast, for: .normal)
-
-        var hue: CGFloat = 0, satHSB: CGFloat = 0, briHSB: CGFloat = 0
-        accent.getHue(&hue, saturation: &satHSB, brightness: &briHSB, alpha: nil)
-        let l = (2.0 - satHSB) * briHSB / 2.0
-        let s = l == 0 || l == 1 ? 0 : satHSB * briHSB / (l < 0.5 ? 2.0 * l : 2.0 - 2.0 * l)
-        let targetL: CGFloat = 0.6
-        let bNew = targetL + s * min(targetL, 1.0 - targetL)
-        let sNew: CGFloat = bNew > 0 ? 2.0 * (bNew - targetL) / bNew : 0
-        let lighter = UIColor(hue: hue, saturation: sNew, brightness: bNew, alpha: 1)
-        entryEditorButton.backgroundColor = lighter
-        entryEditorButton.tintColor = contrast
+        playButton.restingBackground = accent                              // bg-custom
+        playButton.selectedBackground = accent.withHSLLightness(0.4)       // select:!bg-custom-600
+        playButton.restingTint = contrast
+        playButton.selectedTint = contrast
+        entryEditorButton.restingBackground = accent.withHSLLightness(0.6)   // bg-custom-400
+        entryEditorButton.selectedBackground = accent.withHSLLightness(0.3)  // select:!bg-custom-700
+        entryEditorButton.restingTint = contrast
+        entryEditorButton.selectedTint = contrast
+        // select:!text-custom
+        [favoriteButton, bookmarkButton, shareButton, trailerButton].forEach {
+            $0.selectedTint = accent
+        }
 
         let seasonStr: String? = {
             let szn = item.season?.capitalized
@@ -1600,9 +1609,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             btn.titleLabel?.font = .nunito(ofSize: 16, weight: .bold)
             btn.setTitleColor(contrast, for: .normal)
             btn.normalBgColor = accent
-            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            accent.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-            btn.highlightedBgColor = UIColor(hue: h, saturation: min(s * 1.1, 1), brightness: max(b * 0.75, 0), alpha: a)
+            btn.highlightedBgColor = accent.withHSLLightness(0.4)   // select:!bg-custom-600
             btn.backgroundColor = accent
             btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
             btn.layer.cornerRadius = 4
@@ -1663,11 +1670,25 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             titleLabel?.alpha = masksScore ? 0 : 1
         }
 
+        private var isPointerOver = false
+
+        func installHover() {
+            addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
+        }
+
+        @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+            isPointerOver = recognizer.state == .began || recognizer.state == .changed
+            updateBackground()
+        }
+
         override var isHighlighted: Bool {
-            didSet {
-                UIView.animate(withDuration: 0.15) {
-                    self.backgroundColor = self.isHighlighted ? self.highlightedBgColor : self.normalBgColor
-                }
+            didSet { updateBackground() }
+        }
+
+        /// transition-colors: 150ms
+        private func updateBackground() {
+            UIView.animate(withDuration: 0.15, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.backgroundColor = self.isHighlighted || self.isPointerOver ? self.highlightedBgColor : self.normalBgColor
             }
         }
     }
@@ -1780,9 +1801,10 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         let btn = AnimeTagChipButton(frame: .zero)
         btn.setTitle(text, for: .normal)
         btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
-        btn.setTitleColor(isTag ? UIColor.HayaseTheme.mutedForeground : .white, for: .normal)
-        btn.setTitleColor(storedAccentColor, for: .highlighted)
-        btn.backgroundColor = UIColor.HayaseTheme.secondary.withAlphaComponent(isTag ? 0.4 : 1)
+        btn.restingTitleColor = isTag ? UIColor.HayaseTheme.mutedForeground : UIColor.HayaseTheme.secondaryForeground
+        btn.selectedTitleColor = storedAccentColor   // select:!text-custom
+        btn.restingBackground = UIColor.HayaseTheme.secondary.withAlphaComponent(isTag ? 0.4 : 1)
+        btn.selectedBackground = UIColor.HayaseTheme.secondary.withAlphaComponent(0.6)   // select:bg-secondary/60
         btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         btn.layer.cornerRadius = 6
         // CSS filter paints beyond the text/button box; clipping here chops

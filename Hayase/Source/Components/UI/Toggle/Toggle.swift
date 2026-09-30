@@ -7,7 +7,9 @@
 
 import UIKit
 
-final class Toggle: UIButton {
+/// `<Toggle variant='outline' size='icon'>`, border-0: bg-background, and bg-accent while
+/// selected or pressed (`data-[state=on]`).
+final class Toggle: SelectButton {
     private let iconName: String
     private let iconPointSize: CGFloat
 
@@ -23,15 +25,11 @@ final class Toggle: UIButton {
     }
 
     required init?(coder: NSCoder) {
-        self.iconName = "circle-question-mark"
-        self.iconPointSize = 16
-        super.init(coder: coder)
-        setup()
+        nil
     }
 
     private func setup() {
-        layer.cornerRadius = 6
-        layer.masksToBounds = true
+        applyOutlineVariant(background: UIColor.HayaseTheme.background)
         contentHorizontalAlignment = .center
         contentVerticalAlignment = .center
         setImage(UIImage.hayaseIcon(iconName)?
@@ -40,20 +38,10 @@ final class Toggle: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 36).isActive = true
         heightAnchor.constraint(equalToConstant: 36).isActive = true
-        updateAppearance()
-    }
-
-    override var isHighlighted: Bool {
-        didSet { updateAppearance() }
     }
 
     private func updateAppearance() {
-        if pressed || isHighlighted {
-            backgroundColor = UIColor.HayaseTheme.accent
-            tintColor = UIColor.HayaseTheme.foreground
-        } else {
-            backgroundColor = UIColor.HayaseTheme.background
-            tintColor = UIColor.HayaseTheme.mutedForeground
-        }
+        restingBackground = pressed ? UIColor.HayaseTheme.accent : UIColor.HayaseTheme.background
+        restingTint = pressed ? UIColor.HayaseTheme.accentForeground : UIColor.HayaseTheme.foreground
     }
 }

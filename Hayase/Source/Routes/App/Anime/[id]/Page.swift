@@ -61,7 +61,6 @@ final class HTabBar: UIView {
             // px-8 (32pt) py-1 (4pt) — matches web trigger overrides
             btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 32, bottom: 4, right: 32)
             btn.layer.cornerRadius = 6   // rounded-md
-            btn.clipsToBounds = true
             btn.tag = i
             btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
             stack.addArrangedSubview(btn)
@@ -84,7 +83,11 @@ final class HTabBar: UIView {
     }
 
     @objc private func tabTapped(_ sender: UIButton) {
-        selectedIndex = sender.tag
+        guard sender.tag != selectedIndex else { return }
+        // transition-all: 150ms
+        UIView.transition(with: self, duration: 0.15, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+            self.selectedIndex = sender.tag
+        }
         onChange?(sender.tag)
     }
 
@@ -99,9 +102,16 @@ final class HTabBar: UIView {
                 btn.setTitleColor(contrastColor, for: .normal)
                 // data-[state=active]:font-bold
                 btn.titleLabel?.font = .nunito(ofSize: 14, weight: .bold)
+                // data-[state=active]:shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)
+                btn.layer.masksToBounds = false
+                btn.layer.shadowColor = UIColor.black.cgColor
+                btn.layer.shadowOpacity = 0.1
+                btn.layer.shadowOffset = CGSize(width: 0, height: 1)
+                btn.layer.shadowRadius = 1.5
             } else {
                 btn.backgroundColor = .clear
-                btn.setTitleColor(UIColor(white: 0.649, alpha: 1), for: .normal) // text-muted-foreground
+                btn.layer.shadowOpacity = 0
+                btn.setTitleColor(UIColor.HayaseTheme.mutedForeground, for: .normal)
                 // font-medium (inactive)
                 btn.titleLabel?.font = .nunito(ofSize: 14, weight: .medium)
             }

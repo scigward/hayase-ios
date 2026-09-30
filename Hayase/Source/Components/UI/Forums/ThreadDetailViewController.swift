@@ -256,7 +256,7 @@ final class ThreadDetailViewController: UIViewController {
         row.spacing = 8
 
         let backButton = Button(iconName: "chevron-left", pointSize: 16)
-        backButton.backgroundColor = .clear
+        backButton.applyGhostVariant()
         backButton.addTarget(self, action: #selector(goBack), for: .touchUpInside)
         row.addArrangedSubview(backButton)
 
