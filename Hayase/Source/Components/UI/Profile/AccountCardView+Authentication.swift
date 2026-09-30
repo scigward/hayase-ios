@@ -88,7 +88,6 @@ extension HayaseAccountCardView {
     func loginMAL() {
         guard let vc = parentVC else { return }
         let codeVerifier = MALAuth.generateCodeVerifier()
-        UserDefaults.standard.set(codeVerifier, forKey: "mal_code_verifier")
         let url = MALAuth.authorizeURL(codeChallenge: codeVerifier)
 
         let session = ASWebAuthenticationSession(
@@ -104,9 +103,8 @@ extension HayaseAccountCardView {
                 // MAL PKCE flow returns the code in the query string:
                 //   hayase://callback?code=xxx
                 if let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                   let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-                   let verifier = UserDefaults.standard.string(forKey: "mal_code_verifier") {
-                    MALAuth.completeLogin(code: code, codeVerifier: verifier)
+                   let code = components.queryItems?.first(where: { $0.name == "code" })?.value {
+                    MALAuth.completeLogin(code: code, codeVerifier: codeVerifier)
                 }
             }
         }

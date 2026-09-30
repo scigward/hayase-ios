@@ -70,37 +70,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         HayaseInterfaceScale.apply()
     }
 
-    // MARK: - URL Scheme Handling
-
-    /// Handle incoming URLs from the `hayase://` URL scheme.
-    /// This is the fallback path for OAuth callbacks that bypass
-    /// ASWebAuthenticationSession (e.g. user returns via Safari externally).
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // AniList implicit grant: hayase://#access_token=xxx&token_type=Bearer&expires_in=xxx
-        if let fragment = url.fragment {
-            let params = fragment.components(separatedBy: "&")
-                .reduce(into: [String: String]()) { dict, pair in
-                    let parts = pair.components(separatedBy: "=")
-                    if parts.count == 2 { dict[parts[0]] = parts[1] }
-                }
-            if let token = params["access_token"] {
-                let expiresIn = params["expires_in"].flatMap(TimeInterval.init)
-                AniListAuth.completeLogin(token: token, expiresIn: expiresIn)
-                return true
-            }
-        }
-
-        // MAL PKCE flow: hayase://callback?code=xxx
-        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-           let verifier = UserDefaults.standard.string(forKey: "mal_code_verifier") {
-            MALAuth.completeLogin(code: code, codeVerifier: verifier)
-            return true
-        }
-
-        return false
-    }
-
     // MARK: - Background / Termination
 
     func applicationDidEnterBackground(_ application: UIApplication) {
