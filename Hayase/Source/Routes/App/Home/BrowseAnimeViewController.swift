@@ -343,18 +343,9 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     // Clearlogo: transparent title art from ani.zip (coverType == "Clearlogo").
     // Matches Hayase full-banner.svelte: displays logo image when available, hides titleLabel.
     // drop-shadow-lg w-[30rem] — scaled down for mobile to ~200pt width, aspect-fit.
-    private let clearlogoImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.clipsToBounds = false   // a clipped layer would cut its own shadow off
+    private let clearlogoImageView: DropShadowImageView = {
+        let iv = DropShadowImageView()
         iv.isHidden = true   // hidden by default; shown when Clearlogo is available
-        // drop-shadow-lg: drop-shadow(0 10px 8px 4%) drop-shadow(0 4px 3px 10%). A layer
-        // carries one shadow, so this is the 10% one (blur radius 3 is a 1.5pt shadow
-        // radius); the 4% one is too faint to see.
-        iv.layer.shadowColor = UIColor.black.cgColor
-        iv.layer.shadowOpacity = 0.1
-        iv.layer.shadowRadius = 1.5
-        iv.layer.shadowOffset = CGSize(width: 0, height: 4)
         return iv
     }()
 
@@ -397,38 +388,32 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     // Play button: bg-custom text-contrast — matches web PlayButton in banner
     // Web: size='default' (h-9 px-4 py-2), base text-sm font-medium + class font-bold
     // So: h-9 = 36pt, text-sm = 14pt, font-bold override, rounded-md (6pt)
-    private let playButton: UIButton = {
-        let b = UIButton(type: .system)
+    private let playButton: BannerActionButton = {
+        let b = BannerActionButton()
         b.setTitle("  Watch Now", for: .normal)
         b.setImage(UIImage.hayaseFilledIcon("play", pointSize: 13), for: .normal)
-        b.tintColor = .black
-        b.setTitleColor(.black, for: .normal)
         b.titleLabel?.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
-        b.layer.cornerRadius = 6  // rounded-md = 0.375rem ≈ 6pt
-        b.clipsToBounds = true
         return b
     }()
 
-    // Favorite button: ghost variant, size='icon' (h-9 w-9 = 36pt) — heart icon
-    // Hayase: variant='ghost' (transparent bg, rounded-md), icon size = 1rem (16pt)
-    // Normal state: white icon. Press state: subtle highlight.
-    private let favoriteButton: UIButton = {
-        let b = UIButton(type: .system)
+    // Favorite button: ghost variant, size='icon' (h-9 w-9 = 36pt) — heart icon, 1rem (16pt).
+    // ghost: select:bg-secondary-foreground/20, and the banner adds select:!text-custom.
+    private let favoriteButton: BannerActionButton = {
+        let b = BannerActionButton()
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg), for: .normal)
-        b.tintColor = .white
-        b.layer.cornerRadius = 6  // rounded-md
+        b.selectedBackground = UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2)
+        b.iconAnimation = .heartBeat
         return b
     }()
 
-    // Bookmark button: ghost variant, size='icon' (h-9 w-9 = 36pt) — bookmark icon
-    // Same styling as favorite: transparent bg, rounded-md, 16pt icon, white tint
-    private let bookmarkButton: UIButton = {
-        let b = UIButton(type: .system)
+    // Bookmark button: same ghost styling as favorite — bookmark icon.
+    private let bookmarkButton: BannerActionButton = {
+        let b = BannerActionButton()
         let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg), for: .normal)
-        b.tintColor = .white
-        b.layer.cornerRadius = 6  // rounded-md
+        b.selectedBackground = UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2)
+        b.iconAnimation = .bookmark
         return b
     }()
 
@@ -846,6 +831,20 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         loadFollowingUsers(for: self.items)
     }
 
+    /// The interface builds Home again on every visit: the banner starts over at its first
+    /// item, plays its fade-in and loads its artwork in afresh.
+    func remount() {
+        guard !items.isEmpty else { return }
+        currentIndex = 0
+        // A fresh banner comes with its dots in place; nothing slides.
+        for (index, constraint) in dotWidthConstraints {
+            constraint.constant = index == 0 ? 48 : 24
+        }
+        dotsStack.layoutIfNeeded()
+        socialBlock.isHidden = true
+        displayItem(fadeIn: true)
+    }
+
     private func displayItem(fadeIn: Bool) {
         guard currentIndex < items.count else { return }
         artworkGeneration += 1
@@ -868,21 +867,21 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             self.updateGenres(for: item, customColor: customColor)
             self.updateDots()
             self.updateSocialBlock(for: item)
-            self.playButton.backgroundColor = customColor
-            // Determine text contrast (Hayase: text-contrast — black or white based on luminance)
+            // text-contrast: black or white by luminance. select:!bg-custom-600 darkens the play button.
             let textColor = Self.contrastColor(for: customColor)
-            self.playButton.tintColor = textColor
-            self.playButton.setTitleColor(textColor, for: .normal)
-            // Favorite/Bookmark: start with white icon (ghost variant); async fill if already active
-            self.favoriteButton.tintColor = .white
-            self.bookmarkButton.tintColor = .white
+            self.playButton.restingBackground = customColor
+            self.playButton.selectedBackground = customColor.withHSLLightness(0.4)
+            self.playButton.restingTint = textColor
+            self.playButton.selectedTint = textColor
+            // The icon buttons are currentColor, filled or not, and only turn custom while selected.
+            self.favoriteButton.selectedTint = customColor
+            self.bookmarkButton.selectedTint = customColor
             let cfg16 = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
             self.favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
             self.bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
-            // Reflect saved state: fill icon + tint to accent if already favourited/bookmarked.
-            // Mirrors Hayase full-banner.svelte FavoriteButton/BookmarkButton fill logic.
+            // Reflect saved state: the icon is filled if already favourited/bookmarked, as
+            // FavoriteButton/BookmarkButton do with `fill='currentColor'`.
             let itemIDForState = item.id
-            let accentForState = Self.uiColor(fromHex: item.coverColor) ?? .white
             AniListTracking.shared.checkIsFavouriteResult(mediaID: itemIDForState) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self,
@@ -890,7 +889,6 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
                           self.items[self.currentIndex].id == itemIDForState else { return }
                     guard case .success(let isFav) = result else { return }
                     self.favoriteButton.setImage(isFav ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
-                    self.favoriteButton.tintColor = isFav ? accentForState : .white
                 }
             }
             AniListTracking.shared.fetchMediaWithEntryResult(anilistID: itemIDForState) { [weak self] result in
@@ -901,7 +899,6 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
                     guard case .success(let payload) = result else { return }
                     let isOnList = payload.entry != nil
                     self.bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
-                    self.bookmarkButton.tintColor = isOnList ? accentForState : .white
                 }
             }
             // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
@@ -1355,33 +1352,17 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
 
     @objc private func playButtonTapped() {
         guard let item = currentItem else { return }
-        animateTap(playButton)
         onPlayTapped?(item)
     }
 
     @objc private func favoriteTapped() {
         guard let item = currentItem else { return }
-        animateTap(favoriteButton)
         onFavorite?(item)
     }
 
     @objc private func bookmarkTapped() {
         guard let item = currentItem else { return }
-        animateTap(bookmarkButton)
         onBookmark?(item)
-    }
-
-    /// Spring-bounce animation on icon buttons — matches Hayase's `animated-icon` press feedback.
-    private func animateTap(_ button: UIButton) {
-        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn], animations: {
-            button.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
-        }) { _ in
-            UIView.animate(withDuration: 0.3, delay: 0,
-                           usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8,
-                           options: [], animations: {
-                button.transform = .identity
-            })
-        }
     }
 
     private func updateDots() {
@@ -1795,6 +1776,7 @@ class BrowseAnimeViewController: UIViewController {
 
     private let homeBackdropView = HomeBannerBackdropView()
     private var selectedFeaturedID: Int?
+    private var hasAppeared = false
     private let homeBackdropCoverView: UIView = {
         let view = UIView()
         view.backgroundColor = hayasePageBackground
@@ -1861,6 +1843,9 @@ class BrowseAnimeViewController: UIViewController {
         collectionView.indexPathsForSelectedItems?.forEach {
             collectionView.deselectItem(at: $0, animated: animated)
         }
+        // The interface builds Home again on every visit, so the banner starts over.
+        if hasAppeared { remountFeaturedBanner() }
+        hasAppeared = true
         // Re-sync banner fade with the current scroll position.
         // scrollViewDidScroll does NOT fire automatically when the view re-appears (e.g. popping
         // back from a detail VC), so the banner could be stuck in the wrong opacity state.
@@ -2954,6 +2939,13 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             // visible side of the threshold for a short moment.
             scheduleHomeBannerRevealIfNeeded()
         }
+    }
+
+    /// A banner that is not on screen starts over the next time it is configured.
+    private func remountFeaturedBanner() {
+        guard !isSearching else { return }
+        selectedFeaturedID = nil
+        (collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell)?.remount()
     }
 
     private func shouldRevealHomeBannerImmediately(offsetY: CGFloat) -> Bool {

@@ -791,6 +791,9 @@ final class HayaseSidebarController: UIViewController {
 
             self.hideHostedNavigationBars()
             self.updateSidebarBackground()
+            // banner-image.svelte drops the banner when navigation ends anywhere but Home or an
+            // anime page, so the next one loads in afresh.
+            if self.visibleBannerBackdropRoute() == nil { self.clearSidebarBackdrop() }
             self.lastAppliedRoute = route
             self.restoreScrollPositionIfNeeded(for: route, kind: kind, noScroll: options.noScroll)
             self.closeMobileMenu(animated: uiAnimated)
