@@ -148,7 +148,7 @@ extension AnimeDetailViewController: UITableViewDataSource {
         case .threads:
             if activeSection != .threads { return 0 }
             if threadsLoading || threads.isEmpty { return 1 }
-            let cols = threadColumnCount
+            let cols = threadGridColumnCount
             return (threads.count + cols - 1) / cols
         case .themes:
             if activeSection != .themes { return 0 }
@@ -304,21 +304,8 @@ extension AnimeDetailViewController: UITableViewDelegate {
             // presenting here too stacks a second independently auto-selecting search.
             break
         case .threads:
-            if threadColumnCount >= 2 { break }
-            guard !threadsLoading, !threads.isEmpty else { return }
-            guard let thread = threads[safe: indexPath.row] else { return }
-            if let animeID = routeAnimeID {
-                Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                   hostTabIndex: hayaseTabIndex)
-            } else {
-                let accentColor = animeItem.flatMap { item in
-                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
-                let threadVC = ThreadDetailViewController(threadID: thread.id,
-                                                                  animeID: routeAnimeID,
-                                                                  title: thread.title,
-                                                                  accentColor: accentColor)
-                navigationController?.pushViewController(threadVC, animated: true)
-            }
+            // ThreadCardView owns taps in every layout, as EpisodeCardView does.
+            break
         case .themes:
             break
         default: break

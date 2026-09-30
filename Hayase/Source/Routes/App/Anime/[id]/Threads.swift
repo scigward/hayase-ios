@@ -114,7 +114,7 @@ final class ThreadStatsView: UIView {
 
 // MARK: - ThreadCardView
 
-final class ThreadCardView: UIView {
+final class ThreadCardView: SelectableCardView {
 
     var onTap: ((Int) -> Void)?
     private var threadID: Int = 0
@@ -158,20 +158,21 @@ final class ThreadCardView: UIView {
     private var footerLeadingToAvatar: NSLayoutConstraint?
     private var footerLeadingToCard: NSLayoutConstraint?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init() {
+        // Threads.svelte: bg-muted, select:bg-accent
+        super.init(restingBackground: UIColor.HayaseTheme.muted,
+                   selectedBackground: UIColor.HayaseTheme.accent)
         setup()
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
+        nil
     }
 
     private func setup() {
-        backgroundColor = hayaseCardBackground
         layer.cornerRadius = 6
-        clipsToBounds = true
+        // The select:shadow-lg shadow draws outside the card, so it must not clip.
+        clipsToBounds = false
 
         [titleLabel, statsView, avatarImageView, footerLabel, badgeStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -251,6 +252,7 @@ final class ThreadCardView: UIView {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         threadID = 0
         onTap = nil
+        resetSelectState()
     }
 
     private func configureAvatar(urlString: String?) {
@@ -282,7 +284,7 @@ final class ThreadCardView: UIView {
 
 // MARK: - ThreadPairCell
 
-final class ThreadPairCell: UITableViewCell {
+final class ThreadPairCell: UITableViewCell, CardOverflowRendering {
     static let reuseID = "ThreadPairCell"
 
     let leftCard = ThreadCardView()
@@ -350,24 +352,38 @@ final class ThreadPairCell: UITableViewCell {
         stackTrailingConstraint?.constant = -sidePad
     }
 
-    func configure(left: AniListThread, right: AniListThread?, accentColor: UIColor) {
+    /// `singleTrack` lays the row out as one full-width column. Otherwise a row
+    /// without a right thread keeps its empty second column, as the grid does.
+    func configure(left: AniListThread, right: AniListThread?, singleTrack: Bool, accentColor: UIColor) {
         leftCard.configure(with: left, accentColor: accentColor)
         leftCard.onTap = { [weak self] id in self?.onTapThread?(id) }
 
+        rightContainer.isHidden = singleTrack
         if let right = right {
             rightCard.configure(with: right, accentColor: accentColor)
             rightCard.onTap = { [weak self] id in self?.onTapThread?(id) }
-            rightContainer.isHidden = false
+            rightCard.isHidden = false
         } else {
             rightCard.reset()
-            rightContainer.isHidden = true
+            rightCard.isHidden = true
         }
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        allowCardOverflowRendering()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        allowCardOverflowRendering()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         leftCard.reset()
         rightCard.reset()
+        rightCard.isHidden = false
         rightContainer.isHidden = false
         onTapThread = nil
     }
@@ -380,7 +396,7 @@ extension AnimeDetailViewController {
     func fetchThreads() {
         guard let id = routeAnimeID else { return }
         threadsLoading = true
-        tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .none)
+        reloadSectionsWithoutAnimation([.threads])
 
         AniListClient.shared.threadsResult(mediaID: id) { [weak self] result in
             guard let self else { return }
@@ -393,7 +409,7 @@ extension AnimeDetailViewController {
             }
             self.threadsLoading = false
             if self.activeSection == .threads {
-                self.tableView.reloadSections(IndexSet(integer: Section.threads.rawValue), with: .fade)
+                self.reloadSectionsWithoutAnimation([.threads])
             }
         }
     }
@@ -486,87 +502,46 @@ extension AnimeDetailViewController {
             return makeThreadsSkeletonCell()
         }
 
-        let cols = threadColumnCount
-        if cols >= 2 && !threadsLoading && !threads.isEmpty {
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: ThreadPairCell.reuseID, for: indexPath) as? ThreadPairCell else {
-                return UITableViewCell()
-            }
-            let accentColor = animeItem.flatMap { item in
-                ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
-            let leftIdx = indexPath.row * 2
-            let rightIdx = leftIdx + 1
-            guard let leftThread = threads[safe: leftIdx] else { return UITableViewCell() }
-            let rightThread = threads[safe: rightIdx]
-            cell.configure(left: leftThread, right: rightThread, accentColor: accentColor)
-            cell.applyPaddingForSizeClass(
-                isRegular: traitCollection.horizontalSizeClass == .regular,
-                availableWidth: tableView.frame.width,
-                isFirstRow: indexPath.row == 0)
-            cell.onTapThread = { [weak self] threadID in
-                guard let self = self else { return }
-                guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
-                if let animeID = self.routeAnimeID {
-                    Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                       hostTabIndex: self.hayaseTabIndex)
-                } else {
-                    let accentColor = self.animeItem.flatMap { item in
-                        ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
-                    let threadVC = ThreadDetailViewController(threadID: thread.id,
-                                                                      animeID: self.routeAnimeID,
-                                                                      title: thread.title,
-                                                                      accentColor: accentColor)
-                    self.navigationController?.pushViewController(threadVC, animated: true)
-                }
-            }
-            return cell
-        }
-
         if threads.isEmpty {
             return makeEmptyStateCell(
                 text: animePageErrorDescription ?? "Looks like there's nothing here yet!",
                 loading: false)
         }
-        guard let thread = threads[safe: indexPath.row] else { return UITableViewCell() }
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.backgroundColor = .clear
-        cell.selectionStyle = .none
-
-        let card = ThreadCardView()
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: ThreadPairCell.reuseID, for: indexPath) as? ThreadPairCell else {
+            return UITableViewCell()
+        }
+        let cols = threadGridColumnCount
+        let leftIdx = indexPath.row * cols
+        guard let leftThread = threads[safe: leftIdx] else { return cell }
+        let rightThread = cols >= 2 ? threads[safe: leftIdx + 1] : nil
         let accentColor = animeItem.flatMap { item in
             ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
-        card.configure(with: thread, accentColor: accentColor)
-        card.onTap = { [weak self] threadID in
-            guard let self = self else { return }
-            guard let thread = self.threads.first(where: { $0.id == threadID }) else { return }
-            if let animeID = self.routeAnimeID {
-                Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
-                                                   hostTabIndex: self.hayaseTabIndex)
-            } else {
-                let accentColor = self.animeItem.flatMap { item in
-                    ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
-                let threadVC = ThreadDetailViewController(threadID: thread.id,
-                                                                      animeID: self.routeAnimeID,
-                                                                      title: thread.title,
-                                                                      accentColor: accentColor)
-                self.navigationController?.pushViewController(threadVC, animated: true)
-            }
+        cell.configure(left: leftThread, right: rightThread, singleTrack: cols == 1, accentColor: accentColor)
+        cell.applyPaddingForSizeClass(
+            isRegular: traitCollection.horizontalSizeClass == .regular,
+            availableWidth: tableView.frame.width,
+            isFirstRow: indexPath.row == 0)
+        cell.onTapThread = { [weak self] threadID in
+            self?.openThread(id: threadID)
         }
-        card.translatesAutoresizingMaskIntoConstraints = false
-        cell.contentView.addSubview(card)
-
-        let sidePad = traitCollection.horizontalSizeClass == .regular
-            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
-            : CGFloat(16)
-
-        let topPadding: CGFloat = indexPath.row == 0 ? 12 : 14  // pt-3 = 12px; later rows split gap-y-7 = 28px
-        NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: topPadding),
-            card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -14),  // gap-y-7 = 28px split between adjacent rows
-            card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
-            card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
-        ])
         return cell
+    }
+
+    private func openThread(id threadID: Int) {
+        guard let thread = threads.first(where: { $0.id == threadID }) else { return }
+        if let animeID = routeAnimeID {
+            Router.shared.navigateToAnimeThread(animeID: animeID, threadID: thread.id, title: thread.title,
+                                               hostTabIndex: hayaseTabIndex)
+        } else {
+            let accentColor = animeItem.flatMap { item in
+                ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") }
+            let threadVC = ThreadDetailViewController(threadID: thread.id,
+                                                      animeID: routeAnimeID,
+                                                      title: thread.title,
+                                                      accentColor: accentColor)
+            navigationController?.pushViewController(threadVC, animated: true)
+        }
     }
 
     private func makeThreadsSkeletonCell() -> UITableViewCell {

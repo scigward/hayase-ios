@@ -96,7 +96,7 @@ extension AnimeDetailViewController {
     func fetchThemes() {
         guard let id = animeItem?.id else { return }
         themesLoading = true
-        tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .none)
+        reloadSectionsWithoutAnimation([.themes])
 
         AnimeThemesService.shared.themes(anilistID: id) { [weak self] response in
             guard let self else { return }
@@ -105,7 +105,7 @@ extension AnimeDetailViewController {
                 self.themes = parsed
                 self.themesLoading = false
                 if self.activeSection == .themes {
-                    self.tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .fade)
+                    self.reloadSectionsWithoutAnimation([.themes])
                 }
             }
         }
@@ -332,6 +332,6 @@ extension AnimeDetailViewController {
     @objc private func themePlayTapped(_ sender: UIButton) {
         guard let urlStr = objc_getAssociatedObject(sender, &themeURLKey) as? String else { return }
         activeThemeVideoURL = activeThemeVideoURL == urlStr ? nil : urlStr
-        tableView.reloadSections(IndexSet(integer: Section.themes.rawValue), with: .automatic)
+        reloadSectionsWithoutAnimation([.themes])
     }
 }

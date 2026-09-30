@@ -168,15 +168,11 @@ extension AnimeDetailViewController {
             pendingAnimePagePayloadReloadIncludesHeader = pendingAnimePagePayloadReloadIncludesHeader || includeHeader
             return
         }
-        var rawSections = [
-            Section.relations.rawValue,
-            Section.threads.rawValue,
-            Section.recommendations.rawValue,
-        ]
+        var sections: [Section] = [.relations, .threads, .recommendations]
         if includeHeader {
-            rawSections.insert(Section.header.rawValue, at: 0)
+            sections.insert(.header, at: 0)
         }
-        tableView.reloadSections(IndexSet(rawSections), with: .none)
+        reloadSectionsWithoutAnimation(sections)
         refreshEpisodeCardsInPlace()
     }
 

@@ -1289,18 +1289,20 @@ extension AnimeDetailViewController {
     /// `reloadSections(_:with: .none)` still cross-fades each card out while its
     /// replacement fades in, briefly showing a duplicate behind every card.
     func refreshEpisodeCardsInPlace() {
-        let sections = [Section.episodes.rawValue, Section.episodePagination.rawValue]
+        let sections: [Section] = [.episodes, .episodePagination]
         let rowCountsUnchanged = sections.allSatisfy {
-            tableView.numberOfRows(inSection: $0) == self.tableView(tableView, numberOfRowsInSection: $0)
+            tableView.numberOfRows(inSection: $0.rawValue) == self.tableView(tableView, numberOfRowsInSection: $0.rawValue)
         }
-        UIView.performWithoutAnimation {
-            if rowCountsUnchanged {
-                let visibleRows = tableView.indexPathsForVisibleRows?.filter { sections.contains($0.section) } ?? []
+        if rowCountsUnchanged {
+            let visibleRows = tableView.indexPathsForVisibleRows?.filter { indexPath in
+                sections.contains { $0.rawValue == indexPath.section }
+            } ?? []
+            UIView.performWithoutAnimation {
                 tableView.reconfigureRows(at: visibleRows)
-            } else {
-                // Progress moved to a page with a different number of rows.
-                tableView.reloadSections(IndexSet(sections), with: .none)
             }
+        } else {
+            // Progress moved to a page with a different number of rows.
+            reloadSectionsWithoutAnimation(sections)
         }
         // Reconfiguring keeps each cell's height; follower avatars can change it.
         scheduleEpisodeHeightInvalidation()
@@ -1648,7 +1650,7 @@ extension AnimeDetailViewController {
                 guard let self = self else { return }
                 self.episodes = []
                 self.currentEpisodePage = 1
-                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
+                self.reloadSectionsWithoutAnimation([.episodes, .episodePagination])
             }
             return
         }
@@ -1665,7 +1667,7 @@ extension AnimeDetailViewController {
                 if self.currentEpisodePage > self.totalEpisodePages {
                     self.currentEpisodePage = 1
                 }
-                self.tableView.reloadSections(IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue]), with: .none)
+                self.reloadSectionsWithoutAnimation([.episodes, .episodePagination])
             }
         }
     }

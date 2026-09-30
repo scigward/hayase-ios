@@ -1219,7 +1219,7 @@ extension AnimeDetailViewController {
             case .success(let expandedGraph):
                 self.relationGraph = expandedGraph
                 if self.activeSection == .relations {
-                    self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+                    self.reloadSectionsWithoutAnimation([.relations])
                 }
             case .failure(let error):
                 NSLog("[AnimeDetail] Relations tree expansion failed: %@", error.description)
@@ -1275,7 +1275,7 @@ extension AnimeDetailViewController {
                 switch result {
                 case .success(let rels) where !rels.isEmpty:
                     self.relations = rels
-                    self.tableView.reloadSections(IndexSet(integer: Section.relations.rawValue), with: .fade)
+                    self.reloadSectionsWithoutAnimation([.relations])
                 case .success:
                     break
                 case .failure(let error):

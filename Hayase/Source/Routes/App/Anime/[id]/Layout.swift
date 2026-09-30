@@ -1998,6 +1998,12 @@ class AnimeDetailViewController: UIViewController {
         return 1
     }
 
+    /// Threads.svelte uses the episode grid's repeat(auto-fit,minmax(500px,1fr)),
+    /// so a list of one thread collapses to a single full-width track.
+    var threadGridColumnCount: Int {
+        threads.count == 1 ? 1 : threadColumnCount
+    }
+
     var threadColumnCount: Int {
         let sideInset = Self.interfacePageSideInset(for: tableView.frame.width)
         let gridWidth = tableView.frame.width - 2 * sideInset
@@ -2727,8 +2733,7 @@ class AnimeDetailViewController: UIViewController {
             recommendationComponentMountGeneration &+= 1
         }
         activeSection = sec
-        let contentRange = Section.episodes.rawValue..<Section.allCases.count
-        tableView.reloadSections(IndexSet(integersIn: contentRange), with: .automatic)
+        reloadSectionsWithoutAnimation(Section.allCases.filter { $0.rawValue >= Section.episodes.rawValue })
         if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
         if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
     }
@@ -2737,8 +2742,16 @@ class AnimeDetailViewController: UIViewController {
         let clamped = min(max(1, page), totalEpisodePages)
         guard clamped != currentEpisodePage else { return }
         currentEpisodePage = clamped
-        let sectionsToReload = IndexSet([Section.episodes.rawValue, Section.episodePagination.rawValue])
-        tableView.reloadSections(sectionsToReload, with: .automatic)
+        reloadSectionsWithoutAnimation([.episodes, .episodePagination])
+    }
+
+    /// The interface swaps this page's sections without transitions, but
+    /// UITableView animates reloaded rows even with `.none`. Every section reload
+    /// on the anime page goes through here.
+    func reloadSectionsWithoutAnimation(_ sections: [Section]) {
+        UIView.performWithoutAnimation {
+            tableView.reloadSections(IndexSet(sections.map(\.rawValue)), with: .none)
+        }
     }
 
     func scheduleEpisodeHeightInvalidation() {
