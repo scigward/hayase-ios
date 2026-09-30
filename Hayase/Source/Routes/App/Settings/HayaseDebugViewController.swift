@@ -172,8 +172,7 @@ final class HayaseDebugViewController: UIViewController {
     }
 
     @objc private func saveLogs() {
-        let output = StreamingLogger.shared.entries.map(\.displayString).joined(separator: "\n")
-        share(Data(output.utf8), name: "hayase-logs", extension: "log", errorTitle: "Failed to copy logs!")
+        share(Data(StreamingLogger.shared.exportText().utf8), name: "hayase-logs", extension: "log", errorTitle: "Failed to copy logs!")
     }
 
     @objc private func saveSettings() {

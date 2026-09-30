@@ -77,6 +77,22 @@ final class StreamingLogger {
         lock.unlock()
     }
 
+    /// Log text for sharing. Query strings, credentials in URLs and a magnet link's trackers
+    /// are removed, since indexer and tracker URLs commonly carry passkeys and API keys.
+    func exportText() -> String {
+        let text = entries.map(\.displayString).joined(separator: "\n")
+        return Self.redactions.reduce(text) { partial, redaction in
+            redaction.pattern.stringByReplacingMatches(in: partial, range: NSRange(partial.startIndex..., in: partial),
+                                                       withTemplate: redaction.template)
+        }
+    }
+
+    private static let redactions: [(pattern: NSRegularExpression, template: String)] = [
+        (try! NSRegularExpression(pattern: #"(magnet:\?)[^\s"'<>]*?(xt=urn:bt(?:ih|mh):[0-9A-Za-z]+)[^\s"'<>]*"#), "$1$2&…"),
+        (try! NSRegularExpression(pattern: #"(https?://)[^\s/@"'<>]+@"#), "$1"),
+        (try! NSRegularExpression(pattern: #"(https?://[^\s"'<>?#]*)\?[^\s"'<>]*"#), "$1?…"),
+    ]
+
     // MARK: - Private
 
     private func append(_ entry: StreamingLogEntry) {
