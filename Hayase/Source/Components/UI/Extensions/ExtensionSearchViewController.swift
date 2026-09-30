@@ -293,6 +293,13 @@ final class ExtensionSearchViewController: UIViewController {
         }
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The search starts in viewDidLoad, before the view is on screen, and an animation
+        // added to layers that are not in a window never runs.
+        if !skeletonView.isHidden { startSkeletonPulse() }
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Restore opaque nav bar for the previous screen

@@ -2969,8 +2969,7 @@ final class VideoPlayerViewController: UIViewController {
         self.tracks = freshTracks
 
         let optionsVC = PlayerOptionsController()
-        definesPresentationContext = true
-        optionsVC.modalPresentationStyle = .overCurrentContext
+        optionsVC.modalPresentationStyle = .overFullScreen
         optionsVC.modalTransitionStyle = .crossDissolve
 
         // Populate data

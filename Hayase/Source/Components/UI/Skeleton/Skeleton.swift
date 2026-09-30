@@ -32,7 +32,7 @@ enum HayaseSkeleton {
         pulse.duration = 1 // Tailwind pulse's complete forward/reverse cycle is 2s.
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
-        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulse.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.6, 1)   // cubic-bezier(0.4, 0, 0.6, 1)
         view.layer.add(pulse, forKey: animationKey)
     }
 
