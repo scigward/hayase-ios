@@ -115,7 +115,7 @@ private final class EpisodeRatingBadgeView: UIView {
 
 // MARK: - EpisodeCardView
 
-final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
+final class EpisodeCardView: SelectableCardView {
 
     var onTap: ((Int) -> Void)?
     var onContentHeightChanged: (() -> Void)?
@@ -246,24 +246,19 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     private var thumbMaxWidth: NSLayoutConstraint!
     private var thumbAspectConstraint: NSLayoutConstraint?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init() {
+        super.init(restingBackground: EpisodeCardStyle.cardBackground,
+                   selectedBackground: EpisodeCardStyle.selectedBackground)
         setup()
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
+        nil
     }
 
     private func setup() {
-        backgroundColor = EpisodeCardStyle.cardBackground
         layer.cornerRadius = EpisodeCardStyle.cardRadius
         clipsToBounds = false
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowRadius = 0
-        layer.shadowOpacity = 0
-        layer.shadowOffset = CGSize(width: 0, height: 0)
 
         ringLayer.fillColor = UIColor.clear.cgColor
         ringLayer.lineWidth = 1
@@ -388,50 +383,18 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         tap.cancelsTouchesInView = false
         tap.delegate = self
         addGestureRecognizer(tap)
-        let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
-        press.minimumPressDuration = 0
-        press.cancelsTouchesInView = false
-        press.delegate = self
-        addGestureRecognizer(press)
     }
 
     @objc private func cardTapped() {
         onTap?(episodeNumber)
     }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        true
-    }
-
-    @objc private func pressChanged(_ recognizer: UILongPressGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            setPressed(true, animated: true)
-        case .ended, .cancelled, .failed:
-            setPressed(false, animated: true)
-        default:
-            break
-        }
-    }
-
-    private func setPressed(_ pressed: Bool, animated: Bool) {
-        let changes = {
-            self.transform = pressed ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
-            self.backgroundColor = pressed ? EpisodeCardStyle.selectedBackground : EpisodeCardStyle.cardBackground
-            self.playOverlayView.alpha = pressed ? 1 : 0
-            self.playOverlayIcon.alpha = pressed ? 1 : 0
-            self.playOverlayIcon.transform = pressed ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
-            self.layer.shadowRadius = pressed ? 18 : 0
-            self.layer.shadowOpacity = pressed ? 0.45 : 0
-            self.layer.shadowOffset = pressed ? CGSize(width: 0, height: 8) : .zero
-            self.layer.zPosition = pressed ? 2 : (self.ringLayer.isHidden ? 0 : 1)
-        }
-        if animated {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
-        } else {
-            changes()
-        }
+    /// group-select: the play overlay fades in and its icon scales up with the card.
+    override func applySelectState(_ selected: Bool) {
+        super.applySelectState(selected)
+        playOverlayView.alpha = selected ? 1 : 0
+        playOverlayIcon.alpha = selected ? 1 : 0
+        playOverlayIcon.transform = selected ? .identity : CGAffineTransform(scaleX: 0.75, y: 0.75)
     }
 
     private func setThumbnailAspectRatio(_ ratio: CGFloat, active: Bool) {
@@ -551,7 +514,7 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
             ringLayer.isHidden = true
             fillerBadge.isHidden = true
         }
-        layer.zPosition = ringLayer.isHidden ? 0 : 1
+        restingZPosition = ringLayer.isHidden ? 0 : 1
 
         currentImageURL = episode.imageURL
         thumbImageView.image = nil
@@ -622,10 +585,10 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
         overview.radius = 0
         ratingBadge.radius = 0
         followerStack.reset()
-        setPressed(false, animated: false)
+        resetSelectState()
         ringLayer.isHidden = true
         ringLayer.strokeColor = nil
-        layer.zPosition = 0
+        restingZPosition = 0
         alpha = 1.0
         thumbImageView.alpha = 1.0
         progressBar.isHidden = true
@@ -638,32 +601,9 @@ final class EpisodeCardView: UIView, UIGestureRecognizerDelegate {
     }
 }
 
-// MARK: - Episode overflow support
-
-private protocol EpisodeOverflowRendering: AnyObject {}
-
-extension EpisodeOverflowRendering where Self: UITableViewCell {
-    func allowEpisodeOverflowRendering() {
-        [self, contentView].forEach { view in
-            view.clipsToBounds = false
-            view.layer.masksToBounds = false
-        }
-
-        // UITableView uses private wrapper views around visible cells. Those
-        // wrappers can be recreated during reuse, so clear clipping on every
-        // layout pass instead of relying on only the cell/contentView flags.
-        var current = superview
-        while let view = current {
-            view.clipsToBounds = false
-            view.layer.masksToBounds = false
-            current = view.superview
-        }
-    }
-}
-
 // MARK: - EpisodeCell
 
-final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
+final class EpisodeCell: UITableViewCell, CardOverflowRendering {
     static let reuseID = "AniDetailEpCell"
 
     let cardView = EpisodeCardView()
@@ -755,12 +695,12 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
 
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
-        allowEpisodeOverflowRendering()
+        allowCardOverflowRendering()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        allowEpisodeOverflowRendering()
+        allowCardOverflowRendering()
     }
 
     override func prepareForReuse() {
@@ -773,7 +713,7 @@ final class EpisodeCell: UITableViewCell, EpisodeOverflowRendering {
 
 // MARK: - EpisodePairCell
 
-final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
+final class EpisodePairCell: UITableViewCell, CardOverflowRendering {
     static let reuseID = "EpisodePairCell"
 
     let leftCard = EpisodeCardView()
@@ -936,12 +876,12 @@ final class EpisodePairCell: UITableViewCell, EpisodeOverflowRendering {
 
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
-        allowEpisodeOverflowRendering()
+        allowCardOverflowRendering()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        allowEpisodeOverflowRendering()
+        allowCardOverflowRendering()
     }
 
     override func prepareForReuse() {
