@@ -59,7 +59,7 @@ final class BannerActionButton: UIButton {
     }
     var iconAnimation: IconAnimation?
 
-    private var isHovered = false
+    private var isPointerOver = false
     private var appliedSelected = false
 
     override init(frame: CGRect) {
@@ -79,12 +79,12 @@ final class BannerActionButton: UIButton {
     }
 
     @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
-        isHovered = recognizer.state == .began || recognizer.state == .changed
+        isPointerOver = recognizer.state == .began || recognizer.state == .changed
         updateSelectState()
     }
 
     private func updateSelectState() {
-        let selected = isHighlighted || isHovered
+        let selected = isHighlighted || isPointerOver
         guard selected != appliedSelected else { return }
         appliedSelected = selected
         UIView.transition(with: self, duration: 0.15,
