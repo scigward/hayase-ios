@@ -15,6 +15,9 @@ import Foundation
 import UIKit
 
 // MARK: - URL helpers (mirrors jsurl / jsonurl in storage.ts)
+//
+// Unlike storage.ts, plain http is refused: extension code runs with the native fetch
+// proxy, so it must not travel over a connection anyone on the network can rewrite.
 
 // Extract scheme and path from a custom-scheme URI like "gh:user/repo/src/file.js"
 // using raw string splitting instead of URL(string:).path, which returns "" for
@@ -27,7 +30,7 @@ private func schemePath(_ raw: String) -> (scheme: String, path: String)? {
 }
 
 private func jsurl(_ raw: String) -> URL? {
-    if raw.hasPrefix("http") { return URL(string: raw) }
+    if raw.hasPrefix("https://") { return URL(string: raw) }
     guard let (scheme, path) = schemePath(raw) else { return nil }
     // Mirrors Hayase storage.ts jsurl() exactly:
     //   gh:[user]/[repo]/[...path] → https://esm.sh/gh/[user]/[repo]/es2022/[path].mjs
@@ -55,7 +58,7 @@ private func jsurl(_ raw: String) -> URL? {
 }
 
 private func jsonurl(_ raw: String) -> URL? {
-    if raw.hasPrefix("http") { return URL(string: raw) }
+    if raw.hasPrefix("https://") { return URL(string: raw) }
     guard let (scheme, path) = schemePath(raw) else { return nil }
     switch scheme {
     case "gh":
