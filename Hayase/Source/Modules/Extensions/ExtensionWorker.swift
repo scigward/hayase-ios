@@ -458,6 +458,13 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     // MARK: - Message dispatch (called by BridgeMessageHandler)
 
+    /// Rejects a pending proxied fetch. The message goes through JSON so it cannot break out of the script.
+    private static func rejectFetch(_ id: Int, _ message: String, in webView: WKWebView?) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [message]),
+              let array = String(data: data, encoding: .utf8) else { return }
+        webView?.evaluateJavaScript("window.__fetchReject(\(id),\(array)[0]);", completionHandler: nil)
+    }
+
     func handleBridgeMessage(_ body: Any) {
         guard let str = body as? String,
               let data = str.data(using: .utf8),
@@ -504,9 +511,11 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                 url = u
             } else {
                 // URL is genuinely malformed — reject immediately so the extension doesn't hang.
-                let wv = webView
-                wv?.evaluateJavaScript("window.__fetchReject(\(fetchId),'Invalid URL: \(urlStr.prefix(80))');",
-                                       completionHandler: nil)
+                Self.rejectFetch(fetchId, "Invalid URL: \(urlStr.prefix(80))", in: webView)
+                return
+            }
+            guard ExtensionFetchPolicy.allows(url) else {
+                Self.rejectFetch(fetchId, "Request blocked: \(url.scheme ?? "")://\(url.host ?? "") is not allowed", in: webView)
                 return
             }
             let method  = (dict["method"] as? String) ?? "GET"
@@ -532,7 +541,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                     } else if let b64 = bodyBase64, !b64.isEmpty {
                         req.httpBody = Data(base64Encoded: b64)
                     }
-                    let (data, resp) = try await URLSession.shared.data(for: req)
+                    let (data, resp) = try await ExtensionFetchPolicy.session.data(for: req)
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 200
                     let bodyBase64 = data.base64EncodedString()
                     // JSON-encode base64 so it is safe to embed in the JS call.
@@ -556,13 +565,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                         }
                     }
                 } catch {
-                    // Escape single quotes so the error message is safe in JS
-                    let msg = error.localizedDescription
-                        .replacingOccurrences(of: "\\", with: "\\\\")
-                        .replacingOccurrences(of: "'", with: "\\'")
-                    wv?.evaluateJavaScript(
-                        "window.__fetchReject(\(fetchId),'\(msg)');",
-                        completionHandler: nil)
+                    Self.rejectFetch(fetchId, error.localizedDescription, in: wv)
                 }
             }
             return
