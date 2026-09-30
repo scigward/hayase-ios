@@ -48,6 +48,11 @@ enum SettingsFileService {
         .init(web: "uiScale", native: Settings.Keys.uiScale, fallback: 1.0),
     ]
     private static let extrasKey = "hayase.interfaceSettingsExtras"
+    /// OAuth client settings. A settings file must not be able to swap the client a login
+    /// goes through, so the legacy format's free-form keys skip these.
+    private static let clientKeys: Set<String> = [
+        "pref_anilistClientID", "pref_malClientID", "pref_simklClientID", "pref_simklClientSecret",
+    ]
     private static let extraKeys: Set<String> = [
         "volume", "playerCustom", "enableDoH", "doHURL", "hideToTray",
         "showDetailsInRPC", "angle", "enableExternal", "playerPath",
@@ -90,7 +95,7 @@ enum SettingsFileService {
         }
         if legacy {
             guard values.values.allSatisfy({ $0 is String || $0 is NSNumber }) else { throw ImportError.invalidFormat }
-            for (key, value) in values where !fields.contains(where: { $0.native == key }) {
+            for (key, value) in values where !fields.contains(where: { $0.native == key }) && !clientKeys.contains(key) {
                 replacement[key] = value
             }
         } else {
