@@ -1344,6 +1344,28 @@ extension AnimeDetailViewController {
         }
     }
 
+    /// Updates the episode cards for new following avatars or list progress the way
+    /// the interface's keyed episode list does: in place, with no transition.
+    /// `reloadSections(_:with: .none)` still cross-fades each card out while its
+    /// replacement fades in, briefly showing a duplicate behind every card.
+    func refreshEpisodeCardsInPlace() {
+        let sections = [Section.episodes.rawValue, Section.episodePagination.rawValue]
+        let rowCountsUnchanged = sections.allSatisfy {
+            tableView.numberOfRows(inSection: $0) == self.tableView(tableView, numberOfRowsInSection: $0)
+        }
+        UIView.performWithoutAnimation {
+            if rowCountsUnchanged {
+                let visibleRows = tableView.indexPathsForVisibleRows?.filter { sections.contains($0.section) } ?? []
+                tableView.reconfigureRows(at: visibleRows)
+            } else {
+                // Progress moved to a page with a different number of rows.
+                tableView.reloadSections(IndexSet(sections), with: .none)
+            }
+        }
+        // Reconfiguring keeps each cell's height; follower avatars can change it.
+        scheduleEpisodeHeightInvalidation()
+    }
+
     /// Compute episode count matching web's `episodes(media)` utility (src/lib/modules/anilist/util.ts).
     /// Falls back to airing schedule data + user progress when `media.episodes` is nil (airing anime).
     private func computeEpisodeCount(schedResult: MediaScheduleResult?, anilistEpisodes: Int?) -> Int? {

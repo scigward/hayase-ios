@@ -169,7 +169,6 @@ extension AnimeDetailViewController {
             return
         }
         var rawSections = [
-            Section.episodes.rawValue,
             Section.relations.rawValue,
             Section.threads.rawValue,
             Section.recommendations.rawValue,
@@ -178,6 +177,7 @@ extension AnimeDetailViewController {
             rawSections.insert(Section.header.rawValue, at: 0)
         }
         tableView.reloadSections(IndexSet(rawSections), with: .none)
+        refreshEpisodeCardsInPlace()
     }
 
     func makeRecommendationCell(for indexPath: IndexPath) -> UITableViewCell {
