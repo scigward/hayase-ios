@@ -592,17 +592,19 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropImageView.image = nil
     }
 
-    /// `bannerSrc.value = null`.
+    /// `bannerSrc.value = null`. `hideBanner` goes back to false, as a page sets it when it
+    /// mounts, so the next banner shows in full unless its page says otherwise; leaving the
+    /// alpha at zero showed a black rail whenever that page did not send one.
     private func clearSidebarBackdrop() {
         flushSidebarBackdropImage()
         sidebarBackdropMediaID = nil
-        sidebarBackdropAlpha = 0
+        sidebarBackdropAlpha = 1
         sidebarBackdropCoverTransitionID += 1
         sidebarBackdropGradientView.layer.removeAllAnimations()
         sidebarBackdropCoverView.layer.removeAllAnimations()
-        sidebarBackdropImageView.alpha = 0
+        sidebarBackdropImageView.alpha = 1
         sidebarBackdropImageView.transform = .identity
-        sidebarBackdropGradientView.alpha = 0
+        sidebarBackdropGradientView.alpha = 1
         sidebarBackdropGradientView.transform = .identity
         sidebarBackdropCoverView.alpha = 0
         updateSidebarBackground()

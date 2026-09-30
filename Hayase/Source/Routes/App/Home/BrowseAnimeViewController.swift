@@ -1089,6 +1089,14 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         return UIScreen.main.bounds.height * (traitCollection.horizontalSizeClass == .regular ? 0.90 : 0.80)
     }
 
+    /// Sends the sidebar this banner's state again. The interface's sidebar reads the same
+    /// `bannerSrc` and `hideBanner` stores as the page; here it keeps a copy that the page shown
+    /// in between (an anime page scrolled past its banner) may have left hidden.
+    func republishSidebarBackdrop() {
+        guard let urlString = currentSidebarBackdropURL else { return }
+        publishSidebarBackdrop(urlString: urlString, scrollOffset: 0, alpha: bannerHidden ? 0.05 : 1)
+    }
+
     private func publishSidebarBackdrop(urlString: String? = nil, scrollOffset: CGFloat? = nil, alpha: CGFloat? = nil) {
         var userInfo: [String: Any] = [
             hayaseHomeBannerBackdropHeightKey: currentBackdropHeight(),
@@ -1871,6 +1879,7 @@ class BrowseAnimeViewController: UIViewController {
         // back from a detail VC), so the banner could be stuck in the wrong opacity state.
         // Matches the interface: hideBanner.value = false at component init, then re-evaluated.
         syncBannerToCurrentScrollPosition()
+        (collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell)?.republishSidebarBackdrop()
         let preferences = Settings.DisplayPreferences()
         if let previous = renderedDisplayPreferences, previous != preferences {
             if previous.showAdultContent != preferences.showAdultContent ||
