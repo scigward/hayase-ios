@@ -309,11 +309,8 @@ final class AnimeTagChipButton: UIButton {
         didSet { updateSpoilerRendering() }
     }
 
-    private let dashedOutline = CAShapeLayer()
-    private let mirroredOutline = CAShapeLayer()
-    private let dashedRuns = CAShapeLayer()
-    private let leftBorderMask = CALayer()
-    private let rightBorderMask = CALayer()
+    private let dashLayer = CAShapeLayer()
+    private let dashMask = CAShapeLayer()
     private static let blurContext = CIContext(options: nil)
 
     private let blurredTitleView = UIImageView()
@@ -343,15 +340,11 @@ final class AnimeTagChipButton: UIButton {
     }
 
     private func setupLayers() {
-        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
-            outline.fillColor = UIColor.clear.cgColor
-            outline.isHidden = true
-            layer.addSublayer(outline)
-        }
-        leftBorderMask.backgroundColor = UIColor.black.cgColor
-        rightBorderMask.backgroundColor = UIColor.black.cgColor
-        dashedOutline.mask = leftBorderMask
-        mirroredOutline.mask = rightBorderMask
+        dashLayer.fillColor = UIColor.clear.cgColor
+        dashLayer.lineCap = .butt
+        dashLayer.isHidden = true
+        dashLayer.mask = dashMask
+        layer.addSublayer(dashLayer)
 
         blurredTitleView.isUserInteractionEnabled = false
         blurredTitleView.contentMode = .center
@@ -384,153 +377,36 @@ final class AnimeTagChipButton: UIButton {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let hidden = !dashedBorder || bounds.isEmpty
-        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
-            outline.isHidden = hidden
+        dashLayer.isHidden = !dashedBorder || bounds.isEmpty
+        guard !dashLayer.isHidden else { return }
+
+        // Interface: border-2 border-dashed border-secondary rounded-md, painted the
+        // way iOS WebKit does (BorderPainter::drawBoxSideFromPath): a single dash
+        // pattern along the outer rounded edge, stroked at twice the border width
+        // and clipped to the outer shape so each dash fills the border ring.
+        // CGPath(roundedRect:) is the path WebKit strokes on iOS, so the pattern
+        // starts, and leaves its one uneven gap, where WebKit's does.
+        let borderWidth: CGFloat = 2
+        let radius = min(layer.cornerRadius, bounds.width / 2, bounds.height / 2)
+        let path = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        let dash = 3 * borderWidth
+        var gap = dash
+        let perimeter = 2 * (bounds.width + bounds.height - 4 * radius) + 2 * .pi * radius
+        let dashCount = perimeter / dash
+        // WebKit widens the gaps when an odd, non-integral number of dashes fits.
+        if Int(dashCount) % 2 == 1, dashCount != dashCount.rounded(.down) {
+            gap += dash / (dashCount / 2)
         }
-        guard !hidden else { return }
 
-        let lineWidth: CGFloat = 2
-        let scale = window?.screen.scale ?? UIScreen.main.scale
-        let rect = pixelAligned(bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), scale: scale)
-
-        // Interface: border-2 border-dashed border-secondary rounded-md.
-        // Follow the rounded border, rather than clipping four square edges.
-        // Inset the centerline so the full 2pt stroke stays inside the chip.
-        let radius = max(0, min(layer.cornerRadius - lineWidth / 2, min(rect.width, rect.height) / 2))
-        let perimeter = 2 * (rect.width + rect.height - 4 * radius) + 2 * CGFloat.pi * radius
-        // Preserve the approved full-perimeter spacing, start point and phase.
-        // Mirror AFTER dashing: restarting the pattern on a half-path changes
-        // its appearance even when both sides are mathematically symmetric.
-        let pairCount = max(1, (perimeter / (6 * lineWidth)).rounded())
-        let dashLength = perimeter / (2 * pairCount)
-        let original = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
-            .copy(dashingWithPhase: 0, lengths: [dashLength, dashLength])
-        var reflection = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 2 * rect.midX, ty: 0)
-        dashedOutline.path = original
-        mirroredOutline.path = original.copy(using: &reflection)
-
-        // Corners and vertical sides keep the mirrored original dashes. Mirroring
-        // cuts the straight top and bottom edges at an arbitrary point of the
-        // pattern, leaving slivers or merged dashes at the centre, so those two
-        // edges are laid out separately and end on half a dash at the mirror axis.
-        let cornerX = rect.minX + radius
-        let segments = horizontalSegments(of: original)
-        var splitX = rect.midX
-        var runPath: CGPath?
-        if let top = stretchedDashes(in: segments, y: rect.minY, from: cornerX, to: rect.midX, dashLength: dashLength),
-           let bottom = stretchedDashes(in: segments, y: rect.maxY, from: cornerX, to: rect.midX, dashLength: dashLength) {
-            splitX = cornerX
-            let path = CGMutablePath()
-            for (y, dashes) in [(rect.minY, top), (rect.maxY, bottom)] {
-                for dash in dashes {
-                    let mirroredStart = 2 * rect.midX - dash.x1
-                    let mirroredEnd = 2 * rect.midX - dash.x0
-                    // A dash touching the axis is one stroke, not two abutting ones.
-                    let touchesAxis = dash.x1 >= rect.midX
-                    path.move(to: CGPoint(x: dash.x0, y: y))
-                    path.addLine(to: CGPoint(x: touchesAxis ? mirroredEnd : dash.x1, y: y))
-                    if !touchesAxis {
-                        path.move(to: CGPoint(x: mirroredStart, y: y))
-                        path.addLine(to: CGPoint(x: mirroredEnd, y: y))
-                    }
-                }
-            }
-            runPath = path
-        }
-        dashedRuns.path = runPath
-        dashedRuns.isHidden = runPath == nil
-
-        for outline in [dashedOutline, mirroredOutline, dashedRuns] {
-            outline.frame = bounds
-            outline.strokeColor = UIColor.HayaseTheme.secondary.cgColor
-            outline.lineWidth = lineWidth
-            outline.lineCap = .butt
-            outline.lineDashPattern = nil
-            outline.contentsScale = scale
-        }
-        let mirroredSplitX = 2 * rect.midX - splitX
-        leftBorderMask.frame = CGRect(x: 0, y: 0, width: splitX, height: bounds.height)
-        rightBorderMask.frame = CGRect(x: mirroredSplitX, y: 0, width: bounds.width - mirroredSplitX, height: bounds.height)
-    }
-
-    private typealias HorizontalSegment = (y: CGFloat, x0: CGFloat, x1: CGFloat)
-
-    private func horizontalSegments(of path: CGPath) -> [HorizontalSegment] {
-        var segments: [HorizontalSegment] = []
-        var current = CGPoint.zero
-        path.applyWithBlock { pointer in
-            let element = pointer.pointee
-            switch element.type {
-            case .moveToPoint:
-                current = element.points[0]
-            case .addLineToPoint:
-                let next = element.points[0]
-                if abs(next.y - current.y) < 0.01 {
-                    segments.append((y: next.y, x0: min(current.x, next.x), x1: max(current.x, next.x)))
-                }
-                current = next
-            case .addQuadCurveToPoint:
-                current = element.points[1]
-            case .addCurveToPoint:
-                current = element.points[2]
-            case .closeSubpath:
-                break
-            @unknown default:
-                break
-            }
-        }
-        return segments
-    }
-
-    /// The original dashes of one straight edge between `start` (where the corner
-    /// arc ends) and `end` (the mirror axis), with the pattern stretched so its last
-    /// piece is half a dash long. The piece nearest the corner is left as it was,
-    /// so the corners keep their approved phase. Returns nil when the dashed
-    /// outline does not have the expected shape.
-    private func stretchedDashes(in segments: [HorizontalSegment],
-                                 y: CGFloat,
-                                 from start: CGFloat,
-                                 to end: CGFloat,
-                                 dashLength: CGFloat) -> [(x0: CGFloat, x1: CGFloat)]? {
-        let tolerance: CGFloat = 0.01
-        let dashes = segments
-            .filter { abs($0.y - y) < tolerance && $0.x1 - $0.x0 > tolerance && $0.x1 > start + tolerance && $0.x0 < end - tolerance }
-            .map { (x0: max($0.x0, start), x1: min($0.x1, end)) }
-            .sorted { $0.x0 < $1.x0 }
-        guard let first = dashes.first else { return nil }
-
-        var boundaries: [CGFloat] = []
-        for dash in dashes {
-            if dash.x0 > start + tolerance { boundaries.append(dash.x0) }
-            if dash.x1 < end - tolerance { boundaries.append(dash.x1) }
-        }
-        guard boundaries.count >= 2, let last = boundaries.last else { return nil }
-
-        let anchor = boundaries.count >= 3 ? boundaries[0] : start
-        let factor = (end - dashLength / 2 - anchor) / (last - anchor)
-        guard factor > 0 else { return nil }
-
-        var result: [(x0: CGFloat, x1: CGFloat)] = []
-        var lower = start
-        var isDash = first.x0 <= start + tolerance
-        for boundary in boundaries.map({ anchor + ($0 - anchor) * factor }) + [end] {
-            if isDash { result.append((x0: lower, x1: boundary)) }
-            lower = boundary
-            isDash.toggle()
-        }
-        return result
-    }
-
-    private func pixelAligned(_ rect: CGRect, scale: CGFloat) -> CGRect {
-        let minX = (rect.minX * scale).rounded() / scale
-        let minY = (rect.minY * scale).rounded() / scale
-        let maxX = (rect.maxX * scale).rounded() / scale
-        let maxY = (rect.maxY * scale).rounded() / scale
-        return CGRect(x: minX,
-                      y: minY,
-                      width: max(0, maxX - minX),
-                      height: max(0, maxY - minY))
+        dashLayer.frame = bounds
+        dashLayer.path = path
+        dashLayer.strokeColor = UIColor.HayaseTheme.secondary.cgColor
+        dashLayer.lineWidth = 2 * borderWidth
+        dashLayer.lineDashPattern = [NSNumber(value: Double(dash)), NSNumber(value: Double(gap))]
+        dashLayer.lineDashPhase = dash
+        dashLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
+        dashMask.frame = bounds
+        dashMask.path = path
     }
 
     private func updateSpoilerRendering() {
