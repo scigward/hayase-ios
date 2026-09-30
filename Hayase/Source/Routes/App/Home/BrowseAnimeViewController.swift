@@ -92,6 +92,8 @@ private final class HomeBannerBackdropView: UIView {
     private let gradientView = BannerGradientView()
     private var imageHeightConstraint: NSLayoutConstraint!
     private var currentURLString: String?
+    /// When the current image was announced, to tell an instant load from a slow one.
+    private var urlAnnouncedAt: CFTimeInterval = 0
     private var isFaded = false
 
     override init(frame: CGRect) {
@@ -136,19 +138,29 @@ private final class HomeBannerBackdropView: UIView {
     func setBackdrop(urlString: String?, image: UIImage?) {
         guard let urlString else {
             currentURLString = nil
+            imageView.layer.removeAllAnimations()
+            imageView.subviews.forEach { $0.removeFromSuperview() }
             imageView.image = nil
             return
         }
 
         if currentURLString != urlString {
             currentURLString = urlString
+            urlAnnouncedAt = CACurrentMediaTime()
         }
 
         guard let image else { return }
         guard currentURLString == urlString else { return }
 
         imageView.layer.removeAllAnimations()
-        imageView.image = image
+        if imageView.image == nil {
+            // banner-image.svelte replaces the banner element on every change, so a new image
+            // is always a fresh `Load` that fades in.
+            LoadIn.show(image, in: imageView,
+                        blurred: CACurrentMediaTime() - urlAnnouncedAt < LoadIn.blurWindow)
+        } else {
+            imageView.image = image
+        }
     }
 
     func applyOverscrollZoom(_ overscroll: CGFloat) {
@@ -239,6 +251,15 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     private var currentSidebarBackdropURL: String?
     private var clearlogoTask: URLSessionDataTask?
     private var artworkGeneration = 0
+    /// Counts banner loads; a superseded load, even one for the same item, is dropped.
+    private var bannerGeneration = 0
+    /// Whether the artwork on screen was chosen for a viewport of `md` or wider.
+    private var loadedBackdropArtwork: Bool?
+    /// The banner load waiting for the cell to reach a window.
+    private var artworkPending = false
+    private var isPointerOverBanner = false
+    /// How far the active dot had filled when the pointer arrived.
+    private var frozenProgress: CGFloat?
     private var avatarTasks: [URLSessionDataTask] = []
     private var followingUsersByMediaID: [Int: [AniListUserSummary]] = [:]
     /// Tracks whether the banner is currently in the faded-out (5% opacity) state.
@@ -305,15 +326,15 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
 
     // Title: font-black text-3xl lg:text-4xl line-clamp-2 text-white text-shadow-lg
     //   max-w-[85%] leading-tight text-balance text-center (mobile) lg:text-left
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        // text-3xl = 1.875rem = 30pt on mobile (iPad uses 36pt set in applyLayoutForSizeClass)
+    private let titleLabel: TextShadowLabel = {
+        let l = TextShadowLabel()
+        // text-3xl leading-tight = 30pt on 37.5pt lines (iPad: text-4xl, 36pt on 45pt lines,
+        // set in applyLayoutForSizeClass)
+        l.lineHeight = 37.5
         l.font = .nunito(ofSize: 30, weight: .black)
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.foreground   // text-foreground
         l.numberOfLines = 2
         l.textAlignment = .center
-        l.shadowColor = UIColor.black.withAlphaComponent(0.5)
-        l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
     // max-w-[85%] constraint for title — activated in setup
@@ -325,13 +346,25 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     private let clearlogoImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
-        iv.clipsToBounds = true
+        iv.clipsToBounds = false   // a clipped layer would cut its own shadow off
         iv.isHidden = true   // hidden by default; shown when Clearlogo is available
+        // drop-shadow-lg: drop-shadow(0 10px 8px 4%) drop-shadow(0 4px 3px 10%). A layer
+        // carries one shadow, so this is the 10% one (blur radius 3 is a 1.5pt shadow
+        // radius); the 4% one is too faint to see.
         iv.layer.shadowColor = UIColor.black.cgColor
-        iv.layer.shadowOpacity = 0.6
-        iv.layer.shadowRadius = 8
+        iv.layer.shadowOpacity = 0.1
+        iv.layer.shadowRadius = 1.5
         iv.layer.shadowOffset = CGSize(width: 0, height: 4)
         return iv
+    }()
+
+    // The interface's title `<a>`: the text or the logo, one at a time. It carries the mount
+    // `fade-in`, while the logo image runs its own `load-in` inside it.
+    private let titleLinkStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.alignment = .center   // follows leftColumn: .leading on iPad
+        return sv
     }()
 
     // Badge row: hidden on iPhone (web: `hidden sm:flex gap-2`), visible on iPad
@@ -348,15 +381,14 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     // Description: text-white/70 text-xs lg:text-sm
     //   text-center lg:text-right text-shadow-lg max-w-[90%] lg:max-w-[75%] pt-3
     //   line-clamp-2 (mobile) lg:line-clamp-3 (iPad)
-    private let descriptionLabel: UILabel = {
-        let l = UILabel()
-        // text-xs = 0.75rem = 12pt (iPad uses 14pt set in applyLayoutForSizeClass)
+    private let descriptionLabel: TextShadowLabel = {
+        let l = TextShadowLabel()
+        // text-xs = 12pt on 16pt lines (iPad: text-sm, 14pt on 20pt lines, set in applyLayoutForSizeClass)
+        l.lineHeight = 16
         l.font = .nunito(ofSize: 12)
-        l.textColor = UIColor.white.withAlphaComponent(0.7)
+        l.textColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.7)   // text-foreground/70
         l.numberOfLines = 2  // line-clamp-2 (mobile default; iPad overrides to 3)
         l.textAlignment = .center
-        l.shadowColor = UIColor.black.withAlphaComponent(0.5)
-        l.shadowOffset = CGSize(width: 0, height: 2)
         return l
     }()
     // max-w-[90%] mobile, max-w-[75%] iPad constraint for description
@@ -417,9 +449,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         sv.axis = .horizontal
         sv.spacing = 8  // gap-2 = 0.5rem = 8pt
         sv.alignment = .center
-        sv.isHidden = true // shown on iPad only
+        sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
+
+    // `max-w-full lg:place-content-end` without wrapping: a long row overflows the column to
+    // its left rather than squeezing, so the stack is pinned by its trailing edge alone.
+    private let genresContainer = UIView()
 
     // MARK: iPad two-column layout
     // Web: grid grid-cols-1 lg:grid-cols-2 — left column has title/badges/buttons,
@@ -472,6 +508,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         swipeRight.direction = .right
         contentView.addGestureRecognizer(swipeLeft)
         contentView.addGestureRecognizer(swipeRight)
+        contentView.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(bannerHoverChanged(_:))))
 
         bannerBackdropClipView.translatesAutoresizingMaskIntoConstraints = false
         bannerBackdropClipView.layer.zPosition = -1
@@ -517,8 +554,9 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         leftColumn.axis = .vertical
         leftColumn.spacing = 16  // gap-4
         leftColumn.alignment = .center  // will be .leading on iPad
-        leftColumn.addArrangedSubview(clearlogoImageView)
-        leftColumn.addArrangedSubview(titleLabel)
+        titleLinkStack.addArrangedSubview(clearlogoImageView)
+        titleLinkStack.addArrangedSubview(titleLabel)
+        leftColumn.addArrangedSubview(titleLinkStack)
         leftColumn.addArrangedSubview(badgeStack)
         leftColumn.addArrangedSubview(buttonRow)
         // On iPhone, description goes in the left column (below buttons)
@@ -534,7 +572,14 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         rightColumn.isHidden = true  // shown on iPad only
 
         // Genres go in the right column on iPad
-        rightColumn.addArrangedSubview(genresStack)
+        genresContainer.addSubview(genresStack)
+        rightColumn.addArrangedSubview(genresContainer)
+        NSLayoutConstraint.activate([
+            genresContainer.widthAnchor.constraint(equalTo: rightColumn.widthAnchor, constant: -20),   // lg:pr-5
+            genresContainer.heightAnchor.constraint(equalTo: genresStack.heightAnchor),
+            genresStack.topAnchor.constraint(equalTo: genresContainer.topAnchor),
+            genresStack.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
+        ])
 
         // Two-column wrapper: horizontal on iPad, vertical (single-col) on iPhone
         // Web: grid grid-cols-1 lg:grid-cols-2 mt-auto w-full max-h-full
@@ -557,8 +602,8 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         socialTopConstraint = socialBlock.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16)
         socialLeadingConstraint = socialBlock.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         avatarContainerWidthConstraint = avatarContainer.widthAnchor.constraint(equalToConstant: 32)
-        columnsLeadingConstraint = columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-        columnsTrailingConstraint = columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+        columnsLeadingConstraint = columnsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
+        columnsTrailingConstraint = columnsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
         backgroundImageLeadingConstraint = backgroundImageView.leadingAnchor.constraint(equalTo: bannerBackdropClipView.leadingAnchor)
         gradientLeadingConstraint = gradientView.leadingAnchor.constraint(equalTo: bannerBackdropClipView.leadingAnchor)
         backgroundImageHeightConstraint = backgroundImageView.heightAnchor.constraint(equalTo: bannerBackdropClipView.heightAnchor, multiplier: 80.0 / 70.0)
@@ -598,12 +643,14 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             avatarContainerWidthConstraint,
             avatarContainer.heightAnchor.constraint(equalToConstant: 32),
 
-            dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            // Each dot carries mr-2, the last one too, so the visible row sits 4pt left of centre.
+            dotsStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor, constant: -4),
             dotsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
 
             columnsLeadingConstraint,
             columnsTrailingConstraint,
-            columnsStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -8),
+            // grid pb-2, then the dots row's pt-2.
+            columnsStack.bottomAnchor.constraint(equalTo: dotsStack.topAnchor, constant: -16),
 
             titleMaxWidthConstraint,
             descriptionMaxWidthConstraint,
@@ -640,6 +687,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         let key = width >= 1024 ? 3 : (width >= 768 ? 2 : (width >= 640 ? 1 : 0))
         guard featuredLayoutKey != key else { return }
         featuredLayoutKey = key
+        if let loaded = loadedBackdropArtwork, loaded != (width >= 768), let item = currentItem {
+            // `$breakpoints.md` is reactive in banner.svelte; rotation or Split View can cross it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.currentItem?.id == item.id else { return }
+                self.loadBanner(for: item)
+            }
+        }
         if width >= 1024 {
             // iPad layout — web lg: breakpoint
             columnsStack.axis = .horizontal
@@ -647,8 +701,10 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             // Web: right column has self-end — aligns to bottom of the grid row
             columnsStack.alignment = .bottom
             leftColumn.alignment = .leading       // lg:items-start
+            titleLinkStack.alignment = .leading
             titleLabel.textAlignment = .left       // lg:text-left
             titleLabel.font = .nunito(ofSize: 36, weight: .black) // lg:text-4xl = 2.25rem = 36pt
+            titleLabel.lineHeight = 45                            // leading-tight
             descriptionLabel.textAlignment = .right // lg:text-right
             badgeStack.isHidden = false            // sm:flex — visible on iPad
             // Move description to right column
@@ -664,17 +720,20 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             // Description: lg:text-sm (0.875rem = 14pt), lg:line-clamp-3
             descriptionLabel.numberOfLines = 3
             descriptionLabel.font = .nunito(ofSize: 14)
+            descriptionLabel.lineHeight = 20
             // Description max-width: lg:max-w-[75%] of right column
             descriptionMaxWidthConstraint.isActive = false
+            // max-w-[75%] of the right column's content box, which lg:pr-5 narrows by 20.
             descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.375) // 75% of right column (37.5% of full width, since columns are 50/50)
+                lessThanOrEqualTo: rightColumn.widthAnchor, multiplier: 0.75, constant: -15)
             descriptionMaxWidthConstraint.isActive = true
-            // Web regular layout has lg:pl-5 on the grid and lg:pr-5 on the right column.
-            // The old 16pt outer inset stacked with this and pushed the hero content too far right.
-            columnsLeadingConstraint.constant = 0
+            // lg:pl-4 on the grid, lg:pr-5 inside the right column.
+            columnsLeadingConstraint.constant = 16
             columnsTrailingConstraint.constant = 0
-            columnsStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
-            columnsStack.isLayoutMarginsRelativeArrangement = true
+            columnsStack.directionalLayoutMargins = .zero
+            columnsStack.isLayoutMarginsRelativeArrangement = false
+            rightColumn.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 20)
+            rightColumn.isLayoutMarginsRelativeArrangement = true
             // Web home content uses -ml-14/pl-14, so the banner image starts at
             // the app's left edge instead of after the 56pt sidebar.
             backgroundImageLeadingConstraint.constant = -56
@@ -693,8 +752,10 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             columnsStack.spacing = 0
             columnsStack.alignment = .fill
             leftColumn.alignment = .center         // items-center
+            titleLinkStack.alignment = .center
             titleLabel.textAlignment = .center      // text-center
             titleLabel.font = .nunito(ofSize: 30, weight: .black) // text-3xl = 1.875rem = 30pt
+            titleLabel.lineHeight = 37.5                          // leading-tight
             descriptionLabel.textAlignment = .center // text-center
             badgeStack.isHidden = true             // hidden on mobile
             // Move description back to left column (below buttons)
@@ -702,22 +763,27 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             descriptionLabel.removeFromSuperview()
             leftColumn.addArrangedSubview(descriptionLabel)
             rightColumn.isHidden = true
-            genresStack.isHidden = true
+            genresContainer.isHidden = true
             // Clearlogo sizing: web w-[30rem], capped by the parent max-w-[85%].
             clearlogoWidthMax.constant = 480
             gradientView.setCompact(true)
             // Description: text-xs (0.75rem = 12pt), line-clamp-2
             descriptionLabel.numberOfLines = 2
             descriptionLabel.font = .nunito(ofSize: 12)
+            descriptionLabel.lineHeight = 16
             // Description max-width: max-w-[90%]
             descriptionMaxWidthConstraint.isActive = false
             descriptionMaxWidthConstraint = descriptionLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: columnsStack.widthAnchor, multiplier: 0.90)
             descriptionMaxWidthConstraint.isActive = true
-            columnsLeadingConstraint.constant = 16
-            columnsTrailingConstraint.constant = -16
+            // The grid has no padding below lg; the title, description and buttons carry
+            // their own max-widths.
+            columnsLeadingConstraint.constant = 0
+            columnsTrailingConstraint.constant = 0
             columnsStack.directionalLayoutMargins = .zero
             columnsStack.isLayoutMarginsRelativeArrangement = false
+            rightColumn.directionalLayoutMargins = .zero
+            rightColumn.isLayoutMarginsRelativeArrangement = false
             backgroundImageLeadingConstraint.constant = 0
             gradientLeadingConstraint.constant = 0
             backgroundImageHeightConstraint.isActive = false
@@ -751,14 +817,21 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         let isRegular = traitCollection.horizontalSizeClass == .regular
         applyLayoutForSizeClass(isRegular: isRegular)
         if !items.isEmpty { updateDots() }
+        if artworkPending, let item = currentItem {
+            artworkPending = false
+            loadBanner(for: item)
+        }
     }
 
     // MARK: Configuration
 
     func configure(with items: [AnimeItem], selectedID: Int? = nil) {
-        // full-banner.svelte: shuffleAndFilter(media).filter(bannerImage || trailer).slice(0, 5)
-        let filtered = Self.shuffle(items).filter { $0.bannerURL != nil || $0.trailerYouTubeID != nil }
-        let nextItems = Array(filtered.prefix(5))
+        // full-banner.svelte shuffleAndFilter: those with a banner or trailer, in a fixed
+        // id-hash order, first 5.
+        let nextItems = Array(items
+            .filter { $0.bannerURL != nil || $0.trailerYouTubeID != nil }
+            .sorted { Self.featuredOrder($0.id) < Self.featuredOrder($1.id) }
+            .prefix(5))
         if self.items.map(\.id) == nextItems.map(\.id), !nextItems.isEmpty {
             self.items = nextItems
             return
@@ -768,11 +841,12 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         followingUsersByMediaID = [:]
         currentIndex = nextItems.firstIndex { $0.id == keepID } ?? 0
         rebuildDots()
-        displayItem(animated: false)
+        // The interface's `fade-in` plays when the banner mounts, not on every rotation.
+        displayItem(fadeIn: selectedID == nil)
         loadFollowingUsers(for: self.items)
     }
 
-    private func displayItem(animated: Bool) {
+    private func displayItem(fadeIn: Bool) {
         guard currentIndex < items.count else { return }
         artworkGeneration += 1
         let item = items[currentIndex]
@@ -780,13 +854,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         let block = {
             // Hide both title and clearlogo initially — clearlogo fetch resolves which to show.
             // Web: {#await episodesCached()} shows nothing while loading, then clearlogo or text.
-            self.titleLabel.text = AniListUtil.title(for: item)
+            self.titleLabel.content = AniListUtil.title(for: item)
             self.titleLabel.isHidden = true
             self.clearlogoImageView.isHidden = true
             self.clearlogoImageView.image = nil
             // Web desc(): defaults to "No description available." when empty/null
             let descText = item.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.descriptionLabel.text = (descText?.isEmpty ?? true) ? "No description available." : descText
+            self.descriptionLabel.content = (descText?.isEmpty ?? true) ? "No description available." : descText
             self.descriptionLabel.isHidden = false
             // Play button bg-custom: use coverImage.color as background (Hayase --custom var)
             let customColor = Self.uiColor(fromHex: item.coverColor) ?? .white
@@ -839,16 +913,19 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             }
         }
         block()
-        if animated && !UIAccessibility.isReduceMotionEnabled {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0
-            fade.toValue = 1
-            fade.duration = 0.8
-            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            titleLabel.layer.add(fade, forKey: "featured-fade-in")
-            descriptionLabel.layer.add(fade, forKey: "featured-fade-in")
+        if fadeIn && !UIAccessibility.isReduceMotionEnabled {
+            // The title link (text or logo) and the description carry `fade-in`. A layer
+            // animation keeps running while its view is hidden, so a logo that arrives
+            // later appears part-way through the fade, as it does in the interface.
+            titleLinkStack.layer.add(Self.mountFade(), forKey: "featured-fade-in")
+            descriptionLabel.layer.add(Self.mountFade(), forKey: "featured-fade-in")
         }
-        loadBanner(for: item)
+        // Which artwork applies depends on the viewport, known once the cell is on screen.
+        if window != nil {
+            loadBanner(for: item)
+        } else {
+            artworkPending = true
+        }
         loadClearlogo(for: item)
     }
 
@@ -878,13 +955,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             rebuildAvatarStack(users: [])
             return
         }
+        let appearing = socialBlock.isHidden
         socialNameLabel.text = firstUser.name
         rebuildAvatarStack(users: users)
-        socialBlock.alpha = socialBlock.isHidden ? 0 : socialBlock.alpha
         socialBlock.isHidden = false
-        UIView.animate(withDuration: 0.2) {
-            self.socialBlock.alpha = 1
-        }
+        // Moving between two items that both have followers keeps the block, as the
+        // interface does; only its first appearance fades in.
+        if appearing { socialBlock.layer.add(Self.mountFade(), forKey: "featured-fade-in") }
     }
 
     private func rebuildAvatarStack(users: [AniListUserSummary]) {
@@ -942,10 +1019,19 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         }
     }
 
-    private static func shuffle<T>(_ array: [T]) -> [T] {
-        var copy = array
-        copy.shuffle()
-        return copy
+    /// app.css `.fade-in`: `animation: fade-in ease .8s`.
+    private static func mountFade() -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.8
+        fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        return fade
+    }
+
+    /// `((id * 2654435761) >>> 0)`: the id hashed into 32 bits.
+    private static func featuredOrder(_ id: Int) -> UInt32 {
+        UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: id) &* 2_654_435_761)
     }
 
     /// Parse hex color string (e.g. "#e3566b") to UIColor
@@ -985,6 +1071,18 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange, object: nil, userInfo: userInfo)
     }
 
+    /// util.ts `banner()`: the banner image, else the trailer's thumbnail, else the cover.
+    private static func bannerURL(for item: AnimeItem) -> String? {
+        if let banner = item.bannerURL { return banner }
+        if let trailer = item.trailerYouTubeID { return "https://i.ytimg.com/vi/\(trailer)/maxresdefault.jpg" }
+        return item.coverURL
+    }
+
+    /// img/load.svelte `sizes`: what YouTube offers below maxresdefault.
+    private static let thumbnailSizes = ["sddefault", "hqdefault", "mqdefault", "default"]
+
+    /// img/banner.svelte: from `md` up the banner is the ani.zip backdrop (else its poster,
+    /// else `banner()`); below `md` it is the cover, without waiting for ani.zip.
     private func loadBanner(for item: AnimeItem) {
         bannerTask?.cancel()
         bannerTask = nil
@@ -993,60 +1091,58 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         currentSidebarBackdropURL = nil
         backgroundImageView.image = nil
         onBackdropImageChanged?(nil, nil)
-        let generation = artworkGeneration
-        let biv = backgroundImageView
-        let bannerFallback = item.bannerURL ?? item.coverURL
-        // Fanart-first: fetch ani.zip Fanart (cached/deduped). Only if not found,
-        // fall back to AniList banner. Single image load = no visible flicker/swap.
+        bannerGeneration += 1
+        let generation = bannerGeneration
+        let usesBackdrop = viewportWidth >= 768
+        loadedBackdropArtwork = usesBackdrop
+        guard usesBackdrop else {
+            presentBanner(item.coverURL ?? Self.bannerURL(for: item), item: item, generation: generation)
+            return
+        }
         AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
-            guard let self, self.artworkGeneration == generation else { return }
-            let urlStr = fanartURL ?? bannerFallback
-            guard let urlStr, let url = URL(string: urlStr) else {
-                DispatchQueue.main.async {
-                    guard self.artworkGeneration == generation else { return }
-                    biv.image = nil
-                    self.onBackdropImageChanged?(nil, nil)
-                }
-                return
-            }
-            DispatchQueue.main.async {
-                guard self.artworkGeneration == generation else { return }
-                self.currentSidebarBackdropURL = urlStr
-                self.onBackdropImageChanged?(urlStr, nil)
-                self.publishSidebarBackdrop(urlString: urlStr,
-                                             scrollOffset: CGFloat(0),
-                                             alpha: self.bannerHidden ? CGFloat(0.05) : CGFloat(1))
-            }
-            if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                DispatchQueue.main.async {
-                    guard self.artworkGeneration == generation else { return }
-                    self.applyContentMode(for: cached)
-                    biv.image = cached
-                    self.onBackdropImageChanged?(urlStr, cached)
-                }
-                return
-            }
-            let captured = urlStr
-            self.fanartTask = URLSession.shared.dataTask(with: url) { [weak self, weak biv] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
-                SharedImageCache.shared.setObject(image, forKey: captured as NSString)
-                DispatchQueue.main.async {
-                    guard self?.artworkGeneration == generation, self?.currentSidebarBackdropURL == captured else { return }
-                    self?.applyContentMode(for: image)
-                    UIView.transition(with: biv ?? UIImageView(), duration: 0.3,
-                                      options: .transitionCrossDissolve,
-                                      animations: { biv?.image = image })
-                    self?.onBackdropImageChanged?(captured, image)
-                }
-            }
-            self.fanartTask?.resume()
+            guard let self, self.bannerGeneration == generation else { return }
+            self.presentBanner(fanartURL ?? Self.bannerURL(for: item), item: item, generation: generation)
         }
     }
 
-    /// Always use .scaleAspectFill — fills the cell without black bars.
-    /// At bannerHeight = 240pt, a 1900×400 landscape banner shows ~34% of its width.
-    private func applyContentMode(for image: UIImage) {
-        backgroundImageView.contentMode = .scaleAspectFill
+    private func presentBanner(_ urlString: String?, item: AnimeItem, generation: Int, thumbnailAttempt: Int = 0) {
+        guard let urlString, let url = URL(string: urlString) else {
+            backgroundImageView.image = nil
+            onBackdropImageChanged?(nil, nil)
+            return
+        }
+        currentSidebarBackdropURL = urlString
+        onBackdropImageChanged?(urlString, nil)
+        publishSidebarBackdrop(urlString: urlString,
+                               scrollOffset: CGFloat(0),
+                               alpha: bannerHidden ? CGFloat(0.05) : CGFloat(1))
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+            backgroundImageView.image = cached
+            onBackdropImageChanged?(urlString, cached)
+            return
+        }
+        fanartTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.bannerGeneration == generation,
+                      self.currentSidebarBackdropURL == urlString else { return }
+                // img/load.svelte verifyThumbnail: a YouTube size that does not exist is
+                // answered with a 120x90 placeholder, so step down to a smaller one.
+                if urlString.hasPrefix("https://i.ytimg.com/"),
+                   image.size == CGSize(width: 120, height: 90),
+                   thumbnailAttempt < Self.thumbnailSizes.count,
+                   let video = item.trailerYouTubeID {
+                    let smaller = "https://i.ytimg.com/vi/\(video)/\(Self.thumbnailSizes[thumbnailAttempt]).jpg"
+                    self.presentBanner(smaller, item: item, generation: generation,
+                                       thumbnailAttempt: thumbnailAttempt + 1)
+                    return
+                }
+                SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+                self.backgroundImageView.image = image
+                self.onBackdropImageChanged?(urlString, image)
+            }
+        }
+        fanartTask?.resume()
     }
 
     /// Fetches the Clearlogo (transparent title art) from ani.zip for the current item.
@@ -1061,6 +1157,9 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         let generation = artworkGeneration
         AniListClient.fetchClearlogoURL(anilistID: itemID) { [weak self] clearlogoURL in
             guard let self, self.artworkGeneration == generation else { return }
+            // The interface inserts the logo here; only an image ready within the 300ms
+            // `load-in` animation still shows its blur.
+            let inserted = CACurrentMediaTime()
             // Make sure we're still displaying the same item (rotation may have advanced)
             guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
             guard let urlStr = clearlogoURL, let url = URL(string: urlStr) else {
@@ -1068,15 +1167,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
                 DispatchQueue.main.async {
                     guard self.artworkGeneration == generation else { return }
                     guard self.currentIndex < self.items.count, self.items[self.currentIndex].id == itemID else { return }
-                    UIView.animate(withDuration: 0.3) {
-                        self.titleLabel.isHidden = false
-                    }
+                    self.titleLabel.isHidden = false
                 }
                 return
             }
             // Check image cache first
             if let cached = SharedImageCache.shared.object(forKey: urlStr as NSString) {
-                self.showClearlogo(cached, forItemID: itemID)
+                self.showClearlogo(cached, forItemID: itemID, blurred: true)
                 return
             }
             let captured = urlStr
@@ -1088,23 +1185,22 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
                               self.artworkGeneration == generation,
                               self.currentIndex < self.items.count,
                               self.items[self.currentIndex].id == itemID else { return }
-                        UIView.animate(withDuration: 0.3) {
-                            self.titleLabel.isHidden = false
-                        }
+                        self.titleLabel.isHidden = false
                     }
                     return
                 }
                 SharedImageCache.shared.setObject(image, forKey: captured as NSString)
                 DispatchQueue.main.async {
                     guard self?.artworkGeneration == generation else { return }
-                    self?.showClearlogo(image, forItemID: itemID)
+                    self?.showClearlogo(image, forItemID: itemID,
+                                        blurred: CACurrentMediaTime() - inserted < LoadIn.blurWindow)
                 }
             }
             self.clearlogoTask?.resume()
         }
     }
 
-    private func showClearlogo(_ image: UIImage, forItemID: Int) {
+    private func showClearlogo(_ image: UIImage, forItemID: Int, blurred: Bool) {
         // Verify we're still on the same item
         guard currentIndex < items.count, items[currentIndex].id == forItemID else { return }
         clearlogoAspectConstraint?.isActive = false
@@ -1114,53 +1210,59 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         )
         clearlogoAspectConstraint?.priority = UILayoutPriority(999)
         clearlogoAspectConstraint?.isActive = true
-        clearlogoImageView.image = image
-        UIView.animate(withDuration: 0.3) {
-            self.clearlogoImageView.isHidden = false
-            self.titleLabel.isHidden = true
-        }
+        clearlogoImageView.isHidden = false
+        titleLabel.isHidden = true
+        LoadIn.show(image, in: clearlogoImageView, blurred: blurred)
+    }
+
+    /// auth/util.ts `of()`: "12 Episodes", "3 / 12 Episodes", or nothing for a single episode
+    /// or an unknown count.
+    private static func episodesText(for item: AnimeItem) -> String? {
+        let progress = item.mediaListEntry?.progress ?? 0
+        let count = TorrentBatchResolver.episodeCount(for: item)   // util.ts episodes()
+        guard count > 1 else { return nil }
+        return progress == 0 || progress == count ? "\(count) Episodes" : "\(progress) / \(count) Episodes"
     }
 
     private func updateBadges(for item: AnimeItem, customColor: UIColor) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        // Prepare badge data: (text, textColor, filterType, filterValue, filterValue2)
-        // Web: of(current) ?? duration(current) ?? 'N/A', format, status, season?, score?
-        // filterType: nil = not tappable, "format"/"status"/"season"/"score" = tappable
-        var badges: [(String, UIColor, String?, String?, String?)] = []
+        // `{$ofStore ?? duration(current) ?? 'N/A'}` is a plain div; the rest are Buttons.
+        let duration = item.duration.flatMap { $0 > 0 ? "\($0) Minute\($0 > 1 ? "s" : "")" : nil }
+        badgeStack.addArrangedSubview(BannerBadge(text: Self.episodesText(for: item) ?? duration ?? "N/A",
+                                                  textColor: customColor, kind: .label))
 
-        // First badge: episode count or duration or 'N/A' — not tappable (web: plain div, no Button)
-        if let eps = item.episodes, eps > 1 {
-            badges.append(("\(eps) Episodes", customColor, nil, nil, nil))
-        } else if let dur = item.duration, dur > 0 {
-            badges.append(("\(dur) Minute\(dur > 1 ? "s" : "")", customColor, nil, nil, nil))
-        } else {
-            badges.append(("N/A", customColor, nil, nil, nil))
+        func addButton(_ text: String, color: UIColor, filterType: String, value: String, value2: String? = nil) {
+            let badge = BannerBadge(text: text, textColor: color, kind: .button)
+            badge.addAction(UIAction { [weak self] _ in
+                self?.onBadgeTapped?(filterType, value, value2)
+            }, for: .touchUpInside)
+            badgeStack.addArrangedSubview(badge)
         }
 
-        // Format badge: FORMAT_MAP matching web — tappable
+        // FORMAT_MAP
         if let fmt = item.format {
             let fmtMap: [String: String] = [
                 "TV": "TV Series", "TV_SHORT": "TV Short", "MOVIE": "Movie",
                 "SPECIAL": "Special", "OVA": "OVA", "ONA": "ONA", "MUSIC": "Music"]
-            badges.append((fmtMap[fmt] ?? fmt.capitalized, customColor, "format", fmt, nil))
+            addButton(fmtMap[fmt] ?? fmt.capitalized, color: customColor, filterType: "format", value: fmt)
         }
 
-        // Status badge: STATUS_MAP matching web — tappable
+        // STATUS_MAP
         if let st = item.status {
             let stMap: [String: String] = [
                 "RELEASING": "Releasing", "FINISHED": "Finished",
                 "NOT_YET_RELEASED": "Not Yet Released",
                 "CANCELLED": "Cancelled", "HIATUS": "Hiatus"]
-            badges.append((stMap[st] ?? st.capitalized, customColor, "status", st, nil))
+            addButton(stMap[st] ?? st.capitalized, color: customColor, filterType: "status", value: st)
         }
 
-        // Season badge (if available) — tappable, passes season + year
         if let season = item.season, let year = item.year {
-            badges.append(("\(season.capitalized) \(year)", customColor, "season", season, String(year)))
+            addButton("\(season.capitalized) \(year)", color: customColor,
+                      filterType: "season", value: season, value2: String(year))
         }
 
-        // Score badge: color-coded text per getTextColorForRating — tappable (sorts by SCORE_DESC)
+        // getTextColorForRating: no !text-custom on this one.
         if let score = item.score, score > 0 {
             let scoreColor: UIColor
             if score >= 75 {
@@ -1170,104 +1272,24 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             } else {
                 scoreColor = UIColor(red: 239/255.0, green: 68/255.0, blue: 68/255.0, alpha: 1) // text-red-500
             }
-            badges.append((String(format: "%.0f%%", score), scoreColor, "score", "SCORE_DESC", nil))
-        }
-
-        for (text, textColor, filterType, filterValue, filterValue2) in badges {
-            // Web: rounded px-3.5 h-7 text-sm !text-custom bg-primary/10 font-bold inline-flex items-center
-            let pill = UIView()
-            pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
-            pill.layer.cornerRadius = 4  // rounded = 0.25rem = 4pt
-            pill.clipsToBounds = true
-            pill.translatesAutoresizingMaskIntoConstraints = false
-
-            let l = UILabel()
-            l.text = text
-            l.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
-            l.textColor = textColor
-            l.translatesAutoresizingMaskIntoConstraints = false
-            pill.addSubview(l)
-
-            NSLayoutConstraint.activate([
-                pill.heightAnchor.constraint(equalToConstant: 28), // h-7 = 1.75rem = 28pt
-                l.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14), // px-3.5 = 0.875rem = 14pt
-                l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
-                l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            ])
-            // Make tappable badges respond to taps (format, status, season, score)
-            if let filterType = filterType, let filterValue = filterValue {
-                pill.isUserInteractionEnabled = true
-                let tap = BadgeTapGesture(target: self, action: #selector(badgePillTapped(_:)))
-                tap.filterType = filterType
-                tap.filterValue = filterValue
-                tap.filterValue2 = filterValue2
-                pill.addGestureRecognizer(tap)
-            }
-            badgeStack.addArrangedSubview(pill)
+            addButton(String(format: "%.0f%%", score), color: scoreColor, filterType: "score", value: "SCORE_DESC")
         }
     }
 
-    /// Custom UITapGestureRecognizer that carries badge filter metadata.
-    private class BadgeTapGesture: UITapGestureRecognizer {
-        var filterType: String = ""
-        var filterValue: String = ""
-        var filterValue2: String?
-    }
-
-    @objc private func badgePillTapped(_ gesture: BadgeTapGesture) {
-        onBadgeTapped?(gesture.filterType, gesture.filterValue, gesture.filterValue2)
-    }
-
-    /// Custom UITapGestureRecognizer that carries genre name.
-    private class GenreTapGesture: UITapGestureRecognizer {
-        var genre: String = ""
-    }
-
-    @objc private func genrePillTapped(_ gesture: GenreTapGesture) {
-        onGenreTapped?(gesture.genre)
-    }
-
-    /// Populates the genre pill buttons on iPad (web: hidden lg:flex, right column of banner).
-    /// Each pill matches web: variant='ghost' !text-custom bg-primary/10 h-7 font-bold rounded
+    /// The genre buttons of the two-column layout: every genre, unwrapped (`flex-nowrap`).
     private func updateGenres(for item: AnimeItem, customColor: UIColor) {
         genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         guard viewportWidth >= 1024 else {
-            genresStack.isHidden = true
+            genresContainer.isHidden = true
             return
         }
-        let genres = item.genres.prefix(5)
-        guard !genres.isEmpty else {
-            genresStack.isHidden = true
-            return
-        }
-        genresStack.isHidden = false
-        for genre in genres {
-            // Web: variant='ghost' !text-custom h-7 text-nowrap bg-primary/10 font-bold rounded
-            let pill = UIView()
-            pill.backgroundColor = UIColor.white.withAlphaComponent(0.10) // bg-primary/10
-            pill.layer.cornerRadius = 4  // rounded = 4pt
-            pill.clipsToBounds = true
-            pill.translatesAutoresizingMaskIntoConstraints = false
-
-            let l = UILabel()
-            l.text = genre
-            l.font = .nunito(ofSize: 14, weight: .bold) // text-sm font-bold
-            l.textColor = customColor  // !text-custom — cover color
-            l.translatesAutoresizingMaskIntoConstraints = false
-            pill.addSubview(l)
-
-            NSLayoutConstraint.activate([
-                pill.heightAnchor.constraint(equalToConstant: 28), // h-7 = 28pt
-                l.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14), // px-3.5
-                l.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
-                l.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            ])
-            // Make genre pill tappable — navigates to search with genre filter
-            pill.isUserInteractionEnabled = true
-            let tap = GenreTapGesture(target: self, action: #selector(genrePillTapped(_:)))
-            tap.genre = genre
-            pill.addGestureRecognizer(tap)
-            genresStack.addArrangedSubview(pill)
+        genresContainer.isHidden = false
+        for genre in item.genres {
+            let badge = BannerBadge(text: genre, textColor: customColor, kind: .button)
+            badge.addAction(UIAction { [weak self] _ in
+                self?.onGenreTapped?(genre)
+            }, for: .touchUpInside)
+            genresStack.addArrangedSubview(badge)
         }
     }
 
@@ -1290,6 +1312,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             // Inner fill view — matches Hayase's .progress-content with fill animation
             let fill = UIView()
             fill.tag = 999
+            fill.layer.anchorPoint = CGPoint(x: 0, y: 0.5)   // scales from the leading edge
             fill.translatesAutoresizingMaskIntoConstraints = false
             dot.addSubview(fill)
             NSLayoutConstraint.activate([
@@ -1314,7 +1337,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         let index = dot.tag
         guard index >= 0, index < items.count, index != currentIndex else { return }
         currentIndex = index
-        displayItem(animated: true)
+        displayItem(fadeIn: false)
         // Restart the timer so the next auto-advance is a full interval from now
     }
 
@@ -1327,7 +1350,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             currentIndex = (currentIndex - 1 + items.count) % items.count
         default: break
         }
-        displayItem(animated: true)
+        displayItem(fadeIn: false)
     }
 
     @objc private func playButtonTapped() {
@@ -1378,28 +1401,66 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             // Remove any existing fill animation
             fill?.layer.removeAnimation(forKey: "fillProgress")
 
-            if active {
-                // Hayase: bg-custom on active dot fill
-                fill?.backgroundColor = customColor
-                // Hayase CSS: animation: fill 15s linear
-                // Animates transform from translateX(-100%) to translateX(0%)
-                let anim = CABasicAnimation(keyPath: "transform.translation.x")
-                anim.fromValue = -48.0  // start fully off-screen left
-                anim.toValue = 0.0
-                anim.duration = FeaturedBannerCell.rotationInterval
-                anim.timingFunction = CAMediaTimingFunction(name: .linear)
-                anim.fillMode = .forwards
-                anim.isRemovedOnCompletion = false
-                anim.delegate = self
-                anim.setValue(progressGeneration, forKey: "generation")
-                if window != nil { fill?.layer.add(anim, forKey: "fillProgress") }
-            } else {
-                fill?.backgroundColor = .clear
+            if let fill {
+                if active {
+                    fill.backgroundColor = customColor   // bg-custom
+                    addFillAnimation(to: fill, from: 0)
+                } else {
+                    fill.backgroundColor = .clear
+                }
             }
+        }
 
-            UIView.animate(withDuration: 0.7) {
-                dot.superview?.layoutIfNeeded()
+        // transition: width .7s ease. Nothing to animate from until the row has been laid out.
+        guard dotsStack.bounds.width > 0 else { return }
+        UIViewPropertyAnimator(duration: 0.7,
+                               controlPoint1: CGPoint(x: 0.25, y: 0.1),
+                               controlPoint2: CGPoint(x: 0.25, y: 1)) {
+            self.dotsStack.layoutIfNeeded()
+        }.startAnimation()
+    }
+
+    /// `animation: fill 15s linear`. The interface slides the fill in from -100% of its own
+    /// width, so it always covers the elapsed fraction of the dot, even while the dot is
+    /// still widening. Scaling from the leading edge is the same picture.
+    private func addFillAnimation(to fill: UIView, from progress: CGFloat) {
+        guard window != nil else { return }
+        // group-hover/banner: while a pointer is over the banner the fill stays full and paused.
+        guard !isPointerOverBanner else {
+            frozenProgress = progress
+            return
+        }
+        let anim = CABasicAnimation(keyPath: "transform.scale.x")
+        anim.fromValue = progress
+        anim.toValue = 1
+        anim.duration = FeaturedBannerCell.rotationInterval * Double(1 - progress)
+        anim.timingFunction = CAMediaTimingFunction(name: .linear)
+        anim.fillMode = .forwards
+        anim.isRemovedOnCompletion = false
+        anim.delegate = self
+        anim.setValue(progressGeneration, forKey: "generation")
+        fill.layer.add(anim, forKey: "fillProgress")
+    }
+
+    /// The pointer over the banner (iPad) freezes the rotation with the active dot shown full;
+    /// moving off lets it carry on from where it stopped.
+    @objc private func bannerHoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        guard let fill = dotsStack.arrangedSubviews[safe: currentIndex]?.viewWithTag(999) else { return }
+        switch recognizer.state {
+        case .began:
+            isPointerOverBanner = true
+            if fill.layer.animation(forKey: "fillProgress") != nil {
+                frozenProgress = (fill.layer.presentation()?.value(forKeyPath: "transform.scale.x") as? CGFloat) ?? 0
+                progressGeneration += 1   // the removal below must not count as a finished fill
+                fill.layer.removeAnimation(forKey: "fillProgress")
             }
+        case .ended, .cancelled:
+            isPointerOverBanner = false
+            let progress = frozenProgress ?? 0
+            frozenProgress = nil
+            addFillAnimation(to: fill, from: progress)
+        default:
+            break
         }
     }
 
@@ -1407,7 +1468,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         guard finished, window != nil, items.count > 1,
               animation.value(forKey: "generation") as? Int == progressGeneration else { return }
         currentIndex = (currentIndex + 1) % items.count
-        displayItem(animated: true)
+        displayItem(fadeIn: false)
     }
 
     override func prepareForReuse() {
@@ -1415,6 +1476,11 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         progressGeneration += 1
         dotsStack.arrangedSubviews.forEach { $0.viewWithTag(999)?.layer.removeAnimation(forKey: "fillProgress") }
         artworkGeneration += 1
+        bannerGeneration += 1
+        loadedBackdropArtwork = nil
+        artworkPending = false
+        isPointerOverBanner = false
+        frozenProgress = nil
         bannerTask?.cancel()
         bannerTask = nil
         fanartTask?.cancel()

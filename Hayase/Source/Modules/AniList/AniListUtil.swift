@@ -345,6 +345,12 @@ enum AniListUtil {
         return result
     }
 
+    private static func airingEpisodes(_ connection: AniListMedia.AiringConnection?) -> [AnimeItem.AiringEpisode] {
+        (connection?.n ?? []).compactMap { node in
+            node.e.map { AnimeItem.AiringEpisode(airingAt: node.a, episode: $0) }
+        }
+    }
+
     /// Convert an AniListMedia Codable object to an AnimeItem value type.
     static func animeItem(from media: AniListMedia) -> AnimeItem? {
         guard let id = media.id else { return nil }
@@ -380,6 +386,8 @@ enum AniListUtil {
             countryOfOrigin: media.countryOfOrigin,
             studioNames: (media.studios?.nodes ?? []).compactMap { $0.name })
         item.extensionMediaJSON = extensionMediaJSON(from: media)
+        item.airedSchedule = airingEpisodes(media.aired)
+        item.notYetAiredSchedule = airingEpisodes(media.notaired)
         if let mle = media.mediaListEntry {
             item.mediaListEntry = AnimeItem.MediaListEntry(
                 listID: mle.id ?? 0,

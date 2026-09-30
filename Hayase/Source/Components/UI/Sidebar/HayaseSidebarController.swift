@@ -502,8 +502,15 @@ final class HayaseSidebarController: UIViewController {
         sidebarBackdropURL = urlString
         sidebarBackdropTask?.cancel()
 
+        // banner-image.svelte replaces the banner element on every change: the old image is
+        // gone at once and the new one loads in.
+        sidebarBackdropImageView.layer.removeAllAnimations()
+        sidebarBackdropImageView.subviews.forEach { $0.removeFromSuperview() }
+        sidebarBackdropImageView.image = nil
+        let announcedAt = CACurrentMediaTime()
+
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
-            sidebarBackdropImageView.image = cached
+            LoadIn.show(cached, in: sidebarBackdropImageView, blurred: true)
             updateSidebarBackground()
             return
         }
@@ -512,12 +519,10 @@ final class HayaseSidebarController: UIViewController {
             guard let data, let image = UIImage(data: data) else { return }
             SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
             DispatchQueue.main.async {
-                guard self?.sidebarBackdropURL == urlString else { return }
-                UIView.transition(with: self?.sidebarBackdropImageView ?? UIImageView(),
-                                  duration: 0.3,
-                                  options: .transitionCrossDissolve,
-                                  animations: { self?.sidebarBackdropImageView.image = image })
-                self?.updateSidebarBackground()
+                guard let self, self.sidebarBackdropURL == urlString else { return }
+                LoadIn.show(image, in: self.sidebarBackdropImageView,
+                            blurred: CACurrentMediaTime() - announcedAt < LoadIn.blurWindow)
+                self.updateSidebarBackground()
             }
         }
         sidebarBackdropTask?.resume()
