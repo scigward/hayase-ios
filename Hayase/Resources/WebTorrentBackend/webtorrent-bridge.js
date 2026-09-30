@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 import process from 'node:process'
 import { mkdir } from 'node:fs/promises'
 import { writeFileSync } from 'node:fs'
@@ -7,10 +8,11 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v8'
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v9'
 const MAX_EVENTS = 40
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
+const MAX_BODY_BYTES = 32 * 1024 * 1024
 
 // torrent-client's playTorrent() now requires a sessionID (added alongside
 // a background-download/session-priority system: see sessions Map,
@@ -39,6 +41,8 @@ const arg = (name, fallback) => {
 }
 
 const port = Number(arg('--port', '43817'))
+// Per-launch secret from the app; every request must present it.
+const expectedAuthorization = Buffer.from(`Bearer ${arg('--token', '')}`)
 const startupErrorPath = arg('--startup-error-path', '')
 let downloadPath = arg('--download-path', '')
 let tempPath = arg('--temp-path', downloadPath)
@@ -479,9 +483,21 @@ async function resolveTorrentID (id) {
   }
 }
 
+function isAuthorized (request) {
+  const given = Buffer.from(request.headers.authorization ?? '')
+  return expectedAuthorization.length > 'Bearer '.length &&
+    given.length === expectedAuthorization.length &&
+    timingSafeEqual(given, expectedAuthorization)
+}
+
 async function readBody (request) {
   const chunks = []
-  for await (const chunk of request) chunks.push(chunk)
+  let size = 0
+  for await (const chunk of request) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new Error('Request body too large')
+    chunks.push(chunk)
+  }
   return Buffer.concat(chunks).toString('utf8')
 }
 
@@ -699,6 +715,12 @@ tempPath = await usableDirectory(tempPath || downloadPath, downloadPath, 'Tempor
 
 http.createServer(async (request, response) => {
   try {
+    if (!isAuthorized(request)) {
+      response.writeHead(401, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ok: false, error: { message: 'Unauthorized' } }))
+      return
+    }
+
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, phase: status.phase }))

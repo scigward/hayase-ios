@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v8"
+    static let expectedVersion = "hayase-webtorrent-bridge-v9"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -49,17 +49,24 @@ final class WebTorrentBridgeClient {
     private struct EmptyResult: Decodable {}
 
     private let baseURL: URL
+    private let token: String
     private let session: URLSession
 
-    init(port: Int, session: URLSession = .shared) {
+    init(port: Int, token: String, session: URLSession = .shared) {
         self.baseURL = URL(string: "http://127.0.0.1:\(port)")!
+        self.token = token
         self.session = session
     }
 
+    /// Every bridge request carries the per-launch token; the bridge rejects the rest.
+    private func makeRequest(path: String, timeout: TimeInterval) -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path), timeoutInterval: timeout)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
     func health(completion: @escaping (Result<Void, Error>) -> Void) {
-        let url = baseURL.appendingPathComponent("health")
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 1.0
+        let request = makeRequest(path: "health", timeout: 1.0)
         session.dataTask(with: request) { data, response, error in
             if let error {
                 completion(.failure(error))
@@ -88,9 +95,7 @@ final class WebTorrentBridgeClient {
     }
 
     func status(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
-        let url = baseURL.appendingPathComponent("status")
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
+        let request = makeRequest(path: "status", timeout: 2.0)
         session.dataTask(with: request) { data, _, error in
             if let error {
                 completion(.failure(error))
@@ -216,10 +221,8 @@ final class WebTorrentBridgeClient {
     private func call<T: Decodable>(method: String,
                                     params: [String: Any],
                                     completion: @escaping (Result<T, Error>) -> Void) {
-        let url = baseURL.appendingPathComponent("rpc")
-        var request = URLRequest(url: url)
+        var request = makeRequest(path: "rpc", timeout: 120)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
         do {

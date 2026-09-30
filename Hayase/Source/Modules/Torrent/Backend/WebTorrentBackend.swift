@@ -62,9 +62,11 @@ final class WebTorrentBackend {
     private var startState: StartState = .idle
     private var pendingStarts: [(Result<Void, Error>) -> Void] = []
     private let port = 43817
+    /// Shared secret for this launch: the bridge answers only requests that present it.
+    private let bridgeToken = UUID().uuidString
     private let startupErrorURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("HayaseWebTorrent-startup-error.txt")
-    private lazy var bridge = WebTorrentBridgeClient(port: port)
+    private lazy var bridge = WebTorrentBridgeClient(port: port, token: bridgeToken)
     private var errorTimer: Timer?
     private var lastErrorEventID = 0
     private var errorPollInFlight = false
@@ -321,6 +323,7 @@ final class WebTorrentBackend {
             try? FileManager.default.removeItem(at: startupErrorURL)
             try NodeMobileRuntime.shared.start(scriptURL: scriptURL, arguments: [
                 "--port", "\(port)",
+                "--token", bridgeToken,
                 "--download-path", settings.path,
                 "--temp-path", tempPath,
                 "--startup-error-path", startupErrorURL.path,
