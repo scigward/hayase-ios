@@ -7,7 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-  git fetch --quiet --unshallow
+  # Only this repository's history is counted; submodules stay as checked out.
+  git fetch --quiet --unshallow --no-recurse-submodules
 fi
 
 echo "6.4.$(git rev-list --count 09fbce0..HEAD)"
