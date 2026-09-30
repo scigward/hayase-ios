@@ -45,7 +45,7 @@ struct TorrentBackendSettings: Encodable {
         torrentPeX = defaults.bool(forKey: "pref_disablePeX")
         nzbDomain = defaults.string(forKey: "pref_nzbDomain") ?? ""
         nzbLogin = defaults.string(forKey: "pref_nzbLogin") ?? ""
-        nzbPassword = defaults.string(forKey: "pref_nzbPassword") ?? ""
+        nzbPassword = Keychain.string(forKey: Settings.Keys.nzbPassword) ?? ""
         nzbPort = Self.clampedInt(defaults.string(forKey: "pref_nzbPort"), defaultValue: 119, min: 1, max: 65535)
         nzbPoolSize = Self.clampedInt(defaults.string(forKey: "pref_nzbPoolSize"), defaultValue: 4, min: 1, max: 128)
         path = Self.downloadPath(for: defaults.string(forKey: "pref_torrentLocation") ?? "cache")

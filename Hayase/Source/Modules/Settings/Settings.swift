@@ -71,6 +71,8 @@ enum Settings {
         static let debugLevel = "pref_debugLevel"
         static let persistFiles = "pref_persistFiles"
         static let streamedDownload = "pref_streamedDownload"
+        /// A credential: stored in the Keychain, never in `UserDefaults`.
+        static let nzbPassword = "pref_nzbPassword"
     }
 
     /// Canonical default per key — referenced both here and by
@@ -111,8 +113,17 @@ enum Settings {
     /// generic toggle/selectable/editableNumber row cells, which only know
     /// a key string at the point they write, not a specific property.
     static func write(_ value: Any?, forKey key: String) {
-        UserDefaults.standard.set(value, forKey: key)
+        if key == Keys.nzbPassword {
+            Keychain.set(value as? String, forKey: key)
+        } else {
+            UserDefaults.standard.set(value, forKey: key)
+        }
         NotificationCenter.default.post(name: didChange, object: nil, userInfo: ["key": key])
+    }
+
+    /// Reads a stored setting, taking credentials from the Keychain.
+    static func storedValue(forKey key: String) -> Any? {
+        key == Keys.nzbPassword ? Keychain.string(forKey: key) : UserDefaults.standard.object(forKey: key)
     }
 
     /// Reads a `Bool` the same way regardless of which literal default it

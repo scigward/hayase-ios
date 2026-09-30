@@ -205,7 +205,7 @@ enum SettingsSectionCatalog {
                 kind: .editableText(userDefaultsKey: "pref_nzbLogin", defaultValue: "", secure: false)),
             Row(title: "Provider Password",
                 description: "The Password for your NZB provider. This is stored in plaintext in the settings file, so be aware of that.",
-                kind: .editableText(userDefaultsKey: "pref_nzbPassword", defaultValue: "", secure: true)),
+                kind: .editableText(userDefaultsKey: Settings.Keys.nzbPassword, defaultValue: "", secure: true)),
             Row(title: "Connection Port",
                 description: "The port used to connect to your NZB provider. 119 is the default for NNTP.",
                 kind: .editableNumber(userDefaultsKey: "pref_nzbPort", defaultValue: "119", suffix: "", min: 1, max: 65535)),

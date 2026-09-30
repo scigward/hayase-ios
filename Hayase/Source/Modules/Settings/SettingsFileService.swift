@@ -38,7 +38,7 @@ enum SettingsFileService {
         .init(web: "dhtPort", native: "pref_dhtPort", fallback: 0.0),
         .init(web: "nzbDomain", native: "pref_nzbDomain", fallback: ""),
         .init(web: "nzbLogin", native: "pref_nzbLogin", fallback: ""),
-        .init(web: "nzbPassword", native: "pref_nzbPassword", fallback: ""),
+        .init(web: "nzbPassword", native: Settings.Keys.nzbPassword, fallback: ""),
         .init(web: "nzbPort", native: "pref_nzbPort", fallback: 119.0),
         .init(web: "nzbPoolSize", native: "pref_nzbPoolSize", fallback: 4.0),
         .init(web: "showHentai", native: Settings.Keys.showHentai, fallback: false),
@@ -58,7 +58,7 @@ enum SettingsFileService {
         let defaults = UserDefaults.standard
         var values = defaults.dictionary(forKey: extrasKey) ?? [:]
         for field in fields {
-            values[field.web] = (try? normalized(defaults.object(forKey: field.native) ?? field.fallback, field: field))
+            values[field.web] = (try? normalized(Settings.storedValue(forKey: field.native) ?? field.fallback, field: field))
                 ?? field.fallback
         }
         // The web range control stores playerSeek as a string, unlike numeric inputs.
@@ -102,6 +102,7 @@ enum SettingsFileService {
             replacement["pref_torrentLocation"] = location == "cache" ? "cache" : "documents"
         }
 
+        Keychain.set(replacement.removeValue(forKey: Settings.Keys.nzbPassword) as? String, forKey: Settings.Keys.nzbPassword)
         let defaults = UserDefaults.standard
         var domain = defaults.persistentDomain(forName: bundleID) ?? [:]
         fields.forEach { domain.removeValue(forKey: $0.native) }
@@ -167,6 +168,7 @@ enum SettingsFileService {
         URLCache.shared.removeAllCachedResponses()
         AniListOperationCache.shared.clearViewerScopedEntries()
         UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        Keychain.removeAll()
         for field in fields {
             NotificationCenter.default.post(name: Settings.didChange, object: nil, userInfo: ["key": field.native])
         }

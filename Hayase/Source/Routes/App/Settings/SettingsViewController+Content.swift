@@ -45,8 +45,8 @@ extension SettingsViewController {
             return card(row, control: input)
 
         case .editableText(let key, let fallback, let secure):
-            let placeholders = ["pref_nzbDomain": "news.example.com", "pref_nzbLogin": "admin", "pref_nzbPassword": "admin1"]
-            let input = SettingsInputControl(value: UserDefaults.standard.string(forKey: key) ?? fallback,
+            let placeholders = ["pref_nzbDomain": "news.example.com", "pref_nzbLogin": "admin", Settings.Keys.nzbPassword: "admin1"]
+            let input = SettingsInputControl(value: Settings.storedValue(forKey: key) as? String ?? fallback,
                                              placeholder: placeholders[key] ?? "", width: 320, secure: secure)
             input.onChange = { [weak self] value in
                 Settings.write(value, forKey: key)

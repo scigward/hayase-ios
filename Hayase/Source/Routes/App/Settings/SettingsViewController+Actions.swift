@@ -79,7 +79,7 @@ extension SettingsViewController {
         "pref_torrentPort", "pref_dhtPort",
         "pref_torrentSpeed", "pref_maxConns",
         "pref_torrentLocation", "pref_nzbDomain", "pref_nzbLogin",
-        "pref_nzbPassword", "pref_nzbPort", "pref_nzbPoolSize",
+        Settings.Keys.nzbPassword, "pref_nzbPort", "pref_nzbPoolSize",
         Settings.Keys.streamedDownload, Settings.Keys.persistFiles,
         Settings.Keys.debugLevel,
     ]

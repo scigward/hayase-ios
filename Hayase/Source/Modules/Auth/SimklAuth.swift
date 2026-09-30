@@ -14,8 +14,8 @@ final class SimklAuth {
     }
 
     static var clientSecret: String {
-        get { UserDefaults.standard.string(forKey: "pref_simklClientSecret") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "pref_simklClientSecret") }
+        get { Keychain.string(forKey: "pref_simklClientSecret") ?? "" }
+        set { Keychain.set(newValue, forKey: "pref_simklClientSecret") }
     }
 
     static let redirectURI = "hayase://authorize/"

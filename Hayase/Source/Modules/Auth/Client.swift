@@ -56,7 +56,7 @@ final class TrackerAccountManager {
             expireSession(for: tracker)
             return nil
         }
-        return UserDefaults.standard.string(forKey: tracker.tokenKey)
+        return Keychain.string(forKey: tracker.tokenKey)
     }
 
     func tokenExpiryDate(for tracker: TrackerKind) -> Date? {
@@ -72,14 +72,14 @@ final class TrackerAccountManager {
 
     func setToken(_ token: String?, for tracker: TrackerKind, expiresAt: Date? = nil) {
         if let token = token {
-            UserDefaults.standard.set(token, forKey: tracker.tokenKey)
+            Keychain.set(token, forKey: tracker.tokenKey)
             if let expiresAt {
                 UserDefaults.standard.set(expiresAt.timeIntervalSince1970, forKey: tracker.tokenExpiryKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: tracker.tokenExpiryKey)
             }
         } else {
-            UserDefaults.standard.removeObject(forKey: tracker.tokenKey)
+            Keychain.set(nil, forKey: tracker.tokenKey)
             UserDefaults.standard.removeObject(forKey: tracker.tokenExpiryKey)
         }
     }
