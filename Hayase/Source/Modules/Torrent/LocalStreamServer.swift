@@ -91,9 +91,13 @@ final class LocalStreamServer {
     /// The port the server is listening on.
     private(set) var port: UInt16 = 0
 
+    /// Unguessable path prefix; requests without it are refused, so another app on the
+    /// device cannot read the file just by finding the port.
+    private let accessToken = UUID().uuidString
+
     /// The HTTP URL that MPV should use to play the file.
     var url: URL {
-        URL(string: "http://127.0.0.1:\(port)/video.mkv")!
+        URL(string: "http://127.0.0.1:\(port)/\(accessToken)/video.mkv")!
     }
 
     private func withTorrentHandle<T>(_ defaultValue: T, _ body: (TorrentHandle) -> T) -> T {
@@ -145,10 +149,12 @@ final class LocalStreamServer {
 
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        // Loopback only: the file must not be readable from the local network.
+        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
 
         do {
-            // Use port 0 to let the system assign an available port.
-            listener = try NWListener(using: params, on: .any)
+            // No port given: the system assigns an available one.
+            listener = try NWListener(using: params)
         } catch {
             DispatchQueue.main.async {
                 completion(.failure(error))
@@ -269,6 +275,14 @@ final class LocalStreamServer {
         }
 
         let method = String(parts[0])
+
+        guard parts[1].hasPrefix("/\(accessToken)/") else {
+            let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+            connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+            return
+        }
 
         // Parse Range header
         var rangeStart: UInt64 = 0
