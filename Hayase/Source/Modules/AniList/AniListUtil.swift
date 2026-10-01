@@ -300,7 +300,6 @@ enum AniListUtil {
             "nextAiringEpisode": nextAiringEpisodeJSON(media.nextAiringEpisode),
             "startDate": fuzzyDateJSON(media.startDate),
             "trailer": trailerJSON(media.trailer),
-            "mediaListEntry": mediaListEntryJSON(media.mediaListEntry),
             "studios": studiosJSON(media.studios),
             "notaired": airingConnectionJSON(media.notaired),
             "aired": airingConnectionJSON(media.aired),
@@ -366,18 +365,6 @@ enum AniListUtil {
             "id": jsonValue(airing.id),
             "timeUntilAiring": jsonValue(airing.timeUntilAiring),
             "episode": jsonValue(airing.episode)
-        ]
-    }
-
-    private static func mediaListEntryJSON(_ entry: AniListMedia.MediaListEntry?) -> Any {
-        guard let entry else { return NSNull() }
-        return [
-            "id": jsonValue(entry.id),
-            "status": jsonValue(entry.status),
-            "progress": jsonValue(entry.progress),
-            "repeat": jsonValue(entry.repeatCount),
-            "score": jsonValue(entry.score),
-            "customLists": jsonValue(mediaListCustomLists(from: entry.customLists))
         ]
     }
 

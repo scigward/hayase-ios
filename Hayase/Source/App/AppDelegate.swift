@@ -75,6 +75,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         HayaseInterfaceScale.apply()
     }
 
+    /// `native.restart()`, which logging out of a tracker ends with: the interface starts over on the page it was on.
+    func restartInterface() {
+        let route = Router.shared.currentRoute
+        MiniPlayerManager.shared.close()
+        rebuildInterfaceAfterSettingsReset()
+        DispatchQueue.main.async { Router.shared.replace(route) }
+    }
+
     // MARK: - Background / Termination
 
     func applicationDidEnterBackground(_ application: UIApplication) {

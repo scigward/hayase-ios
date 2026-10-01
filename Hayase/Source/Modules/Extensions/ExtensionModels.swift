@@ -348,7 +348,6 @@ struct TorrentQuery {
             "nextAiringEpisode": NSNull(),
             "startDate": fuzzyYearJSON(item.startYear),
             "trailer": trailerJSON(item.trailerYouTubeID),
-            "mediaListEntry": mediaListEntryJSON(item.mediaListEntry),
             "studios": NSNull(),
             "notaired": NSNull(),
             "aired": NSNull(),
@@ -377,18 +376,6 @@ struct TorrentQuery {
     private static func trailerJSON(_ youtubeID: String?) -> Any {
         guard let youtubeID else { return NSNull() }
         return ["id": youtubeID, "site": "youtube"]
-    }
-
-    private static func mediaListEntryJSON(_ entry: AnimeItem.MediaListEntry?) -> Any {
-        guard let entry else { return NSNull() }
-        return [
-            "id": entry.listID,
-            "status": jsonValue(entry.status),
-            "progress": entry.progress,
-            "repeat": entry.repeatCount,
-            "score": entry.score,
-            "customLists": entry.customLists
-        ]
     }
 
     private static func relationConnectionJSON(_ relations: [AnimeRelation]) -> Any {

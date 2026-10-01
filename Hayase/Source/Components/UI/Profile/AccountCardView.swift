@@ -231,6 +231,7 @@ final class HayaseAccountCardView: UIView {
 
         if mgr.isLoggedIn(tracker) && tracker != .local {
             mgr.logout(tracker)
+            (UIApplication.shared.delegate as? AppDelegate)?.restartInterface()
         } else {
             // Login
             switch tracker {
