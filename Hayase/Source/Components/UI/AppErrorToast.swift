@@ -136,7 +136,7 @@ private final class ErrorToastHostView: UIView {
         animate(duration: 0.4, changes: { self.layoutIfNeeded() })
     }
 
-    func dismiss(id: UUID) { cards.first(where: { $0.id == id })?.dismiss() }
+    func dismiss(id: UUID) { cards.first(where: { $0.id == id })?.dismiss(swiped: false) }
 
     private func animate(duration: TimeInterval, changes: @escaping () -> Void,
                          completion: (() -> Void)? = nil) {

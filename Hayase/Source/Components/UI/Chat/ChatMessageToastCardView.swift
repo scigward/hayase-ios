@@ -80,8 +80,8 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     private func metrics(for width: CGFloat) -> Metrics {
         let column = width - Self.avatarSize - 16
         let bubble = ChatBubbleView.size(for: message.text, maxWidth: max(0, column - 100))
-        let nameWidth = ceil(nameLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 20)).width)
-        let timeWidth = ceil(timeLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 20)).width)
+        let nameWidth = ceil(nameLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20)).width)
+        let timeWidth = ceil(timeLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20)).width)
         // header 20 + pb-1 4, bubble, mb-1 4
         return Metrics(bubble: bubble, nameWidth: nameWidth, timeWidth: timeWidth, height: 24 + bubble.height + 4)
     }

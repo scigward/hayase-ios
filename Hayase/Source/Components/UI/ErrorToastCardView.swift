@@ -8,6 +8,7 @@ protocol ToastCardView: UIView {
     var onDismiss: ((Bool) -> Void)? { get set }
     func height(for width: CGFloat) -> CGFloat
     func startTimer()
+    func dismiss(swiped: Bool)
 }
 
 extension ErrorToastCardView: ToastCardView {}
