@@ -19,6 +19,31 @@ final class Hover: NSObject {
 
     private override init() {
         super.init()
+        // Preview media has no reason to keep decoding while the app is inactive,
+        // or after a memory/power change. Reopening re-evaluates effect support.
+        for notification in [UIApplication.willResignActiveNotification,
+                             UIApplication.didReceiveMemoryWarningNotification,
+                             Notification.Name.NSProcessInfoPowerStateDidChange] {
+            NotificationCenter.default.addObserver(self,
+                                                   selector: #selector(suspendPreview(_:)),
+                                                   name: notification,
+                                                   object: nil)
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        sourceTracker?.invalidate()
+    }
+
+    @objc private func suspendPreview(_ notification: Notification) {
+        if Thread.isMainThread {
+            unhoverLastElement()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.unhoverLastElement()
+            }
+        }
     }
 
     func bind(to cell: AnimeCollectionViewCell,
@@ -130,6 +155,23 @@ final class Hover: NSObject {
             return
         }
 
+        // Reused cells and hidden route ancestors can remain in the same window
+        // without changing their frame. They must not retain an active trailer.
+        if let cell = source as? AnimeCollectionViewCell,
+           cell.configuredAnimeItem?.id != activeMediaID {
+            unhoverLastElement()
+            return
+        }
+        var ancestor: UIView? = source
+        while let view = ancestor {
+            if view.isHidden || view.alpha <= 0 {
+                unhoverLastElement()
+                return
+            }
+            if view === window { break }
+            ancestor = view.superview
+        }
+
         let frame = source.convert(source.bounds, to: window)
         guard frame.intersects(window.bounds) else {
             unhoverLastElement()
@@ -198,6 +240,7 @@ extension UIViewController {
     }
 
     private func presentHayasePreviewExtensionSearch(media: AnimeItem, episode: Int) {
+        Hover.shared.unhoverLastElement()
         let searchVC = ExtensionSearchViewController()
         searchVC.animeItem = media
         searchVC.initialEpisode = episode
