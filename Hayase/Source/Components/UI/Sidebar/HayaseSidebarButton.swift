@@ -4,39 +4,48 @@
 //
 //  Made by scigward.
 //
-//  Mirrors: src/lib/components/ui/sidebar/SidebarButton.svelte
+//  Mirrors: src/lib/components/ui/sidebar/SidebarButton.svelte, and the buttons in sidebarlist.svelte
 //
 
 import UIKit
 
 // MARK: - HayaseSidebarButton
 
+/// A sidebar button: the `ghost` Button that becomes `default` (with the crossfading pill) while
+/// its route is open, and plays its animated icon (`animated-icon`) whenever it is hovered, focused
+/// or pressed. `route` is nil for the menu button of the narrow layout.
 final class HayaseSidebarButton: UIButton {
     enum SidebarSize {
         case desktop
         case mobile
     }
 
-    private static let primaryColor = UIColor.HayaseTheme.primary
-    private static let primaryForeground = UIColor.HayaseTheme.primaryForeground
     private static let donateColor = UIColor(red: 250/255, green: 104/255, blue: 182/255, alpha: 1)
 
     private let route: HayaseSidebarRoute?
     private let sizeMode: SidebarSize
     private let activeBackground = UIView()
     private let iconView = UIImageView()
+    private let animatedIcon: LayeredIconView?
     private let dotView = UIView()
     private var iconImage: UIImage?
-    private var iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
     private var iconSizeConstraint: NSLayoutConstraint?
-    private var iconCenterXConstraint: NSLayoutConstraint?
     private(set) var isActiveRoute = false
+    /// Tailwind's `select:`: hovered, focus-visible or active.
+    private var isSelectedState = false
+    private var isPointerOver = false
 
     var onPress: (() -> Void)?
+
+    /// `transition-colors` with `duration-300`; the settings button has `!transition-none`, and the
+    /// menu button keeps the plain 150ms.
+    var colorDuration: TimeInterval
 
     init(route: HayaseSidebarRoute?, size: SidebarSize) {
         self.route = route
         self.sizeMode = size
+        self.animatedIcon = Self.iconKind(for: route).map { LayeredIconView(kind: $0) }
+        self.colorDuration = route == .settings ? 0 : 0.3
         super.init(frame: .zero)
         setup()
     }
@@ -44,18 +53,41 @@ final class HayaseSidebarButton: UIButton {
     required init?(coder: NSCoder) {
         self.route = nil
         self.sizeMode = .desktop
+        self.animatedIcon = nil
+        self.colorDuration = 0.3
         super.init(coder: coder)
         setup()
     }
 
+    /// The icon each route has in sidebarlist.svelte; the profile one only while nobody is signed in.
+    private static func iconKind(for route: HayaseSidebarRoute?) -> LayeredIconView.Kind? {
+        switch route {
+        case .home: return .home
+        case .search: return .search
+        case .schedule: return .calendar
+        case .w2g: return .users
+        case .chat: return .messages
+        case .client: return .download
+        case .settings: return .bolt
+        case .profile: return .login
+        case .donate, .none: return nil
+        }
+    }
+
     override var isHighlighted: Bool {
         didSet {
+            updateSelectState()
+            let transform = isHighlighted
+                ? CGAffineTransform(scaleX: 0.98, y: 0.98)  // app.css :active scale(.98)
+                : .identity
+            guard route != .settings else {   // `!transition-none`: the press lands at once
+                self.transform = transform
+                return
+            }
             UIView.animate(withDuration: 0.1,
                            delay: 0,
                            options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]) {
-                self.transform = self.isHighlighted
-                    ? CGAffineTransform(scaleX: 0.98, y: 0.98)  // app.css :active scale(.98)
-                    : .identity
+                self.transform = transform
             }
         }
     }
@@ -63,14 +95,19 @@ final class HayaseSidebarButton: UIButton {
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
-        tintColor = tintForInactiveState()
-        layer.cornerRadius = sizeMode == .mobile ? 6 : 6
-        clipsToBounds = false
+        layer.cornerRadius = 6   // rounded-md
+        if sizeMode == .desktop {
+            // md:rounded-l-none
+            layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        }
+        // `contain-strict` on the donate button clips what its heart's glow spreads past the box
+        clipsToBounds = route == .donate
         adjustsImageWhenHighlighted = false
         accessibilityLabel = route?.accessibilityTitle
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
 
         activeBackground.translatesAutoresizingMaskIntoConstraints = false
-        activeBackground.backgroundColor = Self.primaryColor
+        activeBackground.backgroundColor = UIColor.HayaseTheme.primary
         activeBackground.layer.cornerRadius = 6
         activeBackground.isUserInteractionEnabled = false
         activeBackground.alpha = 0
@@ -78,12 +115,12 @@ final class HayaseSidebarButton: UIButton {
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
-        iconView.tintColor = tintColor
         iconView.isUserInteractionEnabled = false
         if route == .donate {
+            // drop-shadow-[0_0_0.55rem_#fa68b6aa]
             iconView.layer.shadowColor = Self.donateColor.cgColor
-            iconView.layer.shadowOpacity = 0.9
-            iconView.layer.shadowRadius = 8
+            iconView.layer.shadowOpacity = 0xaa / 255
+            iconView.layer.shadowRadius = 8.8
             iconView.layer.shadowOffset = .zero
         }
         addSubview(iconView)
@@ -100,11 +137,9 @@ final class HayaseSidebarButton: UIButton {
         // geometric center. Mobile mirrors icon-lg exactly.
         let side: CGFloat = sizeMode == .mobile ? 48 : 36
         let width: CGFloat = 48
+        let centerOffset: CGFloat = sizeMode == .desktop ? 4 : 0
         let iconSize = iconView.widthAnchor.constraint(equalToConstant: 18)
-        let iconCenterX = iconView.centerXAnchor.constraint(equalTo: centerXAnchor,
-                                                            constant: sizeMode == .desktop ? 4 : 0)
         iconSizeConstraint = iconSize
-        iconCenterXConstraint = iconCenterX
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: side),
@@ -112,7 +147,7 @@ final class HayaseSidebarButton: UIButton {
             activeBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             activeBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
             activeBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
-            iconCenterX,
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor, constant: centerOffset),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconSize,
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
@@ -126,13 +161,21 @@ final class HayaseSidebarButton: UIButton {
             activeBackground.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         }
 
-        iconImage = route == .donate
-            ? UIImage.hayaseFilledIcon("heart", pointSize: 18)
-            : route.map { UIImage.hayaseIcon($0.iconName) } ?? UIImage.hayaseIcon("circle")
-        setSidebarImage(iconImage, pointSize: 18, renderingMode: .alwaysTemplate)
-        setImage(nil, for: .normal)
-        imageEdgeInsets = .zero
+        if let animatedIcon {
+            animatedIcon.translatesAutoresizingMaskIntoConstraints = false
+            insertSubview(animatedIcon, belowSubview: dotView)
+            NSLayoutConstraint.activate([
+                animatedIcon.centerXAnchor.constraint(equalTo: centerXAnchor, constant: centerOffset),
+                animatedIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+                animatedIcon.widthAnchor.constraint(equalToConstant: 18),
+                animatedIcon.heightAnchor.constraint(equalToConstant: 18),
+            ])
+            iconView.isHidden = true
+        } else if route == .donate {
+            setSidebarImage(UIImage.hayaseFilledIcon("heart", pointSize: 18), pointSize: 18, renderingMode: .alwaysTemplate)
+        }
 
+        applyState(animated: false)
         addTarget(self, action: #selector(didTap), for: .touchUpInside)
     }
 
@@ -141,49 +184,108 @@ final class HayaseSidebarButton: UIButton {
     func setActive(_ active: Bool, animated: Bool) {
         isActiveRoute = active
         activeBackground.alpha = active ? 1 : 0
-        let changes = {
-            self.tintColor = active ? Self.primaryForeground : self.tintForInactiveState()
-            self.iconView.tintColor = self.tintColor
-            self.applyIconImage()
-        }
-        guard animated else {
-            changes()
-            return
-        }
-        let fade = CATransition()
-        fade.type = .fade
-        fade.duration = 0.3  // duration-300
-        fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)  // transition-colors
-        iconView.layer.add(fade, forKey: "hayaseTint")
-        UIViewPropertyAnimator(duration: 0.3, controlPoint1: CGPoint(x: 0.4, y: 0), controlPoint2: CGPoint(x: 0.2, y: 1), animations: changes).startAnimation()
+        applyState(animated: animated)
     }
 
     func setStatusDotVisible(_ visible: Bool) {
         dotView.isHidden = !visible
     }
 
+    /// An image in the icon's place: the menu button's menu and cross, the donate heart.
     func setSidebarImage(_ image: UIImage?, pointSize: CGFloat, renderingMode: UIImage.RenderingMode) {
-        iconRenderingMode = renderingMode
         iconImage = image?.withRenderingMode(renderingMode)
         iconSizeConstraint?.constant = pointSize
-        applyIconImage()
+        iconView.image = iconImage
+        iconView.isHidden = false
+        animatedIcon?.isHidden = true
     }
 
-    private func applyIconImage() {
-        if iconRenderingMode == .alwaysOriginal {
-            iconView.image = iconImage
-        } else {
-            let tint = isActiveRoute ? Self.primaryForeground : tintForInactiveState()
-            iconView.image = iconImage?.withTintColor(tint, renderingMode: .alwaysOriginal)
-            iconView.tintColor = tintColor
+    /// The profile button: the viewer's avatar (`size-6 rounded-md`), or the login icon without one.
+    func setAvatar(_ avatar: UIImage?) {
+        guard route == .profile else { return }
+        iconView.image = avatar?.withRenderingMode(.alwaysOriginal)
+        iconSizeConstraint?.constant = 24
+        iconView.isHidden = avatar == nil
+        animatedIcon?.isHidden = avatar != nil
+    }
+
+    /// The donate heart's `animate-[hearbeat_1s_ease-in-out_infinite_alternate]`, which runs
+    /// while the app is active.
+    func setHeartbeat(_ active: Bool) {
+        guard route == .donate else { return }
+        guard active else {
+            iconView.layer.removeAnimation(forKey: "heartbeat")
+            return
+        }
+        guard iconView.layer.animation(forKey: "heartbeat") == nil else { return }
+        let beat = CABasicAnimation(keyPath: "transform.scale")
+        beat.fromValue = 1
+        beat.toValue = 0.85
+        beat.duration = 1
+        beat.autoreverses = true
+        beat.repeatCount = .infinity
+        beat.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        iconView.layer.add(beat, forKey: "heartbeat")
+    }
+
+    // MARK: - Select state
+
+    @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        let hovering = recognizer.state == .began || recognizer.state == .changed
+        isPointerOver = hovering
+        updateSelectState()
+        if !hovering && !isHighlighted {
+            animatedIcon?.cancelAnimations()
         }
     }
 
-    private func tintForInactiveState() -> UIColor {
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        updateSelectState()
+    }
+
+    private func updateSelectState() {
+        let selected = isEnabled && (isHighlighted || isPointerOver || isFocused)
+        guard selected != isSelectedState else { return }
+        isSelectedState = selected
+        applyState(animated: true)
+        animatedIcon?.selectionChanged(selected)
+    }
+
+    /// The colours of the button's variant: `ghost` (select:bg-secondary-foreground/20
+    /// select:text-accent-foreground), or `default` while its route is open (select:bg-primary/60,
+    /// with the pill at select:bg-primary/70). The donate heart stays pink and clear.
+    private func applyState(animated: Bool) {
+        let selected = isSelectedState
+        let background: UIColor
+        let tint: UIColor
         if route == .donate {
-            return Self.donateColor
+            background = .clear   // select:!bg-transparent
+            tint = Self.donateColor
+        } else if isActiveRoute {
+            background = selected ? UIColor.HayaseTheme.primary.withAlphaComponent(0.6) : .clear
+            tint = UIColor.HayaseTheme.primaryForeground
+        } else {
+            background = selected ? UIColor.HayaseTheme.secondaryForeground.withAlphaComponent(0.2) : .clear
+            tint = selected ? UIColor.HayaseTheme.accentForeground : UIColor.HayaseTheme.foreground
         }
-        return UIColor.HayaseTheme.foreground
+        activeBackground.backgroundColor = selected
+            ? UIColor.HayaseTheme.primary.withAlphaComponent(0.7)
+            : UIColor.HayaseTheme.primary
+        tintColor = tint
+        iconView.tintColor = tint
+
+        let duration = animated ? colorDuration : 0
+        animatedIcon?.setTint(tint, duration: duration)
+        guard duration > 0, window != nil else {
+            backgroundColor = background
+            return
+        }
+        UIViewPropertyAnimator(duration: duration,
+                               controlPoint1: CGPoint(x: 0.4, y: 0),
+                               controlPoint2: CGPoint(x: 0.2, y: 1)) {  // Tailwind transition-colors
+            self.backgroundColor = background
+        }.startAnimation()
     }
 
     @objc private func didTap() {

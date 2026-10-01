@@ -39,7 +39,7 @@ final class HayaseSidebarController: UIViewController {
     private let routeTransition = HayaseRouteTransition()
     private let mobileLauncher = UIView()
     private let mobileGridContainer = UIView()
-    private let mobileToggleButton = UIButton(type: .system)
+    private let mobileToggleButton = HayaseSidebarButton(route: nil, size: .mobile)
     private let sidebarContainer = UIView()
     private let sidebarBackdropImageView = UIImageView()
     private let sidebarBackdropGradientView = SidebarBackdropGradientView()
@@ -428,11 +428,10 @@ final class HayaseSidebarController: UIViewController {
         mobileSidebarList.translatesAutoresizingMaskIntoConstraints = false
         mobileGridContainer.addSubview(mobileSidebarList)
 
-        mobileToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        mobileToggleButton.tintColor = UIColor.HayaseTheme.foreground
-        mobileToggleButton.setImage(UIImage.hayaseIcon("menu"), for: .normal)
-        mobileToggleButton.imageEdgeInsets = UIEdgeInsets(top: 15, left: 15, bottom: 15, right: 15)
-        mobileToggleButton.addTarget(self, action: #selector(toggleMobileMenu), for: .touchUpInside)
+        // Button variant='ghost' size='icon-lg' with the plain 150ms transition-colors
+        mobileToggleButton.colorDuration = 0.15
+        mobileToggleButton.setSidebarImage(UIImage.hayaseIcon("menu"), pointSize: 18, renderingMode: .alwaysTemplate)
+        mobileToggleButton.onPress = { [weak self] in self?.toggleMobileMenu() }
         mobileGridContainer.addSubview(mobileToggleButton)
 
         mobileLauncherWidthConstraint = mobileLauncher.widthAnchor.constraint(equalToConstant: 64)
@@ -453,8 +452,6 @@ final class HayaseSidebarController: UIViewController {
             mobileSidebarList.trailingAnchor.constraint(equalTo: mobileGridContainer.trailingAnchor),
             mobileSidebarList.bottomAnchor.constraint(equalTo: mobileGridContainer.bottomAnchor),
 
-            mobileToggleButton.widthAnchor.constraint(equalToConstant: 48),
-            mobileToggleButton.heightAnchor.constraint(equalToConstant: 48),
             mobileToggleButton.trailingAnchor.constraint(equalTo: mobileGridContainer.trailingAnchor),
             mobileToggleButton.bottomAnchor.constraint(equalTo: mobileGridContainer.bottomAnchor),
         ])
@@ -1115,12 +1112,12 @@ final class HayaseSidebarController: UIViewController {
         return controller
     }
 
-    @objc private func toggleMobileMenu() {
+    private func toggleMobileMenu() {
         isMobileMenuOpen.toggle()
         mobileLauncherWidthConstraint?.constant = isMobileMenuOpen ? 176 : 64
         mobileLauncherHeightConstraint?.constant = isMobileMenuOpen ? 176 : 64
         let icon = isMobileMenuOpen ? "x" : "menu"
-        mobileToggleButton.setImage(UIImage.hayaseIcon(icon), for: .normal)
+        mobileToggleButton.setSidebarImage(UIImage.hayaseIcon(icon), pointSize: 18, renderingMode: .alwaysTemplate)
         UIViewPropertyAnimator(duration: 0.15,
                                controlPoint1: CGPoint(x: 0.4, y: 0),
                                controlPoint2: CGPoint(x: 0.2, y: 1)) {  // Tailwind transition: 150ms ease
@@ -1133,7 +1130,7 @@ final class HayaseSidebarController: UIViewController {
         isMobileMenuOpen = false
         mobileLauncherWidthConstraint?.constant = 64
         mobileLauncherHeightConstraint?.constant = 64
-        mobileToggleButton.setImage(UIImage.hayaseIcon("menu"), for: .normal)
+        mobileToggleButton.setSidebarImage(UIImage.hayaseIcon("menu"), pointSize: 18, renderingMode: .alwaysTemplate)
         let changes = { self.view.layoutIfNeeded() }
         if animated {
             UIViewPropertyAnimator(duration: 0.15,

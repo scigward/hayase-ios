@@ -22,6 +22,8 @@ final class HayaseSidebarListView: UIView {
     private var routeButtons: [HayaseSidebarRoute: HayaseSidebarButton] = [:]
     private var actionHandler: ((HayaseSidebarRoute) -> Void)?
     private var profileAvatarTask: URLSessionDataTask?
+    private var isAppActive = UIApplication.shared.applicationState == .active
+    private var isPlayerRoute = false
 
     init(mode: LayoutMode) {
         self.mode = mode
@@ -45,6 +47,8 @@ final class HayaseSidebarListView: UIView {
     }
 
     func setSelectedRoute(_ currentRoute: Route, animated: Bool) {
+        isPlayerRoute = currentRoute == .player
+        updateHeartbeat()
         let previous = routeButtons.values.first { $0.isActiveRoute }
         var next: HayaseSidebarButton?
         for (route, button) in routeButtons {
@@ -109,7 +113,26 @@ final class HayaseSidebarListView: UIView {
                                                selector: #selector(dynamicStateChanged),
                                                name: TrackerAccountManager.didChange,
                                                object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appActivityChanged(_:)),
+                                               name: UIApplication.didBecomeActiveNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appActivityChanged(_:)),
+                                               name: UIApplication.willResignActiveNotification,
+                                               object: nil)
         refreshDynamicState()
+        updateHeartbeat()
+    }
+
+    /// sidebarlist.svelte `active`: the donate heart beats while the app has focus, off the player.
+    private func updateHeartbeat() {
+        routeButtons[.donate]?.setHeartbeat(isAppActive && !isPlayerRoute)
+    }
+
+    @objc private func appActivityChanged(_ notification: Notification) {
+        isAppActive = notification.name == UIApplication.didBecomeActiveNotification
+        updateHeartbeat()
     }
 
     private func buildDesktopList() {
@@ -193,7 +216,7 @@ final class HayaseSidebarListView: UIView {
         guard let viewer = TrackerAccountManager.shared.viewer(for: .anilist),
               let urlString = viewer.avatarURL,
               let url = URL(string: urlString) else {
-            button.setSidebarImage(UIImage.hayaseIcon("log-in"), pointSize: 18, renderingMode: .alwaysTemplate)
+            button.setAvatar(nil)
             return
         }
 
@@ -201,7 +224,7 @@ final class HayaseSidebarListView: UIView {
             guard let data, let image = UIImage(data: data) else { return }
             let avatar = Self.roundedAvatar(from: image, size: 24)
             DispatchQueue.main.async {
-                button?.setSidebarImage(avatar, pointSize: 24, renderingMode: .alwaysOriginal)
+                button?.setAvatar(avatar)
             }
         }
         profileAvatarTask?.resume()
@@ -237,12 +260,6 @@ private final class HayaseSidebarLogoButton: UIControl {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setup()
-    }
-
-    override var isHighlighted: Bool {
-        didSet {
-            alpha = isHighlighted ? 0.72 : 1
-        }
     }
 
     override func layoutSubviews() {
