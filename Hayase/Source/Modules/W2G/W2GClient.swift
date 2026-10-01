@@ -421,7 +421,9 @@ final class W2GClient {
 
         case .message:
             guard let text = event.payload.value as? String else { return }
-            let user = peers[peer.id]?.user ?? W2GChatUser(id: peer.id, name: "Unknown", avatarURL: nil, guest: true)
+            // `this.peers.value[peer.id]!.user` throws for a peer that has not introduced itself yet,
+            // and the message is dropped.
+            guard let user = peers[peer.id]?.user else { return }
             let msg = W2GChatMessage(message: text, user: user, type: .incoming, date: Date())
             messages.append(msg)
             DispatchQueue.main.async { [weak self] in

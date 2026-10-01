@@ -367,7 +367,8 @@ final class W2GViewController: UIViewController {
         NSLayoutConstraint.activate([
             // Title row
 
-            codeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            // an inline span, so it sits on the title's baseline
+            codeLabel.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
             codeLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 16),
 
             // Subtitle: web uses space-y-0.5 = 2pt gap
@@ -478,6 +479,8 @@ final class W2GViewController: UIViewController {
     }
 
     @objc private func quitTapped() {
+        // goto('/#/app/home'); $w2globby?.destroy()
+        Router.shared.navigate(.home, hostTabIndex: hayaseTabIndex)
         W2GLobby.shared.leave()
     }
 
@@ -489,6 +492,7 @@ final class W2GViewController: UIViewController {
             activityItems: ["Invite people to your Watch Together lobby", URL(string: link) as Any],
             applicationActivities: nil
         )
+        ac.setValue("Hayase W2G", forKey: "subject")   // native.share's title
         ac.popoverPresentationController?.sourceView = inviteButton
         present(ac, animated: true)
     }
@@ -636,39 +640,8 @@ extension W2GViewController {
     ///   const lastVal = get(server.last)
     ///   ... lastVal?.media.id ? { mediaId: lastVal.media.id, episode: lastVal.episode, torrent: lastVal.id } : undefined
     func currentPlayerMediaState() -> W2GMediaState? {
-        // Check mini-player first, then any fullscreen player in the app.
-        let player = MiniPlayerManager.shared.activePlayer ?? findPresentedPlayer()
-        guard let player,
-              let hash = w2gTorrentHash(from: player),
-              player.anilistID > 0 else {
-            return nil
-        }
-        return W2GMediaState(torrent: hash, mediaId: player.anilistID, episode: player.episodeNumber)
-    }
-
-    private func w2gTorrentHash(from player: VideoPlayerViewController) -> String? {
-        if let hash = player.torrentHandle?.infoHashes.best.hex.trimmingCharacters(in: .whitespacesAndNewlines),
-           !hash.isEmpty {
-            return hash
-        }
-
-        let hash = player.videoEntity?.torrents?.torrentHashString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return hash.isEmpty ? nil : hash
-    }
-
-    /// Walk the entire presented-VC chain from the root to find a VideoPlayerViewController.
-    /// This is broader than `findActiveW2GPlayer()` which only checks from `self`.
-    private func findPresentedPlayer() -> VideoPlayerViewController? {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            return nil
-        }
-        var vc: UIViewController? = rootVC
-        while let presented = vc?.presentedViewController {
-            if let player = presented as? VideoPlayerViewController { return player }
-            vc = presented
-        }
-        return nil
+        guard let last = W2GMediaState.last, last.mediaId > 0 else { return nil }
+        return last
     }
 
     /// Add the host's torrent by hash and present the player.

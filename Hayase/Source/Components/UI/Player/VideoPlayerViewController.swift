@@ -724,9 +724,8 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             guard let self else { return }
             self.isApplyingRemoteW2GState = true
 
-            if abs(self.currentTime - state.time) > 2 {
-                self.surface.mpv.seek(to: state.time)
-            }
+            // `currentTime = state.time; paused = state.paused`
+            self.surface.mpv.seek(to: state.time)
             if state.paused && !self.isPaused {
                 self.surface.mpv.pausePlayback()
             } else if !state.paused && self.isPaused {
@@ -1813,9 +1812,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         // Set initial AniList state (PLANNING → CURRENT, COMPLETED → REPEATING) for ep 1
         AniListTracking.shared.setInitialState(anilistID: anilistID, episode: episodeNumber)
 
-        // W2G: notify peers about the media we're playing (mirrors web's
-        // server.play() calling w2globby.value?.mediaChange({ torrent, mediaId, episode })).
+        // `this.last.set({ id: infoHash, media, episode })`, then, in a lobby, w2globby.mediaChange.
         if let hash = currentW2GTorrentHash, anilistID > 0 {
+            W2GMediaState.last = W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
             W2GLobby.shared.client?.mediaChange(
                 W2GMediaState(torrent: hash, mediaId: anilistID, episode: episodeNumber)
             )

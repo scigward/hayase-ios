@@ -17,12 +17,10 @@ struct W2GChatUser: Codable, Equatable {
     let avatarURL: String?
     let guest: Bool
 
-    /// AniList default avatar, used as fallback for guests (mirrors web's `?? 'https://s4.anilist.co/...'`).
-    static let defaultAvatarURL = "https://s4.anilist.co/file/anilistcdn/user/avatar/large/default.png"
-
-    /// Resolved avatar URL – returns `avatarURL` if present, otherwise the AniList default.
+    /// `user.avatar?.large ?? ''`: a guest has no avatar, and the avatar then shows the
+    /// user's name where an image would be.
     var resolvedAvatarURL: String {
-        avatarURL ?? Self.defaultAvatarURL
+        avatarURL ?? ""
     }
 
     enum CodingKeys: String, CodingKey {

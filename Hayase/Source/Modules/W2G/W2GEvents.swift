@@ -20,6 +20,18 @@ struct W2GMediaState: Codable, Equatable {
     let torrent: String
     let mediaId: Int
     let episode: Int
+
+    private static let lastKey = "last-torrent"
+
+    /// `server.last`, the torrent played last, kept between launches.
+    static var last: W2GMediaState? {
+        get {
+            UserDefaults.standard.data(forKey: lastKey).flatMap { try? JSONDecoder().decode(W2GMediaState.self, from: $0) }
+        }
+        set {
+            UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: lastKey)
+        }
+    }
 }
 
 // MARK: - Event envelope
