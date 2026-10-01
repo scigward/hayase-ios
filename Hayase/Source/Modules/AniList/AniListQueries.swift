@@ -80,36 +80,6 @@ enum AniListQueries {
           }
     """
 
-    /// Interface `EdgeMedia` fragment: what a recommendation (and a relation edge) is asked for.
-    static let edgeMediaFields = """
-          id
-          status
-          format
-          episodes
-          title { userPreferred }
-          coverImage { extraLarge }
-          type
-          synonyms
-          season
-          seasonYear
-          relations {
-            edges {
-              relationType(version: 3)
-              node {
-                id
-                status
-                format
-                episodes
-                title { userPreferred }
-                type
-                coverImage { extraLarge }
-              }
-            }
-          }
-          startDate { year month day }
-          endDate { year month day }
-    """
-
     static let userFields = """
           id
           bannerImage
@@ -277,6 +247,9 @@ enum AniListQueries {
 
     // MARK: - Anime page (anime/[id]/+layout.svelte + +page.svelte)
 
+    /// The interface asks for `EdgeMedia` per recommendation, because its recommendation cards have
+    /// `hover={false}`. Here the cards open the hover card, which needs the description, score,
+    /// banner, trailer and the rest of the media, so a recommendation is asked for in full.
     static let animePage = """
     query AnimePage($id: Int!) {
       Media(id: $id, type: ANIME) {
@@ -286,7 +259,7 @@ enum AniListQueries {
             id
             rating
             mediaRecommendation {
-              \(edgeMediaFields)
+              \(fullMediaFields)
             }
           }
         }
