@@ -122,7 +122,7 @@ final class TorrentClientSortPopover: UIView {
 }
 
 private final class TorrentClientSortItemButton: UIButton {
-    private var hovered = false
+    private var isPointerOver = false
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.cornerRadius = 4
@@ -145,11 +145,11 @@ private final class TorrentClientSortItemButton: UIButton {
     }
     override var isHighlighted: Bool { didSet { updateAppearance() } }
     @objc private func hover(_ gesture: UIHoverGestureRecognizer) {
-        hovered = gesture.state == .began || gesture.state == .changed
+        isPointerOver = gesture.state == .began || gesture.state == .changed
         updateAppearance()
     }
     private func updateAppearance() {
-        let selected = hovered || isHighlighted
+        let selected = isPointerOver || isHighlighted
         backgroundColor = selected ? UIColor.HayaseTheme.accent : .clear
         setTitleColor(selected ? UIColor.HayaseTheme.accentForeground : UIColor.HayaseTheme.foreground, for: .normal)
     }
