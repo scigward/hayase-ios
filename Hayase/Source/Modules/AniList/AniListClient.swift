@@ -1303,59 +1303,6 @@ public final class AniListClient: NSObject {
         return previous[b.count]
     }
 
-    // MARK: - Detail (relations)
-
-    @discardableResult
-    func fetchDetailForItemResult(id: Int,
-                                  completion: @escaping (Result<[AnimeRelation], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        let variables: [String: Any] = ["id": id]
-        return requestExecutor.execute(query: AniListQueries.detail,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "detail", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let resp = try JSONDecoder().decode(AniListDetailResponse.self, from: graphQLResult.data)
-                    guard let media = resp.data?.Media else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-                    let relations: [AnimeRelation] = (media.relations?.edges ?? []).compactMap { edge -> AnimeRelation? in
-                        guard let type = edge.relationType,
-                              type != "CHARACTER",
-                              let node = edge.node,
-                              (node.type ?? "ANIME") == "ANIME",
-                              let nid = node.id else { return nil }
-                        let relItem = AnimeItem(
-                            id: nid,
-                            titleEnglish: node.title?.english,
-                            titleRomaji: node.title?.romaji,
-                            titleNative: node.title?.native,
-                            titleUserPreferred: node.title?.userPreferred,
-                            coverURL: node.coverImage?.extraLarge ?? node.coverImage?.large ?? node.coverImage?.medium,
-                            score: node.averageScore,
-                            status: node.status,
-                            episodes: node.episodes,
-                            bannerURL: nil,
-                            genres: [],
-                            description: nil,
-                            year: node.seasonYear,
-                            season: node.season,
-                            format: node.format,
-                            coverColor: node.coverImage?.color)
-                        return AnimeRelation(relationType: type, media: relItem)
-                    }
-                    DispatchQueue.main.async { completion(.success(relations)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-    }
-
     // MARK: - Anime page (anime/[id])
 
     /// `cacheAndNetwork` is `client.animePage`'s `requestPolicy`: what is known comes first, the answer
@@ -1518,6 +1465,7 @@ public final class AniListClient: NSObject {
             year: intValue(object["seasonYear"]),
             startYear: intValue(startDate?["year"]),
             startMonth: intValue(startDate?["month"]),
+            startDay: intValue(startDate?["day"]),
             season: object["season"] as? String,
             format: object["format"] as? String,
             duration: intValue(object["duration"]),
@@ -1799,39 +1747,6 @@ public final class AniListClient: NSObject {
         }
     }
 
-    // MARK: - Trailer + Genres
-
-    func fetchTrailerAndGenresResult(id: Int,
-                                     completion: @escaping (Result<AnimeTrailerGenresPayload, AniListRequestError>) -> Void) -> AniListRequestToken? {
-        let variables: [String: Any] = ["id": id]
-        return requestExecutor.execute(query: AniListQueries.trailerGenres,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "trailerGenres", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                guard let data = graphQLResult.json["data"] as? [String: Any],
-                      let media = data["Media"] as? [String: Any] else {
-                    DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                    return
-                }
-                let genres = media["genres"] as? [String] ?? []
-                let malId = (media["idMal"] as? NSNumber)?.intValue
-                var trailerID: String? = nil
-                if let trailer = media["trailer"] as? [String: Any],
-                   (trailer["site"] as? String)?.lowercased() == "youtube" {
-                    trailerID = trailer["id"] as? String
-                }
-                let payload = AnimeTrailerGenresPayload(trailerYouTubeID: trailerID,
-                                                        genres: genres,
-                                                        malId: malId)
-                DispatchQueue.main.async { completion(.success(payload)) }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-    }
-
     // MARK: - Forum threads (matches client.ts threads())
 
     func threadsResult(mediaID: Int,
@@ -1990,47 +1905,6 @@ public final class AniListClient: NSObject {
             item.mediaListEntry = TrackerAggregator.listEntry(for: id)
         }
         return item
-    }
-
-    // MARK: - Per-media airing schedule
-
-    func fetchMediaAiringScheduleResult(anilistID: Int,
-                                        completion: @escaping (Result<MediaScheduleResult, AniListRequestError>) -> Void) -> AniListRequestToken? {
-        let variables: [String: Any] = ["id": anilistID]
-        return requestExecutor.execute(query: AniListQueries.mediaSchedule,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "mediaSchedule", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let resp = try JSONDecoder().decode(MediaScheduleResponse.self, from: graphQLResult.data)
-                    guard let media = resp.data?.Media else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-
-                    var schedule: [Int: Date] = [:]
-                    let allNodes = (media.aired?.n ?? []) + (media.notaired?.n ?? [])
-                    for node in allNodes {
-                        guard let ep = node.e, let at = node.a else { continue }
-                        if schedule[ep] == nil {
-                            schedule[ep] = Date(timeIntervalSince1970: Double(at))
-                        }
-                    }
-
-                    let sd = media.startDate.map { ($0.year, $0.month, $0.day) }
-                    let result = MediaScheduleResult(schedule: schedule,
-                                                     startDate: sd,
-                                                     episodeCount: media.episodes)
-                    DispatchQueue.main.async { completion(.success(result)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
     }
 
     // MARK: - ani.zip image cache (Fanart + Clearlogo)

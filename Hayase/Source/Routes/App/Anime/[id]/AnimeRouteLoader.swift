@@ -62,19 +62,8 @@ enum AnimeRouteLoader {
             completion(nil)
             return
         }
-        if !item.relations.isEmpty {
-            completion(parentID(in: item.relations))
-            return
-        }
-        AniListClient.shared.fetchDetailForItemResult(id: item.id) { result in
-            switch result {
-            case .success(let relations):
-                completion(parentID(in: relations))
-            case .failure(let error):
-                NSLog("[AnimeRoute] Parent relation lookup failed: %@", error.description)
-                completion(nil)
-            }
-        }
+        // `getParentForSpecial(media)`: the relations of the media that was loaded
+        completion(parentID(in: item.relations))
     }
 
     private static func parentID(in relations: [AnimeRelation]) -> Int? {

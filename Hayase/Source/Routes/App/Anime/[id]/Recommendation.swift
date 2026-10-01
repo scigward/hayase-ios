@@ -152,7 +152,6 @@ extension AnimeDetailViewController {
                 self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
 
                 self.reloadAnimePagePayloadSections()
-                self.fetchLegacyAnimeDetailsIfNeeded()
             case .failure(let error):
                 NSLog("[AnimeDetail] AnimePage failed: %@", error.description)
                 self.animePageErrorDescription = error.description
@@ -162,7 +161,6 @@ extension AnimeDetailViewController {
                 self.followingEntriesByEpisode.removeAll()
                 self.headerView?.clearFollowingAvatars()
                 self.reloadAnimePagePayloadSections()
-                self.fetchLegacyAnimeDetailsIfNeeded()
             }
         }
     }

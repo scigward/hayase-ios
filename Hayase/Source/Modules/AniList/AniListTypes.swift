@@ -27,6 +27,7 @@ struct AnimeItem {
     var year: Int? = nil
     var startYear: Int? = nil
     var startMonth: Int? = nil
+    var startDay: Int? = nil
     var season: String? = nil
     var format: String? = nil
     var duration: Int? = nil
@@ -269,12 +270,6 @@ struct AnimePagePayload {
     let relationGraph: AnimeRelationGraph?
 }
 
-struct AnimeTrailerGenresPayload {
-    let trailerYouTubeID: String?
-    let genres: [String]
-    let malId: Int?
-}
-
 // MARK: - Staff + Stats models
 
 struct AnimeStaffMember {
@@ -494,31 +489,6 @@ struct AniListMedia: Codable {
     }
 }
 
-struct AniListDetailResponse: Codable {
-    let data: DetailData?
-    struct DetailData: Codable { let Media: DetailMedia? }
-    struct DetailMedia: Codable { let relations: RelationConnection? }
-    struct RelationConnection: Codable { let edges: [RelationEdge]? }
-    struct RelationEdge: Codable {
-        let relationType: String?
-        let node: RelationNode?
-    }
-    struct RelationNode: Codable {
-        let id: Int?
-        let title: RelTitle?
-        let coverImage: RelCover?
-        let type: String?
-        let averageScore: Float?
-        let episodes: Int?
-        let status: String?
-        let seasonYear: Int?
-        let season: String?
-        let format: String?
-        struct RelTitle: Codable { let userPreferred: String?; let romaji: String?; let english: String?; let native: String? }
-        struct RelCover: Codable { let extraLarge: String?; let large: String?; let medium: String?; let color: String? }
-    }
-}
-
 struct AniListResolverMediaResponse: Codable {
     let data: ResolverData?
     struct ResolverData: Codable { let Media: ResolverMedia? }
@@ -642,30 +612,3 @@ struct StaffStatsResponse: Codable {
     }
 }
 
-struct MediaScheduleResponse: Codable {
-    let data: MSData?
-    struct MSData: Codable { let Media: MSMedia? }
-    struct MSMedia: Codable {
-        let episodes: Int?
-        let startDate: MSStartDate?
-        let aired: MSSchedule?
-        let notaired: MSSchedule?
-    }
-    struct MSStartDate: Codable {
-        let year: Int?
-        let month: Int?
-        let day: Int?
-    }
-    struct MSSchedule: Codable { let n: [MSNode]? }
-    struct MSNode: Codable {
-        let a: Int?
-        let e: Int?
-    }
-}
-
-/// Result of fetching per-media airing schedule.
-struct MediaScheduleResult {
-    let schedule: [Int: Date]
-    let startDate: (year: Int?, month: Int?, day: Int?)?
-    let episodeCount: Int?
-}

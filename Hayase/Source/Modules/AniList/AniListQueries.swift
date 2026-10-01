@@ -307,29 +307,6 @@ enum AniListQueries {
 
     // MARK: - Detail (relations)
 
-    static let detail = """
-    query ($id: Int) {
-      Media(id: $id, type: ANIME) {
-        relations {
-          edges {
-            relationType(version: 3)
-            node {
-              id
-              title { userPreferred romaji english native }
-              coverImage { extraLarge large medium color }
-              type
-              averageScore
-              episodes
-              status
-              seasonYear
-              season
-              format
-            }
-          }
-        }
-      }
-    }
-    """
 
     static let resolverMediaById = """
     query ($id: Int) {
@@ -341,25 +318,6 @@ enum AniListQueries {
 
     // MARK: - Staff + Stats
 
-    static let staffStats = """
-    query ($id: Int) {
-      Media(id: $id, type: ANIME) {
-        staff(sort: [RELEVANCE], page: 1, perPage: 12) {
-          edges {
-            role
-            node {
-              name { full }
-              image { medium }
-            }
-          }
-        }
-        stats {
-          scoreDistribution { score amount }
-          statusDistribution { status amount }
-        }
-      }
-    }
-    """
 
     // MARK: - Anime page (anime/[id]/+layout.svelte + +page.svelte)
 
@@ -440,9 +398,6 @@ enum AniListQueries {
 
     // MARK: - Trailer + Genres
 
-    static let trailerGenres = """
-    query($id:Int){Media(id:$id,type:ANIME){idMal genres trailer{id site}}}
-    """
 
     // MARK: - Forum threads
 
@@ -677,59 +632,8 @@ enum AniListQueries {
     }
     """
 
-    static let airingSchedule = """
-    query ($from: Int, $to: Int) {
-      Page(page: 1, perPage: 50) {
-        airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) {
-          episode
-          airingAt
-          media {
-            id
-            title { romaji english native userPreferred }
-            coverImage { large color }
-            averageScore
-            episodes
-            status
-          }
-        }
-      }
-    }
-    """
 
-    static let airingMonth = """
-    query ($from: Int, $to: Int, $page: Int) {
-      Page(page: $page, perPage: 50) {
-        pageInfo { hasNextPage }
-        airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) {
-          episode
-          airingAt
-          media {
-            id
-            title { romaji english native userPreferred }
-            coverImage { large color }
-            averageScore
-            episodes
-            status
-          }
-        }
-      }
-    }
-    """
 
     // MARK: - Per-media airing schedule
 
-    static let mediaSchedule = """
-    query ($id: Int) {
-      Media(id: $id, type: ANIME) {
-        episodes
-        startDate { year month day }
-        aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
-          n: nodes { a: airingAt e: episode }
-        }
-        notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) {
-          n: nodes { a: airingAt e: episode }
-        }
-      }
-    }
-    """
 }

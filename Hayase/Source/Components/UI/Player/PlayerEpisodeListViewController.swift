@@ -392,40 +392,13 @@ final class PlayerEpisodeListViewController: UIViewController {
             titles: nil, episodes: nil, episodeCount: nil,
             specialCount: nil, images: nil, mappings: nil)
 
-        var knownCount: Int? = media?.episodes
-        if knownCount == nil, totalEpisodesHint > 0 {
-            knownCount = totalEpisodesHint
-        }
-        if let knownCount {
-            buildEpisodes(from: response, count: knownCount, schedule: nil)
-            return
-        }
-
-        // Mirrors AnimeDetailViewController.computeEpisodeCount / web `episodes(media)`:
-        // when AniList has no confirmed episode count, fall back to the airing
-        // schedule, the user's progress and the episode already playing.
-        _ = AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: anilistID) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                var schedule: [Int: Date] = [:]
-                switch result {
-                case .success(let value):
-                    schedule = value.schedule
-                case .failure(let error):
-                    NSLog("[PlayerEpisodeList] Media schedule failed: %@", error.description)
-                }
-                let candidates = [schedule.keys.max() ?? 0, self.anilistProgress, self.currentEpisode]
-                let best = candidates.max() ?? 0
-                self.buildEpisodes(from: response, count: best > 0 ? best : nil, schedule: schedule)
-            }
-        }
+        buildEpisodes(from: response)
     }
 
-    private func buildEpisodes(from response: AniZipEpisodesResponse, count: Int?, schedule: [Int: Date]?) {
+    private func buildEpisodes(from response: AniZipEpisodesResponse) {
         let parsed = AnimeDetailViewController.buildEpisodeList(
             from: response,
-            anilistEpisodes: count,
-            alSchedule: schedule,
+            media: media,
             fallbackRuntime: media?.duration)
 
         guard !parsed.isEmpty else {

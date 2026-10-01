@@ -62,6 +62,38 @@ enum AniListUtil {
         return progress == 0 || progress == count ? "\(count) Episodes" : "\(progress) / \(count) Episodes"
     }
 
+    /// util.ts `isMovie(media)`
+    static func isMovie(_ media: AnimeItem) -> Bool {
+        if media.format == "MOVIE" { return true }
+        let names = [media.titleRomaji, media.titleEnglish, media.titleNative, media.titleUserPreferred].compactMap { $0 } + media.synonyms
+        if names.contains(where: { $0.lowercased().contains("movie") }) { return true }
+        return (media.duration ?? 0) > 80 && media.episodes == 1
+    }
+
+    /// util.ts `isSingleEpisode(media)`
+    static func isSingleEpisode(_ media: AnimeItem) -> Bool {
+        media.episodes == 1 || (isMovie(media) && (media.episodes ?? 0) == 0)
+    }
+
+    /// extensions.ts `makeEpisodeList`'s `alSchedule`: when each episode airs, from the two schedules
+    /// (the first of an episode wins), and for a single episode that has none, the day it started.
+    static func airingSchedule(for media: AnimeItem?) -> [Int: Date] {
+        guard let media else { return [:] }
+        var schedule: [Int: Date] = [:]
+        for node in media.airedSchedule + media.notYetAiredSchedule {
+            guard let airingAt = node.airingAt, schedule[node.episode] == nil else { continue }
+            schedule[node.episode] = Date(timeIntervalSince1970: Double(airingAt))
+        }
+        if schedule[1] == nil, isSingleEpisode(media), media.startYear != nil || media.startMonth != nil || media.startDay != nil {
+            var components = DateComponents()
+            components.year = media.startYear ?? 0
+            components.month = media.startMonth ?? 1
+            components.day = media.startDay ?? 1
+            if let date = Calendar.current.date(from: components) { schedule[1] = date }
+        }
+        return schedule
+    }
+
     /// util.ts `season(media)`: the season and the year, from the start date when the media has none.
     static func seasonText(for media: AnimeItem) -> String? {
         let season: String? = media.season?.lowercased() ?? media.startMonth.flatMap { month in
@@ -438,6 +470,7 @@ enum AniListUtil {
             year: media.seasonYear,
             startYear: media.startDate?.year,
             startMonth: media.startDate?.month,
+            startDay: media.startDate?.day,
             season: media.season,
             format: media.format,
             duration: media.duration,
@@ -515,6 +548,7 @@ enum AniListUtil {
             year: media.seasonYear,
             startYear: media.startDate?.year,
             startMonth: media.startDate?.month,
+            startDay: media.startDate?.day,
             season: media.season,
             format: media.format,
             duration: media.duration,

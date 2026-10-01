@@ -820,14 +820,18 @@ private final class ProfileCardViewController: UIViewController {
     private var detailText: NSAttributedString {
         var parts: [String] = []
         if user.isFollower { parts.append("Follows you") }
-        let joined = AniListUtil.since(Date(timeIntervalSince1970: user.createdAt))
+        // `user.createdAt ? since(…) : 'recently'`
+        let joined = user.createdAt != 0 ? AniListUtil.since(Date(timeIntervalSince1970: user.createdAt)) : "recently"
         parts.append("Joined \(joined)")
         return Self.detailsString(parts, font: .nunito(ofSize: 11, weight: .regular))
     }
 
     private var statsText: NSAttributedString {
-        let watched = AniListUtil.since(Date(timeIntervalSinceNow: -Double(user.minutesWatched) * 60))
-            .replacingOccurrences(of: "ago", with: "watched")
+        // `minutesWatched ? since(…).replace('ago', 'watched') : '0 minutes watched'`
+        let watched = user.minutesWatched != 0
+            ? AniListUtil.since(Date(timeIntervalSinceNow: -Double(user.minutesWatched) * 60))
+                .replacingOccurrences(of: "ago", with: "watched")
+            : "0 minutes watched"
         return Self.detailsString(["\(user.animeCount) anime",
                                    "\(user.episodesWatched) episodes",
                                    watched],

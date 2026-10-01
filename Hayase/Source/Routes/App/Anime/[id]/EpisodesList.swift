@@ -1305,21 +1305,8 @@ extension AnimeDetailViewController {
         scheduleEpisodeHeightInvalidation()
     }
 
-    /// Compute episode count matching web's `episodes(media)` utility (src/lib/modules/anilist/util.ts).
-    /// Falls back to airing schedule data + user progress when `media.episodes` is nil (airing anime).
-    private func computeEpisodeCount(schedResult: MediaScheduleResult?, anilistEpisodes: Int?) -> Int? {
-        // If AniList provides a confirmed episode count, use it (matches web: if (media.episodes) return media.episodes)
-        if let eps = anilistEpisodes { return eps }
-
-        // Fallback: max(last aired episode, last upcoming episode, user progress)
-        // Matches web: Math.max(upcoming, past, progress)
-        let schedule = schedResult?.schedule ?? [:]
-        let lastAired = schedule.keys.max() ?? 0
-        let progress = animeItem?.mediaListEntry?.progress ?? 0
-        let best = max(lastAired, progress)
-        return best > 0 ? best : nil
-    }
-
+    /// +layout.ts: the episodes of the media, or of its parent when it is a special without an anidb
+    /// mapping, and EpisodesList.svelte's `makeEpisodeList(media, eps)` on them.
     func fetchEpisodes() {
         let anilistId: Int?
         if let entity = animeEntity {
@@ -1329,160 +1316,38 @@ extension AnimeDetailViewController {
         }
         guard let id = anilistId else { return }
 
-        let anilistEpisodes: Int?
-        if let entity = animeEntity {
-            anilistEpisodes = entity.animeTotalEps?.intValue
-        } else {
-            anilistEpisodes = animeItem?.episodes
-        }
-
-        let format = animeItem?.format
-
         AniZipService.shared.episodes(anilistID: id) { [weak self] anizipResponse in
             guard let self = self else { return }
 
-            // If anizip has no data for this anime (e.g. brand new airing anime), create an
-            // empty response so episodes can still be built from the AniList airing schedule.
-            // Matches web: makeEpisodeList(media, eps) handles eps=null gracefully.
-            let response = anizipResponse ?? AniZipEpisodesResponse(
+            // makeEpisodeList(media, eps) handles eps=null gracefully.
+            let empty = AniZipEpisodesResponse(
                 titles: nil, episodes: nil, episodeCount: nil,
                 specialCount: nil, images: nil, mappings: nil)
+            let response = anizipResponse ?? empty
 
-            let hasAnidbId = response.mappings?.anidb_id != nil
-
-            if !hasAnidbId, let fmt = format, ["SPECIAL", "OVA", "ONA"].contains(fmt) {
-                self.resolveParentID(format: fmt) { [weak self] parentID in
+            if response.mappings?.anidb_id == nil {
+                self.resolveParentID(format: self.animeItem?.format ?? "") { [weak self] parentID in
                     guard let self = self else { return }
-                    if let parentID = parentID {
-                        AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
-                            guard let self = self else { return }
-                            let schedResult: MediaScheduleResult?
-                            switch result {
-                            case .success(let schedule):
-                                schedResult = schedule
-                            case .failure(let error):
-                                NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
-                                schedResult = nil
-                            }
-
-                            var alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
-                            let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
-
-                            if alSchedule[1] == nil {
-                                let item = self.animeItem
-                                let allTitles = [item?.titleEnglish, item?.titleRomaji].compactMap { $0 }
-                                let singleEp = self.isSingleEpisode(
-                                    format: fmt, titles: allTitles,
-                                    synonyms: item?.synonyms ?? [],
-                                    duration: item?.duration, episodes: anilistEpisodes)
-                                if singleEp, let sd = schedResult?.startDate,
-                                   let y = sd.year {
-                                    let m = sd.month ?? 1
-                                    let d = sd.day ?? 1
-                                    var comps = DateComponents()
-                                    comps.year = y; comps.month = m; comps.day = d
-                                    if let date = Calendar(identifier: .gregorian).date(from: comps) {
-                                        alSchedule[1] = date
-                                    }
-                                }
-                            }
-
-                            AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
-                                guard let self = self else { return }
-                                let finalResponse = parentResponse ?? response
-                                self.processEpisodeResponse(finalResponse, anilistEpisodes: resolvedCount,
-                                                            anilistId: id, alSchedule: alSchedule)
-                            }
-                        }
-                    } else {
-                        // No parent found - still try airing schedule for episode count
-                        if anilistEpisodes == nil {
-                            AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
-                                guard let self = self else { return }
-                                let schedResult: MediaScheduleResult?
-                                switch result {
-                                case .success(let schedule):
-                                    schedResult = schedule
-                                case .failure(let error):
-                                    NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
-                                    schedResult = nil
-                                }
-                                let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
-                                let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
-                                self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
-                                                            anilistId: id, alSchedule: alSchedule)
-                            }
-                        } else {
-                            self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
-                        }
+                    guard let parentID = parentID else {
+                        self.processEpisodeResponse(response, anilistId: id)
+                        return
+                    }
+                    AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
+                        self?.processEpisodeResponse(parentResponse ?? empty, anilistId: id)
                     }
                 }
                 return
             }
-
-            // For ALL anime: if anilistEpisodes is nil (airing/new anime), fetch airing schedule
-            // to compute episode count from aired/notaired data, matching web's episodes() fallback.
-            if anilistEpisodes == nil {
-                AniListClient.shared.fetchMediaAiringScheduleResult(anilistID: id) { [weak self] result in
-                    guard let self = self else { return }
-                    let schedResult: MediaScheduleResult?
-                    switch result {
-                    case .success(let schedule):
-                        schedResult = schedule
-                    case .failure(let error):
-                        NSLog("[AnimeDetail] Media schedule failed: %@", error.description)
-                        schedResult = nil
-                    }
-                    let resolvedCount = self.computeEpisodeCount(schedResult: schedResult, anilistEpisodes: anilistEpisodes)
-                    let alSchedule: [Int: Date] = schedResult?.schedule ?? [:]
-                    self.processEpisodeResponse(response, anilistEpisodes: resolvedCount,
-                                                anilistId: id, alSchedule: alSchedule)
-                }
-            } else {
-                self.processEpisodeResponse(response, anilistEpisodes: anilistEpisodes, anilistId: id)
-            }
+            self.processEpisodeResponse(response, anilistId: id)
         }
     }
 
     private func resolveParentID(format: String, completion: @escaping (Int?) -> Void) {
-        if let item = animeItem, !item.relations.isEmpty {
-            let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
-                item.relations.first { $0.relationType == relType }?.media.id
-            }.first
-            completion(parentID)
-            return
-        }
-
-        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue else {
-            completion(nil)
-            return
-        }
-        AniListClient.shared.fetchDetailForItemResult(id: id) { [weak self] result in
-            switch result {
-            case .success(let rels):
-                self?.animeItem?.relations = rels
-                self?.relations = rels
-                let parentID = ["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
-                    rels.first { $0.relationType == relType }?.media.id
-                }.first
-                completion(parentID)
-            case .failure(let error):
-                NSLog("[AnimeDetail] Parent relation fallback failed: %@", error.description)
-                completion(nil)
-            }
-        }
-    }
-
-    private func isMovie(format: String?, titles: [String], synonyms: [String], duration: Int?, episodes: Int?) -> Bool {
-        if format == "MOVIE" { return true }
-        let allNames = titles + synonyms
-        if allNames.contains(where: { $0.lowercased().contains("movie") }) { return true }
-        return (duration ?? 0) > 80 && episodes == 1
-    }
-
-    private func isSingleEpisode(format: String?, titles: [String], synonyms: [String], duration: Int?, episodes: Int?) -> Bool {
-        let movie = isMovie(format: format, titles: titles, synonyms: synonyms, duration: duration, episodes: episodes)
-        return episodes == 1 || (movie && episodes == nil)
+        // `getParentForSpecial(media)`: the relations of the media the page was loaded with
+        let relations = animeItem?.relations ?? []
+        completion(["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
+            relations.first { $0.relationType == relType }?.media.id
+        }.first)
     }
 
     // `static` so the extracted `buildEpisodeList(from:...)` can call it without a
@@ -1499,7 +1364,16 @@ extension AnimeDetailViewController {
 
         var closest: [FilteredEpisode] = []
         var closestDist = Double.infinity
-        for entry in filtered.values {
+        // a JS object lists its integer keys first, in ascending order
+        let ordered = filtered.keys.sorted { lhs, rhs in
+            switch (Int(lhs), Int(rhs)) {
+            case let (a?, b?): return a < b
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return lhs < rhs
+            }
+        }.compactMap { filtered[$0] }
+        for entry in ordered {
             let dist = abs((entry.airdatems ?? 0) - alMs)
             if dist < closestDist {
                 closestDist = dist
@@ -1541,14 +1415,16 @@ extension AnimeDetailViewController {
     /// - Parameter fallbackRuntime: media duration used when AniZip has no per-episode
     ///   runtime (detail page passes `animeItem?.duration`).
     static func buildEpisodeList(from response: AniZipEpisodesResponse,
-                                 anilistEpisodes: Int?,
-                                 alSchedule: [Int: Date]? = nil,
+                                 media: AnimeItem?,
                                  fallbackRuntime: Int? = nil) -> [AniZipEpisode] {
         let episodesDict = response.episodes ?? [:]
         let episodesResCount = response.episodeCount
         let specialCount = response.specialCount ?? 0
 
-        let count = anilistEpisodes ?? episodesResCount ?? 0
+        // `count = episodes(media, episodesRes)`, `episodes(media) === (episodesRes?.episodeCount ?? 0)`
+        let count = media.map { AniListUtil.episodes(for: $0, mappings: episodesResCount ?? 0) } ?? episodesResCount ?? 0
+        let mediaCount = media.map { AniListUtil.episodes(for: $0) } ?? 0
+        let alSchedule = AniListUtil.airingSchedule(for: media)
 
         var filtered: [String: FilteredEpisode] = [:]
         for (key, ep) in episodesDict {
@@ -1570,7 +1446,7 @@ extension AnimeDetailViewController {
         }
 
         let hasSpecial = specialCount > 0
-        let hasCountMatch = (anilistEpisodes ?? 0) == (episodesResCount ?? 0)
+        let hasCountMatch = mediaCount == (episodesResCount ?? 0)
 
         let now = Date().timeIntervalSince1970 * 1000
 
@@ -1584,7 +1460,7 @@ extension AnimeDetailViewController {
 
             let resolvedEntry: FilteredEpisode?
             if needsValidation {
-                let alDate = alSchedule?[episode]
+                let alDate = alSchedule[episode]
                 resolvedEntry = episodeByAirDate(alDate: alDate, filtered: filtered, episode: episode)
 
                 if let resolved = resolvedEntry {
@@ -1610,7 +1486,8 @@ extension AnimeDetailViewController {
             let imageURL = ep?.image
             let airDateRaw = ep?.airdate
             let airDate: Date? = {
-                // First try anizip's airdate
+                // EpisodesList.svelte: `airingAt ?? airdate`
+                if let airingAt = alSchedule[episode] { return airingAt }
                 if let raw = airDateRaw {
                     if let d = ISO8601DateFormatter().date(from: raw) { return d }
                     let fmt = DateFormatter()
@@ -1618,8 +1495,7 @@ extension AnimeDetailViewController {
                     fmt.locale = Locale(identifier: "en_US_POSIX")
                     if let d = fmt.date(from: raw) { return d }
                 }
-                // Fallback to AniList airing schedule date (matches web's airingAt ?? airdate)
-                return alSchedule?[episode]
+                return nil
             }()
             let runtime = ep?.length ?? ep?.runtime ?? fallbackRuntime ?? 0
             let rating = ep?.rating
@@ -1634,15 +1510,13 @@ extension AnimeDetailViewController {
         return parsed
     }
 
-    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
-                                        alSchedule: [Int: Date]? = nil) {
+    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistId: Int) {
         DispatchQueue.main.async { [weak self] in
             self?.headerView?.setMappedEpisodeCount(response.episodeCount)
         }
         let parsed = AnimeDetailViewController.buildEpisodeList(
             from: response,
-            anilistEpisodes: anilistEpisodes,
-            alSchedule: alSchedule,
+            media: animeItem,
             fallbackRuntime: animeItem?.duration)
 
         guard !parsed.isEmpty else {
