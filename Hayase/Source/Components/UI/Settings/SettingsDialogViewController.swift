@@ -7,6 +7,8 @@ class SettingsDialogViewController: UIViewController {
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
     /// opts into shrink-to-fit. Existing settings dialogs remain full-width.
     var preferredPanelWidth: CGFloat?
+    /// `bg-popover`, or `bg-background` for the dialogs that ask for it
+    var panelColor = UIColor.HayaseTheme.popover
     let panel = UIView()
     private let backdrop = UIControl()
     private let stripedBackdrop = HayaseStripedBackdropView()
@@ -37,7 +39,7 @@ class SettingsDialogViewController: UIViewController {
         backdrop.addSubview(stripedBackdrop)
         backdrop.addTarget(self, action: #selector(close), for: .touchUpInside)
         view.addSubview(backdrop)
-        panel.backgroundColor = UIColor.HayaseTheme.popover
+        panel.backgroundColor = panelColor
         panel.layer.borderWidth = 1
         panel.clipsToBounds = true
         panel.layer.borderColor = UIColor.HayaseTheme.border.cgColor

@@ -13,6 +13,7 @@ extension SettingsViewController {
         scaleAlert?.dismiss(animated: false)
         scaleCountdown = 10
         let alert = SettingsDialogViewController(title: "Keep this UI scale?", maximumWidth: 448)
+        alert.panelColor = UIColor.HayaseTheme.background   // bg-background
         let message = SettingsTypography.label(scaleConfirmationMessage, size: 14, lineHeight: 20,
             color: UIColor.HayaseTheme.mutedForeground)
         scaleMessageLabel = message

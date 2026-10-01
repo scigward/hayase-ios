@@ -6,6 +6,7 @@ extension HayaseAccountCardView {
 
     func showAniListSettings() {
         let dialog = SettingsDialogViewController(title: "AniList Settings", maximumWidth: 896)
+        dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         let viewer = TrackerAccountManager.shared.viewer(for: .anilist)
         let languages = [
             ("ROMAJI", "Romaji (Shingeki no Kyojin)"), ("ENGLISH", "English (Attack on Titan)"),
@@ -44,9 +45,7 @@ extension HayaseAccountCardView {
         adult.isEnabled = viewer != nil
         adult.addAction(UIAction { [weak adult] _ in
             guard let adult else { return }
-            adult.isEnabled = false
             AniListClient.shared.updateUserResult(displayAdultContent: adult.isOn) { [weak adult] result in
-                adult?.isEnabled = TrackerAccountManager.shared.viewer(for: .anilist) != nil
                 adult?.setOn(TrackerAccountManager.shared.viewer(for: .anilist)?.displayAdultContent ?? false, animated: true)
                 if case .failure(let error) = result {
                     NSLog("[Settings] Failed to update NSFW setting: %@", error.localizedDescription)
@@ -64,6 +63,7 @@ extension HayaseAccountCardView {
 
     func showMALSettings() {
         let dialog = SettingsDialogViewController(title: "MyAnimeList Settings", maximumWidth: 896)
+        dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         dialog.content.addArrangedSubview(clientIDCard(service: "MyAnimeList", value: MALAuth.clientID, width: 384) {
             MALAuth.clientID = $0
         })
@@ -82,6 +82,7 @@ extension HayaseAccountCardView {
 
     func showSimklSettings() {
         let dialog = SettingsDialogViewController(title: "Simkl Settings", maximumWidth: 896)
+        dialog.panelColor = UIColor.HayaseTheme.background   // bg-background
         let identifier = SettingsInputControl(value: SimklAuth.clientID, placeholder: "Simkl Client ID", width: 384)
         identifier.onChange = { SimklAuth.clientID = $0 }
         let secret = SettingsInputControl(value: SimklAuth.clientSecret, placeholder: "Simkl Client Secret", width: 384, secure: true)
