@@ -15,9 +15,14 @@ final class PeerIpCellContent: UIView {
         return view
     }()
 
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 16) // font-mono text-xs.
+    }
+
     private let label: UILabel = {
-        let label = UILabel()
-        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        let label = TorrentClientLabel()
+        label.lineHeight = 16
+        label.font = .geistMono(ofSize: 12)
         label.textColor = TorrentClientStyle.foreground
         label.lineBreakMode = .byTruncatingTail
         return label

@@ -13,9 +13,11 @@ enum TorrentLibrarySort {
         case 1: return ordered(lhs.episode ?? 0, rhs.episode ?? 0)
         case 2: return ordered(lhs.files, rhs.files)
         case 3: return ordered(lhs.size, rhs.size)
-        case 4: return ordered(lhs.progress == 1 ? 1 : 0, rhs.progress == 1 ? 1 : 0)
+        // library/table.svelte sorts the numeric progress accessor, not its
+        // rendered Completed / In Progress status.
+        case 4: return ordered(lhs.progress, rhs.progress)
         case 5: return ordered(lhs.date ?? 0, rhs.date ?? 0)
-        default: return ordered(lhs.name.isEmpty ? lhs.hash : lhs.name, rhs.name.isEmpty ? rhs.hash : rhs.name)
+        default: return ordered(lhs.name, rhs.name)
         }
     }
 }

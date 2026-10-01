@@ -4,6 +4,9 @@ import UIKit
 class SettingsDialogViewController: UIViewController {
     let content = UIStackView()
     var onClose: (() -> Void)?
+    /// Only content with `!w-auto` (such as the torrent-library confirmation)
+    /// opts into shrink-to-fit. Existing settings dialogs remain full-width.
+    var preferredPanelWidth: CGFloat?
     private let panel = UIView()
     private let backdrop = UIControl()
     private let stripedBackdrop = HayaseStripedBackdropView()
@@ -77,7 +80,7 @@ class SettingsDialogViewController: UIViewController {
         super.viewDidLayoutSubviews()
         backdrop.frame = view.bounds
         stripedBackdrop.frame = backdrop.bounds
-        let width = min(maximumWidth, view.bounds.width)
+        let width = min(min(maximumWidth, view.bounds.width), preferredPanelWidth ?? maximumWidth)
         let viewport = view.window?.rootViewController?.view.bounds.width ?? view.bounds.width
         content.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
             .forEach { $0.updateLayout(viewportWidth: viewport) }

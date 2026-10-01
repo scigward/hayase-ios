@@ -78,6 +78,7 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>Nunito-Variable.ttf</string>
+		<string>GeistMono-Regular.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

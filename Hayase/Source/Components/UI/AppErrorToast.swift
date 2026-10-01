@@ -14,6 +14,32 @@ enum AppErrorToast {
         let identity = title + "\n" + message
         guard recentlyShown[identity] == nil else { return }
         recentlyShown[identity] = now
+        let toastHost = overlay(in: window)
+        toastHost.show(message: message, title: title, duration: duration)
+        UIAccessibility.post(notification: .announcement, argument: title + "\n" + message)
+    }
+
+    /// `toast.promise`: update this same card instead of stacking a second toast.
+    /// Loading has no timeout and cannot be swiped away before the promise settles.
+    @discardableResult
+    static func startPromise(title: String, description: String) -> UUID {
+        let id = UUID()
+        guard let window = (UIApplication.shared.delegate as? AppDelegate)?.window else { return id }
+        overlay(in: window).show(message: description, title: title, duration: .infinity,
+                                id: id, kind: .loading)
+        UIAccessibility.post(notification: .announcement, argument: title + "\n" + description)
+        return id
+    }
+
+    static func resolvePromise(_ id: UUID, title: String, failed: Bool = false,
+                               duration: TimeInterval = 4) {
+        host?.update(id: id, title: title, kind: failed ? .error : .success, duration: duration)
+        UIAccessibility.post(notification: .announcement, argument: title)
+    }
+
+    static func dismiss(_ id: UUID) { host?.dismiss(id: id) }
+
+    private static func overlay(in window: UIWindow) -> ErrorToastHostView {
         let overlay: ErrorToastHostView
         if let existing = host, existing.superview === window {
             overlay = existing
@@ -24,8 +50,7 @@ enum AppErrorToast {
             host = overlay
         }
         window.bringSubviewToFront(overlay)
-        overlay.show(message: message, title: title, duration: duration)
-        UIAccessibility.post(notification: .announcement, argument: title + "\n" + message)
+        return overlay
     }
 }
 
@@ -60,9 +85,11 @@ private final class ErrorToastHostView: UIView {
         }
     }
 
-    func show(message: String, title: String, duration: TimeInterval) {
+    func show(message: String, title: String, duration: TimeInterval,
+              id: UUID = UUID(), kind: AppToastKind = .error) {
         layoutIfNeeded()
-        let card = ErrorToastCardView(message: message, title: title, duration: duration)
+        let card = ErrorToastCardView(message: message, title: title, duration: duration,
+                                      id: id, kind: kind)
         card.onDismiss = { [weak self, weak card] swiped in
             guard let self, let card, self.cards.contains(where: { $0 === card }) else { return }
             self.cards.removeAll { $0 === card }
@@ -92,6 +119,15 @@ private final class ErrorToastHostView: UIView {
         })
         card.startTimer()
     }
+
+    func update(id: UUID, title: String, kind: AppToastKind, duration: TimeInterval) {
+        guard let card = cards.first(where: { $0.id == id }) else { return }
+        card.update(title: title, kind: kind, duration: duration)
+        setNeedsLayout()
+        animate(duration: 0.4, changes: { self.layoutIfNeeded() })
+    }
+
+    func dismiss(id: UUID) { cards.first(where: { $0.id == id })?.dismiss() }
 
     private func animate(duration: TimeInterval, changes: @escaping () -> Void,
                          completion: (() -> Void)? = nil) {
