@@ -183,9 +183,9 @@ final class MALSync: ListTracker {
         var entries: [(Int, AnimeItem.MediaListEntry)] = []
         for item in data {
             guard let node = item["node"] as? [String: Any], let malID = node["id"] as? Int else { continue }
-            var anilistID = cached[malID] ?? resolved[malID]
-            if anilistID == nil { anilistID = await lookupAnilistID(malID: malID) }
-            guard let anilistID else { continue }
+            var found = cached[malID] ?? resolved[malID]
+            if found == nil { found = await lookupAnilistID(malID: malID) }
+            guard let anilistID = found else { continue }
             cached[malID] = anilistID
             stateLock.lock()
             alToMAL[anilistID] = malID
@@ -228,9 +228,9 @@ final class MALSync: ListTracker {
     // MARK: - Entries
 
     func deleteEntry(mediaID: Int, malID knownMALID: Int?) async {
-        var malID = knownMALID
-        if malID == nil { malID = await lookupMALID(anilistID: mediaID) }
-        guard let malID, let url = URL(string: "\(Endpoint.anime)/\(malID)/my_list_status") else { return }
+        var found = knownMALID
+        if found == nil { found = await lookupMALID(anilistID: mediaID) }
+        guard let malID = found, let url = URL(string: "\(Endpoint.anime)/\(malID)/my_list_status") else { return }
         let answer = await request(url, method: "DELETE")
         if answer.failed { return }
         remove(mediaID)
@@ -243,9 +243,9 @@ final class MALSync: ListTracker {
                 continuation.resume(returning: try? result.get())
             }
         }
-        var malID = media?.malId
-        if malID == nil { malID = await lookupMALID(anilistID: mediaID) }
-        guard let malID else {
+        var found = media?.malId
+        if found == nil { found = await lookupMALID(anilistID: mediaID) }
+        guard let malID = found else {
             TrackerToast.error("MAL Sync", "Could not find MAL ID for this media.")
             return
         }

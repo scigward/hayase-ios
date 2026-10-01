@@ -195,11 +195,11 @@ final class KitsuSync: ListTracker {
             let animeRelationships = anime[animeID]?["relationships"] as? [String: Any]
             let mappingData = (animeRelationships?["mappings"] as? [String: Any])?["data"]
             let references: [[String: Any]] = (mappingData as? [[String: Any]]) ?? (mappingData as? [String: Any]).map { [$0] } ?? []
-            let anilistID = references
+            let externalID = references
                 .compactMap { mappings[$0["id"] as? String ?? ""] }
                 .first
                 .flatMap { ($0["attributes"] as? [String: Any])?["externalId"] as? String }
-            guard let anilistID, let mediaID = Int(anilistID) else { continue }
+            guard let anilistID = externalID, let mediaID = Int(anilistID) else { continue }
             stateLock.lock()
             kitsuToAL[animeID] = anilistID
             alToKitsu[anilistID] = animeID
@@ -277,9 +277,9 @@ final class KitsuSync: ListTracker {
             return
         }
         stateLock.lock()
-        let favouriteID = favourites[kitsuID]
+        let known = favourites[kitsuID]
         stateLock.unlock()
-        guard let favouriteID else {
+        guard let favouriteID = known else {
             await makeFavourite(kitsuAnimeID: kitsuID)
             return
         }

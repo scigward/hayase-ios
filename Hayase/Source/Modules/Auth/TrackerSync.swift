@@ -48,8 +48,14 @@ enum TrackerAuthStore {
     private static func key(_ kind: TrackerKind) -> String { "tracker_oauth_\(kind.rawValue)" }
 
     static func load(_ kind: TrackerKind) -> TrackerOAuth? {
-        guard let json = Keychain.string(forKey: key(kind)), let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(TrackerOAuth.self, from: data)
+        if let json = Keychain.string(forKey: key(kind)), let data = json.data(using: .utf8),
+           let auth = try? JSONDecoder().decode(TrackerOAuth.self, from: data) {
+            return auth
+        }
+        // a login from before the whole answer of the token endpoint was kept: only the access token
+        guard let token = TrackerAccountManager.shared.token(for: kind) else { return nil }
+        return TrackerOAuth(accessToken: token, refreshToken: nil, expiresIn: nil,
+                            createdAt: Date().timeIntervalSince1970.rounded(.down))
     }
 
     /// `auth.set(…)`. The access token also goes where the rest of the app looks for it.
