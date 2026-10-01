@@ -42,6 +42,80 @@ enum WebTorrentBackendError: LocalizedError {
     }
 }
 
+/// A WebTorrent load in flight. Cancelling it stops the wait for its result and has the bridge
+/// drop the load, so a metadata fetch nobody wants does not carry on in the background.
+final class WebTorrentPlayRequest {
+    let id = UUID().uuidString
+    private unowned let backend: WebTorrentBackend
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var cancelled = false
+    private var finished = false
+    private var released = false
+
+    fileprivate init(backend: WebTorrentBackend) {
+        self.backend = backend
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    /// False when the load was cancelled first, so its result must not be used.
+    fileprivate func markFinished() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { return false }
+        finished = true
+        return true
+    }
+
+    fileprivate func attach(_ task: URLSessionDataTask?) {
+        lock.lock()
+        self.task = task
+        let cancelled = cancelled
+        lock.unlock()
+        if cancelled, let task {
+            task.cancel()
+            backend.cancelPlay(requestID: id)
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !cancelled, !finished else {
+            lock.unlock()
+            return
+        }
+        cancelled = true
+        let task = task
+        lock.unlock()
+        if let task {
+            task.cancel()
+            backend.cancelPlay(requestID: id)
+        }
+    }
+
+    /// Ends what the request started, once: a load still pending is cancelled, a finished one
+    /// gives its torrent back to the backend. The bridge ignores this when a newer load has
+    /// taken the session over.
+    func release() {
+        lock.lock()
+        let wasFinished = finished
+        let wasReleased = released
+        released = true
+        lock.unlock()
+        guard !wasReleased else { return }
+        if wasFinished {
+            backend.stopSession(requestID: id)
+        } else {
+            cancel()
+        }
+    }
+}
+
 final class WebTorrentBackend {
     static let shared = WebTorrentBackend()
 
@@ -71,12 +145,17 @@ final class WebTorrentBackend {
     private var lastErrorEventID = 0
     private var errorPollInFlight = false
 
+    /// What the bridge was last given, so a play does not send settings that did not change.
+    private var appliedSettings: TorrentBackendSettings?
+
     private func startErrorNotifications() {
         guard errorTimer == nil else { return }
         errorTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self, !self.errorPollInFlight else { return }
             self.errorPollInFlight = true
-            self.bridge.status { [weak self] result in
+            // Asking for the events after the last one seen keeps an error from being pushed
+            // out of the bridge's short default window by chattier events.
+            self.bridge.status(afterEventID: self.lastErrorEventID) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.errorPollInFlight = false
@@ -100,11 +179,60 @@ final class WebTorrentBackend {
                 StreamingLogger.shared.error("Failed to apply torrent settings: \(error.localizedDescription)")
                 return
             }
-            self?.bridge.updateSettings(TorrentBackendSettings()) { result in
+            self?.syncSettings { result in
                 if case .failure(let error) = result {
                     StreamingLogger.shared.error("Failed to apply torrent settings: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    /// Sends the settings the user has saved unless the bridge already has them. A failed update
+    /// is not remembered as applied, so the next play tries again and reports the failure.
+    private func syncSettings(completion: @escaping (Result<Void, Error>) -> Void) {
+        let settings = TorrentBackendSettings()
+        lock.lock()
+        let upToDate = appliedSettings == settings
+        lock.unlock()
+        if upToDate {
+            completion(.success(()))
+            return
+        }
+        bridge.updateSettings(settings) { [weak self] result in
+            if case .success = result, let self {
+                self.lock.lock()
+                self.appliedSettings = settings
+                self.lock.unlock()
+            }
+            completion(result)
+        }
+    }
+
+    /// Whether the bridge is up, for calls that must not start it.
+    private var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if case .ready = startState { return true }
+        return false
+    }
+
+    fileprivate func cancelPlay(requestID: String) {
+        guard isRunning else { return }
+        bridge.cancelPlay(requestID: requestID)
+    }
+
+    /// Gives the foreground torrent back, as torrent-client's `stopSession`: it is removed
+    /// unless Persist Files is on. With a `requestID` only the load that owns it may.
+    func stopSession(requestID: String? = nil) {
+        guard isRunning else { return }
+        bridge.stopSession(requestID: requestID)
+    }
+
+    func cachedTorrents(completion: @escaping (Result<[String], Error>) -> Void) {
+        withReadyBridge { bridge in
+            bridge.cachedTorrents(completion: completion)
+        } failure: { error in
+            completion(.failure(error))
         }
     }
 
@@ -231,33 +359,48 @@ final class WebTorrentBackend {
         }
     }
 
+    /// A cancelled request never calls `completion`.
+    @discardableResult
     func playTorrent(torrentEntity: Torrents,
                      mediaID: Int,
                      episode: Int,
-                     completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) {
+                     completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) -> WebTorrentPlayRequest {
+        let request = WebTorrentPlayRequest(backend: self)
+        let finish = { (result: Result<[WebTorrentFile], Error>) in
+            if request.markFinished() { completion(result) }
+        }
         resolveTorrentSource(for: torrentEntity) { [weak self] sourceResult in
-            guard let self else { return }
+            guard let self, !request.isCancelled else { return }
             switch sourceResult {
             case .success(let source):
                 print("WebTorrentBackend: source=\(source.kind) value=\(source.preview)")
                 self.ensureStarted { [weak self] startResult in
-                    guard let self else { return }
+                    guard let self, !request.isCancelled else { return }
                     switch startResult {
                     case .success:
-                        self.bridge.updateSettings(TorrentBackendSettings()) { _ in
-                            self.bridge.playTorrent(id: source.payload,
-                                                    mediaID: mediaID,
-                                                    episode: episode,
-                                                    completion: completion)
+                        // A failed settings update must not be played over as if it had worked.
+                        self.syncSettings { settingsResult in
+                            guard !request.isCancelled else { return }
+                            switch settingsResult {
+                            case .success:
+                                request.attach(self.bridge.playTorrent(id: source.payload,
+                                                                       mediaID: mediaID,
+                                                                       episode: episode,
+                                                                       requestID: request.id,
+                                                                       completion: finish))
+                            case .failure(let error):
+                                finish(.failure(error))
+                            }
                         }
                     case .failure(let error):
-                        completion(.failure(error))
+                        finish(.failure(error))
                     }
                 }
             case .failure(let error):
-                completion(.failure(error))
+                finish(.failure(error))
             }
         }
+        return request
     }
 
     private func withReadyBridge(_ body: @escaping (WebTorrentBridgeClient) -> Void,

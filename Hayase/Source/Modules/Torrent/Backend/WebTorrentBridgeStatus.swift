@@ -17,6 +17,12 @@ struct WebTorrentBridgeEvent: Decodable {
     let source: String?
 }
 
+/// A Chromecast/DLNA session the bridge started: `playing`, `ended` or `error`.
+struct WebTorrentCastSession: Decodable {
+    let state: String
+    let error: String?
+}
+
 struct WebTorrentBridgeStatus: Decodable {
     let version: String?
     let phase: String
@@ -42,6 +48,7 @@ struct WebTorrentBridgeStatus: Decodable {
     let lastError: String?
     let updatedAt: TimeInterval?
     let events: [WebTorrentBridgeEvent]?
+    let cast: [String: WebTorrentCastSession]?
 
     var hudMessage: String {
         var message: String
@@ -109,6 +116,7 @@ struct WebTorrentBridgeStatus: Decodable {
                                lastWarning: nil,
                                lastError: nil,
                                updatedAt: nil,
-                               events: nil)
+                               events: nil,
+                               cast: nil)
     }
 }

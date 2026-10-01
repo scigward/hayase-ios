@@ -31,6 +31,10 @@ final class TorrentBackendManager {
 
     func backendSelectionDidChange() {
         applyCurrentSettings()
+        // Playback on the backend that was replaced is over, and so is its hold on a torrent.
+        if currentKind != .webtorrent {
+            webTorrentBackend.stopSession()
+        }
     }
 
     func updateNativeTorrentEntityInController(_ torrentEntity: Torrents,
@@ -41,11 +45,15 @@ final class TorrentBackendManager {
     func playWebTorrent(torrentEntity: Torrents,
                         mediaID: Int,
                         episode: Int,
-                        completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) {
+                        completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) -> WebTorrentPlayRequest {
         webTorrentBackend.playTorrent(torrentEntity: torrentEntity,
                                       mediaID: mediaID,
                                       episode: episode,
                                       completion: completion)
+    }
+
+    func webTorrentCachedTorrents(completion: @escaping (Result<[String], Error>) -> Void) {
+        webTorrentBackend.cachedTorrents(completion: completion)
     }
 
     func webTorrentStatus(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {

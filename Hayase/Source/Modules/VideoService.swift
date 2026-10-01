@@ -16,6 +16,11 @@ public class VideoService: NSObject {
     private let forcedBackendKind: TorrentBackendKind?
     /// Forwarded to VideoListViewController so it can display an error alert.
     var lastError: Error? = nil
+    /// The media the torrent is played for, when the caller has it already, so web seeds need
+    /// no second lookup.
+    var media: AnimeItem?
+    /// The WebTorrent load this service started, which it drops with it.
+    private var webTorrentPlay: WebTorrentPlayRequest?
 
     /// Guards against `HandleTorrentInControllerDidUpdate` stopping the spinner
     /// before `UpdateLocalVideosWithHandle` has finished populating CoreData.
@@ -37,6 +42,14 @@ public class VideoService: NSObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        // A load nobody is left to receive would otherwise carry on fetching metadata.
+        webTorrentPlay?.cancel()
+    }
+
+    /// Hands the torrent back to the backend once playback of it has ended for good, not when
+    /// it merely moves to the miniplayer. A load that was still pending is cancelled.
+    func releaseWebTorrentSession() {
+        webTorrentPlay?.release()
     }
 
     func UpdateLocalVideo() {
@@ -68,16 +81,18 @@ public class VideoService: NSObject {
 
     private func UpdateLocalVideoWithWebTorrent() {
         let mediaID = torrentEntity.animes?.animeAnilistId?.intValue ?? 0
-        TorrentBackendManager.shared.playWebTorrent(torrentEntity: torrentEntity,
-                                                    mediaID: mediaID,
-                                                    episode: requestedEpisode) { [weak self] result in
+        webTorrentPlay?.cancel()
+        webTorrentPlay = TorrentBackendManager.shared.playWebTorrent(torrentEntity: torrentEntity,
+                                                                     mediaID: mediaID,
+                                                                     episode: requestedEpisode) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch result {
                 case .success(let files):
                     self.ClearCurrentTorrentEntityAndVideos()
                     self.InsertVideosFromWebTorrentFiles(files)
-                    WebTorrentWebSeeds.add(hash: files.first?.hash ?? "", mediaID: mediaID,
+                    WebTorrentDownloaded.shared.add(files.first?.hash)
+                    WebTorrentWebSeeds.add(hash: files.first?.hash ?? "", mediaID: mediaID, media: self.media,
                                            episode: self.requestedEpisode > 0 ? self.requestedEpisode : nil,
                                            files: .batch(files.map { WebSeedFile(name: $0.name, index: $0.id) }))
                 case .failure(let error):

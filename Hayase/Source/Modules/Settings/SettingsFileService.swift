@@ -138,8 +138,7 @@ enum SettingsFileService {
             case "uiScale": range = 0.3...2.5
             case "playerSeek", "torrentSpeed": range = 1...50
             case "maxConns": range = 1...512
-            case "nzbPoolSize": range = 1...128
-            case "nzbPort": range = 1...65535
+            case "nzbPoolSize": range = 0...128
             default: range = 0...65535
             }
             guard range.contains(number),

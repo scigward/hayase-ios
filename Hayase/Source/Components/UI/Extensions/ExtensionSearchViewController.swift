@@ -261,6 +261,11 @@ final class ExtensionSearchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // server.downloaded is a store: results re-rank and re-mark as it changes.
+        NotificationCenter.default.addObserver(self, selector: #selector(downloadedDidChange),
+                                               name: WebTorrentDownloaded.didChange, object: nil)
+        // The backend starts on demand here, so what it has cached is read before it is needed.
+        if TorrentBackendManager.shared.currentKind == .webtorrent { WebTorrentDownloaded.shared.refresh() }
         currentEpisode = initialEpisode
         if shouldAutoSelectOnSearch {
             autoSelectAfterSearch = true
@@ -934,6 +939,11 @@ final class ExtensionSearchViewController: UIViewController {
         }
     }
 
+    @objc private func downloadedDidChange() {
+        guard isViewLoaded, !results.isEmpty else { return }
+        applyFilter()
+    }
+
     private func applyFilter() {
         let query = filterText.lowercased()
         let filtered: [TorrentResult]
@@ -954,15 +964,14 @@ final class ExtensionSearchViewController: UIViewController {
     }
 
     /// Mirrors web filterAndSortResults() from SearchModal.svelte exactly.
-    /// Ranks: low accuracy → 3, low seeders → 2, quality(best/alt with pref) → 0, normal → 1.
+    /// Ranks: low accuracy → 3, downloaded → 0, low seeders → 2, quality(best/alt with pref) → 0, normal → 1.
     /// Within rank 1: accuracy (high first), then by preference (size or seeders).
     private func filterAndSortResults(_ results: [TorrentResult]) -> [TorrentResult] {
         let preference = Settings.lookupPreference
         return results.sorted { a, b in
             func getRank(_ res: TorrentResult) -> Int {
                 if res.accuracy == "low" { return 3 }
-                // Web: if (downloaded.has(res.hash)) return 0
-                // iOS doesn't track downloaded torrents yet — skip this rank
+                if WebTorrentDownloaded.shared.contains(res.hash) { return 0 }
                 if res.seeders <= 15 { return 2 }
                 if (res.type == "best" || res.type == "alt") && preference == "quality" { return 0 }
                 return 1
@@ -1225,6 +1234,7 @@ final class ExtensionSearchViewController: UIViewController {
     // The route changes once, before fetching. The same player is hydrated on completion.
     private func waitForMetadataAndPlay(entity: Torrents) {
         let vs = VideoService(torrentEntity: entity, episode: currentEpisode)
+        vs.media = animeItem
         pendingVideoService = vs
         pendingEntity = entity
         metadataObserver = NotificationCenter.default.addObserver(
@@ -1447,7 +1457,8 @@ extension ExtensionSearchViewController: UITableViewDataSource, UITableViewDeleg
         let result = filteredResults[indexPath.row]
         let configs = ExtensionService.shared.configs
         let accent = Self.uiColor(fromHex: animeItem?.coverColor) ?? .white
-        cell.configure(with: result, configs: configs, accent: accent)
+        cell.configure(with: result, configs: configs, accent: accent,
+                       isDownloaded: WebTorrentDownloaded.shared.contains(result.hash))
         return cell
     }
 
@@ -1883,7 +1894,22 @@ final class TorrentResultCell: UITableViewCell {
         badgeLeadingConstraint.constant = badgeInset
     }
 
-    func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white) {
+    /// lucide `Download`, drawn thin as `stroke-width='0.5'` at `size-12`: `text-[#53da33] opacity-80`.
+    private static let downloadedIcon: UIImage = {
+        let size: CGFloat = 48
+        return UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { context in
+            context.cgContext.scaleBy(x: size / 24, y: size / 24)
+            UIColor(red: 0.325, green: 0.855, blue: 0.200, alpha: 0.8).setStroke()
+            let icon = UIBezierPath(cgPath: SVGPath.path("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"))
+            icon.lineWidth = 0.5
+            icon.lineCapStyle = .round
+            icon.lineJoinStyle = .round
+            icon.stroke()
+        }.withRenderingMode(.alwaysOriginal)
+    }()
+
+    func configure(with result: TorrentResult, configs: [String: ExtensionConfig], accent: UIColor = .white,
+                   isDownloaded: Bool = false) {
         let title = result.title
         accentColor = accent
 
@@ -1902,9 +1928,11 @@ final class TorrentResultCell: UITableViewCell {
         // ── Card opacity for low accuracy (mirrors class:opacity-40={result.accuracy === 'low'})
         contentView.alpha = result.accuracy == "low" ? 0.4 : 1.0
 
-        // ── File icon (folder=batch/best/alt, file=single, mirrors Folder/File icons)
+        // ── File icon (download=cached, folder=batch/best/alt, file=single, mirrors Download/Folder/File icons)
         let yellow = UIColor(red: 1.0, green: 0.796, blue: 0.231, alpha: 1) // text-yellow-300
-        if let rtype = result.type, !rtype.isEmpty {
+        if isDownloaded {
+            fileIconView.image = Self.downloadedIcon
+        } else if let rtype = result.type, !rtype.isEmpty {
             // batch / best / alt → folder icon (yellow)
             fileIconView.image = UIImage.hayaseFilledIcon("folder", pointSize: 48)?
                 .withTintColor(yellow.withAlphaComponent(0.8), renderingMode: .alwaysOriginal)

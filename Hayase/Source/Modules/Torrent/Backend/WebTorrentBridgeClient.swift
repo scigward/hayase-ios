@@ -28,7 +28,7 @@ enum WebTorrentBridgeError: LocalizedError {
 }
 
 final class WebTorrentBridgeClient {
-    static let expectedVersion = "hayase-webtorrent-bridge-v9"
+    static let expectedVersion = "hayase-webtorrent-bridge-v10"
 
     private struct BridgeErrorPayload: Decodable {
         let message: String
@@ -59,8 +59,10 @@ final class WebTorrentBridgeClient {
     }
 
     /// Every bridge request carries the per-launch token; the bridge rejects the rest.
-    private func makeRequest(path: String, timeout: TimeInterval) -> URLRequest {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path), timeoutInterval: timeout)
+    private func makeRequest(path: String, query: [URLQueryItem] = [], timeout: TimeInterval) -> URLRequest {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        if !query.isEmpty { components?.queryItems = query }
+        var request = URLRequest(url: components?.url ?? baseURL.appendingPathComponent(path), timeoutInterval: timeout)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
@@ -94,8 +96,12 @@ final class WebTorrentBridgeClient {
         }.resume()
     }
 
-    func status(completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
-        let request = makeRequest(path: "status", timeout: 2.0)
+    /// `afterEventID`: the last event the caller has seen. The bridge then returns every event
+    /// since, where otherwise it returns only the latest few.
+    func status(afterEventID: Int? = nil, completion: @escaping (Result<WebTorrentBridgeStatus, Error>) -> Void) {
+        let request = makeRequest(path: "status",
+                                  query: afterEventID.map { [URLQueryItem(name: "after", value: String($0))] } ?? [],
+                                  timeout: 2.0)
         session.dataTask(with: request) { data, _, error in
             if let error {
                 completion(.failure(error))
@@ -124,15 +130,33 @@ final class WebTorrentBridgeClient {
         }
     }
 
+    /// `requestID` names the load, so `cancelPlay` can drop it.
     func playTorrent(id: Any,
                      mediaID: Int,
                      episode: Int,
-                     completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) {
+                     requestID: String,
+                     completion: @escaping (Result<[WebTorrentFile], Error>) -> Void) -> URLSessionDataTask? {
         call(method: "playTorrent", params: [
             "id": id,
             "mediaID": mediaID,
             "episode": episode,
+            "requestID": requestID,
         ], completion: completion)
+    }
+
+    func cancelPlay(requestID: String) {
+        call(method: "cancelPlay", params: ["requestID": requestID]) { (_: Result<EmptyResult, Error>) in }
+    }
+
+    /// Releases the backend session. With a `requestID` only the load that owns it may.
+    func stopSession(requestID: String?) {
+        var params: [String: Any] = [:]
+        params["requestID"] = requestID
+        call(method: "stopSession", params: params) { (_: Result<EmptyResult, Error>) in }
+    }
+
+    func cachedTorrents(completion: @escaping (Result<[String], Error>) -> Void) {
+        call(method: "cachedTorrents", params: [:], completion: completion)
     }
 
 
@@ -218,9 +242,10 @@ final class WebTorrentBridgeClient {
         }
     }
 
+    @discardableResult
     private func call<T: Decodable>(method: String,
                                     params: [String: Any],
-                                    completion: @escaping (Result<T, Error>) -> Void) {
+                                    completion: @escaping (Result<T, Error>) -> Void) -> URLSessionDataTask? {
         var request = makeRequest(path: "rpc", timeout: 120)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -233,10 +258,10 @@ final class WebTorrentBridgeClient {
             ])
         } catch {
             completion(.failure(error))
-            return
+            return nil
         }
 
-        session.dataTask(with: request) { data, _, error in
+        let task = session.dataTask(with: request) { data, _, error in
             if let error {
                 completion(.failure(error))
                 return
@@ -255,6 +280,8 @@ final class WebTorrentBridgeClient {
             } catch {
                 completion(.failure(error))
             }
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 }

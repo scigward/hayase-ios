@@ -1,15 +1,15 @@
 import http from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import process from 'node:process'
-import { mkdir } from 'node:fs/promises'
+import { access, constants, mkdir } from 'node:fs/promises'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createRequire } from 'node:module'
 
-const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v9'
-const MAX_EVENTS = 40
+const BRIDGE_VERSION = 'hayase-webtorrent-bridge-v10'
+const MAX_EVENTS = 200
 const TORRENT_FETCH_TIMEOUT_MS = 30_000
 const METADATA_TIMEOUT_MS = 90_000
 const MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -71,7 +71,17 @@ let client = null
 let loadError = null
 let clientObserversInstalled = false
 let addPatched = false
-let activeTorrent = null
+
+// A foreground load that has not finished yet, by the request that started it. Cancelling one
+// rolls the session back to what was playing before it.
+const plays = new Set()
+// Requests whose cancel arrived before the load itself did.
+const cancelledPlays = new Set()
+// What the session owns once a load succeeded, and the request that loaded it.
+let settledHash = null
+let settledPlayID = null
+// Chromecast/DLNA sessions by host: the play RPC returns at once, the session runs on.
+const casts = new Map()
 
 const events = []
 let eventSequence = 0
@@ -202,9 +212,13 @@ function getInnerClient () {
 // torrent-client's initTorrent awaits register(), which itself awaits pool.ready.
 // Keep registration running, but do not let an unavailable NNTP pool reject or
 // delay playTorrent. Scope this to the manager, not arbitrary torrent failures.
-function isolateOptionalNZB () {
+function nzbManager () {
   const key = Object.getOwnPropertySymbols(client ?? {}).find(symbol => symbol.description === 'nzb')
-  const manager = key ? client[key] : null
+  return key ? client[key] : null
+}
+
+function isolateOptionalNZB () {
+  const manager = nzbManager()
   if (!manager || isolatedNZBManagers.has(manager)) return
   isolatedNZBManagers.add(manager)
   const reported = new Set()
@@ -242,58 +256,43 @@ function numericValue (value) {
 }
 
 function torrentByHash (hash) {
-  const webtorrent = getInnerClient()
-  if (!webtorrent) return null
-  if (hash) {
-    const normalized = String(hash).toLowerCase()
-    const match = webtorrent.torrents?.find(torrent => String(torrent.infoHash ?? '').toLowerCase() === normalized)
-    if (match) return match
-  }
-  return activeTorrent ?? webtorrent.torrents?.[0] ?? null
+  if (!hash) return null
+  const normalized = String(hash).toLowerCase()
+  return getInnerClient()?.torrents?.find(torrent => String(torrent.infoHash ?? '').toLowerCase() === normalized) ?? null
 }
 
-function statsFromTorrent (torrent) {
-  if (!torrent) throw new Error('Torrent not found')
+// The foreground torrent is the one this process's session owns, as `server.active` is in
+// interface, and not whichever torrent was added first or last.
+function foregroundHash () {
+  return client?.sessions?.get(sessionID) ?? null
+}
 
-  const wires = torrentWires(torrent)
-  const seeders = wires.filter(wire => Boolean(wire?.isSeeder)).length
-  const leechers = Math.max(0, wires.length - seeders)
-  const pieces = Array.isArray(torrent.pieces) ? torrent.pieces : []
-  const total = numericValue(torrent.length)
-  const downloaded = numericValue(torrent.downloaded)
-
+// torrent-client's getStats, with its numbers made whole: the native side decodes them as
+// unsigned integers and rejects a fractional rate (speedometer rates are fractional).
+function normalizedStats (stats) {
+  const remaining = Number(stats.time?.remaining)
   return {
-    hash: String(torrent.infoHash ?? ''),
-    name: String(torrent.name ?? torrent.infoHash ?? 'WebTorrent'),
-    progress: total > 0 ? Math.max(0, Math.min(downloaded / total, 1)) : numericValue(torrent.progress),
-    speed: {
-      down: numericValue(torrent.downloadSpeed),
-      up: numericValue(torrent.uploadSpeed)
-    },
+    ...stats,
+    name: String(stats.name ?? stats.hash ?? ''),
+    progress: Number.isFinite(stats.progress) ? stats.progress : 0,
+    speed: { down: numericValue(stats.speed?.down), up: numericValue(stats.speed?.up) },
     size: {
-      downloaded,
-      uploaded: numericValue(torrent.uploaded),
-      total
+      downloaded: numericValue(stats.size?.downloaded),
+      uploaded: numericValue(stats.size?.uploaded),
+      total: numericValue(stats.size?.total)
     },
-    time: {
-      remaining: Number.isFinite(Number(torrent.timeRemaining)) ? Number(torrent.timeRemaining) : 0,
-      elapsed: Math.max(0, (Date.now() - (torrent.__hayaseStartedAt ?? Date.now())) / 1000)
-    },
+    time: { remaining: Number.isFinite(remaining) ? remaining : 0, elapsed: numericValue(stats.time?.elapsed) },
     peers: {
-      seeders,
-      leechers,
-      wires: wires.length
+      seeders: numericValue(stats.peers?.seeders),
+      leechers: numericValue(stats.peers?.leechers),
+      wires: numericValue(stats.peers?.wires)
     },
-    pieces: {
-      total: pieces.length,
-      size: numericValue(torrent.pieceLength)
-    }
+    pieces: { total: numericValue(stats.pieces?.total), size: numericValue(stats.pieces?.size) }
   }
 }
 
 function refreshTorrentStatus () {
-  const webtorrent = getInnerClient()
-  const torrent = activeTorrent ?? webtorrent?.torrents?.[0]
+  const torrent = torrentByHash(foregroundHash())
   if (!torrent) {
     status.ready = false
     status.metadata = false
@@ -311,21 +310,22 @@ function refreshTorrentStatus () {
     return status
   }
 
-  activeTorrent = torrent
+  const connected = torrentWires(torrent).length
+  const total = numericValue(torrent.length)
+  const downloaded = numericValue(torrent.downloaded)
   status.infoHash = torrent.infoHash ?? status.infoHash
   status.ready = Boolean(torrent.ready)
   status.metadata = Boolean(torrent.metadata || torrent.ready || torrent.files?.length)
-  const stats = statsFromTorrent(torrent)
-  status.peers = stats.peers.wires
+  status.peers = connected
   status.discoveredPeers = discoveredPeerCount(torrent)
-  status.wires = stats.peers.wires
+  status.wires = connected
   status.files = torrent.files?.length ?? 0
-  status.downloaded = stats.size.downloaded
-  status.uploaded = stats.size.uploaded
-  status.total = stats.size.total
-  status.downloadSpeed = stats.speed.down
-  status.uploadSpeed = stats.speed.up
-  status.progress = stats.progress
+  status.downloaded = downloaded
+  status.uploaded = numericValue(torrent.uploaded)
+  status.total = total
+  status.downloadSpeed = numericValue(torrent.downloadSpeed)
+  status.uploadSpeed = numericValue(torrent.uploadSpeed)
+  status.progress = total > 0 ? Math.max(0, Math.min(downloaded / total, 1)) : (Number(torrent.progress) || 0)
   status.updatedAt = Date.now()
   return status
 }
@@ -342,33 +342,17 @@ function shortStatus () {
   return parts.join(', ')
 }
 
-function statusPayload () {
+// `after` is the id of the last event the caller has seen, so nothing it has not is dropped
+// between two polls; without it, only the latest few events come back.
+function statusPayload (after) {
   refreshTorrentStatus()
-  return { ...status, events: events.slice(-12) }
-}
-
-async function removeRunningTorrents (hashes) {
-  const webtorrent = getInnerClient()
-  if (!webtorrent || !Array.isArray(hashes) || hashes.length === 0) return
-
-  const wanted = new Set(hashes)
-  const torrents = webtorrent.torrents?.filter(torrent => wanted.has(torrent.infoHash)) ?? []
-  for (const torrent of torrents) {
-    await new Promise((resolve, reject) => {
-      webtorrent.remove(torrent, { destroyStore: true }, error => {
-        if (error) reject(error)
-        else resolve()
-      })
-    })
-    if (activeTorrent === torrent) activeTorrent = null
-  }
+  const pending = Number.isFinite(after) ? events.filter(event => event.id > after) : events.slice(-12)
+  return { ...status, events: pending, cast: Object.fromEntries(casts) }
 }
 
 function observeTorrent (torrent) {
   if (!torrent || torrent.__hayaseObserved) return torrent
   torrent.__hayaseObserved = true
-  torrent.__hayaseStartedAt = Date.now()
-  activeTorrent = torrent
   refreshTorrentStatus()
 
   const update = phase => {
@@ -552,15 +536,115 @@ function listCurrentDisplays (client) {
   ]
 }
 
+class PlayCancelled extends Error {
+  constructor () {
+    super('Torrent request was cancelled')
+    this.name = 'PlayCancelled'
+  }
+}
+
+// torrent-client claims the session for the new hash before it is ready and only evicts the
+// previous torrent once it is, so a load that never finishes leaves its torrent behind.
+async function releaseOrphan (activeClient, hash) {
+  if (!hash || [...activeClient.sessions.values()].includes(hash)) return
+  if (activeClient.torrentState.has(hash)) {
+    await activeClient.evictOrphan(hash)
+    return
+  }
+  // Still waiting for metadata: nothing is registered yet, so evictOrphan cannot see it.
+  const pending = torrentByHash(hash)
+  if (pending) {
+    await new Promise(resolve => getInnerClient().remove(pending, { destroyStore: !activeClient.persist }, resolve))
+  }
+}
+
+// Drops a load: the session goes back to what was playing before it, unless a newer load has
+// taken it over, and the torrent it added goes away unless something else owns it.
+async function abandonPlay (activeClient, play) {
+  play.cancelled = true
+  const superseded = [...plays].some(other => other !== play && !other.cancelled)
+  if (!superseded && activeClient.sessions.get(sessionID) === play.hash) {
+    if (settledHash) activeClient.sessions.set(sessionID, settledHash)
+    else activeClient.sessions.delete(sessionID)
+  }
+  await releaseOrphan(activeClient, play.hash)
+}
+
+async function playTorrent (activeClient, params) {
+  const requestID = typeof params.requestID === 'string' ? params.requestID : null
+  if (requestID && cancelledPlays.delete(requestID)) throw new PlayCancelled()
+
+  const torrentID = await resolveTorrentID(params.id)
+  const play = { id: requestID, hash: null, cancelled: false, cancel: () => {} }
+  const cancellation = new Promise((resolve, reject) => { play.cancel = () => reject(new PlayCancelled()) })
+  cancellation.catch(() => {})
+  // Only one thing plays in the foreground: a new load replaces any that is still pending.
+  plays.add(play)
+  for (const other of plays) {
+    if (other === play) continue
+    other.cancelled = true
+    other.cancel()
+  }
+
+  setPhase('adding-torrent')
+  try {
+    play.hash = (await activeClient.toInfoHash(torrentID)) ?? null
+    if (play.cancelled) throw new PlayCancelled()
+    const files = await withTimeout(
+      // 4th arg is torrent-client's sessionID (see note at top of file); 5th is `background`,
+      // left false: this bridge only plays one thing at a time in the foreground.
+      Promise.race([
+        activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0, sessionID, false),
+        cancellation
+      ]),
+      METADATA_TIMEOUT_MS,
+      () => 'Timed out while fetching torrent metadata'
+    )
+    if (play.cancelled) throw new PlayCancelled()
+    const previous = settledHash
+    settledHash = play.hash
+    settledPlayID = play.id
+    // torrent-client only evicts what the session held when this load began, which is a pending
+    // load's torrent if one was replaced on the way.
+    if (previous && previous !== play.hash) await releaseOrphan(activeClient, previous)
+    setPhase('ready')
+    status.files = files.length
+    refreshTorrentStatus()
+    // Match interface/client.ts: storage warnings must never delay playback.
+    Promise.resolve().then(() => activeClient.checkAvailableSpace()).then(space => {
+      if (space >= 1e9 || !Number.isFinite(space)) return
+      const units = [' B', ' kB', ' MB', ' GB', ' TB']
+      const exponent = space < 1 ? 0 : Math.min(Math.floor(Math.log(space) / Math.log(1000)), units.length - 1)
+      const available = Number((space / Math.pow(1000, exponent)).toFixed(1)) + units[exponent]
+      record('error', `${available} available, 1GB is the recommended minimum. Consider freeing up some space otherwise issues may occur.`,
+        { userFacing: true, title: 'Low disk space' })
+    }).catch(error => record('warning', error?.message ?? error))
+    return files
+  } catch (error) {
+    await abandonPlay(activeClient, play)
+    if (error instanceof PlayCancelled) {
+      setPhase(settledHash ? 'ready' : 'idle')
+    } else {
+      status.lastError = error?.message ?? String(error)
+      setPhase('failed')
+    }
+    // Keep upstream wording intact; diagnostics remain in /status and /logs.
+    throw error
+  } finally {
+    plays.delete(play)
+  }
+}
+
 async function handleRPC (payload) {
   const params = payload.params ?? {}
 
   if (payload.method === 'updateSettings') {
     const revision = ++settingsRevision
     const updated = normalizedSettings(params.settings ?? {})
+    const before = JSON.stringify(clientSettings())
     if (updated.path && updated.path !== downloadPath) {
       // Folder selection affects the next torrent; existing stores keep their path.
-      await mkdir(updated.path, { recursive: true })
+      await verifiedDirectory(updated.path)
       if (revision !== settingsRevision) return {}
       downloadPath = updated.path
     }
@@ -570,9 +654,19 @@ async function handleRPC (payload) {
     const currentSettings = clientSettings()
     status.dht = currentSettings.torrentDHT === false
     status.pex = currentSettings.torrentPeX === false
-    if (client) {
+    // torrent-client rebuilds its Usenet pool and store on every call, dropping the pool's
+    // connections, and every play sends the settings: leave it be when nothing changed.
+    if (client && JSON.stringify(currentSettings) !== before) {
+      const previous = nzbManager()
       client.updateSettings(currentSettings)
       isolateOptionalNZB()
+      const next = nzbManager()
+      // The new pool does not know the torrents that are already open.
+      if (next && next !== previous) {
+        for (const { torrent } of client.torrentState.values()) {
+          if (!torrent.destroyed) next.register(torrent)
+        }
+      }
     }
     return {}
   }
@@ -581,49 +675,39 @@ async function handleRPC (payload) {
   installClientObservers()
 
   switch (payload.method) {
-    case 'playTorrent': {
-      const torrentID = await resolveTorrentID(params.id)
-      setPhase('adding-torrent')
-      try {
-        const files = await withTimeout(
-          // 4th arg is torrent-client's new required sessionID (see note at
-          // top of file); 5th is `background`, left false — this bridge only
-          // ever plays one thing at a time in the foreground, there's no
-          // Hayase-side concept of a background download to route through
-          // here yet.
-          activeClient.playTorrent(torrentID, params.mediaID ?? 0, params.episode ?? 0, sessionID, false),
-          METADATA_TIMEOUT_MS,
-          () => 'Timed out while fetching torrent metadata'
-        )
-        setPhase('ready')
-        status.files = files.length
-        refreshTorrentStatus()
-        // Match interface/client.ts: storage warnings must never delay playback.
-        Promise.resolve().then(() => activeClient.checkAvailableSpace()).then(space => {
-          if (space >= 1e9 || !Number.isFinite(space)) return
-          const units = [' B', ' kB', ' MB', ' GB', ' TB']
-          const exponent = space < 1 ? 0 : Math.min(Math.floor(Math.log(space) / Math.log(1000)), units.length - 1)
-          const available = Number((space / Math.pow(1000, exponent)).toFixed(1)) + units[exponent]
-          record('error', `${available} available, 1GB is the recommended minimum. Consider freeing up some space otherwise issues may occur.`,
-            { userFacing: true, title: 'Low disk space' })
-        }).catch(error => record('warning', error?.message ?? error))
-        return files
-      } catch (error) {
-        status.lastError = error?.message ?? String(error)
-        setPhase('failed')
-        // Keep upstream wording intact; diagnostics remain in /status and /logs.
-        throw error
+    case 'playTorrent':
+      return await playTorrent(activeClient, params)
+    case 'cancelPlay': {
+      const play = [...plays].find(candidate => candidate.id && candidate.id === params.requestID)
+      if (play) {
+        play.cancelled = true
+        play.cancel()
+      } else if (typeof params.requestID === 'string') {
+        cancelledPlays.add(params.requestID)
+        if (cancelledPlays.size > 32) cancelledPlays.delete(cancelledPlays.values().next().value)
       }
+      return {}
+    }
+    case 'stopSession': {
+      // A player that was replaced must not take the torrent of the one that replaced it down
+      // with it, so only the load that owns the session may release it. No request releases
+      // whatever the session holds.
+      if (params.requestID && (params.requestID !== settledPlayID ||
+          activeClient.sessions.get(sessionID) !== settledHash)) return {}
+      await activeClient.stopSession(sessionID)
+      settledHash = null
+      settledPlayID = null
+      refreshTorrentStatus()
+      return {}
     }
     case 'library':
       return await activeClient.library()
-    case 'torrentInfo': {
-      return statsFromTorrent(torrentByHash(params.hash))
-    }
+    case 'torrentInfo':
+      return normalizedStats(await activeClient.torrentInfo(params.hash || foregroundHash()))
     case 'peerInfo':
       // speedometer returns fractional bytes/sec. Swift's UInt64 decoding rejects
       // the WHOLE peer array if even one rate is fractional. Normalize at the
-      // native transport boundary, just as statsFromTorrent does for Overview.
+      // native transport boundary, just as normalizedStats does for Overview.
       return (await activeClient.peerInfo(params.hash)).map(peer => ({
         ...peer,
         seeder: Boolean(peer.seeder),
@@ -636,14 +720,11 @@ async function handleRPC (payload) {
       return await activeClient.trackers(params.hash)
     case 'protocolStatus':
       return await activeClient.protocolStatus(params.hash)
-    case 'deleteTorrents': {
-      const hashes = params.hashes ?? []
-      await removeRunningTorrents(hashes)
-      await activeClient.deleteTorrents(hashes)
-      activeTorrent = null
+    case 'deleteTorrents':
+      // torrent-client skips what the session owns, as it does for interface.
+      await activeClient.deleteTorrents(params.hashes ?? [])
       refreshTorrentStatus()
       return {}
-    }
     case 'rescanTorrents':
       await activeClient.rescanTorrents(params.hashes ?? [])
       return {}
@@ -661,20 +742,25 @@ async function handleRPC (payload) {
     case 'playDisplay': {
       const { host, hash, id, media } = params
       if (!host || !media) throw new Error('playDisplay requires a host and media payload')
-      // Deliberately not awaited: torrent-client's playDisplay() (chromecasts.play)
-      // only resolves once the cast session itself ends, which on a plain
-      // request/response HTTP transport would hold this call open for the
-      // entire watch session. The bridge fires it and keeps running in the
-      // background; the client is expected to call closeDisplay explicitly
-      // to end the session, same as interface's Stop button does via
-      // native.castClose (castplayer.svelte).
-      activeClient.playDisplay(host, hash ?? '', id ?? 0, media)
-        .catch(error => record('warning', `Cast session for ${host} ended: ${error?.message ?? error}`))
+      // Not awaited: torrent-client's playDisplay() only resolves once the cast session itself
+      // ends, which would hold this request open for the whole watch. The session's outcome is
+      // reported in /status instead, and the client ends it with closeDisplay, as interface's
+      // Stop button does through native.castClose.
+      const session = { state: 'playing', error: null }
+      casts.set(host, session)
+      Promise.resolve(activeClient.playDisplay(host, hash ?? '', id ?? 0, media)).then(
+        () => { session.state = 'ended' },
+        error => {
+          session.state = 'error'
+          session.error = error?.stack ?? error?.message ?? String(error)
+          record('warning', `Cast session for ${host} failed: ${session.error}`)
+        })
       return {}
     }
     case 'closeDisplay': {
       if (!params.host) throw new Error('closeDisplay requires a host')
       await activeClient.closeDisplay(params.host)
+      casts.delete(params.host)
       return {}
     }
     default:
@@ -712,14 +798,26 @@ process.on('uncaughtException', error => {
 // actual startup failure from the app. Use the writable temp directory when a
 // configured location is unavailable, and keep the real error if that fails.
 const fallbackPath = join(tmpdir(), 'HayaseWebTorrent')
+
+// The directory has to exist and be readable and writable, as torrent-client's
+// verifyDirectoryPermissions requires.
+async function verifiedDirectory (path) {
+  await mkdir(path, { recursive: true })
+  try {
+    await access(path, constants.R_OK | constants.W_OK)
+  } catch {
+    throw new Error(`Insufficient permissions to access directory: ${path}`)
+  }
+  return path
+}
+
 async function usableDirectory (candidate, fallback, label) {
   try {
-    await mkdir(candidate, { recursive: true })
-    return candidate
+    return await verifiedDirectory(candidate)
   } catch (error) {
-    record('warning', `${label} unavailable (${error?.message ?? error}); using ${fallback}`)
-    await mkdir(fallback, { recursive: true })
-    return fallback
+    record('warning', `${label} unavailable (${error?.message ?? error}); using ${fallback}`,
+      { userFacing: true, title: 'Storage location unavailable' })
+    return await verifiedDirectory(fallback)
   }
 }
 downloadPath = await usableDirectory(downloadPath || fallbackPath, fallbackPath, 'Download directory')
@@ -733,25 +831,28 @@ http.createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'GET' && request.url === '/health') {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+
+    if (request.method === 'GET' && url.pathname === '/health') {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, phase: status.phase }))
       return
     }
 
-    if (request.method === 'GET' && request.url === '/status') {
+    if (request.method === 'GET' && url.pathname === '/status') {
+      const after = url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ ok: true, result: statusPayload() }))
+      response.end(JSON.stringify({ ok: true, result: statusPayload(after) }))
       return
     }
 
-    if (request.method === 'GET' && request.url === '/logs') {
+    if (request.method === 'GET' && url.pathname === '/logs') {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ ok: true, result: events }))
       return
     }
 
-    if (request.method !== 'POST' || request.url !== '/rpc') {
+    if (request.method !== 'POST' || url.pathname !== '/rpc') {
       response.writeHead(404, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ ok: false, error: { message: 'Not found' } }))
       return

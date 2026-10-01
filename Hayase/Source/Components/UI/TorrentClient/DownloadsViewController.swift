@@ -223,9 +223,6 @@ class DownloadsViewController: UIViewController {
     private var trackerColumnWidths = TrackerTableLayout.widths(for: [])
     private var trackersMinimumWidth: NSLayoutConstraint?
     private var webTrackerRows: [(announce: String, info: WebTorrentTrackerInfo)] = []
-    private var webTrackersInFlight = false
-    private var lastWebTrackerRefresh = Date.distantPast
-    private let trackerRefreshInterval: TimeInterval = 10
 
     // MARK: - Library tab
 
@@ -245,7 +242,9 @@ class DownloadsViewController: UIViewController {
     private var webPeerInfos: [WebTorrentPeerInfo] = []
     private var webLibraryEntries: [WebTorrentLibraryEntry] = []
     private var webFilteredLibraryEntries: [WebTorrentLibraryEntry] = []
-    private var webUpdateInFlight = false
+    private var webActiveInFlight = false
+    private var webStoresInFlight = Set<WebStore>()
+    private var webStoresFetchedAt: [WebStore: Date] = [:]
     private var webSnapshotGeneration = 0
     private var webLastError: Error?
     private var animeTitleCache: [Int: String] = [:]
@@ -351,6 +350,7 @@ class DownloadsViewController: UIViewController {
 
     private func startTimer() {
         stopTimer()
+        webStoresFetchedAt.removeAll()
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.update()
         }
@@ -394,9 +394,8 @@ class DownloadsViewController: UIViewController {
         if isWebTorrentMode {
             selectedHandle = nil
             selectedEntity = nil
-            if selectedHex.isEmpty {
-                selectedHex = webStatus?.infoHash ?? webLibraryEntries.first?.hash ?? ""
-            }
+            // `server.active`: the overview follows what is playing, never a library entry.
+            selectedHex = webStatus?.infoHash ?? ""
             return
         }
 
@@ -762,6 +761,8 @@ class DownloadsViewController: UIViewController {
 
     private func showTab(_ index: Int) {
         updatePageHeader(for: index)
+        // A store starts fresh when something subscribes to it.
+        webStoresFetchedAt.removeAll()
         for (tabIndex, tabView) in tabContentViews.enumerated() {
             tabView.isHidden = tabIndex != index
         }
@@ -774,12 +775,13 @@ class DownloadsViewController: UIViewController {
         case 2:
             refreshPeers()
         case 3:
-            refreshTrackers(force: true)
+            refreshTrackers()
         case 4:
             refreshLibrary()
         default:
             break
         }
+        if isWebTorrentMode && index != 0 { updateWebTorrent() }
     }
 
     // MARK: - Files tab
@@ -1028,7 +1030,7 @@ class DownloadsViewController: UIViewController {
         }
 
         if selectedTabIndex == 3 {
-            refreshTrackers(force: false)
+            refreshTrackers()
         }
 
         if selectedTabIndex == 4 {
@@ -1036,161 +1038,170 @@ class DownloadsViewController: UIViewController {
         }
     }
 
-    private func updateWebTorrent() {
-        guard !webUpdateInFlight else { return }
-        webUpdateInFlight = true
+    // MARK: - WebTorrent stores
 
-        let manager = TorrentBackendManager.shared
-        let selectionAtRequest = selectedHex
-        let generationAtRequest = webSnapshotGeneration
-        manager.webTorrentStatus { [weak self] statusResult in
+    /// Each of interface's `server` stores (client.ts `_timedSafeStore`) polls only while something
+    /// on screen reads it, on its own schedule and apart from the others, so a slow endpoint
+    /// holds back none of the rest.
+    private enum WebStore {
+        case stats, protocolStatus, peers, files, trackers, library
+
+        /// `stats` runs every 200ms there (3s when underpowered), which a phone spares its
+        /// battery by doing once a second.
+        var interval: TimeInterval {
+            switch self {
+            case .stats: return 1
+            case .protocolStatus, .peers, .files: return 5
+            case .trackers, .library: return 120
+            }
+        }
+
+        /// Overview reads stats and protocol, and peers for its globe.
+        static func shown(onTab tab: Int) -> [WebStore] {
+            switch tab {
+            case 0: return [.stats, .protocolStatus, .peers]
+            case 1: return [.files]
+            case 2: return [.peers]
+            case 3: return [.trackers]
+            case 4: return [.library]
+            default: return []
+            }
+        }
+    }
+
+    private func updateWebTorrent() {
+        refreshWebActive()
+        for store in WebStore.shown(onTab: selectedTabIndex) {
+            // The timer's own jitter must not cost a store its turn.
+            let due = Date().timeIntervalSince(webStoresFetchedAt[store] ?? .distantPast) >= store.interval - 0.1
+            if due && !webStoresInFlight.contains(store) { fetchWebStore(store) }
+        }
+    }
+
+    /// The torrent being played, which interface holds in `server.active` and the bridge reports.
+    private func refreshWebActive() {
+        guard !webActiveInFlight else { return }
+        webActiveInFlight = true
+        TorrentBackendManager.shared.webTorrentStatus { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
-
-                let status = try? statusResult.get()
-                let requestedHash = status?.infoHash ?? self.selectedHex
-
-                let group = DispatchGroup()
-                var nextInfo: WebTorrentTorrentInfo?
-                var nextFiles: [WebTorrentFileInfo]?
-                var nextPeers: [WebTorrentPeerInfo]?
-                var nextLibrary: [WebTorrentLibraryEntry]?
-                var nextProtocol: WebTorrentProtocolStatus?
-                var nextError: Error?
-
-                if case .failure(let error) = statusResult {
-                    nextError = error
+                self.webActiveInFlight = false
+                guard self.isWebTorrentMode else { return }
+                switch result {
+                case .success(let status):
+                    if status.infoHash != self.webStatus?.infoHash { self.resetWebTorrentSnapshots() }
+                    self.webStatus = status
+                    self.selectedHex = status.infoHash ?? ""
+                    self.webLastError = nil
+                case .failure(let error):
+                    self.webLastError = error
                 }
+                self.renderWebOverview()
+            }
+        }
+    }
 
-                group.enter()
-                manager.webTorrentLibrary { result in
-                    DispatchQueue.main.async {
-                        if case .success(let entries) = result { nextLibrary = entries }
-                        group.leave()
-                    }
+    /// Another torrent is playing: what was read for the last one no longer applies.
+    private func resetWebTorrentSnapshots() {
+        webSnapshotGeneration += 1
+        webStoresFetchedAt.removeAll()
+        webInfo = nil
+        webProtocol = nil
+        webFileInfos = []
+        webTrackerRows = []
+        webPeerInfos = []
+        webFileInfoHash = nil
+        refreshFiles()
+        refreshPeers()
+        refreshTrackers()
+    }
+
+    private func fetchWebStore(_ store: WebStore) {
+        let manager = TorrentBackendManager.shared
+        let hash = selectedHex
+        // Everything but the library is about the torrent being played, and there is nothing to
+        // ask while none is.
+        guard store == .library || !hash.isEmpty else { return }
+        let generation = webSnapshotGeneration
+        webStoresInFlight.insert(store)
+
+        func finish<T>(_ result: Result<T, Error>, apply: @escaping (T) -> Void) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.webStoresInFlight.remove(store)
+                self.webStoresFetchedAt[store] = Date()
+                guard self.isWebTorrentMode, self.webSnapshotGeneration == generation else { return }
+                // A failed refresh must not erase the last successful snapshot.
+                guard case .success(let value) = result else {
+                    if case .failure(let error) = result { NSLog("[Torrent Client] %@ refresh failed: %@", "\(store)", error.localizedDescription) }
+                    return
                 }
+                apply(value)
+                self.renderWebStore(store)
+            }
+        }
 
-                if !requestedHash.isEmpty {
-                    group.enter()
-                    manager.webTorrentInfo(hash: requestedHash) { result in
-                        DispatchQueue.main.async {
-                            if case .success(let info) = result { nextInfo = info }
-                            group.leave()
-                        }
-                    }
-
-                    group.enter()
-                    manager.webTorrentFileInfo(hash: requestedHash) { result in
-                        DispatchQueue.main.async {
-                            if case .success(let files) = result { nextFiles = files }
-                            group.leave()
-                        }
-                    }
-
-                    group.enter()
-                    manager.webTorrentPeerInfo(hash: requestedHash) { result in
-                        DispatchQueue.main.async {
-                            if case .success(let peers) = result { nextPeers = peers }
-                            if case .failure(let error) = result {
-                                NSLog("[Torrent Peers] Refresh failed: %@", error.localizedDescription)
-                            }
-                            group.leave()
-                        }
-                    }
-
-                    group.enter()
-                    manager.webTorrentProtocolStatus(hash: requestedHash) { result in
-                        DispatchQueue.main.async {
-                            if case .success(let protocolStatus) = result { nextProtocol = protocolStatus }
-                            group.leave()
-                        }
-                    }
+        switch store {
+        case .stats:
+            manager.webTorrentInfo(hash: hash) { result in finish(result) { [weak self] in self?.webInfo = $0 } }
+        case .protocolStatus:
+            manager.webTorrentProtocolStatus(hash: hash) { result in finish(result) { [weak self] in self?.webProtocol = $0 } }
+        case .peers:
+            manager.webTorrentPeerInfo(hash: hash) { result in finish(result) { [weak self] in self?.webPeerInfos = $0 } }
+        case .files:
+            manager.webTorrentFileInfo(hash: hash) { result in
+                finish(result) { [weak self] in
+                    self?.webFileInfos = $0
+                    self?.webFileInfoHash = hash
                 }
-
-                group.notify(queue: .main) { [weak self] in
-                    guard let self else { return }
-                    self.webUpdateInFlight = false
-                    guard self.isWebTorrentMode, self.selectedHex == selectionAtRequest,
-                          self.webSnapshotGeneration == generationAtRequest else { return }
-                    self.applyWebTorrentState(status: status,
-                                               info: nextInfo,
-                                               files: nextFiles,
-                                               peers: nextPeers,
-                                               library: nextLibrary,
-                                               protocolStatus: nextProtocol,
-                                               error: nextError)
+            }
+        case .trackers:
+            manager.webTorrentTrackers(hash: hash) { result in
+                finish(result) { [weak self] in
+                    self?.webTrackerRows = $0
+                        .map { (announce: $0.key, info: $0.value) }
+                        .sorted { $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending }
+                }
+            }
+        case .library:
+            manager.webTorrentLibrary { result in
+                finish(result) { [weak self] in
+                    self?.webLibraryEntries = $0
+                    WebTorrentDownloaded.shared.replace(with: $0.map { $0.hash })
                 }
             }
         }
     }
 
-    private func applyWebTorrentState(status: WebTorrentBridgeStatus?,
-                                      info: WebTorrentTorrentInfo?,
-                                      files: [WebTorrentFileInfo]?,
-                                      peers: [WebTorrentPeerInfo]?,
-                                      library: [WebTorrentLibraryEntry]?,
-                                      protocolStatus: WebTorrentProtocolStatus?,
-                                      error: Error?) {
-        if let status {
-            if let hash = status.infoHash, !hash.isEmpty { selectedHex = hash }
-            if status.infoHash != webStatus?.infoHash {
-                webInfo = nil
-                webProtocol = nil
-                webFileInfos = []
-                webTrackerRows = []
-                webPeerInfos = []
-            }
-            webStatus = status
-        }
-        if let info { webInfo = info }
-        if let protocolStatus { webProtocol = protocolStatus }
-        // A failed refresh must not erase the last successful snapshot. A real
-        // empty response still clears disconnected peers; torrent changes reset above.
-        if let peers { webPeerInfos = peers }
-        // nil is a failed request; [] is a successful empty response.
-        if let library { webLibraryEntries = library }
-        webLastError = error
-        globeView.setPeers(currentPeerRows())
-
-        let resolvedStatus = status ?? webStatus
-        let resolvedInfo = info ?? webInfo
-        let resolvedProtocol = protocolStatus ?? webProtocol
-        let resolvedLibrary = webLibraryEntries
-
-        let knownHashes = Set(resolvedLibrary.map { $0.hash } + [resolvedStatus?.infoHash, resolvedInfo?.hash].compactMap { $0 })
-        if !selectedHex.isEmpty && library != nil && !knownHashes.contains(selectedHex) {
-            selectedHex = ""
-        }
-        if selectedHex.isEmpty {
-            selectedHex = resolvedStatus?.infoHash ?? resolvedInfo?.hash ?? resolvedLibrary.first?.hash ?? ""
-        }
-
-        if webFileInfoHash != selectedHex {
-            webFileInfos = []
-            webFileInfoHash = selectedHex.isEmpty ? nil : selectedHex
-        }
-        if let files {
-            webFileInfos = files
-            webFileInfoHash = selectedHex.isEmpty ? (resolvedInfo?.hash ?? resolvedStatus?.infoHash) : selectedHex
-        }
-
-        let hasTorrent = !selectedHex.isEmpty || resolvedStatus?.infoHash != nil || resolvedInfo != nil || !resolvedLibrary.isEmpty
-        if !hasTorrent {
-            clearWebTorrentOverview(error: error)
-            webTrackerRows = []
-            refreshFiles()
-            refreshPeers()
-            refreshTrackers(force: false)
+    private func renderWebStore(_ store: WebStore) {
+        switch store {
+        case .stats, .protocolStatus:
+            renderWebOverview()
+        case .peers:
+            if selectedTabIndex == 2 { refreshPeers() } else { globeView.setPeers(currentPeerRows()) }
+        case .files:
+            if selectedTabIndex == 1 { refreshFiles() }
+        case .trackers:
+            refreshTrackers()
+        case .library:
             refreshLibrary()
+        }
+    }
+
+    private func renderWebOverview() {
+        guard !selectedHex.isEmpty else {
+            clearWebTorrentOverview(error: webLastError)
             return
         }
+        let resolvedStatus = webStatus
+        let resolvedInfo = webInfo
+        let resolvedProtocol = webProtocol
 
-        let currentLibraryEntry = resolvedLibrary.first { $0.hash == selectedHex } ?? resolvedLibrary.first
-        let torrentName = resolvedInfo?.name ?? currentLibraryEntry?.name ?? ""
+        let torrentName = resolvedInfo?.name ?? ""
         nameLabel.text = torrentName.isEmpty ? "No Name Provided" : torrentName
-        hashLabel.text = selectedHex.isEmpty ? (resolvedStatus?.infoHash ?? "") : selectedHex
+        hashLabel.text = selectedHex
 
-        let progress = resolvedInfo?.progress ?? resolvedStatus?.progress ?? currentLibraryEntry?.progress ?? 0
+        let progress = resolvedInfo?.progress ?? resolvedStatus?.progress ?? 0
         let completed = progress == 1
         statusBadge.text = completed ? "Seeding" : "Downloading"
         statusBadge.backgroundColor = completed ? TorrentClientStyle.blue500 : TorrentClientStyle.green500
@@ -1199,7 +1210,7 @@ class DownloadsViewController: UIViewController {
 
         let downloaded = resolvedInfo?.size.downloaded ?? resolvedStatus?.downloaded ?? 0
         let uploaded = resolvedInfo?.size.uploaded ?? resolvedStatus?.uploaded ?? 0
-        let total = resolvedInfo?.size.total ?? resolvedStatus?.total ?? currentLibraryEntry?.size ?? 0
+        let total = resolvedInfo?.size.total ?? resolvedStatus?.total ?? 0
         downloadedValue.text = TorrentDetailViewController.fastPrettyBytes(downloaded)
         uploadedValue.text = TorrentDetailViewController.fastPrettyBytes(uploaded)
         totalSizeValue.text = TorrentDetailViewController.fastPrettyBytes(total)
@@ -1221,7 +1232,7 @@ class DownloadsViewController: UIViewController {
 
         seedersValue.text = "\(resolvedInfo?.peers.seeders ?? 0)"
         leechersValue.text = "\(resolvedInfo?.peers.leechers ?? 0)"
-        wiresValue.text = "\(resolvedInfo?.peers.wires ?? resolvedStatus?.wires ?? 0)"
+        wiresValue.text = "\(resolvedInfo?.peers.wires ?? 0)"
 
         setDot(dhtDot, enabled: resolvedProtocol?.dht ?? resolvedStatus?.dht ?? false)
         setDot(lsdDot, enabled: resolvedProtocol?.lsd ?? false)
@@ -1230,11 +1241,6 @@ class DownloadsViewController: UIViewController {
         setDot(forwardDot, enabled: resolvedProtocol?.forwarding ?? false)
         setDot(persistDot, enabled: resolvedProtocol?.persisting ?? Settings.persistFiles)
         setDot(streamingDot, enabled: resolvedProtocol?.streaming ?? false)
-
-        if selectedTabIndex == 1 { refreshFiles() }
-        if selectedTabIndex == 2 { refreshPeers() }
-        if selectedTabIndex == 3 { refreshTrackers(force: false) }
-        if selectedTabIndex == 4 { refreshLibrary() }
     }
 
     private func webTorrentETA(fromMilliseconds value: Double?) -> String? {
@@ -1567,36 +1573,9 @@ class DownloadsViewController: UIViewController {
         ])
     }
 
-    private func refreshTrackers(force: Bool) {
-        guard isWebTorrentMode else {
-            webTrackerRows = []
-            updateTrackerColumnLayout()
-            return
-        }
-        guard !selectedHex.isEmpty else {
-            webTrackerRows = []
-            updateTrackerColumnLayout()
-            return
-        }
-        guard force || Date().timeIntervalSince(lastWebTrackerRefresh) >= trackerRefreshInterval else { return }
-        guard !webTrackersInFlight else { return }
-
-        webTrackersInFlight = true
-        let hash = selectedHex
-        TorrentBackendManager.shared.webTorrentTrackers(hash: hash) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.webTrackersInFlight = false
-                guard self.isWebTorrentMode, self.selectedHex == hash else { return }
-                self.lastWebTrackerRefresh = Date()
-                if case .success(let trackers) = result {
-                    self.webTrackerRows = trackers
-                        .map { (announce: $0.key, info: $0.value) }
-                        .sorted { $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending }
-                }
-                self.updateTrackerColumnLayout()
-            }
-        }
+    private func refreshTrackers() {
+        if !isWebTorrentMode || selectedHex.isEmpty { webTrackerRows = [] }
+        updateTrackerColumnLayout()
     }
 
     private func setPiecesValue(total: Int, size: UInt64) {
@@ -2155,33 +2134,40 @@ class DownloadsViewController: UIViewController {
                 self.updateLibrarySelectionLabel()
                 let toast = AppErrorToast.startPromise(title: "Deleting torrents...",
                     description: "This may take a while depending on the library size.")
-                TorrentBackendManager.shared.deleteWebTorrents(hashes: hashes) { [weak self] result in
-                    DispatchQueue.main.async {
-                        if case .failure(let error) = result {
-                            NSLog("[Torrent Library] %@", error.localizedDescription)
-                            AppErrorToast.resolvePromise(toast,
-                                title: "Failed to delete torrents\n" + error.localizedDescription, failed: true)
-                        } else { AppErrorToast.resolvePromise(toast, title: "Torrents deleted") }
-                        guard let self else { return }
-                        self.libraryActionInFlight = false
-                        if case .failure = result {
-                            self.updateLibrarySelectionLabel()
-                            return
+                // torrent-client keeps what is being played, so the result is only known once the
+                // library has been read again, as `server.updateLibrary()` does for interface.
+                let manager = TorrentBackendManager.shared
+                manager.deleteWebTorrents(hashes: hashes) { deleteResult in
+                    let reload = { (result: Result<[WebTorrentLibraryEntry], Error>) in
+                        DispatchQueue.main.async { [weak self] in
+                            let failure: Error?
+                            switch result {
+                            case .success(let entries):
+                                self?.webLibraryEntries = entries
+                                WebTorrentDownloaded.shared.replace(with: entries.map { $0.hash })
+                                failure = nil
+                            case .failure(let error):
+                                failure = error
+                            }
+                            if let failure {
+                                NSLog("[Torrent Library] %@", failure.localizedDescription)
+                                AppErrorToast.resolvePromise(toast,
+                                    title: "Failed to delete torrents\n" + failure.localizedDescription, failed: true)
+                            } else {
+                                AppErrorToast.resolvePromise(toast, title: "Torrents deleted")
+                            }
+                            guard let self else { return }
+                            self.libraryActionInFlight = false
+                            if failure == nil { self.selectedLibraryHashes.removeAll() }
+                            self.refreshLibrary()
+                            self.update()
                         }
-                        self.webLibraryEntries.removeAll { hashes.contains($0.hash) }
-                        self.webSnapshotGeneration += 1
-                        if hashes.contains(self.selectedHex) {
-                            self.selectedHex = ""
-                            self.webStatus = nil
-                            self.webInfo = nil
-                            self.webProtocol = nil
-                            self.webFileInfos = []
-                            self.webPeerInfos = []
-                            self.webTrackerRows = []
-                        }
-                        self.selectedLibraryHashes.removeAll()
-                        self.refreshLibrary()
-                        self.update()
+                    }
+                    switch deleteResult {
+                    case .success:
+                        manager.webTorrentLibrary(completion: reload)
+                    case .failure(let error):
+                        reload(.failure(error))
                     }
                 }
                 return

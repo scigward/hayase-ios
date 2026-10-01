@@ -208,10 +208,10 @@ enum SettingsSectionCatalog {
                 kind: .editableText(userDefaultsKey: Settings.Keys.nzbPassword, defaultValue: "", secure: true)),
             Row(title: "Connection Port",
                 description: "The port used to connect to your NZB provider. 119 is the default for NNTP.",
-                kind: .editableNumber(userDefaultsKey: "pref_nzbPort", defaultValue: "119", suffix: "", min: 1, max: 65535)),
+                kind: .editableNumber(userDefaultsKey: "pref_nzbPort", defaultValue: "119", suffix: "", min: 0, max: 65535)),
             Row(title: "Connection Pool Size",
                 description: "The number of simultaneous connections to use for downloading from your NZB provider. Higher values might increase download speeds but can cause issues with some providers if set too high.\n\nThis is shared between extension, so if you have multiple NZB extensions configured they will share the same pool of connections.",
-                kind: .editableNumber(userDefaultsKey: "pref_nzbPoolSize", defaultValue: "4", suffix: "", min: 1, max: 128)),
+                kind: .editableNumber(userDefaultsKey: "pref_nzbPoolSize", defaultValue: "4", suffix: "", min: 0, max: 128)),
         ], tab: .client),
 
         // ── Interface tab (Hayase /app/settings/interface/) ──

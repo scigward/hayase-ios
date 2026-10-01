@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct TorrentBackendSettings: Encodable {
+struct TorrentBackendSettings: Encodable, Equatable {
     let torrentPersist: Bool
     // The upstream Hayase torrent-client schema names these as torrentDHT and
     // torrentPeX, but the values are disable flags. false means enabled.
@@ -46,15 +46,15 @@ struct TorrentBackendSettings: Encodable {
         nzbDomain = defaults.string(forKey: "pref_nzbDomain") ?? ""
         nzbLogin = defaults.string(forKey: "pref_nzbLogin") ?? ""
         nzbPassword = Keychain.string(forKey: Settings.Keys.nzbPassword) ?? ""
-        nzbPort = Self.clampedInt(defaults.string(forKey: "pref_nzbPort"), defaultValue: 119, min: 1, max: 65535)
-        nzbPoolSize = Self.clampedInt(defaults.string(forKey: "pref_nzbPoolSize"), defaultValue: 4, min: 1, max: 128)
+        nzbPort = Self.clampedInt(defaults.string(forKey: "pref_nzbPort"), defaultValue: 119, min: 0, max: 65535)
+        nzbPoolSize = Self.clampedInt(defaults.string(forKey: "pref_nzbPoolSize"), defaultValue: 4, min: 0, max: 128)
         path = Self.downloadPath(for: defaults.string(forKey: "pref_torrentLocation") ?? "cache")
     }
 
-    /// client.ts only queries NZB extensions once a Usenet server is configured.
-    /// Port and pool size are always set, since they are clamped to at least 1.
+    /// client.ts only queries NZB extensions once a Usenet server is configured, and all five
+    /// fields have to be truthy, so a zero port or pool size turns Usenet off.
     var hasNZBServer: Bool {
-        !nzbDomain.isEmpty && !nzbLogin.isEmpty && !nzbPassword.isEmpty
+        !nzbDomain.isEmpty && !nzbLogin.isEmpty && !nzbPassword.isEmpty && nzbPort > 0 && nzbPoolSize > 0
     }
 
     func dictionary() -> [String: Any] {

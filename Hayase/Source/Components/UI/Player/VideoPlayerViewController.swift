@@ -892,6 +892,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         streamServer?.stop()
         streamer?.stop()
         surface.stop()
+        videoService?.releaseWebTorrentSession()
         // Nil out references so no timer or callback can touch the handle
         // after the torrent is removed from the session (use-after-free).
         streamer = nil
@@ -1791,7 +1792,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
            let hash = entity.torrents?.torrentHashString,
            let name = entity.videoName,
            let index = entity.videoIndex?.intValue {
-            WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID,
+            WebTorrentWebSeeds.add(hash: hash, mediaID: currentMediaID, media: videoService?.media,
                                    episode: episodeNumber > 0 ? episodeNumber : nil,
                                    files: .single(WebSeedFile(name: name, index: index)))
         }
@@ -2074,6 +2075,10 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
                 self.applyWebTorrentStats(peers: status.wires,
                                            downloadSpeed: status.downloadSpeed ?? 0,
                                            uploadSpeed: status.uploadSpeed ?? 0)
+                // The cast request returns at once; how the session went is reported in the status.
+                if let display = self.activeCastDisplay, let message = status.cast?[display.host]?.error {
+                    self.showCastError(message)
+                }
             }
         }
     }
@@ -2241,16 +2246,19 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             guard let self, case .failure(let error) = result else { return }
             DispatchQueue.main.async {
                 guard self.activeCastDisplay == display else { return }
-                // {:catch error} — the time/progress area is replaced by the
-                // error text; the rest of the screen (title, EpisodesModal,
-                // Stop/Prev/Playlist/Next) stays exactly as-is, no auto-dismiss.
-                self.castElapsedTimer?.invalidate()
-                self.nowCastingTimeLabel.isHidden = true
-                self.nowCastingProgressContainer.isHidden = true
-                self.nowCastingErrorLabel.isHidden = false
-                self.nowCastingErrorLabel.text = error.localizedDescription
+                self.showCastError(error.localizedDescription)
             }
         }
+    }
+
+    /// {:catch error} — the time/progress area is replaced by the error text; the rest of the
+    /// screen (title, EpisodesModal, Stop/Prev/Playlist/Next) stays exactly as-is, no auto-dismiss.
+    private func showCastError(_ message: String) {
+        castElapsedTimer?.invalidate()
+        nowCastingTimeLabel.isHidden = true
+        nowCastingProgressContainer.isHidden = true
+        nowCastingErrorLabel.isHidden = false
+        nowCastingErrorLabel.text = message
     }
 
     /// `const elapsed = writable(0, set => setInterval(() => set((Date.now() -

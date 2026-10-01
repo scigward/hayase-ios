@@ -12,15 +12,27 @@ import Foundation
 /// HTTP mirrors. The libtorrent backend has no web seed support.
 enum WebTorrentWebSeeds {
     /// `episode` is nil when it is not known, for example a torrent opened from Downloads.
-    static func add(hash: String, mediaID: Int, episode: Int?, files: ExtensionFileQuery) {
+    /// `media` is the media the caller already has; it is looked up only when there is none,
+    /// as interface passes the one it is playing.
+    static func add(hash: String, mediaID: Int, media: AnimeItem? = nil, episode: Int?, files: ExtensionFileQuery) {
         guard !hash.isEmpty, mediaID > 0 else { return }
         Task { @MainActor in
-            guard let item = try? await result({ AniListClient.shared.fetchResolverMediaByIdResult(mediaID, completion: $0) }),
+            guard let item = await resolvedMedia(media, id: mediaID),
                   let info = try? await result({ TorrentBackendManager.shared.webTorrentInfo(hash: hash, completion: $0) }),
                   info.progress < 1 else { return }
             async let nzbs: Void = addNZBs(hash: hash, name: info.name, files: files, item: item, episode: episode)
             async let seeds: Void = addHTTPWebSeeds(hash: hash, name: info.name, files: files, item: item, episode: episode)
             _ = await (nzbs, seeds)
+        }
+    }
+
+    private static func resolvedMedia(_ media: AnimeItem?, id: Int) async -> AnimeItem? {
+        if let media { return media }
+        do {
+            return try await result { AniListClient.shared.fetchResolverMediaByIdResult(id, completion: $0) }
+        } catch {
+            StreamingLogger.shared.error("Could not load media \(id) for web seeds: \(error.localizedDescription)")
+            return nil
         }
     }
 
