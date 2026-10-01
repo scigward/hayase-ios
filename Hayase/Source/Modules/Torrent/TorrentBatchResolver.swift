@@ -1186,7 +1186,8 @@ struct TorrentBatchResolver {
     }
 
     private static func appendUnique(_ value: String, to values: inout [String]) {
-        guard !value.isEmpty, !values.contains(value) else { return }
+        // a Set keeps an empty title too
+        guard !values.contains(value) else { return }
         values.append(value)
     }
 

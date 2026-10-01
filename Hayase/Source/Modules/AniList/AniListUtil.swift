@@ -84,9 +84,11 @@ enum AniListUtil {
             guard let airingAt = node.airingAt, schedule[node.episode] == nil else { continue }
             schedule[node.episode] = Date(timeIntervalSince1970: Double(airingAt))
         }
-        if schedule[1] == nil, isSingleEpisode(media), media.startYear != nil || media.startMonth != nil || media.startDay != nil {
+        if schedule[1] == nil, isSingleEpisode(media) {
             var components = DateComponents()
-            components.year = media.startYear ?? 0
+            // `new Date(year, …)` reads 0-99 as 1900-1999
+            let year = media.startYear ?? 0
+            components.year = (0...99).contains(year) ? 1900 + year : year
             components.month = media.startMonth ?? 1
             components.day = media.startDay ?? 1
             if let date = Calendar.current.date(from: components) { schedule[1] = date }
