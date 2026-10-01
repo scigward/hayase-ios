@@ -76,10 +76,10 @@ final class W2GViewController: UIViewController {
     private let chatTableView = UITableView()
     private let userListTableView = UITableView()
 
-    private let quitButton = UIButton(type: .system)
-    private let inviteButton = UIButton(type: .system)
-    private let messageField = UITextField()
-    private let sendButton = UIButton(type: .system)
+    private let quitButton = Button(iconName: "door-open", pointSize: 18)
+    private let inviteButton = Button(iconName: "user-plus", pointSize: 18)
+    private let messageField = Textarea()
+    private let sendButton = Button(iconName: "send-horizontal", pointSize: 18)
 
     private let bottomBar = UIStackView()
 
@@ -271,18 +271,18 @@ final class W2GViewController: UIViewController {
         // Title: "Watch Together" + code label
         titleLabel.text = "Watch Together"
         titleLabel.font = .nunito(ofSize: 24, weight: .bold)
-        titleLabel.textColor = .white
+        titleLabel.textColor = UIColor.HayaseTheme.foreground
 
         codeLabel.text = client?.code ?? ""
         codeLabel.font = .nunito(ofSize: 18, weight: .semibold)
-        codeLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        codeLabel.textColor = UIColor.HayaseTheme.mutedForeground
 
         subtitleLabel.text = "Watch videos together with friends in real-time. You can invite others to your lobby and chat while watching."
         subtitleLabel.font = .nunito(ofSize: 16)
-        subtitleLabel.textColor = UIColor(white: 0.5, alpha: 1)
+        subtitleLabel.textColor = UIColor.HayaseTheme.mutedForeground
         subtitleLabel.numberOfLines = 0
 
-        separatorView.backgroundColor = UIColor(white: 0.2, alpha: 1)
+        separatorView.backgroundColor = UIColor.HayaseTheme.border
 
         for v in [titleLabel, codeLabel, subtitleLabel, separatorView] {
             v.translatesAutoresizingMaskIntoConstraints = false
@@ -296,7 +296,7 @@ final class W2GViewController: UIViewController {
         // Chat messages table
         chatTableView.backgroundColor = .clear
         chatTableView.separatorStyle = .none
-        chatTableView.register(W2GChatCell.self, forCellReuseIdentifier: W2GChatCell.reuseID)
+        chatTableView.register(ChatMessageCell.self, forCellReuseIdentifier: ChatMessageCell.reuseID)
         chatTableView.dataSource = self
         chatTableView.delegate = self
         chatTableView.transform = CGAffineTransform(scaleX: 1, y: -1) // flip for bottom-anchored scrolling
@@ -316,30 +316,19 @@ final class W2GViewController: UIViewController {
     // MARK: - Setup Bottom Bar (matches web's flex mt-4 gap-2)
 
     private func setupBottomBar() {
-        // Quit button
-        configureIconButton(quitButton, lucideId: "door-open", action: #selector(quitTapped))
+        quitButton.addTarget(self, action: #selector(quitTapped), for: .touchUpInside)
+        inviteButton.addTarget(self, action: #selector(inviteTapped), for: .touchUpInside)
 
-        // Invite button
-        configureIconButton(inviteButton, lucideId: "user-plus", action: #selector(inviteTapped))
-
-        // Message input
         messageField.placeholder = "Message"
-        messageField.font = .nunito(ofSize: 14)
-        messageField.textColor = .white
-        messageField.backgroundColor = UIColor(white: 0.1, alpha: 1)
-        messageField.layer.cornerRadius = 8
-        messageField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
-        messageField.leftViewMode = .always
-        messageField.returnKeyType = .send
-        messageField.delegate = self
-        messageField.autocorrectionType = .no
+        messageField.maxLength = 256   // maxlength={256}
+        messageField.onSubmit = { [weak self] in self?.sendCurrentMessage() }
 
-        // Send button
-        configureIconButton(sendButton, lucideId: "send-horizontal", action: #selector(sendTapped))
+        sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
 
+        // `flex mt-4 gap-2`: the default `align-items: stretch` leaves the fixed-size buttons at the top.
         bottomBar.axis = .horizontal
         bottomBar.spacing = 8
-        bottomBar.alignment = .center
+        bottomBar.alignment = .top
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
 
         bottomBar.addArrangedSubview(quitButton)
@@ -348,18 +337,6 @@ final class W2GViewController: UIViewController {
         bottomBar.addArrangedSubview(sendButton)
 
         view.addSubview(bottomBar)
-    }
-
-    private func configureIconButton(_ button: UIButton, lucideId: String, action: Selector) {
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        button.setImage(UIImage.hayaseIcon(lucideId, withConfiguration: config), for: .normal)
-        button.tintColor = .white
-        button.addTarget(self, action: action, for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 36),
-            button.heightAnchor.constraint(equalToConstant: 36)
-        ])
     }
 
     // MARK: - Layout Constraints
@@ -381,6 +358,10 @@ final class W2GViewController: UIViewController {
     private func setupLobbyConstraints() {
         let pad: CGFloat = 16
         let safe = view.safeAreaLayoutGuide
+        // mt-4 above the input, given up before the input is when the page is too short for both.
+        let chatBottom = chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -16)
+        chatBottom.priority = .defaultHigh
+        view.clipsToBounds = true   // overflow-clip
 
         // Always-active constraints
         NSLayoutConstraint.activate([
@@ -398,11 +379,8 @@ final class W2GViewController: UIViewController {
 
             // Bottom bar (always pinned to bottom)
             bottomBar.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: pad),
-            bottomBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -pad),
-            bottomBar.heightAnchor.constraint(equalToConstant: 36),
-
-            // Message field fills remaining space in bottom bar
-            messageField.heightAnchor.constraint(equalToConstant: 36),
+            // Above the keyboard when it is up, the safe area's bottom when it is not.
+            bottomBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -pad),
         ])
 
         headerInsets = [
@@ -421,12 +399,12 @@ final class W2GViewController: UIViewController {
             userListTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 24),
             userListTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             userListTableView.widthAnchor.constraint(equalToConstant: 288), // md:w-72
-            userListTableView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+            userListTableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
 
             chatTableView.topAnchor.constraint(equalTo: separatorView.bottomAnchor, constant: 24),
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
             chatTableView.trailingAnchor.constraint(equalTo: userListTableView.leadingAnchor),
-            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            chatBottom,
         ]
 
         // Narrow layout: participants above messages (flex-col-reverse).
@@ -439,7 +417,7 @@ final class W2GViewController: UIViewController {
             chatTableView.topAnchor.constraint(equalTo: userListTableView.bottomAnchor),
             chatTableView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 16), // px-4
             chatTableView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -16),
-            chatTableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8),
+            chatBottom,
         ]
 
         updateLayoutForCurrentWidth()
@@ -483,7 +461,8 @@ final class W2GViewController: UIViewController {
 
     // MARK: - Actions
 
-    @objc private func dismissKeyboard() {
+    @objc private func dismissKeyboard(_ tap: UITapGestureRecognizer) {
+        guard !(isShowingLobby && bottomBar.frame.contains(tap.location(in: view))) else { return }
         view.endEditing(true)
     }
 
@@ -503,6 +482,8 @@ final class W2GViewController: UIViewController {
     }
 
     @objc private func inviteTapped() {
+        // TransitionButton: the icon becomes a check for as long as the click lasts.
+        inviteButton.swapIcon(to: UIImage.hayaseIcon("check", pointSize: 16), hold: 0.8)
         guard let link = client?.inviteLink else { return }
         let ac = UIActivityViewController(
             activityItems: ["Invite people to your Watch Together lobby", URL(string: link) as Any],
@@ -533,7 +514,7 @@ final class W2GViewController: UIViewController {
     // MARK: - Helper: sorted users
 
     private var sortedUsers: [W2GChatUser] {
-        client?.peers.values.map(\.user) ?? []
+        client?.orderedUsers ?? []
     }
 
     /// Messages in reverse order (table is flipped).
@@ -556,20 +537,14 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if tableView === chatTableView {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: W2GChatCell.reuseID, for: indexPath) as? W2GChatCell else { return UITableViewCell() }
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatMessageCell.reuseID, for: indexPath) as? ChatMessageCell else { return UITableViewCell() }
             let msgs = reversedMessages
-            if let msg = msgs[safe: indexPath.row] {
-                // Message grouping (mirrors web Messages.svelte groupMessages):
-                // In the flipped table, row 0 = newest. The visual "above" is row+1.
-                // Show header (name+time) when this is the first message in a group
-                // (the message visually above is from a different user or doesn't exist).
-                // Show avatar when this is the last message in a group (the message
-                // visually below is from a different user or doesn't exist).
-                let prevSameUser = msgs[safe: indexPath.row + 1]?.user.id == msg.user.id
-                let nextSameUser = indexPath.row > 0 && msgs[safe: indexPath.row - 1]?.user.id == msg.user.id
-                let showHeader = !prevSameUser  // first in group (top in visual order)
-                let showAvatar = !nextSameUser  // last in group (bottom in visual order)
-                cell.configure(with: msg, showHeader: showHeader, showAvatar: showAvatar)
+            if msgs.indices.contains(indexPath.row) {
+                // Message grouping (mirrors web Messages.svelte groupMessages): in the flipped
+                // table, row 0 = newest. The visual "above" is row+1.
+                let group = msgs.groupInfo(at: indexPath.row) { $0.user.id }
+                cell.configure(with: msgs[indexPath.row].content, showHeader: group.showHeader,
+                               isOutgoing: msgs[group.firstIndex].type == .outgoing)
             }
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
@@ -591,21 +566,8 @@ extension W2GViewController: UITableViewDataSource, UITableViewDelegate {
 // MARK: - UITextFieldDelegate
 
 extension W2GViewController: UITextFieldDelegate {
-    func textField(_ textField: UITextField,
-                   shouldChangeCharactersIn range: NSRange,
-                   replacementString string: String) -> Bool {
-        guard textField === messageField,
-              let current = textField.text,
-              let editRange = Range(range, in: current) else { return true }
-        return current.replacingCharacters(in: editRange, with: string).count <= 256
-    }
-
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        if textField === joinCodeField {
-            joinLobbyTapped()
-        } else {
-            sendCurrentMessage()
-        }
+        joinLobbyTapped()
         return true
     }
 }
@@ -641,14 +603,9 @@ extension W2GViewController: W2GClientDelegate {
     func w2gClientMessagesDidChange(_ client: W2GClient) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let wasNearNewest = self.chatTableView.contentOffset.y <= 80
-            let sentLocally = client.messages.last?.type == .outgoing
-            self.chatTableView.reloadData()
-            // The reversed web message list preserves the reader's position
-            // while they inspect older messages; sending always reveals ours.
-            if !client.messages.isEmpty && (wasNearNewest || sentLocally) {
-                self.chatTableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
-            }
+            // The reversed web message list keeps the newest in view at the bottom and leaves
+            // what you are reading where it is.
+            self.chatTableView.reloadFlippedMessages {}
         }
     }
 }
@@ -1293,193 +1250,4 @@ extension W2GViewController {
             genres: [],
             description: nil)
     }
-}
-
-// MARK: - W2GChatCell (mirrors Messages.svelte)
-//
-// Web layout per message group:
-//   <div class='flex flex-row mt-3' [flex-row-reverse if outgoing]>
-//     <img class='w-10 h-10 rounded-full p-1 mt-auto' />     ← avatar at bottom of group
-//     <div class='flex flex-col px-2 items-start [items-end]'>
-//       <div class='pb-1 flex flex-row items-center px-1'>
-//         <div class='font-bold text-sm'>{name}</div>         ← 14px bold
-//         <div class='text-muted-foreground pl-2 text-[10px]'>{time}</div>
-//       </div>
-//       {#each _messages as message}
-//         <div class='bg-muted py-2 px-3 rounded-t-xl rounded-r-xl mb-1 text-xs'>  ← 12px
-//           {message}
-//         </div>
-//       {/each}
-//     </div>
-//   </div>
-//
-// Key details:
-// - Avatar: 40pt with 4pt padding = 32pt visible, anchored to bottom (mt-auto)
-// - Incoming: avatar left, items-start, rounded-t-xl rounded-r-xl (no bottom-left round)
-// - Outgoing: avatar right (flex-row-reverse), items-end, bg-theme, rounded-t-xl rounded-l-xl
-
-private final class W2GChatCell: UITableViewCell {
-    static let reuseID = "W2GChatCell"
-    private static let avatarSize: CGFloat = 32
-
-    // Subviews
-    private let profileStack = FollowerAvatarStackView()
-    private let headerRow = UIView()       // contains name + time
-    private let nameLabel = UILabel()
-    private let timeLabel = UILabel()
-    private let bubbleBackground = UIView()
-    private let bubbleLabel = UILabel()
-
-    // Pre-built constraint sets toggled via isActive
-    private var incomingConstraints: [NSLayoutConstraint] = []
-    private var outgoingConstraints: [NSLayoutConstraint] = []
-    private var headerVisibleConstraint: NSLayoutConstraint!   // bubble top → header bottom
-    private var headerHiddenConstraint: NSLayoutConstraint!    // bubble top → cell top (no header)
-    private var headerTopConstraint: NSLayoutConstraint!       // header top → cell top
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        let cv = contentView
-        let avatarSize = Self.avatarSize  // w-10 h-10 p-1 → visible 32pt
-
-        // ChatProfile uses the same shared profile/avatar component as global chat.
-        profileStack.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(profileStack)
-
-        // Header row (name + time)
-        headerRow.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(headerRow)
-
-        nameLabel.font = .nunito(ofSize: 14, weight: .bold) // text-sm
-        nameLabel.textColor = UIColor.HayaseTheme.foreground
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(nameLabel)
-
-        timeLabel.font = .nunito(ofSize: 10) // text-[10px]
-        timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(timeLabel)
-
-        // Bubble
-        bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(bubbleBackground)
-
-        bubbleLabel.font = .nunito(ofSize: 12) // text-xs
-        bubbleLabel.textColor = UIColor.HayaseTheme.foreground
-        bubbleLabel.numberOfLines = 0
-        bubbleLabel.translatesAutoresizingMaskIntoConstraints = false
-        bubbleBackground.addSubview(bubbleLabel)
-
-        // --- Always-active constraints ---
-        NSLayoutConstraint.activate([
-            profileStack.widthAnchor.constraint(equalToConstant: avatarSize),
-            profileStack.heightAnchor.constraint(equalToConstant: avatarSize),
-            profileStack.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
-
-            nameLabel.topAnchor.constraint(equalTo: headerRow.topAnchor),
-            nameLabel.bottomAnchor.constraint(equalTo: headerRow.bottomAnchor),
-            nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
-            timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
-            timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
-            timeLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
-            headerRow.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 4),
-            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -4),
-
-            bubbleLabel.topAnchor.constraint(equalTo: bubbleBackground.topAnchor, constant: 8),
-            bubbleLabel.leadingAnchor.constraint(equalTo: bubbleBackground.leadingAnchor, constant: 12),
-            bubbleLabel.trailingAnchor.constraint(equalTo: bubbleBackground.trailingAnchor, constant: -12),
-            bubbleLabel.bottomAnchor.constraint(equalTo: bubbleBackground.bottomAnchor, constant: -8),
-
-            bubbleBackground.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
-        ])
-
-        // --- Toggleable constraints ---
-        headerTopConstraint = headerRow.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12) // mt-3
-        headerVisibleConstraint = bubbleBackground.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 4)
-        headerHiddenConstraint = bubbleBackground.topAnchor.constraint(equalTo: cv.topAnchor, constant: 2)
-
-        incomingConstraints = [
-            profileStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
-            headerRow.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
-            bubbleBackground.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
-            // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
-            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -100),
-        ]
-
-        outgoingConstraints = [
-            profileStack.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
-            headerRow.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
-            bubbleBackground.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
-            // max-w-[calc(100%-100px)] in web — leave 100pt for avatar side + margin
-            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 100),
-        ]
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        NSLayoutConstraint.deactivate(incomingConstraints)
-        NSLayoutConstraint.deactivate(outgoingConstraints)
-        headerVisibleConstraint.isActive = false
-        headerHiddenConstraint.isActive = false
-        headerTopConstraint.isActive = false
-        profileStack.reset()
-    }
-
-    func configure(with message: W2GChatMessage, showHeader: Bool, showAvatar: Bool) {
-        nameLabel.text = message.user.name
-        timeLabel.text = DateFormatter.localizedString(from: message.date, dateStyle: .none, timeStyle: .short)
-        bubbleLabel.text = message.message
-
-        let isOutgoing = message.type == .outgoing
-
-        // Direction
-        NSLayoutConstraint.activate(isOutgoing ? outgoingConstraints : incomingConstraints)
-
-        // Header (name + time) — first message in group
-        headerRow.isHidden = !showHeader
-        headerTopConstraint.isActive = showHeader
-        headerVisibleConstraint.isActive = showHeader
-        headerHiddenConstraint.isActive = !showHeader
-
-        // Avatar — visible only for last message in group (mt-auto positioning)
-        if showAvatar {
-            let summary = AniListUserSummary(id: Int(message.user.id) ?? 0,
-                                             name: message.user.name,
-                                             avatarURL: message.user.avatarURL)
-            profileStack.configure(users: [summary],
-                                   avatarSize: Self.avatarSize,
-                                   ringWidth: 4,
-                                   ringColor: UIColor.HayaseTheme.background) { id, completion in
-                guard !message.user.guest else {
-                    completion(nil)
-                    return
-                }
-                AniListClient.shared.fetchUserProfileResult(id: id) { result in
-                    completion(try? result.get())
-                }
-            }
-        } else {
-            profileStack.reset()
-        }
-
-        // Bubble color: bg-muted (incoming) vs bg-theme (outgoing)
-        bubbleBackground.backgroundColor = isOutgoing ? UIColor.HayaseTheme.theme : UIColor.HayaseTheme.muted
-
-        // Corner rounding — web: rounded-t-xl + one bottom corner
-        // Incoming: all except bottom-left (rounded-r-xl)
-        // The static rounded-r-xl also applies to outgoing messages in Messages.svelte.
-        bubbleBackground.layer.cornerRadius = 12
-        bubbleBackground.layer.maskedCorners = isOutgoing
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-    }
-
 }

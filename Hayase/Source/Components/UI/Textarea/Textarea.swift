@@ -9,16 +9,12 @@ import UIKit
 
 /// `<Textarea>`: bg-muted, rounded-md, px-3 py-2, text-sm, shadow-sm, with `select:bg-accent
 /// select:text-accent-foreground` and a `focus-visible:ring-1 ring-ring`. It grows with its
-/// content (`field-sizing: content`), is capped by `maxLength` (`maxlength`) and hands Enter,
-/// without Shift, to `onSubmit` instead of inserting a line break.
+/// content (`field-sizing: content`) without limit, is capped by `maxLength` (`maxlength`) and
+/// hands Enter, without Shift, to `onSubmit` instead of inserting a line break.
 final class Textarea: UITextView, UITextViewDelegate {
     var onSubmit: (() -> Void)?
-    var onTextChange: (() -> Void)?
     /// In UTF-16 units, as the browser counts them.
     var maxLength: Int?
-    /// The height the field stops growing at and scrolls from. Nothing limits a textarea on the web;
-    /// this keeps one from outgrowing the screen.
-    var maxHeight: CGFloat? { didSet { invalidateIntrinsicContentSize() } }
     var placeholder = "" { didSet { placeholderLabel.text = placeholder } }
 
     private static let minHeight: CGFloat = 36
@@ -37,7 +33,7 @@ final class Textarea: UITextView, UITextViewDelegate {
         textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         textContainer.lineFragmentPadding = 0
         isScrollEnabled = false
-        clipsToBounds = false
+        clipsToBounds = false   // the ring and shadow are drawn outside
         translatesAutoresizingMaskIntoConstraints = false
 
         placeholderLabel.font = .nunito(ofSize: 14)
@@ -63,17 +59,11 @@ final class Textarea: UITextView, UITextViewDelegate {
     override var intrinsicContentSize: CGSize {
         guard bounds.width > 0 else { return CGSize(width: UIView.noIntrinsicMetric, height: Self.minHeight) }
         let fitting = ceil(sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height)
-        let height = min(max(fitting, Self.minHeight), maxHeight ?? .greatestFiniteMagnitude)
-        exceedsMaxHeight = fitting > height
-        return CGSize(width: UIView.noIntrinsicMetric, height: height)
+        return CGSize(width: UIView.noIntrinsicMetric, height: max(fitting, Self.minHeight))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if isScrollEnabled != exceedsMaxHeight {
-            isScrollEnabled = exceedsMaxHeight
-            clipsToBounds = exceedsMaxHeight
-        }
         if bounds.width != lastWidth {
             lastWidth = bounds.width
             invalidateIntrinsicContentSize()
@@ -82,7 +72,6 @@ final class Textarea: UITextView, UITextViewDelegate {
     }
 
     private var lastWidth: CGFloat = 0
-    private var exceedsMaxHeight = false
 
     override var text: String! {
         didSet { contentDidChange() }
@@ -91,7 +80,6 @@ final class Textarea: UITextView, UITextViewDelegate {
     private func contentDidChange() {
         placeholderLabel.isHidden = !(text?.isEmpty ?? true)
         invalidateIntrinsicContentSize()
-        onTextChange?()
     }
 
     // MARK: - Select state

@@ -25,6 +25,13 @@ final class W2GLobby {
     /// The active W2G session, or nil.
     var client: W2GClient? {
         didSet {
+            client?.onIncomingMessage = { message in
+                DispatchQueue.main.async {
+                    // `page.route.id !== '/app/w2g/[id]'`
+                    if case .w2g = Router.shared.currentRoute { return }
+                    AppErrorToast.show(chatMessage: message.content)
+                }
+            }
             NotificationCenter.default.post(name: Self.didChange, object: self)
         }
     }

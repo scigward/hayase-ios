@@ -20,7 +20,7 @@ enum AppErrorToast {
     }
 
     /// A chat message from `MessageToast.svelte`, shown while the chat page is not.
-    static func show(chatMessage: IRCChatMessage) {
+    static func show(chatMessage: ChatMessageContent) {
         guard let window = (UIApplication.shared.delegate as? AppDelegate)?.window else { return }
         overlay(in: window).present(ChatMessageToastCardView(message: chatMessage))
     }

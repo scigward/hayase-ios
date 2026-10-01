@@ -291,8 +291,6 @@ final class HayaseChatViewController: UIViewController {
         if !chatContainer.isHidden {
             updateLayoutForCurrentWidth()
         }
-        // Nothing limits a textarea on the web; this keeps it from outgrowing the page.
-        inputTextView.maxHeight = max(36, chatContainer.bounds.height * 0.5)
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -524,7 +522,7 @@ final class HayaseChatViewController: UIViewController {
         messagesTableView.backgroundColor = .clear
         messagesTableView.separatorStyle = .none
         messagesTableView.dataSource = self
-        messagesTableView.register(IRCMessageCell.self, forCellReuseIdentifier: IRCMessageCell.reuseID)
+        messagesTableView.register(ChatMessageCell.self, forCellReuseIdentifier: ChatMessageCell.reuseID)
         messagesTableView.keyboardDismissMode = .interactive
         messagesTableView.estimatedRowHeight = 56
         messagesTableView.rowHeight = UITableView.automaticDimension
@@ -560,6 +558,12 @@ final class HayaseChatViewController: UIViewController {
         let inputBar = UIView()
         inputBar.translatesAutoresizingMaskIntoConstraints = false
         chatContainer.addSubview(inputBar)
+        chatContainer.clipsToBounds = true   // overflow-clip
+
+        // mt-4 above the input, given up before the input is when the page is too short for both
+        let messagesToInput = rowContainer.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -16)
+        messagesToInput.priority = .defaultHigh
+        messagesToInput.isActive = true
 
         exitButton.addTarget(self, action: #selector(exitTapped), for: .touchUpInside)
 
@@ -587,7 +591,7 @@ final class HayaseChatViewController: UIViewController {
             rowContainer.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
             rowContainer.leadingAnchor.constraint(equalTo: chatContainer.leadingAnchor),
             rowContainer.trailingAnchor.constraint(equalTo: chatContainer.trailingAnchor),
-            rowContainer.bottomAnchor.constraint(equalTo: inputBar.topAnchor, constant: -16), // mt-4
+            rowContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
 
             // px-4, unconditional (no `md:` variant on the message column).
             messagesTableView.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor, constant: 16),
@@ -687,35 +691,15 @@ final class HayaseChatViewController: UIViewController {
             users = client.orderedUsers
             messagesTableView.reloadData()
             userListTableView.reloadData()
-            scrollToNewestMessage()
+            messagesTableView.scrollToNewestMessage()
             show(.chat)
         } else {
             show(.loading)
         }
     }
 
-    /// A `flex-col-reverse` scroller keeps the newest message in view while you are at the bottom
-    /// and leaves what you are reading where it is when you are not.
     private func apply(messages newMessages: [IRCChatMessage]) {
-        let table = messagesTableView
-        let atBottom = table.contentOffset.y + table.adjustedContentInset.top <= 1
-        let previousHeight = table.contentSize.height
-        messages = newMessages
-        table.reloadData()
-        if atBottom {
-            scrollToNewestMessage()
-        } else {
-            table.layoutIfNeeded()
-            table.contentOffset.y += table.contentSize.height - previousHeight
-        }
-    }
-
-    /// Mirrors W2GViewController's `w2gClientMessagesDidChange`: in the
-    /// flipped table, row 0 is visually at the bottom (newest), so scrolling
-    /// "to" row 0 is scrolling to the newest message.
-    private func scrollToNewestMessage() {
-        guard !messages.isEmpty else { return }
-        messagesTableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+        messagesTableView.reloadFlippedMessages { messages = newMessages }
     }
 
     @objc private func sendTapped() {
@@ -747,21 +731,16 @@ extension HayaseChatViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if tableView == messagesTableView {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: IRCMessageCell.reuseID, for: indexPath) as? IRCMessageCell else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatMessageCell.reuseID, for: indexPath) as? ChatMessageCell else {
                 return UITableViewCell()
             }
             let msgs = reversedMessages
-            if let msg = msgs[safe: indexPath.row] {
-                // Message grouping (mirrors web Messages.svelte groupMessages,
-                // same technique as W2GChatCell): in the flipped table, row 0
-                // = newest. The visual "above" is row+1. The group's header
-                // (name+time) and avatar go on its first message, the one
-                // whose predecessor is from another user or doesn't exist, and
-                // the group's side is that first message's.
-                let prevSameUser = msgs[safe: indexPath.row + 1]?.user.id == msg.user.id
-                var first = indexPath.row
-                while msgs[safe: first + 1]?.user.id == msg.user.id { first += 1 }
-                cell.configure(with: msg, showHeader: !prevSameUser, isOutgoing: msgs[first].kind == .outgoing)
+            if msgs.indices.contains(indexPath.row) {
+                // Message grouping (mirrors web Messages.svelte groupMessages): in the flipped
+                // table, row 0 = newest. The visual "above" is row+1.
+                let group = msgs.groupInfo(at: indexPath.row) { $0.user.id }
+                cell.configure(with: msgs[indexPath.row].content, showHeader: group.showHeader,
+                               isOutgoing: msgs[group.firstIndex].kind == .outgoing)
             }
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1) // un-flip cell
             return cell
@@ -782,181 +761,5 @@ private extension Array {
     /// codebase (e.g. `W2GViewController.swift`).
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
-    }
-}
-
-// MARK: - IRCMessageCell (mirrors Messages.svelte, same technique as W2GChatCell)
-//
-// Web layout per message group:
-//   <div class='flex flex-row mt-3' [flex-row-reverse if outgoing]>
-//     <ChatProfile />                                         ← avatar at the top of the group
-//     <div class='flex flex-col px-2 items-start [items-end]'>
-//       <div class='pb-1 flex flex-row items-center px-1'>
-//         <div class='font-bold text-sm'>{name}</div>         ← 14px bold
-//         <div class='text-muted-foreground pl-2 text-[10px]'>{time}</div>
-//       </div>
-//       {#each _messages as message}
-//         <div class='bg-muted py-2 px-3 rounded-t-xl rounded-r-xl mb-1 text-xs'>  ← 12px
-//           {message}
-//         </div>
-//       {/each}
-//     </div>
-//   </div>
-//
-// This was a plain one-row-per-message list with no bubble/grouping in the
-// first pass. `Messages.svelte` is shared between W2G and IRC chat, so IRC
-// messages should look like this too — not just "for consistency with W2G"
-// but because that's what interface's own shared component actually does.
-
-private final class IRCMessageCell: UITableViewCell {
-    static let reuseID = "IRCMessageCell"
-    private static let avatarSize: CGFloat = 32 // size-8, Profile.svelte's default
-
-    private let profileStack = FollowerAvatarStackView()
-    private let headerRow = UIView()
-    private let nameLabel = UILabel()
-    private let timeLabel = UILabel()
-    private let bubbleBackground = ChatBubbleView()
-
-    private var incomingConstraints: [NSLayoutConstraint] = []
-    private var outgoingConstraints: [NSLayoutConstraint] = []
-    private var headerVisibleConstraint: NSLayoutConstraint!
-    private var headerHiddenConstraint: NSLayoutConstraint!
-    private var headerTopConstraint: NSLayoutConstraint!
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        let cv = contentView
-        let avatarSize = Self.avatarSize
-
-        profileStack.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(profileStack)
-
-        headerRow.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(headerRow)
-
-        nameLabel.font = .nunito(ofSize: 14, weight: .bold)
-        nameLabel.textColor = UIColor.HayaseTheme.foreground
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(nameLabel)
-
-        timeLabel.font = .nunito(ofSize: 10)
-        timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
-        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerRow.addSubview(timeLabel)
-
-        bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(bubbleBackground)
-
-        NSLayoutConstraint.activate([
-            profileStack.widthAnchor.constraint(equalToConstant: avatarSize),
-            profileStack.heightAnchor.constraint(equalToConstant: avatarSize),
-            profileStack.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12), // mt-3, level with the header
-
-            nameLabel.topAnchor.constraint(equalTo: headerRow.topAnchor),
-            nameLabel.bottomAnchor.constraint(equalTo: headerRow.bottomAnchor),
-            nameLabel.leadingAnchor.constraint(equalTo: headerRow.leadingAnchor, constant: 4),
-            timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
-            timeLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
-            timeLabel.trailingAnchor.constraint(equalTo: headerRow.trailingAnchor),
-            headerRow.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 4),
-            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -4),
-
-            // This -4 bottom inset (shared by every row, header or
-            // continuation) is what stands in for `mb-1` (4px), applied to
-            // every message bubble on web regardless of position in its
-            // group. headerHiddenConstraint below adds no further offset,
-            // so two bubbles in the same group end up exactly 4pt apart,
-            // not 4+4.
-            bubbleBackground.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -4),
-        ])
-
-        headerTopConstraint = headerRow.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12) // mt-3
-        headerVisibleConstraint = bubbleBackground.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 4) // pb-1
-        headerHiddenConstraint = bubbleBackground.topAnchor.constraint(equalTo: cv.topAnchor, constant: 0)
-
-        incomingConstraints = [
-            profileStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
-            headerRow.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
-            bubbleBackground.leadingAnchor.constraint(equalTo: profileStack.trailingAnchor, constant: 8),
-            // max-w-[calc(100%-100px)] of the column, which is the cell less the avatar and its px-2
-            bubbleBackground.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -104),
-        ]
-
-        outgoingConstraints = [
-            profileStack.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
-            headerRow.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
-            bubbleBackground.trailingAnchor.constraint(equalTo: profileStack.leadingAnchor, constant: -8),
-            bubbleBackground.leadingAnchor.constraint(greaterThanOrEqualTo: cv.leadingAnchor, constant: 104),
-        ]
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        NSLayoutConstraint.deactivate(incomingConstraints)
-        NSLayoutConstraint.deactivate(outgoingConstraints)
-        headerVisibleConstraint.isActive = false
-        headerHiddenConstraint.isActive = false
-        headerTopConstraint.isActive = false
-        profileStack.reset()
-    }
-
-    func configure(with message: IRCChatMessage, showHeader: Bool, isOutgoing: Bool) {
-        nameLabel.text = message.user.name
-        timeLabel.text = ChatTime.string(for: message.date)
-
-        NSLayoutConstraint.activate(isOutgoing ? outgoingConstraints : incomingConstraints)
-
-        headerRow.isHidden = !showHeader
-        headerTopConstraint.isActive = showHeader
-        headerVisibleConstraint.isActive = showHeader
-        headerHiddenConstraint.isActive = !showHeader
-
-        if showHeader {
-            let summary = AniListUserSummary(id: Int(message.user.id) ?? 0,
-                                             name: message.user.name,
-                                             avatarURL: message.user.avatarURL)
-            let isGuest = message.user.isGuest
-            profileStack.configure(users: [summary],
-                                    avatarSize: Self.avatarSize,
-                                    ringWidth: 4,
-                                    ringColor: UIColor.HayaseTheme.background) { id, completion in
-                guard !isGuest else {
-                    completion(nil)
-                    return
-                }
-                AniListClient.shared.fetchUserProfileResult(id: id) { result in
-                    completion(try? result.get())
-                }
-            }
-        } else {
-            profileStack.reset()
-        }
-
-        // `bg-muted` (incoming) / fixed `theme` accent (`!bg-theme`, outgoing).
-        // Quirk, not a style choice: Messages.svelte always includes the
-        // static `rounded-t-xl rounded-r-xl`, then adds `rounded-l-xl` via
-        // `class:` for outgoing messages *without* removing the static
-        // `rounded-r-xl` (Svelte's `class:` doesn't dedupe with a static
-        // class list). So outgoing bubbles end up with rounded-t + rounded-r
-        // + rounded-l all at once — every corner rounded, no "tail" — while
-        // incoming keeps the static rounded-t + rounded-r only (one sharp
-        // corner, bottom-left, next to the avatar).
-        bubbleBackground.configure(
-            text: message.message,
-            background: isOutgoing ? UIColor.HayaseTheme.theme : UIColor.HayaseTheme.muted,
-            corners: isOutgoing
-                ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-                : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner])
     }
 }

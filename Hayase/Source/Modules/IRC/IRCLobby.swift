@@ -61,7 +61,7 @@ final class IRCLobby {
             // `page.route.id !== '/app/chat' && !msg.user.name.startsWith('Guest-')`
             DispatchQueue.main.async {
                 guard Router.shared.currentRoute != .chat, !message.user.name.hasPrefix("Guest-") else { return }
-                AppErrorToast.show(chatMessage: message)
+                AppErrorToast.show(chatMessage: message.content)
             }
         }
         client = newClient

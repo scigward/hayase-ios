@@ -66,8 +66,11 @@ private final class ChatBubbleTextView: UITextView {
         backgroundColor = .clear
         textContainerInset = .zero
         textContainer.lineFragmentPadding = 0
+        addInteraction(editMenu)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(selectEverything)))
     }
+
+    private lazy var editMenu = UIEditMenuInteraction(delegate: nil)
 
     required init?(coder: NSCoder) {
         nil
@@ -76,6 +79,7 @@ private final class ChatBubbleTextView: UITextView {
     @objc private func selectEverything() {
         becomeFirstResponder()
         selectedRange = NSRange(location: 0, length: ((text ?? "") as NSString).length)
-        UIMenuController.shared.showMenu(from: self, rect: bounds)
+        editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil,
+                                                               sourcePoint: CGPoint(x: bounds.midX, y: bounds.minY)))
     }
 }

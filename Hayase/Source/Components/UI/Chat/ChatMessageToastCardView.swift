@@ -16,7 +16,7 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     /// svelte-sonner's default toast duration.
     private static let duration: TimeInterval = 4
 
-    private let message: IRCChatMessage
+    private let message: ChatMessageContent
     private let profile = FollowerAvatarStackView()
     private let nameLabel = UILabel()
     private let timeLabel = UILabel()
@@ -26,25 +26,25 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
     private var remaining = ChatMessageToastCardView.duration
     private var dismissing = false
 
-    init(message: IRCChatMessage) {
+    init(message: ChatMessageContent) {
         self.message = message
         super.init(frame: .zero)
 
         nameLabel.font = .nunito(ofSize: 14, weight: .bold)
         nameLabel.textColor = UIColor.HayaseTheme.foreground
-        nameLabel.text = message.user.name
+        nameLabel.text = message.name
         timeLabel.font = .nunito(ofSize: 10)
         timeLabel.textColor = UIColor.HayaseTheme.mutedForeground
         timeLabel.text = ChatTime.string(for: message.date)
         // rounded-t-xl rounded-l-xl
-        bubble.configure(text: message.message, background: UIColor.HayaseTheme.muted,
+        bubble.configure(text: message.text, background: UIColor.HayaseTheme.muted,
                          corners: [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner])
 
-        let user = message.user
-        let summary = AniListUserSummary(id: Int(user.id) ?? 0, name: user.name, avatarURL: user.avatarURL)
+        let summary = AniListUserSummary(id: Int(message.userID) ?? 0, name: message.name, avatarURL: message.avatarURL)
+        let isGuest = message.isGuest
         profile.configure(users: [summary], avatarSize: Self.avatarSize, ringWidth: 4,
                           ringColor: UIColor.HayaseTheme.background) { id, completion in
-            guard !user.isGuest else {
+            guard !isGuest else {
                 completion(nil)
                 return
             }
@@ -57,7 +57,7 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
         addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(pan(_:))))
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
         isAccessibilityElement = true
-        accessibilityLabel = user.name + "\n" + message.message
+        accessibilityLabel = message.name + "\n" + message.text
     }
 
     required init?(coder: NSCoder) {
@@ -79,7 +79,7 @@ final class ChatMessageToastCardView: UIView, ToastCardView {
 
     private func metrics(for width: CGFloat) -> Metrics {
         let column = width - Self.avatarSize - 16
-        let bubble = ChatBubbleView.size(for: message.message, maxWidth: max(0, column - 100))
+        let bubble = ChatBubbleView.size(for: message.text, maxWidth: max(0, column - 100))
         let nameWidth = ceil(nameLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 20)).width)
         let timeWidth = ceil(timeLabel.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: 20)).width)
         // header 20 + pb-1 4, bubble, mb-1 4

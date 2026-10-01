@@ -62,6 +62,15 @@ final class W2GClient {
 
     /// Connected peers keyed by peerID hex. Mirrors `peers` writable in web.
     private(set) var peers: [String: PeerEntry] = [:]
+    /// The ids of `peers` in the order `Object.values($users)` lists them: first added first, a
+    /// peer that comes back going to the end.
+    private var peerOrder: [String] = []
+
+    /// The users of `peers`, in that order.
+    var orderedUsers: [W2GChatUser] { peerOrder.compactMap { peers[$0]?.user } }
+
+    /// Called on the main thread with every message a peer sends.
+    var onIncomingMessage: ((W2GChatMessage) -> Void)?
 
     /// Chat messages. Mirrors `messages` writable in web.
     private(set) var messages: [W2GChatMessage] = []
@@ -143,7 +152,7 @@ final class W2GClient {
         self.infoHashBinary = W2GTrackerClient.hexToBinary(infoHashHex)
 
         // Add self to peers list.
-        peers[selfUser.id] = PeerEntry(user: selfUser, peer: nil)
+        setPeer(PeerEntry(user: selfUser, peer: nil), id: selfUser.id)
 
         // Connect to all trackers and start discovering peers.
         start()
@@ -196,6 +205,11 @@ final class W2GClient {
 
         isHost = false
         peers.removeAll()
+        peerOrder.removeAll()
+    }
+
+    private func setPeer(_ entry: PeerEntry, id: String) {
+        if peers.updateValue(entry, forKey: id) == nil { peerOrder.append(id) }
     }
 
     // MARK: - Public API (mirrors web methods)
@@ -363,7 +377,7 @@ final class W2GClient {
             // Decode ChatUser from payload.
             if let userData = try? JSONSerialization.data(withJSONObject: event.payload.value),
                let user = try? JSONDecoder().decode(W2GChatUser.self, from: userData) {
-                peers[peer.id] = PeerEntry(user: user, peer: peer)
+                setPeer(PeerEntry(user: user, peer: peer), id: peer.id)
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.w2gClientPeersDidChange(self)
@@ -413,6 +427,7 @@ final class W2GClient {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.w2gClientMessagesDidChange(self)
+                self.onIncomingMessage?(msg)
             }
         }
     }
@@ -545,6 +560,7 @@ final class W2GClient {
         if peerChannels[peerID]?.isEmpty == true {
             peerChannels.removeValue(forKey: peerID)
             peers.removeValue(forKey: peerID)
+            peerOrder.removeAll { $0 == peerID }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.w2gClientPeersDidChange(self)
