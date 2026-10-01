@@ -16,19 +16,17 @@
 //    draft/message-tags-0.2, away-notify, invite-notify, account-notify,
 //    account-tag, server-time, userhost-in-names, extended-join, two
 //    znc.in server-time variants, plus chghost/setname since interface
-//    enables those). This port requests exactly two — `userhost-in-names`
-//    and `multi-prefix` — and only because omitting the first one entirely
-//    caused a real bug (see `handleCap`'s doc comment). Everything else
-//    (server-time-accurate timestamps, away/account notifications, batch
-//    framing, etc.) is still not negotiated, so PRIVMSG timestamps still
-//    fall back to local receipt time rather than a server-time tag, and
-//    account-related fields on users are never populated.
+//    enables those). This port requests `userhost-in-names` and
+//    `multi-prefix` (see `handleCap`'s doc comment) and `server-time`, for
+//    the message timestamps. Everything else (away/account notifications,
+//    batch framing, etc.) is still not negotiated, so account-related
+//    fields on users are never populated.
 //  - No SASL (interface doesn't configure any SASL credentials for this
 //    network either).
-//  - No client-initiated periodic ping/timeout/auto-reconnect. This client
-//    still replies to server-initiated PINGs (required to stay connected),
-//    it just doesn't proactively ping the server itself or reconnect on
-//    drop.
+//  - No client-initiated periodic ping/timeout. This client still replies
+//    to server-initiated PINGs (required to stay connected), it just
+//    doesn't proactively ping the server itself. It does reconnect after a
+//    drop, as `auto_reconnect: true` does.
 //  - No ISUPPORT/PREFIX-table parsing for NAMES; a fixed common set of
 //    prefix symbols (~&@%+) is stripped instead of one built from the
 //    server's actual PREFIX advertisement.
@@ -108,13 +106,25 @@ final class IRCClient {
     /// entries. See the ISUPPORT/PREFIX scope note above.
     private static let namesPrefixSymbols: Set<Character> = ["~", "&", "@", "%", "+"]
 
+    /// Wait before reconnecting, and attempts without a successful registration in between:
+    /// the library's `auto_reconnect_wait` and `auto_reconnect_max_retries`.
+    private static let reconnectWait: TimeInterval = 4
+    private static let maxReconnectAttempts = 3
+
     private(set) var users: [String: IRCUser] = [:]
+    /// The idents in the order `Object.values($users)` lists them: the order they were first
+    /// added in, a user who leaves and comes back going to the end.
+    private var userOrder: [String] = []
     private(set) var messages: [IRCChatMessage] = []
+
+    var orderedUsers: [IRCUser] { userOrder.compactMap { users[$0] } }
 
     /// Called on the main thread whenever `users` changes.
     var onUsersChanged: (() -> Void)?
     /// Called on the main thread whenever `messages` changes.
     var onMessagesChanged: (() -> Void)?
+    /// Called on the main thread with every message received from someone else.
+    var onIncomingMessage: ((IRCChatMessage) -> Void)?
     /// Mirrors the two-stage `MessageClient.new()` await: fires once after
     /// registration *and* our own channel join both complete.
     var onReady: (() -> Void)?
@@ -135,6 +145,9 @@ final class IRCClient {
     private(set) var isReady = false
     private var currentNick: String
     private var pendingNamesMembers: [IRCRawUser] = []
+    private var disconnectRequested = false
+    private var reconnectAttempts = 0
+    private var reconnectWork: DispatchWorkItem?
 
     init(identity: IRCIdentity) {
         self.identity = identity
@@ -146,6 +159,7 @@ final class IRCClient {
     }
 
     func connect() {
+        disconnectRequested = false
         connection.connect(host: Self.host, port: Self.port)
     }
 
@@ -157,6 +171,9 @@ final class IRCClient {
     /// was a real, disclosed-late divergence from upstream, not a Swift
     /// necessity, so it's removed here to match exactly.
     func disconnect() {
+        disconnectRequested = true
+        reconnectWork?.cancel()
+        reconnectWork = nil
         connection.close()
     }
 
@@ -236,6 +253,7 @@ final class IRCClient {
     private func handleSocketOpen() {
         // Mirrors `registerToNetwork()`: CAP LS + NICK + USER are all sent
         // immediately, without waiting for a reply to any of them.
+        currentNick = Self.wireNick(for: identity)
         connection.send(line: IRCMessage(command: "CAP", params: ["LS", "302"]).serialized())
         connection.send(line: IRCMessage(command: "NICK", params: [currentNick]).serialized())
         connection.send(line: IRCMessage(command: "USER",
@@ -245,7 +263,18 @@ final class IRCClient {
     private func handleClose(_ error: Error?) {
         didRegister = false
         isReady = false
+        pendingCapRequest = false
+        pendingNamesMembers.removeAll()
         onDisconnected?(error)
+
+        guard !disconnectRequested, reconnectAttempts < Self.maxReconnectAttempts else { return }
+        reconnectAttempts += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.disconnectRequested else { return }
+            self.connection.connect(host: Self.host, port: Self.port)
+        }
+        reconnectWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reconnectWait, execute: work)
     }
 
     private func handleLine(_ rawLine: String) {
@@ -297,7 +326,7 @@ final class IRCClient {
     /// essentially free once any CAP REQ round-trip is already happening,
     /// and makes the NAMES prefix-stripping loop exercise its intended path
     /// instead of relying on servers sending single-prefix NAMES by default.
-    private static let wantedCapabilities: Set<String> = ["userhost-in-names", "multi-prefix"]
+    private static let wantedCapabilities: Set<String> = ["userhost-in-names", "multi-prefix", "server-time"]
     private var pendingCapRequest = false
 
     /// Handles only the CAP LS/ACK/NAK subcommands needed to request the two
@@ -333,6 +362,7 @@ final class IRCClient {
     private func handleRegistered(_ message: IRCMessage) {
         guard !didRegister else { return }
         didRegister = true
+        reconnectAttempts = 0
         // The library sets `this.user.nick` from RPL_WELCOME's own first
         // param on 'registered' — the server is authoritative here, not
         // whatever we originally requested (relevant if a nick were ever
@@ -346,14 +376,14 @@ final class IRCClient {
 
     private func handleJoin(_ message: IRCMessage) {
         guard message.params.first == Self.channelName else { return }
+        // Every join is added to the userlist, ours included: `join` is handled the same
+        // whoever joined, and ours comes before the names list.
+        setUser(IRCUserMapping.chatUser(from: IRCRawUser(nick: message.nick, ident: message.ident)),
+                ident: message.ident)
         if message.nick == currentNick, !isReady {
             isReady = true
             onReady?()
-            return
         }
-        // Someone else joining an already-open channel.
-        let user = IRCUserMapping.chatUser(from: IRCRawUser(nick: message.nick, ident: message.ident))
-        users[message.ident] = user
         onUsersChanged?()
     }
 
@@ -380,14 +410,20 @@ final class IRCClient {
         // for 353 above — different index, matching the reference exactly).
         guard message.params.count > 1, message.params[1] == Self.channelName else { return }
         for raw in pendingNamesMembers {
-            users[raw.ident] = IRCUserMapping.chatUser(from: raw)
+            setUser(IRCUserMapping.chatUser(from: raw), ident: raw.ident)
         }
         pendingNamesMembers.removeAll()
         onUsersChanged?()
     }
 
+    /// `users[ident] = user`: a user already listed keeps their place.
+    private func setUser(_ user: IRCUser, ident: String) {
+        if users.updateValue(user, forKey: ident) == nil { userOrder.append(ident) }
+    }
+
     private func removeUser(ident: String) {
         guard users.removeValue(forKey: ident) != nil else { return }
+        userOrder.removeAll { $0 == ident }
         onUsersChanged?()
     }
 
@@ -406,7 +442,22 @@ final class IRCClient {
         }
 
         let sender = users[message.ident] ?? IRCUserMapping.chatUser(from: IRCRawUser(nick: message.nick, ident: message.ident))
-        appendMessage(IRCChatMessage(user: sender, message: rawText, kind: .incoming, date: Date()))
+        // `priv.time ? new Date(priv.time) : new Date()`: the server's own time when it sends one.
+        let received = IRCChatMessage(user: sender, message: rawText, kind: .incoming,
+                                      date: Self.serverTime(message.tags["time"]) ?? Date())
+        appendMessage(received)
+        onIncomingMessage?(received)
+    }
+
+    private static let serverTimeFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static func serverTime(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        return serverTimeFormatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     private func appendMessage(_ message: IRCChatMessage) {

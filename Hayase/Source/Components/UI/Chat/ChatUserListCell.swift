@@ -86,7 +86,7 @@ final class ChatUserListCell: UITableViewCell {
 
         // Name: text-md (16px), pl-2 (8pt)
         nameLabel.font = .nunito(ofSize: 16)
-        nameLabel.textColor = .white
+        nameLabel.textColor = UIColor.HayaseTheme.foreground
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         contentView.addSubview(profileStack)

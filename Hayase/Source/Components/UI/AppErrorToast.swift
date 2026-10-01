@@ -19,6 +19,12 @@ enum AppErrorToast {
         UIAccessibility.post(notification: .announcement, argument: title + "\n" + message)
     }
 
+    /// A chat message from `MessageToast.svelte`, shown while the chat page is not.
+    static func show(chatMessage: IRCChatMessage) {
+        guard let window = (UIApplication.shared.delegate as? AppDelegate)?.window else { return }
+        overlay(in: window).present(ChatMessageToastCardView(message: chatMessage))
+    }
+
     /// `toast.promise`: update this same card instead of stacking a second toast.
     /// Loading has no timeout and cannot be swiped away before the promise settles.
     @discardableResult
@@ -63,7 +69,7 @@ enum TorrentErrorToast {
 
 /// Transparent overlay: never intercept navigation or video controls outside toasts.
 private final class ErrorToastHostView: UIView {
-    private var cards: [ErrorToastCardView] = []
+    private var cards: [ToastCardView] = []
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
@@ -87,9 +93,12 @@ private final class ErrorToastHostView: UIView {
 
     func show(message: String, title: String, duration: TimeInterval,
               id: UUID = UUID(), kind: AppToastKind = .error) {
+        present(ErrorToastCardView(message: message, title: title, duration: duration,
+                                   id: id, kind: kind))
+    }
+
+    func present(_ card: ToastCardView) {
         layoutIfNeeded()
-        let card = ErrorToastCardView(message: message, title: title, duration: duration,
-                                      id: id, kind: kind)
         card.onDismiss = { [weak self, weak card] swiped in
             guard let self, let card, self.cards.contains(where: { $0 === card }) else { return }
             self.cards.removeAll { $0 === card }
@@ -121,7 +130,7 @@ private final class ErrorToastHostView: UIView {
     }
 
     func update(id: UUID, title: String, kind: AppToastKind, duration: TimeInterval) {
-        guard let card = cards.first(where: { $0.id == id }) else { return }
+        guard let card = cards.first(where: { $0.id == id }) as? ErrorToastCardView else { return }
         card.update(title: title, kind: kind, duration: duration)
         setNeedsLayout()
         animate(duration: 0.4, changes: { self.layoutIfNeeded() })

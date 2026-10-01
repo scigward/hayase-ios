@@ -2,6 +2,16 @@ import UIKit
 
 enum AppToastKind { case loading, success, error }
 
+/// What the toast stack needs of a card: where it is in the stack, how tall it is and when it goes.
+protocol ToastCardView: UIView {
+    var id: UUID { get }
+    var onDismiss: ((Bool) -> Void)? { get set }
+    func height(for width: CGFloat) -> CGFloat
+    func startTimer()
+}
+
+extension ErrorToastCardView: ToastCardView {}
+
 /// Sonner's styled toast. closeButton=false and richColors=false in interface.
 final class ErrorToastCardView: UIView {
     let id: UUID

@@ -9,12 +9,10 @@
 //  WebSocket (`wss://host:port`), not a raw TCP socket, which is why this
 //  uses `URLSessionWebSocketTask` rather than the `Network` framework.
 //
-//  Scope note: interface's `Connection` also implements auto-reconnect via
-//  the underlying library's own retry logic (not shown here, since it lives
-//  in client.js, not connections.ts). This port does a single connection
-//  attempt and reports failure/closure via `onClose` rather than retrying
-//  automatically — reconnection is a reasonable next increment, not
-//  included here.
+//  Reconnecting lives in the library's client, not in connections.ts, and so in
+//  IRCClient here; this reports every closure through `onClose`. What this does
+//  do, as connections.ts does, is retry a first attempt that failed before it
+//  opened without the WebSocket subprotocol, which a gateway may reject.
 
 import Foundation
 
@@ -35,6 +33,10 @@ final class IRCConnection: NSObject {
 
     private var task: URLSessionWebSocketTask?
     private var session: URLSession?
+    private var host = ""
+    private var port = 0
+    private var usesSubprotocol = true
+    private var triedWithoutSubprotocol = false
     private let queue = DispatchQueue(label: "app.hayase.irc.connection")
 
     /// Wire-protocol convention from `onSocketMessage`: a single WebSocket
@@ -45,19 +47,24 @@ final class IRCConnection: NSObject {
 
     func connect(host: String, port: Int) {
         queue.async { [weak self] in
-            self?.connectLocked(host: host, port: port)
+            guard let self else { return }
+            self.host = host
+            self.port = port
+            self.usesSubprotocol = true
+            self.triedWithoutSubprotocol = false
+            self.connectLocked()
         }
     }
 
-    private func connectLocked(host: String, port: Int) {
+    private func connectLocked() {
         disposeLocked()
         guard var components = URLComponents(string: "wss://\(host)") else {
-            callOnClose(IRCConnectionError.invalidHost)
+            callOnClose(IRCConnectionError.invalidHost, from: nil)
             return
         }
         components.port = port
         guard let url = components.url else {
-            callOnClose(IRCConnectionError.invalidHost)
+            callOnClose(IRCConnectionError.invalidHost, from: nil)
             return
         }
 
@@ -69,11 +76,13 @@ final class IRCConnection: NSObject {
         // default, `'text.ircv3.net'`. This was missing from the first pass
         // of this file entirely; some IRC-over-WebSocket gateways key off the
         // subprotocol to know how to frame the connection.
-        let task = session.webSocketTask(with: url, protocols: ["text.ircv3.net"])
+        let task = usesSubprotocol
+            ? session.webSocketTask(with: url, protocols: ["text.ircv3.net"])
+            : session.webSocketTask(with: url)
         self.session = session
         self.task = task
         task.resume()
-        receiveLoop()
+        receiveLoop(on: task)
     }
 
     /// Sends one already-serialized IRC line as a single WebSocket text
@@ -84,7 +93,7 @@ final class IRCConnection: NSObject {
         guard let task, isConnected else { return }
         task.send(.string(line)) { [weak self] error in
             if let error {
-                self?.callOnClose(error)
+                self?.callOnClose(error, from: task)
             }
         }
     }
@@ -95,23 +104,23 @@ final class IRCConnection: NSObject {
         }
     }
 
-    private func receiveLoop() {
-        task?.receive { [weak self] result in
+    private func receiveLoop(on task: URLSessionWebSocketTask) {
+        task.receive { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(let error):
-                self.callOnClose(error)
+                self.callOnClose(error, from: task)
             case .success(let message):
                 switch message {
                 case .string(let text):
                     self.queue.async { self.handleIncoming(text) }
-                    self.receiveLoop()
+                    self.receiveLoop(on: task)
                 case .data:
                     // Mirrors onSocketMessage's rejection of binary frames —
                     // this protocol is text-only.
-                    self.callOnClose(IRCConnectionError.unexpectedBinaryFrame)
+                    self.callOnClose(IRCConnectionError.unexpectedBinaryFrame, from: task)
                 @unknown default:
-                    self.receiveLoop()
+                    self.receiveLoop(on: task)
                 }
             }
         }
@@ -143,12 +152,24 @@ final class IRCConnection: NSObject {
         incomingBuffer = ""
     }
 
-    private func callOnClose(_ error: Error?) {
+    /// Only the current socket may close the connection: what a socket that was replaced or
+    /// closed on purpose still reports must not take down its successor.
+    private func callOnClose(_ error: Error?, from closing: URLSessionWebSocketTask?) {
         queue.async { [weak self] in
-            self?.disposeLocked()
+            guard let self else { return }
+            if let closing, closing !== self.task { return }
+            // `possible_protocol_error`: a first attempt that failed before it opened is tried
+            // once more without the subprotocol.
+            if closing != nil, !self.isConnected, self.usesSubprotocol, !self.triedWithoutSubprotocol {
+                self.triedWithoutSubprotocol = true
+                self.usesSubprotocol = false
+                self.connectLocked()
+                return
+            }
+            self.disposeLocked()
+            let callback = self.onClose
+            DispatchQueue.main.async { callback?(error) }
         }
-        let callback = onClose
-        DispatchQueue.main.async { callback?(error) }
     }
 }
 
@@ -156,7 +177,8 @@ extension IRCConnection: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                      didOpenWithProtocol protocol: String?) {
         queue.async { [weak self] in
-            self?.isConnected = true
+            guard let self, webSocketTask === self.task else { return }
+            self.isConnected = true
         }
         let callback = onOpen
         DispatchQueue.main.async { callback?() }
@@ -165,7 +187,7 @@ extension IRCConnection: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                      didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
                      reason: Data?) {
-        callOnClose(nil)
+        callOnClose(nil, from: webSocketTask)
     }
 }
 

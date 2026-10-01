@@ -57,6 +57,13 @@ final class IRCLobby {
             return existing
         }
         let newClient = IRCClient(identity: .current())
+        newClient.onIncomingMessage = { message in
+            // `page.route.id !== '/app/chat' && !msg.user.name.startsWith('Guest-')`
+            DispatchQueue.main.async {
+                guard Router.shared.currentRoute != .chat, !message.user.name.hasPrefix("Guest-") else { return }
+                AppErrorToast.show(chatMessage: message)
+            }
+        }
         client = newClient
         newClient.connect()
         return newClient
