@@ -82,13 +82,15 @@ enum TorrentClientStyle {
     }
 
     /// Table.Root keeps all columns reachable through horizontal overflow.
-    static func installScrollableTable(_ table: UITableView, in shell: UIView, minimumWidth: CGFloat) {
+    @discardableResult
+    static func installScrollableTable(_ table: UITableView, in shell: UIView, minimumWidth: CGFloat) -> NSLayoutConstraint {
         let scroll = UIScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         shell.addSubview(scroll)
         scroll.addSubview(table)
         let preferredWidth = table.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
         preferredWidth.priority = .defaultHigh
+        let minimum = table.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: shell.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: shell.leadingAnchor),
@@ -100,13 +102,18 @@ enum TorrentClientStyle {
             table.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             table.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
             table.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
-            table.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth),
+            minimum,
             preferredWidth,
         ])
+        return minimum
     }
 
     static func makeSearchField(placeholder: String) -> UITextField {
-        let field = UITextField()
+        let field = Input(placeholder: placeholder, iconName: "search")
+        field.idleBackgroundColor = background
+        field.searchIconSize = 16
+        field.iconLeadingInset = 12
+        field.highlightsIconOnFocus = false
         field.placeholder = placeholder
         field.attributedPlaceholder = NSAttributedString(
             string: placeholder,
@@ -120,18 +127,9 @@ enum TorrentClientStyle {
         field.layer.cornerRadius = 6
         field.layer.borderWidth = 1
         field.layer.borderColor = input.cgColor
-        field.clipsToBounds = true
-        field.clearButtonMode = .whileEditing
+        field.clipsToBounds = false
+        field.clearButtonMode = .never
         field.returnKeyType = .search
-
-        let icon = UIImageView(image: UIImage.hayaseIcon("search"))
-        icon.tintColor = mutedForeground
-        icon.contentMode = .scaleAspectFit
-        icon.frame = CGRect(x: 8, y: 0, width: 24, height: 20)
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 20))
-        container.addSubview(icon)
-        field.leftView = container
-        field.leftViewMode = .always
 
         return field
     }
@@ -146,16 +144,16 @@ enum TorrentClientStyle {
 
     static func setIconButtonEnabled(_ button: UIButton, enabled: Bool, variant: IconButtonVariant) {
         button.isEnabled = enabled
-        button.tintColor = enabled ? variant.tint : mutedForeground.withAlphaComponent(0.5)
-        button.backgroundColor = enabled ? variant.background : muted.withAlphaComponent(0.75)
-        button.alpha = enabled ? 1 : 0.55
+        button.tintColor = variant.tint
+        button.backgroundColor = variant.background
+        button.alpha = enabled ? 1 : 0.5
     }
 
     struct IconButtonVariant {
         let background: UIColor
         let tint: UIColor
 
-        static let secondary = IconButtonVariant(background: muted, tint: foreground)
-        static let destructive = IconButtonVariant(background: UIColor.systemRed, tint: UIColor.white)
+        static let secondary = IconButtonVariant(background: UIColor.HayaseTheme.secondary, tint: UIColor.HayaseTheme.secondaryForeground)
+        static let destructive = IconButtonVariant(background: UIColor.HayaseTheme.destructive, tint: UIColor.HayaseTheme.destructiveForeground)
     }
 }

@@ -36,7 +36,8 @@ class DownloadsViewController: UIViewController {
     // MARK: - Page header
 
     private let pageTitleLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
+        l.lineHeight = 32
         l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = TorrentClientStyle.foreground
         l.text = "Torrent Client"
@@ -44,11 +45,13 @@ class DownloadsViewController: UIViewController {
     }()
 
     private let pageSubtitleLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
+        l.lineHeight = 24
         l.font = .nunito(ofSize: 16, weight: .regular)
         l.textColor = TorrentClientStyle.mutedForeground
         l.text = "Monitor your torrents, and configure settings for your torrent client."
         l.numberOfLines = 0
+        l.lineBreakMode = .byWordWrapping
         return l
     }()
 
@@ -64,7 +67,6 @@ class DownloadsViewController: UIViewController {
 
     private var tabButtons: [HayaseNavTabButton] = []
     private var tabButtonHeightConstraints: [NSLayoutConstraint] = []
-    private var tabButtonMinWidthConstraints: [NSLayoutConstraint] = []
     private let tabBarContainer = UIView()
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
@@ -72,7 +74,8 @@ class DownloadsViewController: UIViewController {
     private let headerSeparator = UIView()
     private let globeView = Globe()
     private let webTorrentVersionLabel: UILabel = {
-        let label = UILabel()
+        let label = TorrentClientLabel()
+        label.lineHeight = 16
         label.text = "WebTorrent v3.0.16"
         label.font = .nunito(ofSize: 12, weight: .light)
         label.textColor = TorrentClientStyle.mutedForeground
@@ -85,6 +88,8 @@ class DownloadsViewController: UIViewController {
     private var tabStackHeightConstraint: NSLayoutConstraint?
     private var tabScrollBottomToContainerConstraint: NSLayoutConstraint?
     private var tabScrollBottomToFooterConstraint: NSLayoutConstraint?
+    private var versionBottomConstraint: NSLayoutConstraint?
+    private var versionTopConstraint: NSLayoutConstraint?
     private var globeWidthConstraint: NSLayoutConstraint?
     private var bodyTopConstraint: NSLayoutConstraint?
     private var bodyLeadingConstraint: NSLayoutConstraint?
@@ -107,7 +112,8 @@ class DownloadsViewController: UIViewController {
     }()
 
     private let nameLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
+        l.lineHeight = 32
         l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = TorrentClientStyle.foreground
         l.numberOfLines = 1
@@ -124,7 +130,7 @@ class DownloadsViewController: UIViewController {
     }()
 
     private let hashLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
         l.font = .nunito(ofSize: 14)
         l.textColor = TorrentClientStyle.mutedForeground
         l.numberOfLines = 1
@@ -133,35 +139,29 @@ class DownloadsViewController: UIViewController {
     }()
 
     private let bigPercentLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
+        l.lineHeight = 32
         l.font = .nunito(ofSize: 24, weight: .bold)
         l.textColor = TorrentClientStyle.foreground
         return l
     }()
 
-    private let progressBar: UIProgressView = {
-        let pv = UIProgressView(progressViewStyle: .bar)
-        pv.layer.cornerRadius = 6
-        pv.clipsToBounds = true
-        pv.trackTintColor = TorrentClientStyle.accent
-        pv.progressTintColor = TorrentClientStyle.primary
-        return pv
-    }()
+    private let progressBar = TorrentClientProgressBar(height: 12)
 
     // Progress stat values
-    private let downloadedValue  = TorrentDetailViewController.makeValueLabel()
-    private let uploadedValue    = TorrentDetailViewController.makeValueLabel()
-    private let totalSizeValue   = TorrentDetailViewController.makeValueLabel()
-    private let piecesValue      = TorrentDetailViewController.makeValueLabel()
+    private let downloadedValue  = TorrentClientLabel()
+    private let uploadedValue    = TorrentClientLabel()
+    private let totalSizeValue   = TorrentClientLabel()
+    private let piecesValue      = TorrentClientLabel()
 
     // Speed & Transfer / Time / Peers values
-    private let downSpeedValue   = TorrentDetailViewController.makeValueLabel()
-    private let upSpeedValue     = TorrentDetailViewController.makeValueLabel()
-    private let etaValue         = TorrentDetailViewController.makeValueLabel()
-    private let elapsedValue     = TorrentDetailViewController.makeValueLabel()
-    private let seedersValue     = TorrentDetailViewController.makeValueLabel()
-    private let leechersValue    = TorrentDetailViewController.makeValueLabel()
-    private let wiresValue       = TorrentDetailViewController.makeValueLabel()
+    private let downSpeedValue   = TorrentClientLabel()
+    private let upSpeedValue     = TorrentClientLabel()
+    private let etaValue         = TorrentClientLabel()
+    private let elapsedValue     = TorrentClientLabel()
+    private let seedersValue     = TorrentClientLabel()
+    private let leechersValue    = TorrentClientLabel()
+    private let wiresValue       = TorrentClientLabel()
 
     // Protocol status dots
     private let dhtDot       = TorrentDetailViewController.makeDotLabel()
@@ -185,9 +185,11 @@ class DownloadsViewController: UIViewController {
     private let filesSearchField = TorrentClientStyle.makeSearchField(placeholder: "Search by File Name...")
     private var fileEntries: [FileEntry] = []
     private var filteredFileEntries: [FileEntry] = []
+    private var filesColumnWidths: [CGFloat?] = TorrentClientColumnWidths.files(entries: [])
+    private var filesMinimumWidth: NSLayoutConstraint?
 
     /// Column sort state for the Files tab (mirrors Hayase addSortBy plugin with toggleOrder: ['asc','desc']).
-    /// Tap cycle: unsorted → asc → desc → unsorted.
+    /// Source dropdown offers only ascending and descending order.
     private enum FileSortColumn: Int { case name = 0, size = 1, progress = 2, streams = 3 }
     private var filesSortColumn: FileSortColumn?
     private var filesSortAscending: Bool = true
@@ -211,11 +213,15 @@ class DownloadsViewController: UIViewController {
     }
     private var peersSortColumn: PeerSortColumn?
     private var peersSortAscending = true
+    private var peerColumnWidths = PeerTableLayout.widths(for: [])
+    private var peersMinimumWidth: NSLayoutConstraint?
 
     // MARK: - Trackers tab
 
     private let trackersView = UIView()
     private var trackersTableView: UITableView!
+    private var trackerColumnWidths = TrackerTableLayout.widths(for: [])
+    private var trackersMinimumWidth: NSLayoutConstraint?
     private var webTrackerRows: [(announce: String, info: WebTorrentTrackerInfo)] = []
     private var webTrackersInFlight = false
     private var lastWebTrackerRefresh = Date.distantPast
@@ -227,6 +233,8 @@ class DownloadsViewController: UIViewController {
     private var libraryTableView: UITableView!
     private let librarySearchField = TorrentClientStyle.makeSearchField(placeholder: "Search by Torrent Name...")
     private var filteredLibraryEntries: [(hash: String, handle: TorrentHandle, entity: Torrents?)] = []
+    private var libraryColumnWidths: [CGFloat?] = TorrentClientColumnWidths.library(entries: [])
+    private var libraryMinimumWidth: NSLayoutConstraint?
 
     private var webStatus: WebTorrentBridgeStatus?
     private var webInfo: WebTorrentTorrentInfo?
@@ -251,30 +259,19 @@ class DownloadsViewController: UIViewController {
     private var pendingLibraryPlaybackObserver: NSObjectProtocol?
     private var pendingLibraryPlaybackTimeout: DispatchWorkItem?
     private var openingLibraryPlaybackHash: String?
+    private weak var pendingLibraryPlayer: VideoPlayerViewController?
     private static let libraryPlaybackTimeout: TimeInterval = 120
 
     private let librarySelectionLabel: UILabel = {
-        let l = UILabel()
+        let l = TorrentClientLabel()
         l.font = .nunito(ofSize: 14)
         l.textColor = TorrentClientStyle.mutedForeground
         l.text = "0 of 0 row(s) selected."
         l.textAlignment = .right
         return l
     }()
-    private let libraryRescanButton = UIButton(type: .system)
-    private let libraryDeleteButton = UIButton(type: .system)
-
-    // MARK: - Empty state
-
-    private let emptyLabel: UILabel = {
-        let l = UILabel()
-        l.text = "No active downloads"
-        l.textColor = TorrentClientStyle.mutedForeground
-        l.font = .nunito(ofSize: 17)
-        l.textAlignment = .center
-        l.isHidden = true
-        return l
-    }()
+    private let libraryRescanButton = SelectButton()
+    private let libraryDeleteButton = SelectButton()
 
     // MARK: - StatItem
 
@@ -302,7 +299,6 @@ class DownloadsViewController: UIViewController {
 
         setupPageHeader()
         setupContainerView()
-        setupEmptyLabel()
         buildOverviewUI()
         buildFilesUI()
         buildPeersUI()
@@ -313,7 +309,6 @@ class DownloadsViewController: UIViewController {
 
         if clientRoute == .root {
             tabContentViews.forEach { $0.isHidden = true }
-            emptyLabel.isHidden = true
         } else {
             autoSelectFirstTorrent()
             showTab(selectedTabIndex)
@@ -402,7 +397,6 @@ class DownloadsViewController: UIViewController {
             if selectedHex.isEmpty {
                 selectedHex = webStatus?.infoHash ?? webLibraryEntries.first?.hash ?? ""
             }
-            emptyLabel.isHidden = selectedTabIndex != 0 || !shouldShowGlobalEmptyState()
             return
         }
 
@@ -412,7 +406,6 @@ class DownloadsViewController: UIViewController {
            handles[selectedHex] != nil {
             selectedHandle = handles[selectedHex]
             selectedEntity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(selectedHex).first
-            emptyLabel.isHidden = selectedTabIndex != 0 || !shouldShowGlobalEmptyState()
             return
         }
         // Auto-select first handle sorted by name
@@ -420,12 +413,10 @@ class DownloadsViewController: UIViewController {
             selectedHex = first.key
             selectedHandle = first.value
             selectedEntity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(first.key).first
-            emptyLabel.isHidden = selectedTabIndex != 0 || !shouldShowGlobalEmptyState()
         } else {
             selectedHandle = nil
             selectedHex = ""
             selectedEntity = nil
-            emptyLabel.isHidden = selectedTabIndex != 0 || !shouldShowGlobalEmptyState()
         }
     }
 
@@ -433,7 +424,6 @@ class DownloadsViewController: UIViewController {
         selectedHex = hex
         selectedHandle = handle
         selectedEntity = TorrentService.sharedTorrentService.GetTorrentEntitiesFromHash(hex).first
-        emptyLabel.isHidden = true
         selectedTabIndex = 0
         updateTabButtonAppearances()
         showTab(0)
@@ -484,7 +474,7 @@ class DownloadsViewController: UIViewController {
         setupTabNavigation()
 
         bodyStackView.axis = .vertical
-        bodyStackView.spacing = 8
+        bodyStackView.spacing = 0
         bodyStackView.alignment = .fill
         bodyStackView.distribution = .fill
         bodyStackView.translatesAutoresizingMaskIntoConstraints = false
@@ -523,15 +513,6 @@ class DownloadsViewController: UIViewController {
         ])
     }
 
-    private func setupEmptyLabel() {
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(emptyLabel)
-        NSLayoutConstraint.activate([
-            emptyLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-        ])
-    }
-
     private func installTabPages() {
         for tabView in tabContentViews {
             guard tabView.superview == nil else { continue }
@@ -543,11 +524,10 @@ class DownloadsViewController: UIViewController {
                 tabView.topAnchor.constraint(equalTo: containerView.topAnchor),
                 tabView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
                 tabView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                tabView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+                tabView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8),
             ])
         }
         containerView.sendSubviewToBack(globeView)
-        containerView.bringSubviewToFront(emptyLabel)
     }
 
     // MARK: - Tab bar
@@ -566,7 +546,6 @@ class DownloadsViewController: UIViewController {
 
         tabButtons.removeAll()
         tabButtonHeightConstraints.removeAll()
-        tabButtonMinWidthConstraints.removeAll()
         let titles = ["Overview", "Files", "Peers", "Trackers", "Library", "Settings"]
         for (index, title) in titles.enumerated() {
             let button = makeTabButton(title: title, tag: index)
@@ -583,7 +562,9 @@ class DownloadsViewController: UIViewController {
         tabStackHeightConstraint = tabStackView.heightAnchor.constraint(equalTo: tabScrollView.frameLayoutGuide.heightAnchor)
         tabStackHeightConstraint?.isActive = true
         tabScrollBottomToContainerConstraint = tabScrollView.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor)
-        tabScrollBottomToFooterConstraint = tabScrollView.bottomAnchor.constraint(equalTo: webTorrentVersionLabel.topAnchor, constant: -12)
+        tabScrollBottomToFooterConstraint = tabScrollView.bottomAnchor.constraint(equalTo: webTorrentVersionLabel.topAnchor, constant: -20)
+        versionBottomConstraint = webTorrentVersionLabel.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor, constant: -20)
+        versionTopConstraint = webTorrentVersionLabel.topAnchor.constraint(equalTo: tabStackView.bottomAnchor, constant: 20)
         tabScrollBottomToContainerConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
@@ -597,7 +578,6 @@ class DownloadsViewController: UIViewController {
             tabStackView.bottomAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.bottomAnchor),
             webTorrentVersionLabel.leadingAnchor.constraint(equalTo: tabBarContainer.leadingAnchor, constant: 8),
             webTorrentVersionLabel.trailingAnchor.constraint(lessThanOrEqualTo: tabBarContainer.trailingAnchor, constant: -8),
-            webTorrentVersionLabel.bottomAnchor.constraint(equalTo: tabBarContainer.bottomAnchor, constant: -20),
         ])
     }
 
@@ -611,11 +591,8 @@ class DownloadsViewController: UIViewController {
         btn.tag = tag
         btn.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
         let height = btn.heightAnchor.constraint(equalToConstant: 40)  // size=lg: h-10 = 40px
-        let minWidth = btn.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
         height.isActive = true
-        minWidth.isActive = true
         tabButtonHeightConstraints.append(height)
-        tabButtonMinWidthConstraints.append(minWidth)
         updateTabButtonAppearance(btn)
         HayaseNavTabButton.select(tag: selectedTabIndex, in: [btn], animated: false)
         return btn
@@ -632,7 +609,7 @@ class DownloadsViewController: UIViewController {
         containerView.isHidden = compactRoot
 
         bodyStackView.axis = wide ? .horizontal : .vertical
-        bodyStackView.spacing = wide ? TorrentClientStyle.sidebarGap : 8
+        bodyStackView.spacing = wide ? TorrentClientStyle.sidebarGap : 0
         tabStackView.axis = (wide || !medium) ? .vertical : .horizontal
         tabStackView.alignment = (wide || !medium) ? .fill : .center
         tabStackView.spacing = (wide || !medium) ? 4 : 8  // gap-y-1 / gap-x-2
@@ -643,10 +620,14 @@ class DownloadsViewController: UIViewController {
         // Compact index has only the menu: let its scroll viewport fill the
         // remaining height instead of forcing the header to absorb that space.
         tabBarHeightConstraint?.isActive = medium && !wide
-        tabBarHeightConstraint?.constant = 36 + 12 + 20 + webTorrentVersionLabel.font.lineHeight
+        tabBarHeightConstraint?.constant = 36 + 40 + 16
         tabStackWidthConstraint?.isActive = wide || !medium
         tabStackHeightConstraint?.isActive = medium && !wide
         let showsVersion = width >= 640
+        versionBottomConstraint?.isActive = wide && showsVersion
+        versionTopConstraint?.constant = medium ? 20 : 12
+        versionTopConstraint?.isActive = !wide && showsVersion
+        tabScrollBottomToFooterConstraint?.constant = medium ? -20 : -12
         tabScrollBottomToContainerConstraint?.isActive = !showsVersion
         tabScrollBottomToFooterConstraint?.isActive = showsVersion
         webTorrentVersionLabel.isHidden = !showsVersion
@@ -654,7 +635,6 @@ class DownloadsViewController: UIViewController {
         for (index, button) in tabButtons.enumerated() {
             let height = medium ? CGFloat(36) : CGFloat(40)  // default h-9 / lg h-10
             tabButtonHeightConstraints[safe: index]?.constant = height
-            tabButtonMinWidthConstraints[safe: index]?.isActive = medium
             button.contentEdgeInsets = medium
                 ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)   // default px-4 py-2
                 : UIEdgeInsets(top: 10, left: 32, bottom: 10, right: 32) // lg px-8, h-10
@@ -711,7 +691,7 @@ class DownloadsViewController: UIViewController {
             stopTimer()
             HayaseNavTabButton.select(tag: -1, in: tabButtons, animated: true)
             tabContentViews.forEach { $0.isHidden = true }
-            emptyLabel.isHidden = true
+            updatePageHeader(for: 0)
             updateResponsiveClientLayoutIfNeeded()
             return
         }
@@ -786,8 +766,6 @@ class DownloadsViewController: UIViewController {
             tabView.isHidden = tabIndex != index
         }
 
-        emptyLabel.isHidden = isWebTorrentMode || index != 0 || !shouldShowGlobalEmptyState()
-
         switch index {
         case 0:
             update()
@@ -802,13 +780,6 @@ class DownloadsViewController: UIViewController {
         default:
             break
         }
-    }
-
-    private func shouldShowGlobalEmptyState() -> Bool {
-        if isWebTorrentMode {
-            return selectedHex.isEmpty && webStatus == nil && webLibraryEntries.isEmpty
-        }
-        return selectedHandle == nil
     }
 
     // MARK: - Files tab
@@ -833,7 +804,9 @@ class DownloadsViewController: UIViewController {
         filesTableView.rowHeight = Self.filesRowHeight
         filesTableView.estimatedRowHeight = Self.filesRowHeight
         TorrentClientStyle.configureTableView(filesTableView)
-        TorrentClientStyle.installScrollableTable(filesTableView, in: borderContainer, minimumWidth: 640)
+        filesMinimumWidth = TorrentClientStyle.installScrollableTable(filesTableView, in: borderContainer,
+            minimumWidth: TorrentClientColumnWidths.minimumTableWidth(filesColumnWidths,
+                flexibleMinimums: [0: TorrentClientColumnWidths.filesNameMinimum]))
 
         NSLayoutConstraint.activate([
             filesSearchField.topAnchor.constraint(equalTo: filesView.topAnchor),
@@ -866,7 +839,7 @@ class DownloadsViewController: UIViewController {
         } else {
             filteredFileEntries = fileEntries.filter { $0.name.lowercased().contains(query) }
         }
-        // Apply column sort (mirrors Hayase addSortBy plugin: asc → desc → clear)
+        // addSortBy toggleOrder is ascending/descending only.
         if let sortCol = filesSortColumn {
             let ascending = filesSortAscending
             let sequential = readSnapshot(from: selectedHandle, default: false) { $0.isSequential }
@@ -885,7 +858,11 @@ class DownloadsViewController: UIViewController {
                 }
             }
         }
-        filesTableView?.reloadData()
+        let sequential = readSnapshot(from: selectedHandle, default: false) { $0.isSequential }
+        filesColumnWidths = TorrentClientColumnWidths.files(
+            sizes: filteredFileEntries.map { TorrentDetailViewController.fastPrettyBytes($0.size) },
+            streams: filteredFileEntries.map { sequential && $0.priority != .dontDownload ? 1 : 0 })
+        updateFileColumnLayout()
     }
 
     private func refreshWebTorrentFiles() {
@@ -909,11 +886,21 @@ class DownloadsViewController: UIViewController {
                 }
             }
         }
+        filesColumnWidths = TorrentClientColumnWidths.files(entries: webFilteredFileInfos)
+        updateFileColumnLayout()
+    }
+
+    private func updateFileColumnLayout() {
+        filesMinimumWidth?.constant = TorrentClientColumnWidths.minimumTableWidth(filesColumnWidths,
+            flexibleMinimums: [0: TorrentClientColumnWidths.filesNameMinimum])
         filesTableView?.reloadData()
     }
 
     private func refreshPeers() {
-        globeView.setPeers(currentPeerRows())
+        let rows = currentPeerRows()
+        peerColumnWidths = PeerTableLayout.widths(for: rows)
+        peersMinimumWidth?.constant = PeerTableLayout.minimumContentWidth(widths: peerColumnWidths)
+        globeView.setPeers(rows)
         peersTableView?.reloadData()
     }
 
@@ -967,11 +954,11 @@ class DownloadsViewController: UIViewController {
         }
 
         let snap = readSnapshot(from: selectedHandle, default: nil) { Optional($0) }
-        guard let snap else { return }
+        guard let snap else { clearWebTorrentOverview(error: nil); return }
 
         // Header
         nameLabel.text = snap.name.isEmpty ? "No Name Provided" : snap.name
-        hashLabel.text = selectedHex.isEmpty ? "—" : selectedHex
+        hashLabel.text = selectedHex
 
         // Progress: use totalDone/total for precision (snap.progress is unreliable during streaming)
         let progress: Float = snap.total > 0
@@ -982,10 +969,10 @@ class DownloadsViewController: UIViewController {
         // Status badge (Hayase: blue for Seeding, green for Downloading)
         if completed {
             statusBadge.text = "Seeding"
-            statusBadge.backgroundColor = .systemBlue
+            statusBadge.backgroundColor = TorrentClientStyle.blue500
         } else {
             statusBadge.text = "Downloading"
-            statusBadge.backgroundColor = .systemGreen
+            statusBadge.backgroundColor = TorrentClientStyle.green500
         }
 
         // Progress percentage
@@ -1001,9 +988,7 @@ class DownloadsViewController: UIViewController {
         // Pieces: "{count} × {size}"
         let pieceCount = snap.pieces?.count ?? 0
         let pieceLenBytes = UInt64(snap.pieceLength)
-        piecesValue.text = pieceCount > 0 && pieceLenBytes > 0
-            ? "\(pieceCount) × \(TorrentDetailViewController.fastPrettyBytes(pieceLenBytes))"
-            : "—"
+        setPiecesValue(total: pieceCount, size: pieceLenBytes)
 
         // Speed & Transfer (Hayase: fastPrettyBits(speed.down * 8))
         downSpeedValue.text = TorrentDetailViewController.fastPrettyBits(snap.downloadRate * 8) + "/s"
@@ -1190,7 +1175,6 @@ class DownloadsViewController: UIViewController {
         }
 
         let hasTorrent = !selectedHex.isEmpty || resolvedStatus?.infoHash != nil || resolvedInfo != nil || !resolvedLibrary.isEmpty
-        emptyLabel.isHidden = true // Each source tab owns its empty state.
         if !hasTorrent {
             clearWebTorrentOverview(error: error)
             webTrackerRows = []
@@ -1202,8 +1186,9 @@ class DownloadsViewController: UIViewController {
         }
 
         let currentLibraryEntry = resolvedLibrary.first { $0.hash == selectedHex } ?? resolvedLibrary.first
-        nameLabel.text = resolvedInfo?.name ?? currentLibraryEntry?.name ?? resolvedStatus?.source ?? "WebTorrent"
-        hashLabel.text = selectedHex.isEmpty ? (resolvedStatus?.infoHash ?? "—") : selectedHex
+        let torrentName = resolvedInfo?.name ?? currentLibraryEntry?.name ?? ""
+        nameLabel.text = torrentName.isEmpty ? "No Name Provided" : torrentName
+        hashLabel.text = selectedHex.isEmpty ? (resolvedStatus?.infoHash ?? "") : selectedHex
 
         let progress = resolvedInfo?.progress ?? resolvedStatus?.progress ?? currentLibraryEntry?.progress ?? 0
         let completed = progress == 1
@@ -1219,11 +1204,7 @@ class DownloadsViewController: UIViewController {
         uploadedValue.text = TorrentDetailViewController.fastPrettyBytes(uploaded)
         totalSizeValue.text = TorrentDetailViewController.fastPrettyBytes(total)
 
-        if let pieces = resolvedInfo?.pieces, pieces.total > 0 {
-            piecesValue.text = "\(pieces.total) × \(TorrentDetailViewController.fastPrettyBytes(pieces.size))"
-        } else {
-            piecesValue.text = "—"
-        }
+        setPiecesValue(total: resolvedInfo?.pieces.total ?? 0, size: resolvedInfo?.pieces.size ?? 0)
 
         let down = resolvedInfo?.speed.down ?? resolvedStatus?.downloadSpeed ?? 0
         let up = resolvedInfo?.speed.up ?? resolvedStatus?.uploadSpeed ?? 0
@@ -1271,7 +1252,7 @@ class DownloadsViewController: UIViewController {
         bigPercentLabel.text = "0.0%"
         progressBar.progress = 0
         [downloadedValue, uploadedValue, totalSizeValue].forEach { $0.text = TorrentDetailViewController.fastPrettyBytes(0) }
-        piecesValue.text = "0 × " + TorrentDetailViewController.fastPrettyBytes(0)
+        setPiecesValue(total: 0, size: 0)
         [downSpeedValue, upSpeedValue].forEach { $0.text = TorrentDetailViewController.fastPrettyBits(0) + "/s" }
         [etaValue, elapsedValue].forEach { $0.text = "0s" }
         [seedersValue, leechersValue, wiresValue].forEach { $0.text = "0" }
@@ -1303,11 +1284,11 @@ class DownloadsViewController: UIViewController {
         overviewScrollView.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: overviewScrollView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: overviewScrollView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: overviewScrollView.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: overviewScrollView.bottomAnchor, constant: -8),
-            stack.widthAnchor.constraint(equalTo: overviewScrollView.widthAnchor),
+            stack.topAnchor.constraint(equalTo: overviewScrollView.contentLayoutGuide.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: overviewScrollView.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: overviewScrollView.contentLayoutGuide.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: overviewScrollView.contentLayoutGuide.bottomAnchor),
+            stack.widthAnchor.constraint(equalTo: overviewScrollView.frameLayoutGuide.widthAnchor),
         ])
 
         // 1. Header
@@ -1324,6 +1305,9 @@ class DownloadsViewController: UIViewController {
     }
 
     private func makeHeader() -> UIView {
+        statusBadge.setContentHuggingPriority(.required, for: .horizontal)
+        statusBadge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        statusBadge.heightAnchor.constraint(equalToConstant: 20).isActive = true
         let badgeRow = UIStackView(arrangedSubviews: [statusBadge, hashLabel])
         badgeRow.axis = .horizontal
         badgeRow.spacing = 8
@@ -1344,10 +1328,11 @@ class DownloadsViewController: UIViewController {
         let titleRow = UIStackView()
         titleRow.axis = .horizontal
         titleRow.alignment = .center
-        titleRow.spacing = 6
+        titleRow.spacing = 14 // gap-2 plus the heading icon's mr-1.5.
 
         let dlIcon = makeIcon("hard-drive-download", tint: TorrentClientStyle.foreground, size: 20)
-        let progressTitle = UILabel()
+        let progressTitle = TorrentClientLabel()
+        progressTitle.lineHeight = 32
         progressTitle.font = .nunito(ofSize: 24, weight: .bold)
         progressTitle.text = "Progress"
         progressTitle.textColor = TorrentClientStyle.foreground
@@ -1425,13 +1410,14 @@ class DownloadsViewController: UIViewController {
         container.layoutMargins = UIEdgeInsets(top: 24, left: 0, bottom: 24, right: 0)
 
         let iconView = makeIcon("network", tint: TorrentClientStyle.foreground, size: 20)
-        let title = UILabel()
+        let title = TorrentClientLabel()
+        title.lineHeight = 24
         title.text = "Protocol Status"
         title.font = .nunito(ofSize: 24, weight: .bold)
         title.textColor = TorrentClientStyle.foreground
         let titleRow = UIStackView(arrangedSubviews: [iconView, title])
         titleRow.axis = .horizontal
-        titleRow.spacing = 8
+        titleRow.spacing = 14
         titleRow.alignment = .center
         container.addArrangedSubview(titleRow)
 
@@ -1456,7 +1442,8 @@ class DownloadsViewController: UIViewController {
         col.axis = .vertical
         col.spacing = 12
 
-        let headerLabel = UILabel()
+        let headerLabel = TorrentClientLabel()
+        headerLabel.lineHeight = 24
         headerLabel.text = header
         headerLabel.font = .nunito(ofSize: 16, weight: .medium)
         headerLabel.textColor = TorrentClientStyle.foreground
@@ -1464,12 +1451,13 @@ class DownloadsViewController: UIViewController {
         col.setCustomSpacing(16, after: headerLabel)
 
         for (name, desc, dot) in rows {
-            let nameLabel = UILabel()
+            let nameLabel = TorrentClientLabel()
             nameLabel.text = name
             nameLabel.font = .nunito(ofSize: 14, weight: .regular)
             nameLabel.textColor = TorrentClientStyle.foreground
 
-            let descLabel = UILabel()
+            let descLabel = TorrentClientLabel()
+            descLabel.lineHeight = 16
             descLabel.text = desc
             descLabel.font = .nunito(ofSize: 12, weight: .regular)
             descLabel.textColor = TorrentClientStyle.mutedForeground
@@ -1477,7 +1465,9 @@ class DownloadsViewController: UIViewController {
 
             let textStack = UIStackView(arrangedSubviews: [nameLabel, descLabel])
             textStack.axis = .vertical
-            textStack.spacing = 1
+            textStack.spacing = 0
+            textStack.isLayoutMarginsRelativeArrangement = true
+            textStack.layoutMargins = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 4)
 
             let row = UIStackView(arrangedSubviews: [dot, textStack])
             row.axis = .horizontal
@@ -1519,6 +1509,8 @@ class DownloadsViewController: UIViewController {
         peersTableView.allowsSelection = false
         peersHorizontalScrollView.addSubview(peersTableView)
 
+        peersMinimumWidth = peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant:
+            PeerTableLayout.minimumContentWidth(widths: peerColumnWidths))
         let preferredWidth = peersTableView.widthAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor)
         preferredWidth.priority = .defaultHigh
 
@@ -1539,7 +1531,7 @@ class DownloadsViewController: UIViewController {
             peersTableView.bottomAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.bottomAnchor),
             peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
             peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
-            peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant: PeerTableLayout.minimumContentWidth),
+            peersMinimumWidth!,
             preferredWidth,
         ])
     }
@@ -1563,7 +1555,8 @@ class DownloadsViewController: UIViewController {
         trackersTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(trackersTableView)
         trackersTableView.allowsSelection = false
-        TorrentClientStyle.installScrollableTable(trackersTableView, in: borderContainer, minimumWidth: 800)
+        trackersMinimumWidth = TorrentClientStyle.installScrollableTable(trackersTableView, in: borderContainer,
+            minimumWidth: TrackerTableLayout.minimumContentWidth(widths: trackerColumnWidths))
 
         NSLayoutConstraint.activate([
             borderContainer.topAnchor.constraint(equalTo: trackersView.topAnchor),
@@ -1577,12 +1570,12 @@ class DownloadsViewController: UIViewController {
     private func refreshTrackers(force: Bool) {
         guard isWebTorrentMode else {
             webTrackerRows = []
-            trackersTableView?.reloadData()
+            updateTrackerColumnLayout()
             return
         }
         guard !selectedHex.isEmpty else {
             webTrackerRows = []
-            trackersTableView?.reloadData()
+            updateTrackerColumnLayout()
             return
         }
         guard force || Date().timeIntervalSince(lastWebTrackerRefresh) >= trackerRefreshInterval else { return }
@@ -1601,9 +1594,20 @@ class DownloadsViewController: UIViewController {
                         .map { (announce: $0.key, info: $0.value) }
                         .sorted { $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending }
                 }
-                self.trackersTableView?.reloadData()
+                self.updateTrackerColumnLayout()
             }
         }
+    }
+
+    private func setPiecesValue(total: Int, size: UInt64) {
+        piecesValue.mutedText = "×"
+        piecesValue.text = "\(total) × \(TorrentDetailViewController.fastPrettyBytes(size))"
+    }
+
+    private func updateTrackerColumnLayout() {
+        trackerColumnWidths = TrackerTableLayout.widths(for: webTrackerRows)
+        trackersMinimumWidth?.constant = TrackerTableLayout.minimumContentWidth(widths: trackerColumnWidths)
+        trackersTableView?.reloadData()
     }
 
     // MARK: - Build Library UI
@@ -1615,15 +1619,22 @@ class DownloadsViewController: UIViewController {
         librarySearchField.addTarget(self, action: #selector(librarySearchChanged), for: .editingChanged)
         libraryView.addSubview(librarySearchField)
 
-        let rescanConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let rescanConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         libraryRescanButton.setImage(UIImage.hayaseIcon("folder-sync", withConfiguration: rescanConfig), for: .normal)
         TorrentClientStyle.configureIconButton(libraryRescanButton, variant: .secondary)
+        libraryRescanButton.applySecondaryVariant()
+        libraryRescanButton.accessibilityLabel = "Rescan torrents"
         libraryRescanButton.addTarget(self, action: #selector(rescanLibrary), for: .touchUpInside)
         libraryRescanButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let deleteConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        libraryDeleteButton.setImage(UIImage.hayaseIcon("trash", withConfiguration: deleteConfig), for: .normal)
         TorrentClientStyle.configureIconButton(libraryDeleteButton, variant: .destructive)
+        libraryDeleteButton.restingBackground = UIColor.HayaseTheme.destructive
+        libraryDeleteButton.selectedBackground = UIColor.HayaseTheme.destructive.withAlphaComponent(0.9)
+        libraryDeleteButton.restingTint = UIColor.HayaseTheme.destructiveForeground
+        libraryDeleteButton.selectedTint = UIColor.HayaseTheme.destructiveForeground
+        libraryDeleteButton.setLayeredIcon(.trash, size: 16)
+        libraryDeleteButton.applyShadowSm()
+        libraryDeleteButton.accessibilityLabel = "Delete torrents"
         libraryDeleteButton.addTarget(self, action: #selector(deleteSelectedLibraryEntries), for: .touchUpInside)
         libraryDeleteButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1649,7 +1660,9 @@ class DownloadsViewController: UIViewController {
         libraryTableView.rowHeight = 56
         libraryTableView.estimatedRowHeight = 56
         TorrentClientStyle.configureTableView(libraryTableView)
-        TorrentClientStyle.installScrollableTable(libraryTableView, in: borderContainer, minimumWidth: 1280)
+        libraryMinimumWidth = TorrentClientStyle.installScrollableTable(libraryTableView, in: borderContainer,
+            minimumWidth: TorrentClientColumnWidths.minimumTableWidth(libraryColumnWidths,
+                flexibleMinimums: [6: TorrentClientColumnWidths.libraryNameMinimum], hasSelectionColumn: true))
 
         NSLayoutConstraint.activate([
             libraryRescanButton.widthAnchor.constraint(equalToConstant: 36),
@@ -1669,7 +1682,7 @@ class DownloadsViewController: UIViewController {
             librarySelectionLabel.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor),
             librarySelectionLabel.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor),
 
-            borderContainer.topAnchor.constraint(equalTo: librarySelectionLabel.bottomAnchor, constant: 8),
+            borderContainer.topAnchor.constraint(equalTo: librarySelectionLabel.bottomAnchor, constant: 4),
             borderContainer.leadingAnchor.constraint(equalTo: libraryView.leadingAnchor),
             borderContainer.trailingAnchor.constraint(equalTo: libraryView.trailingAnchor),
             borderContainer.bottomAnchor.constraint(equalTo: libraryView.bottomAnchor),
@@ -1688,14 +1701,17 @@ class DownloadsViewController: UIViewController {
         if isWebTorrentMode {
             libraryActionInFlight = true
             updateLibrarySelectionLabel()
-            SettingsToast.show("Rescanning torrents...\nThis may take a VERY long while depending on the number of torrents.", in: view)
+            let toast = AppErrorToast.startPromise(title: "Rescanning torrents...",
+                description: "This may take a VERY long while depending on the number of torrents.")
             TorrentBackendManager.shared.rescanWebTorrents(hashes: hashes) { [weak self] result in
                 DispatchQueue.main.async {
+                    if case .failure(let error) = result {
+                        NSLog("[Torrent Library] %@", error.localizedDescription)
+                        AppErrorToast.resolvePromise(toast, title: "Failed to rescan torrents\n" + error.localizedDescription, failed: true)
+                    } else { AppErrorToast.resolvePromise(toast, title: "Rescan complete") }
                     guard let self else { return }
                     self.libraryActionInFlight = false
                     self.updateLibrarySelectionLabel()
-                    if case .failure(let error) = result { self.showLibraryActionError(error, title: "Failed to rescan torrents") }
-                    else { SettingsToast.show("Rescan complete", in: self.view) }
                     self.update()
                 }
             }
@@ -1718,6 +1734,9 @@ class DownloadsViewController: UIViewController {
             let currentHashes = Set(webLibraryEntries.map { $0.hash })
             selectedLibraryHashes.formIntersection(currentHashes)
             updateLibrarySelectionLabel()
+            libraryColumnWidths = TorrentClientColumnWidths.library(entries: webFilteredLibraryEntries)
+            libraryMinimumWidth?.constant = TorrentClientColumnWidths.minimumTableWidth(libraryColumnWidths,
+                flexibleMinimums: [6: TorrentClientColumnWidths.libraryNameMinimum], hasSelectionColumn: true)
             libraryTableView?.reloadData()
             return
         }
@@ -1734,19 +1753,18 @@ class DownloadsViewController: UIViewController {
                 snapshotName(for: $0.handle).lowercased().contains(query)
             }
         }
-        // Prune selections that no longer exist
+        let models = Dictionary(uniqueKeysWithValues: filteredLibraryEntries.map { entry in
+            let snapshot = readSnapshot(from: entry.handle, default: nil) { Optional($0) }
+            let size = snapshot?.total ?? 0
+            let model = WebTorrentLibraryEntry(mediaID: entry.entity?.animes?.animeAnilistId?.intValue,
+                                               episode: entry.entity?.videos?.count,
+                                               files: snapshot?.files.count ?? 0, hash: entry.hash,
+                                               progress: size > 0 ? Double(snapshot?.totalDone ?? 0) / Double(size) : 0,
+                                               date: nil, size: size,
+                                               name: entry.entity?.torrentName ?? snapshot?.name ?? entry.hash)
+            return (entry.hash, model)
+        })
         if let column = librarySortColumn {
-            let models = Dictionary(uniqueKeysWithValues: filteredLibraryEntries.map { entry in
-                let snapshot = readSnapshot(from: entry.handle, default: nil) { Optional($0) }
-                let size = snapshot?.total ?? 0
-                let model = WebTorrentLibraryEntry(mediaID: entry.entity?.animes?.animeAnilistId?.intValue,
-                                                   episode: entry.entity?.videos?.count,
-                                                   files: snapshot?.files.count ?? 0, hash: entry.hash,
-                                                   progress: size > 0 ? Double(snapshot?.totalDone ?? 0) / Double(size) : 0,
-                                                   date: nil, size: size,
-                                                   name: entry.entity?.torrentName ?? snapshot?.name ?? entry.hash)
-                return (entry.hash, model)
-            })
             filteredLibraryEntries.sort {
                 guard let lhs = models[$0.hash], let rhs = models[$1.hash] else { return $0.hash < $1.hash }
                 return TorrentLibrarySort.less(lhs, rhs, column: column, ascending: librarySortAscending)
@@ -1755,6 +1773,9 @@ class DownloadsViewController: UIViewController {
         let currentHashes = Set(libraryEntries.map { $0.hash })
         selectedLibraryHashes.formIntersection(currentHashes)
         updateLibrarySelectionLabel()
+        libraryColumnWidths = TorrentClientColumnWidths.library(entries: Array(models.values))
+        libraryMinimumWidth?.constant = TorrentClientColumnWidths.minimumTableWidth(libraryColumnWidths,
+            flexibleMinimums: [6: TorrentClientColumnWidths.libraryNameMinimum], hasSelectionColumn: true)
         libraryTableView?.reloadData()
     }
 
@@ -1876,6 +1897,7 @@ class DownloadsViewController: UIViewController {
     }
 
     private func openWebTorrentLibraryEntry(_ entry: WebTorrentLibraryEntry) {
+        guard let sourceMediaID = entry.mediaID, sourceMediaID > 0, !entry.hash.isEmpty else { return }
         if restoreMiniPlayerIfAlreadyPlaying(hash: entry.hash, episode: entry.episode) { return }
         guard openingLibraryPlaybackHash != entry.hash else { return }
         guard let torrentEntity = torrentEntityForLibraryEntry(entry) else { return }
@@ -1889,7 +1911,12 @@ class DownloadsViewController: UIViewController {
         let videoService = VideoService(torrentEntity: torrentEntity, episode: episode, backendKind: .webtorrent)
         pendingLibraryPlaybackService = videoService
 
-        showLibraryPlaybackLoading(entryName: entry.name)
+        MiniPlayerManager.shared.close()
+        let player = VideoPlayerViewController()
+        pendingLibraryPlayer = player
+        player.beginMetadataLoading(owner: self)
+        player.onCancelMetadataLoading = { [weak self] in self?.cancelPendingLibraryPlayback() }
+        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
 
         pendingLibraryPlaybackObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name(VideoService.LocalVideosDidUpdateNotification),
@@ -1905,10 +1932,11 @@ class DownloadsViewController: UIViewController {
 
         let timeout = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.presentedViewController?.dismiss(animated: false)
+            let player = self.pendingLibraryPlayer
             self.openingLibraryPlaybackHash = nil
             self.cancelPendingLibraryPlayback()
-            self.showLibraryPlaybackError("Timed out while preparing this torrent.")
+            player?.finishMetadataLoading(error: NSError(domain: "TorrentLibraryPlayback", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Timed out while preparing this torrent."]))
         }
         pendingLibraryPlaybackTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.libraryPlaybackTimeout, execute: timeout)
@@ -1962,6 +1990,10 @@ class DownloadsViewController: UIViewController {
                                                  torrentEntity: Torrents,
                                                  mediaID: Int,
                                                  episode: Int) {
+        // Other playback services also emit this notification. Wait for this
+        // request's fresh metadata instead of reopening cached video URLs.
+        guard pendingLibraryPlaybackService === videoService,
+              videoService.hasFinishedUpdatingLocalVideos else { return }
         let context = CoreDataService.sharedCoreDataService.mainQueueContext
         let fetch = NSFetchRequest<Videos>(entityName: Videos.entityName)
         fetch.predicate = NSPredicate(format: "torrents == %@", torrentEntity)
@@ -1971,14 +2003,15 @@ class DownloadsViewController: UIViewController {
 
         if videos.isEmpty && videoService.lastError == nil { return }
 
-        presentedViewController?.dismiss(animated: false)
+        guard let player = pendingLibraryPlayer else { cancelPendingLibraryPlayback(); return }
         cancelPendingLibraryPlayback(clearService: false)
 
         guard videoService.lastError == nil, !videos.isEmpty else {
             let message = videoService.lastError?.localizedDescription ?? "No playable video files were found."
             openingLibraryPlaybackHash = nil
             pendingLibraryPlaybackService = nil
-            showLibraryPlaybackError(message)
+            player.finishMetadataLoading(error: videoService.lastError ?? NSError(domain: "TorrentLibraryPlayback", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: message]))
             return
         }
 
@@ -1991,8 +2024,6 @@ class DownloadsViewController: UIViewController {
             try? context.save()
         }
 
-        MiniPlayerManager.shared.close()
-        let player = VideoPlayerViewController()
         player.videoEntity = selectedVideo
         player.torrentHandle = nil
         player.videoService = videoService
@@ -2009,7 +2040,7 @@ class DownloadsViewController: UIViewController {
         }
         openingLibraryPlaybackHash = nil
         pendingLibraryPlaybackService = nil
-        Router.shared.navigateToPlayer(player, hostTabIndex: hayaseTabIndex)
+        player.finishMetadataLoading()
     }
 
     private func handleEpisodeChangeFromTorrentClient(episode: Int,
@@ -2105,56 +2136,36 @@ class DownloadsViewController: UIViewController {
         pendingLibraryPlaybackTimeout?.cancel()
         pendingLibraryPlaybackTimeout = nil
         openingLibraryPlaybackHash = nil
+        pendingLibraryPlayer = nil
         if clearService { pendingLibraryPlaybackService = nil }
-    }
-
-    private func showLibraryPlaybackLoading(entryName: String) {
-        let alert = UIAlertController(title: "Preparing Player",
-                                      message: entryName.isEmpty ? "Loading torrent metadata…" : entryName,
-                                      preferredStyle: .alert)
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.startAnimating()
-        alert.view.addSubview(spinner)
-        NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: alert.view.centerXAnchor),
-            spinner.bottomAnchor.constraint(equalTo: alert.view.bottomAnchor, constant: -18),
-        ])
-        present(alert, animated: true)
-    }
-
-    private func showLibraryPlaybackError(_ message: String) {
-        let alert = UIAlertController(title: "Failed to Open Torrent", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-        present(alert, animated: true)
     }
 
     @objc private func deleteSelectedLibraryEntries() {
         guard !selectedLibraryHashes.isEmpty, !libraryActionInFlight else { return }
 
         let hashes = Array(selectedLibraryHashes)
-        let count = hashes.count
         let names = isWebTorrentMode
             ? webLibraryEntries.filter { hashes.contains($0.hash) }.map { $0.name.isEmpty ? $0.hash : $0.name }
             : libraryEntries.filter { hashes.contains($0.hash) }.map { snapshotName(for: $0.handle) }
-        let alert = UIAlertController(
-            title: "Are you absolutely sure?",
-            message: "You are about to permanently delete \(count) torrent(s) from your library. This action cannot be undone.\n\n" + names.joined(separator: "\n"),
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+        let dialog = TorrentLibraryDeleteDialog(names: names) { [weak self] in
             guard let self = self else { return }
 
             if self.isWebTorrentMode {
                 self.libraryActionInFlight = true
                 self.updateLibrarySelectionLabel()
+                let toast = AppErrorToast.startPromise(title: "Deleting torrents...",
+                    description: "This may take a while depending on the library size.")
                 TorrentBackendManager.shared.deleteWebTorrents(hashes: hashes) { [weak self] result in
                     DispatchQueue.main.async {
+                        if case .failure(let error) = result {
+                            NSLog("[Torrent Library] %@", error.localizedDescription)
+                            AppErrorToast.resolvePromise(toast,
+                                title: "Failed to delete torrents\n" + error.localizedDescription, failed: true)
+                        } else { AppErrorToast.resolvePromise(toast, title: "Torrents deleted") }
                         guard let self else { return }
                         self.libraryActionInFlight = false
-                        if case .failure(let error) = result {
+                        if case .failure = result {
                             self.updateLibrarySelectionLabel()
-                            self.showLibraryActionError(error, title: "Failed to delete torrents")
                             return
                         }
                         self.webLibraryEntries.removeAll { hashes.contains($0.hash) }
@@ -2190,16 +2201,11 @@ class DownloadsViewController: UIViewController {
             }
             self.selectedLibraryHashes.removeAll()
             self.refreshLibrary()
-        })
-        present(alert, animated: true)
+        }
+        present(dialog, animated: false)
     }
 
     // MARK: - UI helpers
-
-    private func showLibraryActionError(_ error: Error, title: String) {
-        NSLog("[Torrent Library] %@", error.localizedDescription)
-        AppErrorToast.show(error.localizedDescription, title: title, duration: 4)
-    }
 
     @objc private func libraryHeaderTapped(_ sender: UIButton) {
         if sender.tag == 7 {
@@ -2225,28 +2231,31 @@ class DownloadsViewController: UIViewController {
         iv.contentMode = .scaleAspectFit
         iv.setContentHuggingPriority(.required, for: .horizontal)
         iv.setContentCompressionResistancePriority(.required, for: .horizontal)
+        iv.widthAnchor.constraint(equalToConstant: size).isActive = true
+        iv.heightAnchor.constraint(equalToConstant: size).isActive = true
         return iv
     }
 
     private func makeFlatSection(title: String, icon: String, items: [StatItem]) -> UIView {
         let container = UIStackView()
         container.axis = .vertical
-        container.spacing = 12
+        container.spacing = 0
 
         let iconView = makeIcon(icon, tint: TorrentClientStyle.foreground, size: 20)
-        let titleLabel = UILabel()
+        let titleLabel = TorrentClientLabel()
+        titleLabel.lineHeight = 24
         titleLabel.text = title
         titleLabel.font = .nunito(ofSize: 24, weight: .bold)
         titleLabel.textColor = TorrentClientStyle.foreground
 
         let titleRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
         titleRow.axis = .horizontal
-        titleRow.spacing = 8
+        titleRow.spacing = 14
         titleRow.alignment = .center
 
         let paddedTitle = UIStackView(arrangedSubviews: [titleRow])
         paddedTitle.axis = .vertical
-        paddedTitle.layoutMargins = UIEdgeInsets(top: 24, left: 0, bottom: 12, right: 0)
+        paddedTitle.layoutMargins = UIEdgeInsets(top: 24, left: 0, bottom: 24, right: 0)
         paddedTitle.isLayoutMarginsRelativeArrangement = true
 
         container.addArrangedSubview(paddedTitle)
@@ -2267,19 +2276,18 @@ class DownloadsViewController: UIViewController {
 
     private func makeFlatStatCell(_ item: StatItem) -> UIView {
         let iconView = makeIcon(item.icon, tint: item.color, size: 16)
-        let titleLabel = UILabel()
+        let titleLabel = TorrentClientLabel()
         titleLabel.text = item.title
         titleLabel.font = .nunito(ofSize: 14, weight: .medium)
         titleLabel.textColor = TorrentClientStyle.mutedForeground
 
         let topRow = UIStackView(arrangedSubviews: [iconView, titleLabel])
         topRow.axis = .horizontal
-        topRow.spacing = 4
+        topRow.spacing = 8
         topRow.alignment = .center
 
         item.label.font = .nunito(ofSize: 24, weight: .bold)
-        item.label.adjustsFontSizeToFitWidth = true
-        item.label.minimumScaleFactor = 0.5
+        (item.label as? TorrentClientLabel)?.lineHeight = 32
 
         let stack = UIStackView(arrangedSubviews: [topRow, item.label])
         stack.axis = .vertical
@@ -2296,18 +2304,25 @@ class DownloadsViewController: UIViewController {
     private func makeProgressStatCell(_ item: StatItem) -> UIView {
         let iconView = makeIcon(item.icon, tint: item.color, size: 16)
 
-        let titleLabel = UILabel()
+        let titleLabel = TorrentClientLabel()
         titleLabel.text = item.title
         titleLabel.font = .nunito(ofSize: 14, weight: .regular)
         titleLabel.textColor = TorrentClientStyle.mutedForeground
 
         item.label.font = .nunito(ofSize: 14, weight: .medium)
-        item.label.adjustsFontSizeToFitWidth = true
-        item.label.minimumScaleFactor = 0.6
 
         let text = UIStackView(arrangedSubviews: [titleLabel, item.label])
         text.axis = .vertical
-        let stack = UIStackView(arrangedSubviews: [iconView, text])
+        let iconMargin = UIView()
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconMargin.addSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconMargin.widthAnchor.constraint(equalToConstant: 24),
+            iconMargin.heightAnchor.constraint(equalToConstant: 16),
+            iconView.centerXAnchor.constraint(equalTo: iconMargin.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconMargin.centerYAnchor),
+        ])
+        let stack = UIStackView(arrangedSubviews: [iconMargin, text])
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 8
@@ -2356,6 +2371,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 guard let cell = tableView.dequeueReusableCell(
                     withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
                 guard indexPath.row < webFilteredFileInfos.count else { return cell }
+                cell.columnWidths = filesColumnWidths
                 cell.configure(entry: webFilteredFileInfos[indexPath.row])
                 return cell
             }
@@ -2367,6 +2383,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: FileEntryTableCell.reuseID, for: indexPath) as? FileEntryTableCell else { return UITableViewCell() }
             guard indexPath.row < filteredFileEntries.count else { return cell }
             let entry = filteredFileEntries[indexPath.row]
+            cell.columnWidths = filesColumnWidths
             let isStreaming = readSnapshot(from: selectedHandle, default: false) { $0.isSequential }
                 && entry.priority != .dontDownload
             cell.configure(entry: entry, streamCount: isStreaming ? 1 : 0)
@@ -2379,7 +2396,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: PeerInfoCell.reuseID, for: indexPath) as? PeerInfoCell else { return UITableViewCell() }
             guard indexPath.row < rows.count else { return cell }
-            cell.configure(row: rows[indexPath.row])
+            cell.configure(row: rows[indexPath.row], columnWidths: peerColumnWidths)
             return cell
         } else if tableView === trackersTableView {
             if webTrackerRows.isEmpty {
@@ -2389,7 +2406,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: TrackerStatusCell.reuseID, for: indexPath) as? TrackerStatusCell else { return UITableViewCell() }
             guard indexPath.row < webTrackerRows.count else { return cell }
             let row = webTrackerRows[indexPath.row]
-            cell.configure(announce: row.announce, info: row.info)
+            cell.configure(announce: row.announce, info: row.info, columnWidths: trackerColumnWidths)
             return cell
         } else if tableView === libraryTableView {
             if isWebTorrentMode {
@@ -2400,6 +2417,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                     withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
                 guard indexPath.row < webFilteredLibraryEntries.count else { return cell }
                 let entry = webFilteredLibraryEntries[indexPath.row]
+                cell.columnWidths = libraryColumnWidths
                 cell.configure(entry: entry,
                                seriesTitle: librarySeriesTitle(for: entry),
                                isSelected: selectedLibraryHashes.contains(entry.hash),
@@ -2420,6 +2438,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                 withIdentifier: LibraryColumnCell.reuseID, for: indexPath) as? LibraryColumnCell else { return UITableViewCell() }
             guard indexPath.row < filteredLibraryEntries.count else { return cell }
             let entry = filteredLibraryEntries[indexPath.row]
+            cell.columnWidths = libraryColumnWidths
             cell.configure(handle: entry.handle,
                            entity: entry.entity,
                            isSelected: selectedLibraryHashes.contains(entry.hash),
@@ -2455,7 +2474,7 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
         if tableView === filesTableView {
             return makeFileColumnHeader()
         } else if tableView === peersTableView {
-            return makeColumnHeader(columns: PeerTableLayout.columns,
+            return makeColumnHeader(columns: PeerTableLayout.columns(widths: peerColumnWidths),
                                     sortableColumnIndices: Set(0...7),
                                     activeColumnIndex: peersSortColumn?.rawValue,
                                     sortAscending: peersSortAscending,
@@ -2466,23 +2485,17 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
                                         self?.refreshPeers()
                                     })
         } else if tableView === trackersTableView {
-            return makeColumnHeader(columns: [
-                ("Tracker", nil),
-                ("Status", 86),
-                ("Downloaded", 96),
-                ("Seeders", 76),
-                ("Leechers", 86),
-            ])
+            return makeColumnHeader(columns: TrackerTableLayout.columns(widths: trackerColumnWidths))
         } else if tableView === libraryTableView {
             return makeColumnHeader(columns: [
-                ("Series", 288),
-                ("Episode", 60),
-                ("Files", 45),
-                ("Size", 76),
-                ("Status", 110),
-                ("Date", 96),
-                ("Torrent Name", nil),
-                ("", 32),
+                ("Series", libraryColumnWidths[0]),
+                ("Episode", libraryColumnWidths[1]),
+                ("Files", libraryColumnWidths[2]),
+                ("Size", libraryColumnWidths[3]),
+                ("Status", libraryColumnWidths[4]),
+                ("Date", libraryColumnWidths[5]),
+                ("Torrent Name", libraryColumnWidths[6]),
+                ("", libraryColumnWidths[7]),
             ], sortableColumnIndices: Set(0...7), activeColumnIndex: librarySortColumn,
                sortAscending: librarySortAscending, target: self, action: #selector(libraryHeaderTapped(_:)),
                selectAll: allVisibleLibraryRowsSelected, onSort: { [weak self] index, ascending in
@@ -2534,7 +2547,8 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
 
     /// Uses the same Asc/Desc menu and shared header as peers and library.
     private func makeFileColumnHeader() -> UIView {
-        makeColumnHeader(columns: [("File Name", nil), ("Size", 80), ("Progress", 128), ("Streams", 70)],
+        makeColumnHeader(columns: [("File Name", filesColumnWidths[0]), ("Size", filesColumnWidths[1]),
+                                  ("Progress", filesColumnWidths[2]), ("Streams", filesColumnWidths[3])],
                          sortableColumnIndices: Set(0...3), activeColumnIndex: filesSortColumn?.rawValue,
                          sortAscending: filesSortAscending, target: self, action: #selector(fileColumnHeaderTapped(_:)),
                          onSort: { [weak self] index, ascending in
@@ -2545,7 +2559,6 @@ extension DownloadsViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     /// Handles tap on a Files column header button.
-    /// Tap cycle per column: unsorted -> ascending -> descending -> unsorted.
     /// Matches Hayase's column sort dropdown with Asc/Desc options.
     @objc private func fileColumnHeaderTapped(_ sender: UIButton) {
         guard let col = FileSortColumn(rawValue: sender.tag) else { return }

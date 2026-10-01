@@ -29,13 +29,17 @@ final class PeerSpeedCellContent: UIView {
 
     private let imageView = UIImageView()
     private let label: UILabel = {
-        let label = UILabel()
+        let label = TorrentClientLabel()
         label.font = .nunito(ofSize: 14)
         label.textColor = TorrentClientStyle.foreground
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.75
+        label.numberOfLines = 1
+        label.lineBreakMode = .byClipping
         return label
     }()
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 20) // Table.Root text-sm.
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)

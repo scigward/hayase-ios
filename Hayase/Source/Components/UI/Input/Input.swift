@@ -11,6 +11,26 @@ final class Input: UITextField {
     private let iconName: String?
     private var iconImageView: UIImageView?
     private var isPointerOver = false
+    var showsFocusRing = true { didSet { updateRing() } }
+    var idleBackgroundColor = UIColor.HayaseTheme.muted {
+        didSet { updateSelectState() }
+    }
+    var searchIconSize: CGFloat = 14 {
+        didSet {
+            guard let iconName else { return }
+            iconImageView?.image = UIImage.hayaseIcon(iconName, pointSize: searchIconSize)
+            updateIconFrame()
+        }
+    }
+    var iconLeadingInset: CGFloat? { didSet { updateIconFrame() } }
+    var highlightsIconOnFocus = true { didSet { updateSelectState() } }
+
+    private func updateIconFrame() {
+        guard let iconLeadingInset else { return }
+        iconImageView?.contentMode = .scaleAspectFit
+        iconImageView?.frame = CGRect(x: iconLeadingInset, y: (36 - searchIconSize) / 2,
+                                     width: searchIconSize, height: searchIconSize)
+    }
 
     init(placeholder: String = "Any", iconName: String? = nil) {
         self.iconName = iconName
@@ -26,7 +46,7 @@ final class Input: UITextField {
 
     private func setup(placeholder: String) {
         translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = UIColor.HayaseTheme.muted
+        backgroundColor = idleBackgroundColor
         layer.cornerRadius = 6
         borderStyle = .none
         textColor = UIColor.HayaseTheme.foreground
@@ -80,8 +100,8 @@ final class Input: UITextField {
     private func updateSelectState() {
         let selected = isFirstResponder || isPointerOver
         UIView.animate(withDuration: 0.15, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-            self.backgroundColor = selected ? UIColor.HayaseTheme.accent : UIColor.HayaseTheme.muted
-            self.iconImageView?.tintColor = self.isFirstResponder
+            self.backgroundColor = selected ? UIColor.HayaseTheme.accent : self.idleBackgroundColor
+            self.iconImageView?.tintColor = self.isFirstResponder && self.highlightsIconOnFocus
                 ? UIColor.HayaseTheme.accentForeground
                 : UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)
         }
@@ -89,7 +109,7 @@ final class Input: UITextField {
 
     /// `focus-visible:ring-1 ring-ring` draws a 1px ring outside the field; otherwise `shadow-sm`.
     private func updateRing() {
-        if isFirstResponder {
+        if showsFocusRing && isFirstResponder {
             layer.shadowColor = UIColor.HayaseTheme.ring.cgColor
             layer.shadowOpacity = 1
             layer.shadowRadius = 0
