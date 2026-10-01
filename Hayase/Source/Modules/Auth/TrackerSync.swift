@@ -83,7 +83,7 @@ enum TrackerToast {
 
 enum TrackerMappings {
     private static func fetch(_ query: String) async -> [String: Any]? {
-        guard let url = URL(string: "https://hayase.ani.zip/v1/mappings?\(query)"),
+        guard let url = URL(string: "\(AniZipAPI.host)/v1/mappings?\(query)"),
               let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }

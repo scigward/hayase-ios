@@ -8,12 +8,25 @@
 
 import Foundation
 
+/// The one place the ani.zip host is written down.
+///
+/// Use `api.ani.zip`. The interface (hayase-app/interface) calls `hayase.ani.zip`, but that host is
+/// Hayase's own private deployment: it answers its web app only and returns 403 to everyone else, so
+/// an app that copies the interface's URL verbatim gets no mappings, episodes or images. The public
+/// `api.ani.zip` serves exactly the same `/v1/mappings`, `/v1/episodes` and `/v2/images/tmdb`
+/// responses, so every request here takes the interface's path and only swaps this host. Do not
+/// change it back to `hayase.ani.zip` when comparing against the interface source, and do not write
+/// an ani.zip URL anywhere else; build it from `host`.
+enum AniZipAPI {
+    static let host = "https://api.ani.zip"
+}
+
 final class AniZipService {
     static let shared = AniZipService()
     private init() {}
 
-    private let baseURL = "https://hayase.ani.zip/v1"
-    private let imagesBaseURL = "https://hayase.ani.zip/v2/images/tmdb"
+    private let baseURL = "\(AniZipAPI.host)/v1"
+    private let imagesBaseURL = "\(AniZipAPI.host)/v2/images/tmdb"
 
     // MARK: - Cached episodes
 

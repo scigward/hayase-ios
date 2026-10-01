@@ -1752,12 +1752,12 @@ public final class AniListClient: NSObject {
     }
 
     private static func _fetchAniZipImages(anilistID: Int) {
-        // Web Hayase uses episodesCached(id), which calls:
-        //   https://hayase.ani.zip/v2/images/tmdb?anilist_id=<id>
+        // Web Hayase uses episodesCached(id), which calls /v2/images/tmdb?anilist_id=<id>
+        // (on its private host; see AniZipAPI for why this app uses the public one)
         // and then picks TMDB backdrops/logos by vote_average. The previous native
-        // path used api.ani.zip/v1 mappings images (Fanart/Poster), which is why
+        // path used the v1 mappings images (Fanart/Poster), which is why
         // the Swift banner could show a completely different red key visual.
-        var comps = URLComponents(string: "https://hayase.ani.zip/v2/images/tmdb")
+        var comps = URLComponents(string: "\(AniZipAPI.host)/v2/images/tmdb")
         comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
         guard let url = comps?.url else {
             _fanartQueue.async(flags: .barrier) {
