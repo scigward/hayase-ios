@@ -114,7 +114,12 @@ enum AniListRequestError: Error, CustomStringConvertible {
         }
     }
 
+    /// What the interface prints for `error.message`; the requests that never went out have their own words.
     var description: String {
+        combinedMessage ?? localDescription
+    }
+
+    private var localDescription: String {
         switch self {
         case .invalidEndpoint:
             return "Invalid AniList endpoint."
@@ -139,6 +144,10 @@ enum AniListRequestError: Error, CustomStringConvertible {
             return "AniList returned invalid JSON."
         }
     }
+}
+
+extension AniListRequestError: LocalizedError {
+    var errorDescription: String? { description }
 }
 
 struct AniListGraphQLResult {

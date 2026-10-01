@@ -1029,7 +1029,7 @@ class SearchViewController: UIViewController {
                 if reset { self.applySearchResults([], animated: false) }
                 self.hasNextPage = false
                 self.emptyLabel.isHidden = false
-                self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
+                self.emptyLabel.text = "Ooops!\nLooks like something went wrong!\n\(error.description)"
             }
         }
     }
@@ -1234,7 +1234,7 @@ class SearchViewController: UIViewController {
             case .failure(let error):
                 self.applySearchResults([], animated: false)
                 self.emptyLabel.isHidden = false
-                self.emptyLabel.text = "AniList request failed. Pull to retry.\n\(error.description)"
+                self.emptyLabel.text = "Ooops!\nLooks like something went wrong!\n\(error.description)"
             }
         }
     }
