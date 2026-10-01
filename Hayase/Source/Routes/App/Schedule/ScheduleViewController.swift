@@ -2,14 +2,16 @@
 //  ScheduleViewController.swift
 //  Hayase
 //
-//  Matches Hayase's src/routes/app/schedule/+page.svelte exactly:
+//  Mirrors: interface routes/app/schedule/+page.svelte.
 //  • Title "Airing Calendar" + subtitle text
-//  • 7-column monthly calendar grid (Mon–Sun header)
-//  • Prev / Next month chevron navigation
-//  • Today cell: day number in rgb(61,180,242) circle (same as Hayase)
-//  • Days outside current month: 30% opacity
-//  • AniList airingSchedules data per day (episode count + titles)
-//  • Tap day → modal list of airing episodes for that day
+//  • 7-column monthly calendar grid (Mon–Sun header) in a bordered, rounded box
+//  • Prev / Next month chevron navigation and the "My list" switch
+//  • Today cell: day number in an rgb(61,180,242) circle
+//  • Days outside the month shown: 30% opacity
+//  • One query per quarter, with the seasons around it; nothing shown but day numbers while it
+//    loads, an error block when it fails
+//  • Wide screens list a day's episodes (cover tooltip over each, the rest under "+ n more...");
+//    narrow ones show a count that opens a drawer
 //
 
 import UIKit
@@ -22,6 +24,7 @@ struct ScheduleAiringEpisode {
     let mediaID: Int
     let titlePreferred: String?
     let coverURL: String?
+    let coverColor: String?
     let entry: AnimeItem.MediaListEntry?
 }
 
@@ -32,8 +35,11 @@ private final class CalendarDayCell: UICollectionViewCell {
 
     // Today highlight: rgb(61,180,242) rounded circle
     private static let todayColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
-    private static let borderColor = UIColor(white: 0.15, alpha: 1)
 
+    /// `opacity-30` on days outside the month dims what is in the cell, not its borders.
+    private let content = UIView()
+    private let rightBorder = CALayer()
+    private let bottomBorder = CALayer()
     private let numberContainer: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 12
@@ -43,7 +49,7 @@ private final class CalendarDayCell: UICollectionViewCell {
         let l = UILabel()
         l.font = .nunito(ofSize: 12, weight: .bold)
         l.textAlignment = .center
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.foreground
         return l
     }()
     private let epStack: UIStackView = {
@@ -53,6 +59,8 @@ private final class CalendarDayCell: UICollectionViewCell {
         sv.alignment = .fill
         return sv
     }()
+    private var showsRightBorder = false
+    private var showsBottomBorder = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -61,66 +69,129 @@ private final class CalendarDayCell: UICollectionViewCell {
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
 
     private func setup() {
-        contentView.layer.borderWidth = 0.5
-        contentView.layer.borderColor = CalendarDayCell.borderColor.cgColor
+        rightBorder.backgroundColor = UIColor.HayaseTheme.border.cgColor
+        bottomBorder.backgroundColor = UIColor.HayaseTheme.border.cgColor
+        contentView.layer.addSublayer(rightBorder)
+        contentView.layer.addSublayer(bottomBorder)
 
+        content.translatesAutoresizingMaskIntoConstraints = false
         numberContainer.translatesAutoresizingMaskIntoConstraints = false
         numberLabel.translatesAutoresizingMaskIntoConstraints = false
         epStack.translatesAutoresizingMaskIntoConstraints = false
 
         numberContainer.addSubview(numberLabel)
-        contentView.addSubview(numberContainer)
-        contentView.addSubview(epStack)
+        content.addSubview(numberContainer)
+        content.addSubview(epStack)
+        contentView.addSubview(content)
 
         NSLayoutConstraint.activate([
-            numberContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            numberContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            content.topAnchor.constraint(equalTo: contentView.topAnchor),
+            content.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            numberContainer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),   // mx-3
+            numberContainer.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),           // py-3
             numberContainer.widthAnchor.constraint(equalToConstant: 24),
             numberContainer.heightAnchor.constraint(equalToConstant: 24),
 
             numberLabel.centerXAnchor.constraint(equalTo: numberContainer.centerXAnchor),
             numberLabel.centerYAnchor.constraint(equalTo: numberContainer.centerYAnchor),
 
-            epStack.topAnchor.constraint(greaterThanOrEqualTo: numberContainer.bottomAnchor, constant: 6),
-            epStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            epStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            epStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            epStack.topAnchor.constraint(greaterThanOrEqualTo: numberContainer.bottomAnchor),
+            epStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            epStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            epStack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
         ])
     }
 
-    func configure(day: Int, isToday: Bool, isCurrentMonth: Bool,
-                   episodes: [ScheduleAiringEpisode], expanded: Bool, showsEpisode: Bool, onSelect: @escaping (Int) -> Void) {
-        numberLabel.text = "\(day)"
-        contentView.alpha = isCurrentMonth ? 1 : 0.3
-        numberContainer.backgroundColor = isToday ? CalendarDayCell.todayColor : .clear
-        numberLabel.textColor = .white
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // border-r and border-b of the grid's cells: 1px, inside the cell's box
+        rightBorder.frame = CGRect(x: contentView.bounds.maxX - 1, y: 0, width: 1, height: contentView.bounds.height)
+        bottomBorder.frame = CGRect(x: 0, y: contentView.bounds.maxY - 1, width: contentView.bounds.width, height: 1)
+        rightBorder.isHidden = !showsRightBorder
+        bottomBorder.isHidden = !showsBottomBorder
+        CATransaction.commit()
+    }
 
-        // Remove existing ep labels
+    struct Layout {
+        var day: Int
+        var isToday: Bool
+        var isCurrentMonth: Bool
+        var showsRightBorder: Bool
+        var showsBottomBorder: Bool
+        /// `lg`: the cell lists the day's episodes itself, instead of counting them.
+        var expanded: Bool
+        var extraLarge: Bool
+    }
+
+    func configure(_ layout: Layout, episodes: [ScheduleAiringEpisode],
+                   onSelect: @escaping (Int) -> Void) {
+        numberLabel.text = "\(layout.day)"
+        content.alpha = layout.isCurrentMonth ? 1 : 0.3
+        numberContainer.backgroundColor = layout.isToday ? CalendarDayCell.todayColor : .clear
+        showsRightBorder = layout.showsRightBorder
+        showsBottomBorder = layout.showsBottomBorder
+        setNeedsLayout()
+
         epStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        guard !episodes.isEmpty else { return }
 
-        if !expanded {
-            if !episodes.isEmpty {
-                let count = UILabel()
-                count.font = .nunito(ofSize: 12)
-                count.textColor = UIColor.HayaseTheme.foreground
-                count.text = "\(episodes.count) ep\(episodes.count == 1 ? "" : "s")"
-                count.adjustsFontSizeToFitWidth = true
-                epStack.addArrangedSubview(count)
-            }
+        if !layout.expanded {
+            // `{episodes.length} ep{s}`, in a button, so centred
+            let count = UILabel()
+            count.font = .nunito(ofSize: 12)
+            count.textColor = UIColor.HayaseTheme.foreground
+            count.textAlignment = .center
+            count.text = "\(episodes.count) ep\(episodes.count > 1 ? "s" : "")"
+            count.lineBreakMode = .byTruncatingTail
+            epStack.addArrangedSubview(count)
             return
         }
-        let shown = episodes.prefix(episodes.count > 6 ? 5 : 6)
+
+        let shown = episodes.count > 6 ? Array(episodes.prefix(5)) : episodes
         for episode in shown {
-            let row = ScheduleEpisodeRow(episode: episode, showsEpisode: showsEpisode)
+            let row = ScheduleEpisodeRow(episode: episode, style: .calendar, extraLarge: layout.extraLarge)
             row.onSelect = { onSelect(episode.mediaID) }
             epStack.addArrangedSubview(row)
         }
         if episodes.count > 6 {
-            let label = UILabel()
-            label.font = .nunito(ofSize: 12)
-            label.textColor = UIColor.HayaseTheme.foreground
-            label.text = "+ \(episodes.count - 5) more..."
-            epStack.addArrangedSubview(label)
+            epStack.addArrangedSubview(MoreEpisodesLabel(episodes: Array(episodes.dropFirst(5)),
+                                                         extraLarge: layout.extraLarge, onSelect: onSelect))
+        }
+    }
+}
+
+/// `+ {n} more...`, which lists the rest of the day in a tooltip while the pointer is over it.
+private final class MoreEpisodesLabel: UILabel {
+    private let episodes: [ScheduleAiringEpisode]
+    private let extraLarge: Bool
+    private let onSelect: (Int) -> Void
+
+    init(episodes: [ScheduleAiringEpisode], extraLarge: Bool, onSelect: @escaping (Int) -> Void) {
+        self.episodes = episodes
+        self.extraLarge = extraLarge
+        self.onSelect = onSelect
+        super.init(frame: .zero)
+        font = .nunito(ofSize: 12)
+        textColor = UIColor.HayaseTheme.mutedForeground   // text-muted-foreground
+        text = "+ \(episodes.count) more..."
+        isUserInteractionEnabled = true
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hoverChanged(_:))))
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        if recognizer.state == .began {
+            ScheduleTooltip.shared.showEpisodes(episodes, extraLarge: extraLarge, from: self, onSelect: onSelect)
+        } else if recognizer.state == .ended || recognizer.state == .cancelled {
+            ScheduleTooltip.shared.scheduleHide()
         }
     }
 }
@@ -131,24 +202,33 @@ final class ScheduleViewController: UIViewController {
 
     // MARK: - State
 
+    private enum QueryState {
+        case fetching
+        case failed(String)
+        case loaded
+    }
+
     private var displayedMonth = Date()   // first moment of the displayed month
     private var airingEpisodes: [ScheduleAiringEpisode] = []
-    private var isFetching = false
+    private var queryState = QueryState.fetching
+    private var requestGeneration = 0
+    private var requestedQuarter: Date?
     private let myList = HayaseSwitch(hideState: true)
     private var onlyMyList = UserDefaults.standard.object(forKey: "schedule-on-list") as? Bool ?? true
     private var didPrepareInitialCalendar = false
     private var lastViewportWidth: CGFloat = 0
     private var contentInsets: [NSLayoutConstraint] = []
     private var viewportWidth: CGFloat { view.window?.rootViewController?.view.bounds.width ?? view.bounds.width }
-    private var dayHeight: CGFloat { viewportWidth >= 1024 ? 192 : 96 }
+    private var dayHeight: CGFloat { viewportWidth >= 1024 ? 192 : 96 }   // h-24 lg:h-48
 
     // Cached day grid: array of (date, dayNumber, isCurrentMonth) sorted Mon–Sun
     private var calendarDays: [(date: Date, number: Int, isCurrentMonth: Bool)] = []
+    /// The day's episodes by start of day, `dayMap` in the page.
+    private var episodesByDay: [Date: [ScheduleAiringEpisode]] = [:]
 
     // MARK: - Colors
 
     private let bgColor = UIColor.HayaseTheme.background
-    private static let todayColor = UIColor(red: 0.239, green: 0.706, blue: 0.949, alpha: 1)
 
     // ISO 8601 calendar — week starts Monday (matches Hayase Mon-Sun column order)
     private let iso8601Calendar = Calendar(identifier: .iso8601)
@@ -180,51 +260,45 @@ final class ScheduleViewController: UIViewController {
         let l = UILabel()
         l.text = "Airing Calendar"
         l.font = .nunito(ofSize: 24, weight: .bold)
-        l.textColor = .white
+        l.textColor = UIColor.HayaseTheme.foreground
         return l
     }()
     private let subtitleLabel: UILabel = {
         let l = UILabel()
         l.text = "View upcoming episodes and their air times for the current season."
         l.font = .nunito(ofSize: 16)
-        l.textColor = UIColor(red: 0.631, green: 0.631, blue: 0.671, alpha: 1) // muted-foreground
+        l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 0
         return l
     }()
 
-    // Month navigation row
-    private lazy var prevButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage.hayaseIcon("chevron-left"), for: .normal)
-        b.tintColor = .white
-        b.addTarget(self, action: #selector(prevMonth), for: .touchUpInside)
-        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        return b
-    }()
+    // Month navigation row: `variant='outline' class='bg-transparent animated-icon'`, `size='icon'`
+    private lazy var prevButton = makeMonthButton(icon: "chevron-left", shift: -3, action: #selector(prevMonth))
     private let monthLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 20, weight: .bold)
-        l.textColor = .white
+        l.font = .nunito(ofSize: 20, weight: .bold)   // font-bold text-xl
+        l.textColor = UIColor.HayaseTheme.foreground
         l.textAlignment = .center
         return l
     }()
-    private lazy var nextButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setImage(UIImage.hayaseIcon("chevron-right"), for: .normal)
-        b.tintColor = .white
-        b.addTarget(self, action: #selector(nextMonth), for: .touchUpInside)
-        b.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        b.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        return b
-    }()
+    private lazy var nextButton = makeMonthButton(icon: "chevron-right", shift: 3, action: #selector(nextMonth))
+
+    private func makeMonthButton(icon: String, shift: CGFloat, action: Selector) -> Button {
+        let button = Button(iconName: icon, pointSize: 24)   // h-6 w-6
+        button.restingBackground = .clear
+        button.selectedIconShift = shift
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
 
     // Calendar container: header row + grid
     private let calendarContainer: UIView = {
         let v = UIView()
-        v.layer.cornerRadius = 8
-        v.layer.borderWidth = 0.5
-        v.layer.borderColor = UIColor(white: 0.15, alpha: 1).cgColor
+        v.layer.cornerRadius = 8   // rounded-lg
+        v.layer.borderWidth = 1
+        v.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         v.clipsToBounds = true
         return v
     }()
@@ -235,13 +309,8 @@ final class ScheduleViewController: UIViewController {
     // Calendar collection view
     private var calendarCV: UICollectionView!
     private var calendarHeightConstraint: NSLayoutConstraint!
-
-    private let spinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .medium)
-        s.hidesWhenStopped = true
-        s.color = .white
-        return s
-    }()
+    private let errorView = UIView()
+    private let errorMessageLabel = UILabel()
 
     // MARK: - Lifecycle
 
@@ -265,13 +334,13 @@ final class ScheduleViewController: UIViewController {
         guard first || lastViewportWidth != viewportWidth else { return }
         didPrepareInitialCalendar = true
         lastViewportWidth = viewportWidth
-        let padding: CGFloat = viewportWidth >= 768 ? 40 : 12
+        let padding: CGFloat = viewportWidth >= 768 ? 40 : 12   // p-3 md:p-10
         for (index, constraint) in contentInsets.enumerated() {
             constraint.constant = index == 4 ? -padding * 2 : (index >= 2 ? -padding : padding)
         }
         reloadCalendar()
         calendarCV.collectionViewLayout.invalidateLayout()
-        if first { fetchAiringForMonth(displayedMonth) }
+        if first { fetchSchedule() }
     }
 
     // MARK: - UI Setup
@@ -288,7 +357,7 @@ final class ScheduleViewController: UIViewController {
         ])
 
         contentStack.axis = .vertical
-        contentStack.spacing = 24
+        contentStack.spacing = 24   // mb-6
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(contentStack)
         contentInsets = [
@@ -310,15 +379,29 @@ final class ScheduleViewController: UIViewController {
 
         // Day-of-week header inside calendarContainer
         buildCalendarContainer()
-        contentStack.addArrangedSubview(calendarContainer)
-
-        // Spinner (centred in calendarContainer)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(spinner)
-        NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        // `w-full max-w-[1800px]`, centred by the page's `items-center`
+        let holder = UIView()
+        calendarContainer.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(calendarContainer)
+        let fill = [
+            calendarContainer.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+            calendarContainer.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+        ]
+        fill.forEach { $0.priority = .defaultHigh }
+        NSLayoutConstraint.activate(fill + [
+            calendarContainer.topAnchor.constraint(equalTo: holder.topAnchor),
+            calendarContainer.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+            calendarContainer.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            calendarContainer.widthAnchor.constraint(lessThanOrEqualToConstant: 1800),
         ])
+        contentStack.addArrangedSubview(holder)
+    }
+
+    private func line() -> UIView {
+        let line = UIView()
+        line.backgroundColor = UIColor.HayaseTheme.border
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        return line
     }
 
     private func buildCalendarContainer() {
@@ -329,26 +412,26 @@ final class ScheduleViewController: UIViewController {
         myList.setOn(onlyMyList, animated: false)
         myList.accessibilityLabel = "My list"
         myList.addTarget(self, action: #selector(listFilterChanged), for: .valueChanged)
-        let filterLabel = SettingsTypography.label("My list", size: 14, lineHeight: 20,
-            color: UIColor.HayaseTheme.mutedForeground)
+        // `Label`: text-sm font-medium leading-none
+        let filterLabel = UILabel()
+        filterLabel.font = .nunito(ofSize: 14, weight: .medium)
+        filterLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        filterLabel.text = "My list"
         let filter = UIStackView(arrangedSubviews: [myList, filterLabel])
-        filter.spacing = 8
+        filter.spacing = 8   // space-x-2
         filter.alignment = .center
         let month = UIStackView(arrangedSubviews: [monthLabel, filter])
         month.axis = .vertical
-        month.spacing = 4
+        month.spacing = 4   // mt-1
         month.alignment = .center
         let navRow = UIStackView(arrangedSubviews: [prevButton, month, nextButton])
         navRow.alignment = .center
         navRow.distribution = .equalSpacing
         navRow.isLayoutMarginsRelativeArrangement = true
-        navRow.layoutMargins = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        for button in [prevButton, nextButton] {
-            button.layer.cornerRadius = 6
-            button.layer.borderWidth = 1
-            button.layer.borderColor = UIColor.HayaseTheme.input.cgColor
-        }
+        navRow.layoutMargins = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)   // p-4
         outerStack.addArrangedSubview(navRow)
+        outerStack.addArrangedSubview(line())
+
         // Mon Tue Wed Thu Fri Sat Sun header
         let headerRow = UIStackView()
         headerRow.axis = .horizontal
@@ -357,12 +440,13 @@ final class ScheduleViewController: UIViewController {
             let l = UILabel()
             l.text = name
             l.font = .nunito(ofSize: 16)
-            l.textColor = UIColor(white: 0.65, alpha: 1)
+            l.textColor = UIColor.HayaseTheme.foreground
             l.textAlignment = .center
-            l.heightAnchor.constraint(equalToConstant: 40).isActive = true
+            l.heightAnchor.constraint(equalToConstant: 40).isActive = true   // py-2
             headerRow.addArrangedSubview(l)
         }
         outerStack.addArrangedSubview(headerRow)
+        outerStack.addArrangedSubview(line())
 
         // Collection view for calendar days
         let layout = UICollectionViewFlowLayout()
@@ -382,12 +466,44 @@ final class ScheduleViewController: UIViewController {
         calendarHeightConstraint.isActive = true
         outerStack.addArrangedSubview(calendarCV)
 
+        // `{:else if $query.error}`: a block as tall as 24rem in place of the days
+        errorView.translatesAutoresizingMaskIntoConstraints = false
+        errorView.isHidden = true
+        let oops = UILabel()
+        oops.text = "Ooops!"
+        oops.font = .nunito(ofSize: 36, weight: .bold)   // font-bold text-4xl
+        oops.textColor = UIColor.HayaseTheme.foreground
+        oops.textAlignment = .center
+        let wrong = UILabel()
+        wrong.text = "Looks like something went wrong!"
+        wrong.font = .nunito(ofSize: 18)   // text-lg
+        wrong.textColor = UIColor.HayaseTheme.mutedForeground
+        wrong.textAlignment = .center
+        wrong.numberOfLines = 0
+        errorMessageLabel.font = .nunito(ofSize: 18)
+        errorMessageLabel.textColor = UIColor.HayaseTheme.mutedForeground
+        errorMessageLabel.textAlignment = .center
+        errorMessageLabel.numberOfLines = 0
+        let errorStack = UIStackView(arrangedSubviews: [oops, wrong, errorMessageLabel])
+        errorStack.axis = .vertical
+        errorStack.spacing = 4   // mb-1 after the title
+        errorStack.translatesAutoresizingMaskIntoConstraints = false
+        errorView.addSubview(errorStack)
+        NSLayoutConstraint.activate([
+            errorView.heightAnchor.constraint(equalToConstant: 384),   // h-96
+            errorStack.centerYAnchor.constraint(equalTo: errorView.centerYAnchor),
+            errorStack.leadingAnchor.constraint(equalTo: errorView.leadingAnchor, constant: 20),   // p-5
+            errorStack.trailingAnchor.constraint(equalTo: errorView.trailingAnchor, constant: -20),
+        ])
+        outerStack.addArrangedSubview(errorView)
+
+        // The grid's own 1px border takes room.
         calendarContainer.addSubview(outerStack)
         NSLayoutConstraint.activate([
-            outerStack.topAnchor.constraint(equalTo: calendarContainer.topAnchor),
-            outerStack.leadingAnchor.constraint(equalTo: calendarContainer.leadingAnchor),
-            outerStack.trailingAnchor.constraint(equalTo: calendarContainer.trailingAnchor),
-            outerStack.bottomAnchor.constraint(equalTo: calendarContainer.bottomAnchor),
+            outerStack.topAnchor.constraint(equalTo: calendarContainer.topAnchor, constant: 1),
+            outerStack.leadingAnchor.constraint(equalTo: calendarContainer.leadingAnchor, constant: 1),
+            outerStack.trailingAnchor.constraint(equalTo: calendarContainer.trailingAnchor, constant: -1),
+            outerStack.bottomAnchor.constraint(equalTo: calendarContainer.bottomAnchor, constant: -1),
         ])
     }
 
@@ -397,8 +513,9 @@ final class ScheduleViewController: UIViewController {
         let cal = iso8601Calendar
         let monthStart = startOfMonth(for: displayedMonth)
 
-        // Display month name
+        // `now.toLocaleString('en-US', { month: 'long' })`
         let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US")
         df.dateFormat = "MMMM"
         monthLabel.text = df.string(from: monthStart)
 
@@ -422,12 +539,24 @@ final class ScheduleViewController: UIViewController {
             current = cal.date(byAdding: .day, value: 1, to: current)!
         }
         calendarDays = days
+        groupEpisodesByDay()
 
-        // Update collection view height: rows × cell height (96pt matches Hayase h-24)
+        // Update collection view height: rows × cell height
         let rows = days.count / 7
-        let cellH = dayHeight
-        calendarHeightConstraint.constant = cellH * CGFloat(rows)
+        calendarHeightConstraint.constant = dayHeight * CGFloat(rows)
+        applyQueryState()
         calendarCV.reloadData()
+    }
+
+    private func applyQueryState() {
+        if case .failed(let message) = queryState {
+            errorMessageLabel.text = message
+            errorView.isHidden = false
+            calendarCV.isHidden = true
+        } else {
+            errorView.isHidden = true
+            calendarCV.isHidden = false
+        }
     }
 
     private func startOfMonth(for date: Date) -> Date {
@@ -436,11 +565,20 @@ final class ScheduleViewController: UIViewController {
         return cal.date(from: comps)!
     }
 
-    private func episodes(for date: Date) -> [ScheduleAiringEpisode] {
+    /// `aggregate()`: each episode goes on the day it airs, whatever month that is, and the
+    /// day's episodes are in the order they air.
+    private func groupEpisodesByDay() {
         let cal = Calendar.current
-        return airingEpisodes.filter { ep in
-            cal.isDate(ep.airingAt, inSameDayAs: date)
-        }.sorted { $0.airingAt < $1.airingAt }
+        var map: [Date: [ScheduleAiringEpisode]] = [:]
+        for episode in airingEpisodes {
+            map[cal.startOfDay(for: episode.airingAt), default: []].append(episode)
+        }
+        episodesByDay = map.mapValues { $0.sorted { $0.airingAt < $1.airingAt } }
+    }
+
+    private func episodes(for date: Date) -> [ScheduleAiringEpisode] {
+        guard case .loaded = queryState else { return [] }
+        return episodesByDay[Calendar.current.startOfDay(for: date)] ?? []
     }
 
     // MARK: - Navigation
@@ -448,76 +586,71 @@ final class ScheduleViewController: UIViewController {
     @objc private func listFilterChanged() {
         onlyMyList = myList.isOn
         UserDefaults.standard.set(onlyMyList, forKey: "schedule-on-list")
-        fetchedMonths.removeAll()
-        airingEpisodes.removeAll()
-        calendarCV.reloadData()
-        fetchAiringForMonth(displayedMonth)
+        fetchSchedule()
     }
 
     @objc private func prevMonth() {
         displayedMonth = Calendar.current.date(byAdding: .month, value: -1, to: displayedMonth)!
         reloadCalendar()
-        fetchAiringForMonth(displayedMonth)
+        fetchScheduleIfQuarterChanged()
     }
 
     @objc private func nextMonth() {
         displayedMonth = Calendar.current.date(byAdding: .month, value: 1, to: displayedMonth)!
         reloadCalendar()
-        fetchAiringForMonth(displayedMonth)
+        fetchScheduleIfQuarterChanged()
     }
 
     // MARK: - Data fetch
 
-    private var fetchedMonths: Set<String> = []
+    /// `queryDate`: the first day of the quarter the month on show is in.
+    private func quarterStart(for date: Date) -> Date {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month], from: date)
+        let month = ((comps.month ?? 1) - 1) / 3 * 3 + 1
+        return cal.date(from: DateComponents(year: comps.year, month: month, day: 1))!
+    }
 
-    private func fetchAiringForMonth(_ month: Date) {
-        let key = monthKey(for: month)
-        guard !fetchedMonths.contains(key), !isFetching else { return }
-        isFetching = true
-        let requestedFilter = onlyMyList
+    private func fetchScheduleIfQuarterChanged() {
+        guard requestedQuarter != quarterStart(for: displayedMonth) else { return }
+        fetchSchedule()
+    }
 
-        AniListClient.shared.fetchAiringForMonthResult(month, onList: requestedFilter) { [weak self] result in
-            guard let self = self else { return }
-            self.isFetching = false
-            self.spinner.stopAnimating()
-            guard requestedFilter == self.onlyMyList else {
-                self.fetchAiringForMonth(self.displayedMonth)
-                return
-            }
+    private func fetchSchedule() {
+        let quarter = quarterStart(for: displayedMonth)
+        requestedQuarter = quarter
+        requestGeneration += 1
+        let generation = requestGeneration
+        // While it loads the grid is only day numbers.
+        queryState = .fetching
+        airingEpisodes = []
+        groupEpisodesByDay()
+        applyQueryState()
+        calendarCV.reloadData()
 
+        AniListClient.shared.fetchAiringForMonthResult(quarter, onList: onlyMyList) { [weak self] result in
+            guard let self, generation == self.requestGeneration else { return }
             switch result {
             case .success(let entries):
-                self.fetchedMonths.insert(key)
-                var existing = Set(self.airingEpisodes.map { "\($0.mediaID)-\($0.episode)" })
-                for entry in entries {
-                    let k = "\(entry.media.id)-\(entry.episode)"
-                    if existing.insert(k).inserted {
-                        self.airingEpisodes.append(ScheduleAiringEpisode(
-                            airingAt: entry.airingAt,
-                            episode:  entry.episode,
-                            mediaID:  entry.media.id,
-                            titlePreferred: entry.media.titleUserPreferred,
-                            coverURL: entry.media.coverURL,
-                            entry: entry.media.mediaListEntry))
-                    }
+                self.airingEpisodes = entries.map {
+                    ScheduleAiringEpisode(airingAt: $0.airingAt,
+                                          episode: $0.episode,
+                                          mediaID: $0.media.id,
+                                          titlePreferred: $0.media.titleUserPreferred,
+                                          coverURL: $0.media.coverURL,
+                                          coverColor: $0.media.coverColor,
+                                          entry: $0.media.mediaListEntry)
                 }
-                self.calendarCV.reloadData()
+                self.queryState = .loaded
             case .failure(let error):
                 NSLog("[Schedule] AniList schedule failed: %@", error.description)
+                self.queryState = .failed(error.description)
             }
-            if self.monthKey(for: self.displayedMonth) != key {
-                self.fetchAiringForMonth(self.displayedMonth)
-            }
+            self.groupEpisodesByDay()
+            self.applyQueryState()
+            self.calendarCV.reloadData()
         }
     }
-
-    private func monthKey(for date: Date) -> String {
-        let cal = Calendar.current
-        let y = cal.component(.year, from: date)
-        let m = cal.component(.month, from: date)
-        return "\(y)-\(m)"
-    }
-
 }
 
 // MARK: - UICollectionViewDataSource / Delegate
@@ -537,11 +670,16 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
             return fallback
         }()
         guard let day = calendarDays[safe: indexPath.item] else { return cell }
-        let isToday = Calendar.current.isDateInToday(day.date)
-        let eps = episodes(for: day.date)
-        cell.configure(day: day.number, isToday: isToday,
-                       isCurrentMonth: day.isCurrentMonth, episodes: eps, expanded: viewportWidth >= 1024,
-                       showsEpisode: viewportWidth >= 1280) { [weak self] id in
+        let rows = calendarDays.count / 7
+        // Every cell has a right border but the Sundays', and a bottom one but the last row's.
+        let layout = CalendarDayCell.Layout(day: day.number,
+                                            isToday: Calendar.current.isDateInToday(day.date),
+                                            isCurrentMonth: day.isCurrentMonth,
+                                            showsRightBorder: indexPath.item % 7 != 6,
+                                            showsBottomBorder: indexPath.item / 7 != rows - 1,
+                                            expanded: viewportWidth >= 1024,
+                                            extraLarge: viewportWidth >= 1280)
+        cell.configure(layout, episodes: episodes(for: day.date)) { [weak self] id in
             Router.shared.navigate(.anime(id: id), hostTabIndex: self?.hayaseTabIndex)
         }
         return cell
@@ -554,14 +692,12 @@ extension ScheduleViewController: UICollectionViewDataSource, UICollectionViewDe
     }
 
     func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard let day = calendarDays[safe: indexPath.item] else { return }
-        let eps = episodes(for: day.date)
-        guard !eps.isEmpty else { return }
-
-        let drawer = ScheduleDayViewController(episodes: eps) { [weak self] id in
+        // Below `lg` the whole day is the drawer's trigger, whether or not anything airs.
+        guard viewportWidth < 1024, let day = calendarDays[safe: indexPath.item] else { return }
+        let drawer = ScheduleDayViewController(episodes: episodes(for: day.date),
+                                               extraLarge: viewportWidth >= 1280) { [weak self] id in
             Router.shared.navigate(.anime(id: id), hostTabIndex: self?.hayaseTabIndex)
         }
         present(drawer, animated: false)
     }
 }
-

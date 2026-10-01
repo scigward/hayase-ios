@@ -1809,6 +1809,8 @@ public final class AniListClient: NSObject {
 
     // MARK: - Airing schedule
 
+    /// `month` is the first day of the quarter that holds the month on show, as the page asks for
+    /// a whole quarter (and the seasons around it) at a time.
     func fetchAiringForMonthResult(_ month: Date,
                                    onList: Bool = false,
                                    completion: @escaping (Result<[AiringScheduleEntry], AniListRequestError>) -> Void) -> AniListRequestToken? {
@@ -1820,8 +1822,9 @@ public final class AniListClient: NSObject {
             "seasonYearLast": seasonWindow.last.year,
             "seasonNext": seasonWindow.next.season,
             "seasonYearNext": seasonWindow.next.year,
-            "formatNot": "TV_SHORT"
         ]
+        // `formatNot: onList ? null : 'TV_SHORT'`
+        if !onList { variables["formatNot"] = "TV_SHORT" }
         if onList {
             if TrackerAccountManager.shared.isLoggedIn(.anilist) { variables["onList"] = true }
             else {
@@ -1847,7 +1850,7 @@ public final class AniListClient: NSObject {
                     return
                 }
                 self.logGraphQLErrors(graphQLResult.graphQLErrors, context: "Schedule")
-                let entries = self.parseScheduleEntries(from: dataObject, visibleMonth: month)
+                let entries = self.parseScheduleEntries(from: dataObject)
                 DispatchQueue.main.async { completion(.success(entries)) }
             case .failure(let error):
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -1873,13 +1876,9 @@ public final class AniListClient: NSObject {
         return (seasonTuple(for: month), seasonTuple(for: lastDate), seasonTuple(for: nextDate))
     }
 
-    private func parseScheduleEntries(from dataObject: [String: Any], visibleMonth: Date) -> [AiringScheduleEntry] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let monthComponents = calendar.dateComponents([.year, .month], from: visibleMonth)
-        guard let monthStart = calendar.date(from: monthComponents),
-              let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return [] }
-
+    /// Every episode of every media the query returned: the page puts each on its day, the days
+    /// of the neighbouring months that its grid shows included.
+    private func parseScheduleEntries(from dataObject: [String: Any]) -> [AiringScheduleEntry] {
         var seenMediaIDs = Set<Int>()
         var entries: [AiringScheduleEntry] = []
         for key in ["curr1", "curr2", "curr3", "residue", "next1", "next2"] {
@@ -1896,7 +1895,6 @@ public final class AniListClient: NSObject {
                           let airingAt = intValue(node["a"]),
                           seenEpisodes.insert(episode).inserted else { continue }
                     let date = Date(timeIntervalSince1970: Double(airingAt))
-                    guard date >= monthStart && date < monthEnd else { continue }
                     entries.append(AiringScheduleEntry(episode: episode, airingAt: date, media: item))
                 }
             }
