@@ -1343,7 +1343,11 @@ extension AnimeDetailViewController {
     }
 
     private func resolveParentID(format: String, completion: @escaping (Int?) -> Void) {
-        // `getParentForSpecial(media)`: the relations of the media the page was loaded with
+        // `getParentForSpecial(media)`: only a special has a parent, found in the relations of the media
+        guard ["SPECIAL", "OVA", "ONA"].contains(format) else {
+            completion(nil)
+            return
+        }
         let relations = animeItem?.relations ?? []
         completion(["PARENT", "PREQUEL", "SEQUEL"].lazy.compactMap { relType -> Int? in
             relations.first { $0.relationType == relType }?.media.id
