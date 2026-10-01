@@ -47,6 +47,33 @@ enum AniListUtil {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// util.ts `episodes(media, eps)`
+    static func episodes(for media: AnimeItem, mappings: Int = 0) -> Int {
+        if let episodes = media.episodes, episodes != 0 { return episodes }
+        return max(media.airedSchedule.last?.episode ?? 0, media.notYetAiredSchedule.last?.episode ?? 0, mappings)
+    }
+
+    /// auth/util.ts `of(media, eps)`: "12 Episodes", "3 / 12 Episodes", or nothing for a single episode or
+    /// an unknown count. Without `eps`, the progress stands in for the count the mappings know.
+    static func episodesText(for media: AnimeItem, mappings: Int? = nil) -> String? {
+        let progress = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.progress ?? 0
+        let count = episodes(for: media, mappings: mappings ?? progress)
+        guard count != 1, count != 0 else { return nil }
+        return progress == 0 || progress == count ? "\(count) Episodes" : "\(progress) / \(count) Episodes"
+    }
+
+    /// util.ts `season(media)`: the season and the year, from the start date when the media has none.
+    static func seasonText(for media: AnimeItem) -> String? {
+        let season: String? = media.season?.lowercased() ?? media.startMonth.flatMap { month in
+            guard month != 0 else { return nil }
+            // getSeasonForMonth, which takes the month as AniList counts it
+            return ["winter", "spring", "summer", "fall"][Int((Double(month) / 12 * 4).rounded(.down)) % 4]
+        }
+        let year = media.year ?? media.startYear
+        let parts = [season, year.flatMap { $0 != 0 ? String($0) : nil }].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
     /// util.ts `format(media)`
     static func format(_ format: String?) -> String {
         switch format {
@@ -410,6 +437,7 @@ enum AniListUtil {
             synonyms: media.synonyms ?? [],
             year: media.seasonYear,
             startYear: media.startDate?.year,
+            startMonth: media.startDate?.month,
             season: media.season,
             format: media.format,
             duration: media.duration,
@@ -486,6 +514,7 @@ enum AniListUtil {
             synonyms: media.synonyms ?? [],
             year: media.seasonYear,
             startYear: media.startDate?.year,
+            startMonth: media.startDate?.month,
             season: media.season,
             format: media.format,
             duration: media.duration,

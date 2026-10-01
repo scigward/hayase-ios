@@ -314,13 +314,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func progressOrDurationText(for media: AnimeItem) -> String? {
-        if let episodes = media.episodes, episodes > 1 {
-            let progress = media.mediaListEntry?.progress ?? 0
-            if progress > 0, progress < episodes {
-                return "\(progress) / \(episodes) Episodes"
-            }
-            return "\(episodes) Episodes"
-        }
+        if let text = AniListUtil.episodesText(for: media) { return text }
         if let duration = media.duration, duration > 0 {
             return "\(duration) Minute\(duration == 1 ? "" : "s")"
         }
@@ -328,16 +322,13 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func seasonText(for media: AnimeItem) -> String? {
-        let year = media.year ?? media.startYear
-        if let season = media.season, let year {
-            return "\(season.capitalized) \(year)"
-        }
-        return year.map(String.init)
+        AniListUtil.seasonText(for: media)?.capitalized
     }
 
     private func shouldHideScore(for media: AnimeItem) -> Bool {
         guard Settings.hideSpoilers else { return false }
-        return media.mediaListEntry?.status == "CURRENT" || media.mediaListEntry?.status == "PLANNING"
+        let status = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.status
+        return status == "CURRENT" || status == "PLANNING"
     }
 
     private func descriptionText(for media: AnimeItem) -> String {

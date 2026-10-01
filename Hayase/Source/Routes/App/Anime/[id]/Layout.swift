@@ -1439,12 +1439,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             $0.selectedTint = accent
         }
 
-        let seasonStr: String? = {
-            let szn = item.season?.capitalized
-            let yr = item.year ?? item.startYear
-            let parts = [szn, yr.map { String($0) }].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: " ")
-        }()
+        let seasonStr = AniListUtil.seasonText(for: item)?.capitalized
 
         rebuildBadges(score:    item.score,
                       status:   item.status,

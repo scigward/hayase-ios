@@ -1141,20 +1141,7 @@ struct TorrentBatchResolver {
 
     /// util.ts `episodes(media)`
     static func episodes(for media: AnimeItem) -> Int {
-        if let episodes = media.episodes, episodes != 0 { return episodes }
-        return max(media.airedSchedule.last?.episode ?? 0, media.notYetAiredSchedule.last?.episode ?? 0)
-    }
-
-    /// util.ts `of(media)`: `episodes(media, { episodeCount: $progress })`, what the banner and the
-    /// cards write as "x / y Episodes".
-    static func episodeCount(for media: AnimeItem) -> Int {
-        if let episodes = media.episodes, episodes != 0 { return episodes }
-
-        let aired = media.airedSchedule.last?.episode ?? 0
-        let notYetAired = media.notYetAiredSchedule.last?.episode ?? 0
-        let progress = media.mediaListEntry?.progress ?? 0
-
-        return max(aired, notYetAired, progress)
+        AniListUtil.episodes(for: media)
     }
 
     private static func cachedTitleIDs(for keys: [String]) -> [String: Int] {

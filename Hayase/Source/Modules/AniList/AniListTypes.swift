@@ -26,6 +26,7 @@ struct AnimeItem {
     var synonyms: [String] = []
     var year: Int? = nil
     var startYear: Int? = nil
+    var startMonth: Int? = nil
     var season: String? = nil
     var format: String? = nil
     var duration: Int? = nil

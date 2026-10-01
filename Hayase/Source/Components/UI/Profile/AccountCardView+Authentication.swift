@@ -69,12 +69,9 @@ extension HayaseAccountCardView {
             "Your password is not stored in the app, it is sent directly to Kitsu for authentication.",
             size: 14, lineHeight: 20, color: UIColor.HayaseTheme.mutedForeground))
         let login = SettingsTypography.button("Login")
-        login.addAction(UIAction { [weak dialog, weak email, weak password] _ in
-            KitsuAuth.login(email: email?.input.text ?? "", password: password?.input.text ?? "") { success in
-                DispatchQueue.main.async {
-                    if success { dialog?.close() }
-                }
-            }
+        login.addAction(UIAction { [weak email, weak password] _ in
+            // `ksclient.login(kitsuLogin, kitsuPassword)`: the dialog stays, only Cancel closes it
+            KitsuAuth.login(email: email?.input.text ?? "", password: password?.input.text ?? "") { _ in }
         }, for: .touchUpInside)
         let cancel = SettingsTypography.button("Cancel", destructive: true)
         cancel.addAction(UIAction { [weak dialog] _ in dialog?.close() }, for: .touchUpInside)

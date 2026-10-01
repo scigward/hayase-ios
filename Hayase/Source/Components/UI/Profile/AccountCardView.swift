@@ -60,6 +60,11 @@ final class HayaseAccountCardView: UIView {
         serviceLabel.textColor = UIColor.HayaseTheme.mutedForeground
         let names = UIStackView(arrangedSubviews: [nameLabel, serviceLabel])
         names.axis = .vertical
+        // `use:click={() => native.openURL(…/user/{name})}` on the avatar and the name
+        for profile in [avatarView, names] {
+            profile.isUserInteractionEnabled = true
+            profile.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openProfile)))
+        }
         headerStack.axis = .horizontal
         headerStack.alignment = .center
         headerStack.spacing = 12
@@ -155,6 +160,20 @@ final class HayaseAccountCardView: UIView {
         discussionsIcon.isHidden = tracker != .anilist
         offlineIcon.isHidden = tracker != .anilist && tracker != .local
         refreshState()
+    }
+
+    @objc private func openProfile() {
+        guard let name = TrackerAccountManager.shared.viewer(for: tracker)?.name,
+              let escaped = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return }
+        let base: String
+        switch tracker {
+        case .anilist: base = "https://anilist.co/user/"
+        case .kitsu: base = "https://kitsu.app/users/"
+        case .mal: base = "https://myanimelist.net/profile/"
+        case .simkl: base = "https://simkl.com/profile/"
+        case .local: return
+        }
+        if let url = URL(string: base + escaped) { UIApplication.shared.open(url) }
     }
 
     @objc private func trackerDidChange() {

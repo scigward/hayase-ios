@@ -1253,21 +1253,12 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         LoadIn.show(image, in: clearlogoImageView, blurred: blurred)
     }
 
-    /// auth/util.ts `of()`: "12 Episodes", "3 / 12 Episodes", or nothing for a single episode
-    /// or an unknown count.
-    private static func episodesText(for item: AnimeItem) -> String? {
-        let progress = item.mediaListEntry?.progress ?? 0
-        let count = TorrentBatchResolver.episodeCount(for: item)   // util.ts episodes()
-        guard count > 1 else { return nil }
-        return progress == 0 || progress == count ? "\(count) Episodes" : "\(progress) / \(count) Episodes"
-    }
-
     private func updateBadges(for item: AnimeItem, customColor: UIColor) {
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         // `{$ofStore ?? duration(current) ?? 'N/A'}` is a plain div; the rest are Buttons.
         let duration = item.duration.flatMap { $0 > 0 ? "\($0) Minute\($0 > 1 ? "s" : "")" : nil }
-        badgeStack.addArrangedSubview(BannerBadge(text: Self.episodesText(for: item) ?? duration ?? "N/A",
+        badgeStack.addArrangedSubview(BannerBadge(text: AniListUtil.episodesText(for: item) ?? duration ?? "N/A",
                                                   textColor: customColor, kind: .label))
 
         func addButton(_ text: String, color: UIColor, filterType: String, value: String, value2: String? = nil) {
@@ -1295,9 +1286,9 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             addButton(stMap[st] ?? st.capitalized, color: customColor, filterType: "status", value: st)
         }
 
-        if let season = item.season, let year = item.year {
-            addButton("\(season.capitalized) \(year)", color: customColor,
-                      filterType: "season", value: season, value2: String(year))
+        if let seasonText = AniListUtil.seasonText(for: item) {
+            addButton(seasonText.capitalized, color: customColor,
+                      filterType: "season", value: item.season ?? "", value2: item.year.map(String.init))
         }
 
         // getTextColorForRating: no !text-custom on this one.

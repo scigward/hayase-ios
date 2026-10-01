@@ -1505,6 +1505,7 @@ public final class AniListClient: NSObject {
             synonyms: stringArray(object["synonyms"]),
             year: intValue(object["seasonYear"]),
             startYear: intValue(startDate?["year"]),
+            startMonth: intValue(startDate?["month"]),
             season: object["season"] as? String,
             format: object["format"] as? String,
             duration: intValue(object["duration"]),
