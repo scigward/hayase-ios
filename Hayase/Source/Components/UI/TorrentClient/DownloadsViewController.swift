@@ -1160,7 +1160,12 @@ class DownloadsViewController: UIViewController {
                 finish(result) { [weak self] in
                     self?.webTrackerRows = $0
                         .map { (announce: $0.key, info: $0.value) }
-                        .sorted { $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending }
+                        // torrent-client lists the trackers that answered first and the failed ones after;
+                        // the keys come back unordered, so the groups are rebuilt.
+                        .sorted {
+                            if $0.info.failed != $1.info.failed { return !$0.info.failed }
+                            return $0.announce.localizedCaseInsensitiveCompare($1.announce) == .orderedAscending
+                        }
                 }
             }
         case .library:
