@@ -98,7 +98,7 @@ private final class CalendarDayCell: UICollectionViewCell {
             numberLabel.centerXAnchor.constraint(equalTo: numberContainer.centerXAnchor),
             numberLabel.centerYAnchor.constraint(equalTo: numberContainer.centerYAnchor),
 
-            epStack.topAnchor.constraint(greaterThanOrEqualTo: numberContainer.bottomAnchor),
+            epStack.topAnchor.constraint(greaterThanOrEqualTo: numberContainer.bottomAnchor, constant: 6),   // mt-1.5
             epStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             epStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             epStack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),

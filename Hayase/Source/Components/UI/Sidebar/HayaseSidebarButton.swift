@@ -89,8 +89,8 @@ final class HayaseSidebarButton: UIButton {
         addSubview(iconView)
 
         dotView.translatesAutoresizingMaskIntoConstraints = false
-        dotView.backgroundColor = UIColor(red: 0.22, green: 0.82, blue: 0.34, alpha: 1)
-        dotView.layer.cornerRadius = 4
+        dotView.backgroundColor = ScheduleStatusColor.color(for: "COMPLETED")   // StatusDot variant='COMPLETED'
+        dotView.layer.cornerRadius = 4.4
         dotView.isHidden = true
         dotView.isUserInteractionEnabled = false
         addSubview(dotView)
@@ -116,8 +116,8 @@ final class HayaseSidebarButton: UIButton {
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconSize,
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
-            dotView.widthAnchor.constraint(equalToConstant: 8),
-            dotView.heightAnchor.constraint(equalToConstant: 8),
+            dotView.widthAnchor.constraint(equalToConstant: 8.8),   // size-[0.55rem]
+            dotView.heightAnchor.constraint(equalToConstant: 8.8),
             dotView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             dotView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
         ])
