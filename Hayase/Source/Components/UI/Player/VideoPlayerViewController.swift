@@ -3692,7 +3692,7 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     /// Toggles play/pause from the mini-player.
     func togglePlayPause() {
-        surface.mpv.togglePause()
+        playPauseTapped()
     }
 }
 
