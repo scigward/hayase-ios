@@ -1379,6 +1379,10 @@ public final class AniListClient: NSObject {
             }
         }
 
+        // what the last visit left on disk, like Graphcache's persisted entries
+        if cached == nil, policy == .cacheAndNetwork {
+            cached = persistedAnimePagePayload(cacheKey: cacheKey)
+        }
         if let cached = cached, policy != .networkOnly {
             deliverAnimePagePayload(.success(cached), completion: completion)
             if policy != .cacheAndNetwork { return }
@@ -1386,6 +1390,14 @@ public final class AniListClient: NSObject {
         if shouldStartRequest {
             fetchAnimePageFromNetwork(id, cacheKey: cacheKey)
         }
+    }
+
+    private func persistedAnimePagePayload(cacheKey: String) -> AnimePagePayload? {
+        guard let data = AniListOperationCache.shared.cachedData(for: cacheKey),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObject = json["data"] as? [String: Any] else { return nil }
+        let payload = parseAnimePagePayload(from: dataObject, followingEntries: [])
+        return payload.media == nil ? nil : payload
     }
 
     private func fetchAnimePageFromNetwork(_ id: Int, cacheKey: String) {

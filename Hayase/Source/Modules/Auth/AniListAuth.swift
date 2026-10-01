@@ -469,6 +469,11 @@ final class AniListTracking {
             localDeleteAttempted = true
             _ = LocalTracking.shared.delete(mediaID: mediaID)
         }
+        // client.ts `deleteEntry`: `!id || (id <= 0 && navigator.onLine)`, an entry that is not on AniList yet
+        if listID <= 0, AniListConnectionStatus.shared.isOnline {
+            completion(.success(localDeleteAttempted))
+            return
+        }
 
         authRequestResult(query: AniListQueries.deleteEntry, variables: ["id": listID], optimistic: true) { [weak self] result in
             switch result {
