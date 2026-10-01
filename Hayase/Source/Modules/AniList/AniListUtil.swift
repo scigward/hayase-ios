@@ -47,6 +47,32 @@ enum AniListUtil {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// util.ts `format(media)`
+    static func format(_ format: String?) -> String {
+        switch format {
+        case "TV": return "TV Series"
+        case "TV_SHORT": return "TV Short"
+        case "MOVIE": return "Movie"
+        case "SPECIAL": return "Special"
+        case "OVA": return "OVA"
+        case "ONA": return "ONA"
+        case "MUSIC": return "Music"
+        case "MANGA": return "Manga"
+        case "NOVEL": return "Novel"
+        case "ONE_SHOT": return "One Shot"
+        default: return "N/A"
+        }
+    }
+
+    /// util.ts `removeDiacritics`: for some reason diacritics started breaking AL search.
+    static func removeDiacritics(_ string: String) -> String {
+        var result = ""
+        result.unicodeScalars.append(contentsOf: string.decomposedStringWithCanonicalMapping.unicodeScalars.filter {
+            !(0x0300...0x036F).contains($0.value)
+        })
+        return result
+    }
+
     enum TitlePreference: String {
         case anilist = "ANILIST"
         case english = "ENGLISH"
@@ -378,6 +404,7 @@ enum AniListUtil {
             trailerYouTubeID: trailerID,
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
+            coverMediumURL: media.coverImage?.medium?.replacingOccurrences(of: "/small/", with: "/medium/"),
             malId: media.idMal,
             isFavourite: media.isFavourite,
             tags: tags(from: media.tags),
@@ -453,6 +480,7 @@ enum AniListUtil {
             trailerYouTubeID: trailerID,
             favourites: media.favourites,
             coverColor: media.coverImage?.color,
+            coverMediumURL: media.coverImage?.medium?.replacingOccurrences(of: "/small/", with: "/medium/"),
             malId: media.idMal,
             isFavourite: media.isFavourite,
             tags: tags(from: media.tags),

@@ -304,7 +304,10 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         formatLabel.text = formatString(item.format)
         // Set cover color placeholder matching web's load.svelte: style:background={color ?? '#1890ff'}
         coverImageView.backgroundColor = UIColor(hexString: item.coverColor) ?? UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1)
-        loadCover(urlString: item.coverURL ?? "")
+        // small.svelte: `coverMedium(media)`, which falls back to `banner(media)`
+        loadCover(urlString: item.coverMediumURL ?? item.bannerURL
+                  ?? item.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
+                  ?? item.coverURL ?? "")
         // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
         if let status = item.mediaListEntry?.status {
             statusDotView.backgroundColor = statusDotColor(for: status)
@@ -327,18 +330,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     }
 
     private func formatString(_ raw: String?) -> String {
-        // Matches Hayase's FORMAT_MAP in anilist/util.ts exactly
-        guard let raw = raw else { return "TV Series" }
-        switch raw {
-        case "TV":       return "TV Series"
-        case "TV_SHORT": return "TV Short"
-        case "OVA":      return "OVA"
-        case "ONA":      return "ONA"
-        case "MOVIE":    return "Movie"
-        case "SPECIAL":  return "Special"
-        case "MUSIC":    return "Music"
-        default:         return raw.replacingOccurrences(of: "_", with: " ").capitalized
-        }
+        AniListUtil.format(raw)
     }
 
     private func loadCover(urlString: String) {

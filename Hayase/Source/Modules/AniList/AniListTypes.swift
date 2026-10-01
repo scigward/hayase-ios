@@ -32,6 +32,8 @@ struct AnimeItem {
     var trailerYouTubeID: String? = nil
     var favourites: Int? = nil
     var coverColor: String? = nil
+    /// `coverImage.medium` with `/small/` turned into `/medium/` (util.ts `coverMedium`)
+    var coverMediumURL: String? = nil
     var malId: Int? = nil
     var isFavourite: Bool? = nil
     var relations: [AnimeRelation] = []

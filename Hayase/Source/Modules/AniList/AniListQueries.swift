@@ -47,7 +47,7 @@ enum AniListQueries {
           aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt e: episode } }
           relations {
             edges {
-              relationType(version: 2)
+              relationType(version: 3)
               node {
                 id
                 status
@@ -61,7 +61,7 @@ enum AniListQueries {
                 seasonYear
                 relations {
                   edges {
-                    relationType(version: 2)
+                    relationType(version: 3)
                     node {
                       id
                       status
@@ -78,6 +78,36 @@ enum AniListQueries {
               }
             }
           }
+    """
+
+    /// Interface `EdgeMedia` fragment: what a recommendation (and a relation edge) is asked for.
+    static let edgeMediaFields = """
+          id
+          status
+          format
+          episodes
+          title { userPreferred }
+          coverImage { extraLarge }
+          type
+          synonyms
+          season
+          seasonYear
+          relations {
+            edges {
+              relationType(version: 3)
+              node {
+                id
+                status
+                format
+                episodes
+                title { userPreferred }
+                type
+                coverImage { extraLarge }
+              }
+            }
+          }
+          startDate { year month day }
+          endDate { year month day }
     """
 
     static let userFields = """
@@ -102,12 +132,9 @@ enum AniListQueries {
     """
 
     static let viewer = """
-    {
+    query Viewer {
       Viewer {
-        id
-        name
-        bannerImage
-        avatar { large }
+        \(userFields)
         mediaListOptions { animeList { customLists } }
         options { titleLanguage displayAdultContent }
       }
@@ -117,7 +144,7 @@ enum AniListQueries {
     /// A standalone single-user fetch, reusing `userFields` (previously only
     /// ever nested inside other queries — following lists, thread comments).
     static let user = """
-    query User($id: Int) {
+    query User($id: Int!) {
       User(id: $id) {
         \(userFields)
       }
@@ -143,8 +170,8 @@ enum AniListQueries {
 
     static let scheduleMediaFields = """
           id
-          coverImage { extraLarge large color }
-          title { userPreferred romaji english native }
+          coverImage { extraLarge color }
+          title { userPreferred }
           mediaListEntry { status progress id }
           aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
             n: nodes { a: airingAt e: episode }
@@ -224,11 +251,7 @@ enum AniListQueries {
           score
           progress
           media { id }
-          user {
-            id
-            name
-            avatar { large }
-          }
+          user { \(userFields) }
         }
       }
     }
@@ -273,7 +296,7 @@ enum AniListQueries {
       Media(id: $id, type: ANIME) {
         relations {
           edges {
-            relationType(version: 2)
+            relationType(version: 3)
             node {
               id
               title { userPreferred romaji english native }
@@ -333,7 +356,7 @@ enum AniListQueries {
             id
             rating
             mediaRecommendation {
-              \(fullMediaFields)
+              \(edgeMediaFields)
             }
           }
         }
@@ -495,8 +518,8 @@ enum AniListQueries {
     """
 
     static let idTitle = """
-    query IDTitle($id: Int) {
-      Media(id: $id) {
+    query IDTitle($id: Int!) {
+      Media(id: $id, type: ANIME) {
         id
         title { userPreferred }
       }
@@ -506,12 +529,9 @@ enum AniListQueries {
     static let updateUser = """
     mutation UpdateUser($lists: [String], $adult: Boolean, $language: UserTitleLanguage) {
       UpdateUser(animeListOptions: { customLists: $lists }, displayAdultContent: $adult, titleLanguage: $language) {
-        id
-        name
-        avatar { large }
-        bannerImage
+        \(userFields)
         mediaListOptions { animeList { customLists } }
-        options { titleLanguage displayAdultContent profileColor }
+        options { titleLanguage displayAdultContent }
       }
     }
     """
@@ -540,7 +560,7 @@ enum AniListQueries {
               nextAiringEpisode { episode }
               relations {
                 edges {
-                  relationType(version: 2)
+                  relationType(version: 3)
                   node { id }
                 }
               }
@@ -555,6 +575,7 @@ enum AniListQueries {
     mutation Entry($lists: [String], $id: Int!, $status: MediaListStatus, $progress: Int, $repeat: Int, $score: Int) {
       SaveMediaListEntry(mediaId: $id, status: $status, progress: $progress, repeat: $repeat, scoreRaw: $score, customLists: $lists) {
         id
+        mediaId
         status
         progress
         score(format: POINT_10)
@@ -583,6 +604,8 @@ enum AniListQueries {
         duration
         title { romaji english native userPreferred }
         synonyms
+        notaired: airingSchedule(page: 1, perPage: 50, notYetAired: true) { n: nodes { a: airingAt e: episode } }
+        aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) { n: nodes { a: airingAt e: episode } }
         mediaListEntry {
           id
           status
@@ -596,8 +619,8 @@ enum AniListQueries {
     """
 
     static let toggleFavourite = """
-    mutation ToggleFavourite($animeId: Int) {
-      ToggleFavourite(animeId: $animeId) {
+    mutation ToggleFavourite($id: Int!) {
+      ToggleFavourite(animeId: $id) {
         anime { nodes { id } }
       }
     }

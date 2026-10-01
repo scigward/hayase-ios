@@ -362,31 +362,31 @@ public final class AniListClient: NSObject {
         return [
             AniListHomeSectionDefinition(id: "home.popular-season",
                                          title: "Popular This Season",
-                                         variables: ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year],
+                                         variables: ["sort": ["POPULARITY_DESC"], "season": season, "seasonYear": year, "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.trending",
                                          title: "Trending Now",
-                                         variables: ["sort": ["TRENDING_DESC"]],
+                                         variables: ["sort": ["TRENDING_DESC"], "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.all-time-popular",
                                          title: "All Time Popular",
-                                         variables: ["sort": ["POPULARITY_DESC"]],
+                                         variables: ["sort": ["POPULARITY_DESC"], "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.romance",
                                          title: "Romance",
-                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Romance"]],
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Romance"], "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.action",
                                          title: "Action",
-                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Action"]],
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Action"], "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.adventure",
                                          title: "Adventure",
-                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Adventure"]],
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Adventure"], "perPage": 25],
                                          startsPaused: true),
             AniListHomeSectionDefinition(id: "home.fantasy",
                                          title: "Fantasy",
-                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Fantasy"]],
+                                         variables: ["sort": ["TRENDING_DESC"], "genre": ["Fantasy"], "perPage": 25],
                                          startsPaused: true),
         ]
     }
@@ -802,7 +802,7 @@ public final class AniListClient: NSObject {
         if let page { variables["page"] = page }
         if let sort { variables["sort"] = [sort] }
         if let perPage { variables["perPage"] = perPage }
-        if let t = title, !t.isEmpty { variables["search"] = t }
+        if let t = title, !t.isEmpty { variables["search"] = AniListUtil.removeDiacritics(t) }
         if !genres.isEmpty { variables["genre"] = genres }
         if !tags.isEmpty { variables["tag"] = tags }
         if !formats.isEmpty { variables["format"] = formats }
@@ -1494,6 +1494,7 @@ public final class AniListClient: NSObject {
             trailerYouTubeID: trailerID,
             favourites: intValue(object["favourites"]),
             coverColor: cover?["color"] as? String,
+            coverMediumURL: (cover?["medium"] as? String)?.replacingOccurrences(of: "/small/", with: "/medium/"),
             malId: intValue(object["idMal"]),
             isFavourite: object["isFavourite"] as? Bool,
             tags: parseTags(from: objectArray(object["tags"])),
