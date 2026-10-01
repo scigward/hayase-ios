@@ -360,18 +360,28 @@ final class ThreadDetailViewController: UIViewController {
     private func toggleThreadLike() {
         guard let thread = currentThread else { return }
         guard !thread.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        // `optimistic.ToggleLikeV2`: the heart flips and the count moves before the answer
+        let wasLiked = thread.isLiked ?? false
+        let count = thread.likeCount
+        let optimisticCount = count + (wasLiked ? -1 : 1)
+        currentThread?.isLiked = !wasLiked
+        currentThread?.likeCount = optimisticCount
+        postView?.updateLike(isLiked: !wasLiked, count: optimisticCount)
         AniListForumClient.shared.toggleLikeResult(id: thread.id,
                                                    type: "THREAD",
-                                                   wasLiked: thread.isLiked ?? false) { [weak self] result in
+                                                   wasLiked: wasLiked,
+                                                   likeCount: count) { [weak self] result in
             guard let self else { return }
+            guard self.currentThread?.id == thread.id else { return }
             switch result {
             case .success(let state):
-                guard self.currentThread?.id == thread.id else { return }
                 self.currentThread?.isLiked = state.isLiked
                 self.currentThread?.likeCount = state.likeCount
                 self.postView?.updateLike(isLiked: state.isLiked, count: state.likeCount)
             case .failure(let error):
-                self.postView?.finishLikeAttempt()
+                self.currentThread?.isLiked = wasLiked
+                self.currentThread?.likeCount = count
+                self.postView?.updateLike(isLiked: wasLiked, count: count)
                 self.showActionError(error.localizedDescription)
             }
         }
@@ -379,15 +389,19 @@ final class ThreadDetailViewController: UIViewController {
 
     private func toggleCommentLike(_ comment: AniListThreadComment) {
         guard !(currentThread?.isLocked ?? false), !comment.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        let wasLiked = comment.isLiked ?? false
+        let count = comment.likeCount
+        updateVisibleCommentLike(id: comment.id, isLiked: !wasLiked, count: count + (wasLiked ? -1 : 1))
         AniListForumClient.shared.toggleLikeResult(id: comment.id,
                                                    type: "THREAD_COMMENT",
-                                                   wasLiked: comment.isLiked ?? false) { [weak self] result in
+                                                   wasLiked: wasLiked,
+                                                   likeCount: count) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let state):
                 self.updateVisibleCommentLike(id: comment.id, isLiked: state.isLiked, count: state.likeCount)
             case .failure(let error):
-                self.finishVisibleCommentLikeAttempt(id: comment.id)
+                self.updateVisibleCommentLike(id: comment.id, isLiked: wasLiked, count: count)
                 self.showActionError(error.localizedDescription)
             }
         }

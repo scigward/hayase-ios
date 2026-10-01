@@ -192,7 +192,6 @@ final class ThreadPostView: UIView {
     }
 
     @objc private func likeTapped() {
-        likeButton.isEnabled = false
         onLike?()
     }
 

@@ -100,11 +100,13 @@ final class AniListForumClient {
     func toggleLikeResult(id: Int,
                           type: String,
                           wasLiked: Bool,
+                          likeCount current: Int,
                           completion: @escaping (Result<(isLiked: Bool, likeCount: Int), AniListRequestError>) -> Void) {
         requestExecutor.execute(query: AniListQueries.toggleLike,
                                 variables: ["id": id, "type": type],
                                 authorized: true,
-                                dedupeKey: "toggleLike|\(type)|\(id)|\(wasLiked)") { result in
+                                dedupeKey: "toggleLike|\(type)|\(id)|\(wasLiked)",
+                                optimistic: true) { result in
             switch result {
             case .success(let graphQLResult):
                 guard let payload = (graphQLResult.json["data"] as? [String: Any])?["ToggleLikeV2"] as? [String: Any] else {
@@ -115,6 +117,13 @@ final class AniListForumClient {
                 let likeCount = payload["likeCount"] as? Int ?? 0
                 DispatchQueue.main.async { completion(.success((isLiked, likeCount))) }
             case .failure(let error):
+                if AniListOfflineQueue.isOfflineError(error) {
+                    // urql-client.ts `optimistic.ToggleLikeV2`, kept until the device is online
+                    AniListOfflineQueue.shared.enqueue(query: AniListQueries.toggleLike, variables: ["id": id, "type": type])
+                    let state = (isLiked: !wasLiked, likeCount: current + (wasLiked ? -1 : 1))
+                    DispatchQueue.main.async { completion(.success(state)) }
+                    return
+                }
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
         }

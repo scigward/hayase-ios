@@ -164,6 +164,7 @@ final class AniListTracking {
 
     private func authRequestResult(query: String,
                                    variables: [String: Any],
+                                   optimistic: Bool = false,
                                    completion: @escaping (Result<[String: Any], AniListRequestError>) -> Void) {
         guard TrackerAccountManager.shared.token(for: .anilist) != nil else {
             completion(.failure(.unauthenticated))
@@ -186,7 +187,7 @@ final class AniListTracking {
             return
         }
 
-        AniListRequestExecutor.shared.perform(request, context: "AniListTracking") { result in
+        AniListRequestExecutor.shared.perform(request, context: "AniListTracking", optimistic: optimistic) { result in
             switch result {
             case .success(let data):
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -220,7 +221,7 @@ final class AniListTracking {
     }
 
     func fetchMediaWithEntryResult(anilistID: Int,
-                                   completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?), AniListRequestError>) -> Void) {
+                                   completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?, scheduleEpisodes: Int), AniListRequestError>) -> Void) {
         authRequestResult(query: AniListQueries.trackingSingleMedia, variables: ["id": anilistID]) { [weak self] result in
             guard let self else {
                 completion(.failure(.cancelled))
@@ -236,6 +237,12 @@ final class AniListTracking {
                 let episodes = media["episodes"] as? Int
                 let format = media["format"] as? String
                 let duration = media["duration"] as? Int
+                // util.ts `episodes()`: the last episode of either schedule when there is no count
+                func lastEpisode(_ key: String) -> Int {
+                    let nodes = (media[key] as? [String: Any])?["n"] as? [[String: Any]]
+                    return (nodes?.last?["e"] as? Int) ?? 0
+                }
+                let scheduleEpisodes = max(lastEpisode("aired"), lastEpisode("notaired"))
 
                 var entry: AnimeItem.MediaListEntry?
                 if let mle = media["mediaListEntry"] as? [String: Any],
@@ -258,7 +265,7 @@ final class AniListTracking {
                         customLists: enabledLists)
                 }
                 let fallbackEntry = TrackerAccountManager.shared.isLoggedIn(.anilist) ? nil : LocalTracking.shared.entry(for: anilistID)
-                completion(.success((entry ?? fallbackEntry, mediaStatus, episodes, format, duration)))
+                completion(.success((entry ?? fallbackEntry, mediaStatus, episodes, format, duration, scheduleEpisodes)))
             case .failure(let error):
                 completion(.failure(error))
             }
@@ -327,7 +334,7 @@ final class AniListTracking {
         }
         vars["lists"] = customLists
 
-        authRequestResult(query: AniListQueries.saveEntry, variables: vars) { [weak self] result in
+        authRequestResult(query: AniListQueries.saveEntry, variables: vars, optimistic: true) { [weak self] result in
             guard let self else {
                 completion(.failure(.cancelled))
                 return
@@ -364,7 +371,24 @@ final class AniListTracking {
                 }
                 completion(.success(resultEntry))
             case .failure(let error):
-                if let localEntry {
+                if AniListOfflineQueue.isOfflineError(error) {
+                    // urql-client.ts `optimistic.SaveMediaListEntry`, kept until the device is online
+                    AniListOfflineQueue.shared.enqueue(query: AniListQueries.saveEntry, variables: vars)
+                    let optimisticEntry = AnimeItem.MediaListEntry(
+                        listID: -Int.random(in: 1...999_999_999),
+                        status: status,
+                        progress: progress ?? 0,
+                        score: score ?? 0,
+                        repeatCount: repeatCount ?? 0,
+                        customLists: customLists)
+                    AniListMutationUpdaters.applyMediaListEntry(mediaID: mediaID, entry: optimisticEntry)
+                    self.updateCachedUserLists(mediaID: mediaID,
+                                               status: optimisticEntry.status,
+                                               refreshAfterUpdate: false) { [weak self] in
+                        self?.notifyTrackingDidChange()
+                    }
+                    completion(.success(optimisticEntry))
+                } else if let localEntry {
                     NSLog("[AniListTracking] SaveMediaListEntry remote failed after local update: %@", error.description)
                     completion(.success(localEntry))
                 } else {
@@ -407,7 +431,7 @@ final class AniListTracking {
             _ = LocalTracking.shared.delete(mediaID: mediaID)
         }
 
-        authRequestResult(query: AniListQueries.deleteEntry, variables: ["id": listID]) { [weak self] result in
+        authRequestResult(query: AniListQueries.deleteEntry, variables: ["id": listID], optimistic: true) { [weak self] result in
             switch result {
             case .success(let data):
                 guard let payload = data["DeleteMediaListEntry"] as? [String: Any],
@@ -429,7 +453,17 @@ final class AniListTracking {
                 }
                 completion(.success(deleted))
             case .failure(let error):
-                if localDeleteAttempted {
+                if AniListOfflineQueue.isOfflineError(error) {
+                    // `optimistic.DeleteMediaListEntry`
+                    AniListOfflineQueue.shared.enqueue(query: AniListQueries.deleteEntry, variables: ["id": listID])
+                    if let mediaID {
+                        AniListMutationUpdaters.applyMediaListEntry(mediaID: mediaID, entry: nil)
+                        self?.updateCachedUserLists(mediaID: mediaID, status: nil, refreshAfterUpdate: false) { [weak self] in
+                            self?.notifyTrackingDidChange()
+                        }
+                    }
+                    completion(.success(true))
+                } else if localDeleteAttempted {
                     NSLog("[AniListTracking] DeleteMediaListEntry remote failed after local update: %@", error.description)
                     completion(.success(true))
                 } else {
@@ -442,19 +476,26 @@ final class AniListTracking {
     // MARK: - watch()
 
     func watch(anilistID: Int, episodeProgress: Int) {
+        // auth/client.ts `watch`: `!isFinite(progress) || progress < 0`
+        guard episodeProgress >= 0 else { return }
         if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
             LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress)
         }
-        fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, mediaStatus, totalEps, _, _ in
+        fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
             guard let self else { return }
 
-            guard mediaStatus != nil else {
+            guard case .success(let payload) = result, payload.mediaStatus != nil else {
                 NSLog("[AniListTracking] watch: fetchMediaWithEntry returned nil — attempting direct entry update for ep %d", episodeProgress)
                 self.entry(mediaID: anilistID, status: "CURRENT", progress: episodeProgress)
                 return
             }
+            let currentEntry = payload.entry
+            let mediaStatus = payload.mediaStatus
+            let totalEps = payload.episodes
 
-            let total = totalEps ?? max(1, episodeProgress)
+            // `episodes(media) || 1`: episodes or movie which is single episode
+            let counted = (totalEps ?? 0) != 0 ? (totalEps ?? 0) : payload.scheduleEpisodes
+            let total = counted == 0 ? 1 : counted
             if total < episodeProgress { return }
             if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
                 LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress, totalEpisodes: total)
@@ -487,15 +528,17 @@ final class AniListTracking {
         }
         guard episode == 1 else { return }
 
-        fetchMediaWithEntry(anilistID: anilistID) { [weak self] currentEntry, _, totalEps, _, _ in
+        fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
             guard let self else { return }
 
-            guard let currentEntry else {
+            let payload = try? result.get()
+            guard let currentEntry = payload?.entry else {
                 self.entry(mediaID: anilistID, status: "CURRENT", progress: 0)
                 return
             }
+            let counted = (payload?.episodes ?? 0) != 0 ? (payload?.episodes ?? 0) : (payload?.scheduleEpisodes ?? 0)
 
-            if totalEps == 1 && currentEntry.status == "COMPLETED" { return }
+            if counted == 1 && currentEntry.status == "COMPLETED" { return }
 
             let transitionStatuses = ["COMPLETED", "PLANNING", "PAUSED"]
             guard transitionStatuses.contains(currentEntry.status ?? "") else { return }
@@ -742,7 +785,7 @@ final class AniListTracking {
             return
         }
 
-        authRequestResult(query: AniListQueries.toggleFavourite, variables: ["animeId": mediaID]) { [weak self] result in
+        authRequestResult(query: AniListQueries.toggleFavourite, variables: ["id": mediaID], optimistic: true) { [weak self] result in
             switch result {
             case .success(let data):
                 guard let payload = data["ToggleFavourite"] as? [String: Any] else {
@@ -755,6 +798,10 @@ final class AniListTracking {
                 self?.notifyTrackingDidChange()
                 completion(.success(isFavourite))
             case .failure(let error):
+                if AniListOfflineQueue.isOfflineError(error) {
+                    // `optimistic.ToggleFavourite`
+                    AniListOfflineQueue.shared.enqueue(query: AniListQueries.toggleFavourite, variables: ["id": mediaID])
+                }
                 NSLog("[AniListTracking] ToggleFavourite remote failed after local update: %@", error.description)
                 AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: localFavourite)
                 self?.notifyTrackingDidChange()

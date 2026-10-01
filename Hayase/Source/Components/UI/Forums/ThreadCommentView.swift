@@ -218,7 +218,6 @@ final class ThreadCommentView: UIView {
     }
 
     @objc private func likeTapped() {
-        likeButton.isEnabled = false
         onLike(comment)
     }
 
