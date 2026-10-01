@@ -59,9 +59,9 @@ final class KitsuSync: ListTracker {
         var isError: Bool
     }
 
-    private func request(_ url: URL, method: String, body: [String: Any]? = nil) async -> Answer {
+    private func request(_ url: URL, method: String, body: [String: Any]? = nil, renewing: Bool = false) async -> Answer {
         var auth = TrackerAuthStore.load(.kitsu)
-        if let current = auth, current.isStale {
+        if let current = auth, current.isStale, !renewing {
             auth = await refresh(current)
         }
         var request = URLRequest(url: url)
@@ -99,7 +99,8 @@ final class KitsuSync: ListTracker {
 
     private func refresh(_ auth: TrackerOAuth) async -> TrackerOAuth {
         guard let refreshToken = auth.refreshToken, let url = URL(string: Endpoint.oauth) else { return auth }
-        let answer = await request(url, method: "POST", body: ["grant_type": "refresh_token", "refresh_token": refreshToken])
+        let answer = await request(url, method: "POST", body: ["grant_type": "refresh_token", "refresh_token": refreshToken],
+                                   renewing: true)
         if let json = answer.json, let renewed = TrackerOAuth(json: json) {
             TrackerAuthStore.save(renewed, for: .kitsu)
             return renewed
