@@ -969,7 +969,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             anilistButton.isHidden = false
             malButton.isHidden = (malId == nil)
             updateFollowerProfileSpacing(isRegular: true)
-            headerFollowerStack.isHidden = headerFollowerStack.arrangedSubviews.isEmpty
+            headerFollowerStack.isHidden = headerFollowerStack.isEmpty
         } else {
             anilistButton.isHidden = true
             malButton.isHidden = true
@@ -1078,7 +1078,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         updateTrailerTooltip()
         anilistButton.isHidden = !isRegular
         malButton.isHidden = !isRegular || malId == nil
-        headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
+        headerFollowerStack.isHidden = !isRegular || headerFollowerStack.isEmpty
         updateFollowerProfileSpacing(isRegular: isRegular)
     }
 

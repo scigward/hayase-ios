@@ -160,25 +160,37 @@ private enum ProfileAvatarImageStore {
     }
 }
 
-final class FollowerAvatarStackView: UIStackView {
+/// A row of overlapping avatars (`-space-x-1`), each placed by frame. It is a plain view, not a
+/// `UIStackView`: a stack view's layer is a `CATransformLayer`, which does not flatten its
+/// sublayers, and avatars that overlap there are not guaranteed to be painted in order, so all but
+/// one of them could be left hidden behind the ring of the last.
+final class FollowerAvatarStackView: UIView {
     private var buttons: [ProfileButton] = []
+    private var avatarSize: CGFloat = 32
+    private var overlap: CGFloat = 4
     private var cutoutBorder: CGFloat?
+
+    var isEmpty: Bool { buttons.isEmpty }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
     }
 
-    required init(coder: NSCoder) {
+    required init?(coder: NSCoder) {
         super.init(coder: coder)
         setup()
     }
 
     private func setup() {
-        axis = .horizontal
-        spacing = -4
-        alignment = .center
+        backgroundColor = .clear
         isHidden = true
+    }
+
+    override var intrinsicContentSize: CGSize {
+        guard !buttons.isEmpty else { return CGSize(width: 0, height: avatarSize) }
+        let count = CGFloat(buttons.count)
+        return CGSize(width: count * avatarSize - (count - 1) * overlap, height: avatarSize)
     }
 
     /// `detailFetcher`, when provided, is called with a tapped user's id on
@@ -194,7 +206,8 @@ final class FollowerAvatarStackView: UIStackView {
                    overlap: CGFloat = 4, cutoutBorder: CGFloat? = nil,
                    detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
         reset()
-        spacing = -overlap
+        self.avatarSize = avatarSize
+        self.overlap = overlap
         self.cutoutBorder = cutoutBorder
         let visibleUsers = users.filter { !$0.name.isEmpty }
         isHidden = visibleUsers.isEmpty
@@ -205,29 +218,27 @@ final class FollowerAvatarStackView: UIStackView {
                                        ringColor: ringColor,
                                        imageInset: 0,
                                        detailFetcher: detailFetcher)
-            button.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                button.widthAnchor.constraint(equalToConstant: avatarSize),
-                button.heightAnchor.constraint(equalToConstant: avatarSize),
-            ])
             buttons.append(button)
-            addArrangedSubview(button)
+            addSubview(button)
         }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     func reset() {
         buttons.forEach { $0.prepareForReuse() }
         buttons.removeAll()
-        arrangedSubviews.forEach { view in
-            removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
+        subviews.forEach { $0.removeFromSuperview() }
         isHidden = true
+        invalidateIntrinsicContentSize()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        let step = avatarSize - overlap
+        let y = (bounds.height - avatarSize) / 2
         for (index, button) in buttons.enumerated() {
+            button.frame = CGRect(x: CGFloat(index) * step, y: y, width: avatarSize, height: avatarSize)
             guard let border = cutoutBorder, index < buttons.count - 1 else {
                 button.layer.mask = nil
                 continue
@@ -235,7 +246,7 @@ final class FollowerAvatarStackView: UIStackView {
             // Avatars.svelte cuts a transparent gap around the NEXT avatar;
             // it does not paint an opaque ring around each current avatar.
             let radius = button.bounds.height / 2 + border
-            let center = CGPoint(x: button.bounds.width * 1.5 + spacing, y: button.bounds.midY)
+            let center = CGPoint(x: button.bounds.width * 1.5 - overlap, y: button.bounds.midY)
             let mask = (button.layer.mask as? AvatarCutoutLayer) ?? AvatarCutoutLayer()
             mask.contentsScale = window?.screen.scale ?? UIScreen.main.scale
             mask.frame = button.bounds
