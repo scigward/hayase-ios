@@ -246,6 +246,15 @@ private final class ProgressDotView: UIView {
 // • Banner query: SCORE_DESC, perPage: 5, current season, statusNot NOT_YET_RELEASED
 
 private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegate {
+    /// play.svelte: "Rewatch", "Continue" or "Watch Now".
+    private static func playButtonTitle(status: String?) -> String {
+        switch status {
+        case "COMPLETED": return "  Rewatch"
+        case "CURRENT", "REPEATING", "PAUSED": return "  Continue"
+        default: return "  Watch Now"
+        }
+    }
+
     static let reuseID = "FeaturedBannerCell"
     private static let rotationInterval: TimeInterval = 15
     // Banner height: 70% on iPhone, 80% on iPad — matches web h-[70vh] md:h-[80vh]
@@ -2495,15 +2504,6 @@ class BrowseAnimeViewController: UIViewController {
 
     private func resetHomeSectionQueries() {
         removeHomeSectionQueries(where: { _ in true })
-    }
-
-    /// play.svelte: "Rewatch", "Continue" or "Watch Now".
-    private static func playButtonTitle(status: String?) -> String {
-        switch status {
-        case "COMPLETED": return "  Rewatch"
-        case "CURRENT", "REPEATING", "PAUSED": return "  Continue"
-        default: return "  Watch Now"
-        }
     }
 
     @objc private func handleTrackingDidChange(_ notification: Notification) {
