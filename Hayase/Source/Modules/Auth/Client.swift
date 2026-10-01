@@ -52,7 +52,8 @@ final class TrackerAccountManager {
     // MARK: - Token
 
     func token(for tracker: TrackerKind) -> String? {
-        guard !isTokenExpired(for: tracker) else {
+        // AniList does not sign out on an old token: `refreshAuth` runs the authorization again
+        guard tracker == .anilist || !isTokenExpired(for: tracker) else {
             expireSession(for: tracker)
             return nil
         }

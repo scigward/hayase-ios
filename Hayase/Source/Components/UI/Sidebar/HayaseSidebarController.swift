@@ -31,6 +31,8 @@ final class HayaseSidebarController: UIViewController {
     private let sidebarList = HayaseSidebarListView(mode: .desktop)
     private let mobileSidebarList = HayaseSidebarListView(mode: .mobile)
     private let contentContainer = UIView()
+    /// Online.svelte sits above the sidebar and the page in routes/+layout.svelte.
+    private let onlineBar = HayaseOnlineBar()
     private static let routeSnapshotLimit = 10
 
     private var progressWindow: HayaseProgressBarWindow?
@@ -148,12 +150,17 @@ final class HayaseSidebarController: UIViewController {
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.backgroundColor = UIColor.HayaseTheme.background
         view.addSubview(contentContainer)
+        onlineBar.layer.zPosition = 40   // z-40
+        view.addSubview(onlineBar)
 
         addChild(tabHost)
         tabHost.view.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.addSubview(tabHost.view)
         NSLayoutConstraint.activate([
-            contentContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            onlineBar.topAnchor.constraint(equalTo: view.topAnchor),
+            onlineBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            onlineBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: onlineBar.bottomAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             tabHost.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
@@ -372,7 +379,7 @@ final class HayaseSidebarController: UIViewController {
         sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
         sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
         NSLayoutConstraint.activate([
-            sidebarContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            sidebarContainer.topAnchor.constraint(equalTo: onlineBar.bottomAnchor),
             sidebarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sidebarContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             sidebarWidthConstraint!,

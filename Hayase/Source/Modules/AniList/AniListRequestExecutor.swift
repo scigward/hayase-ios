@@ -46,32 +46,71 @@ enum AniListRequestError: Error, CustomStringConvertible {
     case emptyData
     case cancelled
     case network(Error)
+    /// A non-2xx response whose body is not GraphQL (a `networkError` for urql).
     case httpStatus(Int, retryAfter: TimeInterval?)
     case graphQLErrors([String])
+    /// A non-2xx response whose body still carries GraphQL errors, as AniList's 429 and 404 do.
+    case graphQLHTTP([String], status: Int, retryAfter: TimeInterval?)
     case invalidJSON
 
-    var isInvalidToken: Bool {
+    private var graphQLMessages: [String]? {
         switch self {
+        case .graphQLErrors(let messages), .graphQLHTTP(let messages, _, _):
+            return messages
+        default:
+            return nil
+        }
+    }
+
+    var isInvalidToken: Bool {
+        graphQLMessages?.contains { $0.caseInsensitiveCompare("Invalid token") == .orderedSame } ?? false
+    }
+
+    /// urql-client.ts `retryIf`: `e.graphQLErrors[0]?.originalError?.message === 'validation'`
+    var isValidation: Bool {
+        graphQLMessages?.first == "validation"
+    }
+
+    /// retry.ts `isRateLimitError`: any network error, a 429 or 500 response, or an error message
+    /// that mentions one of them (case sensitive, like `String.includes`).
+    var isRateLimit: Bool {
+        switch self {
+        case .network, .httpStatus, .emptyData, .invalidJSON:
+            return true
+        case .graphQLHTTP(let messages, let status, _):
+            return status == 429 || status == 500 || Self.mentionsRateLimit(messages)
         case .graphQLErrors(let messages):
-            return messages.contains { $0.caseInsensitiveCompare("Invalid token") == .orderedSame }
+            return Self.mentionsRateLimit(messages)
         default:
             return false
         }
     }
 
-    var isRateLimitLike: Bool {
+    private static func mentionsRateLimit(_ messages: [String]) -> Bool {
+        messages.contains { $0.contains("429") || $0.contains("rate") || $0.contains("500") }
+    }
+
+    /// retry.ts `getRateLimitDelay`: the `retry-after` header of a GraphQL error plus one second,
+    /// the shared eleven second spacing for a network error or a response without one.
+    var retryAfterHeader: TimeInterval? {
+        if case .graphQLHTTP(_, _, let retryAfter) = self { return retryAfter }
+        return nil
+    }
+
+    /// `CombinedError.message`, printed by the Online bar after "AniList: ". A failure of the
+    /// request itself, not of the response, has no message.
+    var combinedMessage: String? {
         switch self {
-        case .httpStatus(let status, _):
-            return status == 429 || status == 500
+        case .cancelled, .encodingFailed, .invalidEndpoint, .unauthenticated:
+            return nil
         case .network:
-            return true
-        case .graphQLErrors(let messages):
-            return messages.contains { message in
-                let lowercased = message.lowercased()
-                return lowercased.contains("429") || lowercased.contains("rate") || lowercased.contains("500")
-            }
-        default:
-            return false
+            return "[Network] Load failed"
+        case .httpStatus, .invalidJSON:
+            return "[Network] JSON Parse error: Unrecognized token '<'"
+        case .emptyData:
+            return "[Network] JSON Parse error: Unexpected EOF"
+        case .graphQLErrors(let messages), .graphQLHTTP(let messages, _, _):
+            return messages.map { "[GraphQL] \($0)" }.joined(separator: "\n")
         }
     }
 
@@ -94,7 +133,7 @@ enum AniListRequestError: Error, CustomStringConvertible {
                 return "AniList HTTP \(status), retry after \(retryAfter)s."
             }
             return "AniList HTTP \(status)."
-        case .graphQLErrors(let messages):
+        case .graphQLErrors(let messages), .graphQLHTTP(let messages, _, _):
             return "AniList GraphQL errors: \(messages.joined(separator: ", "))"
         case .invalidJSON:
             return "AniList returned invalid JSON."
@@ -132,7 +171,21 @@ final class AniListRequestExecutor {
     private let retryQueue = DispatchQueue(label: "com.hayase.anilist.retryDelay")
 
     private var inFlight: [String: [CompletionBox]] = [:]
-    private var lastRetryTime = Date(timeIntervalSince1970: 0)
+    /// Queries whose callers were served from the cache while the network kept failing.
+    private var refreshing: Set<String> = []
+    /// retry.ts `lastRetryTime = Date.now() - 11_000`
+    private var lastRetryTime = Date().addingTimeInterval(-11)
+
+    /// retry.ts `RetryState`
+    private struct RetryState {
+        var count = 0
+        var delay: TimeInterval?
+        var isRateLimit = false
+        /// offline.ts: a mutation with an optimistic result that fails offline is queued, not retried
+        var optimistic = false
+        /// the authorization has been run again for this request once
+        var reauthenticated = false
+    }
 
     private struct CompletionBox {
         let token: AniListRequestToken
@@ -148,6 +201,7 @@ final class AniListRequestExecutor {
             guard let self else { return }
             let callbacks = self.inFlight.values.flatMap { $0 }
             self.inFlight.removeAll()
+            self.refreshing.removeAll()
             callbacks.forEach { $0.token.cancel() }
         }
     }
@@ -157,6 +211,7 @@ final class AniListRequestExecutor {
                  variables: [String: Any]? = nil,
                  authorized: Bool = true,
                  dedupeKey: String? = nil,
+                 optimistic: Bool = false,
                  completion: @escaping (Result<AniListGraphQLResult, AniListRequestError>) -> Void) -> AniListRequestToken {
         let token = AniListRequestToken()
         let key = dedupeKey ?? makeDedupeKey(query: query, variables: variables, authorized: authorized)
@@ -168,7 +223,8 @@ final class AniListRequestExecutor {
                 return
             }
             self.inFlight[key] = [CompletionBox(token: token, callback: completion)]
-            self.perform(query: query, variables: variables, authorized: authorized, key: key, attempt: 1)
+            self.perform(query: query, variables: variables, authorized: authorized, key: key,
+                         retry: RetryState(optimistic: optimistic))
         }
 
         return token
@@ -177,6 +233,7 @@ final class AniListRequestExecutor {
     @discardableResult
     func perform(_ request: URLRequest,
                  context: String,
+                 optimistic: Bool = false,
                  completion: @escaping (Result<Data, AniListRequestError>) -> Void) -> AniListRequestToken {
         let token = AniListRequestToken()
         let key = makeDedupeKey(request: request, context: context)
@@ -192,17 +249,32 @@ final class AniListRequestExecutor {
             self.inFlight[key] = [CompletionBox(token: token) { result in
                 completion(result.map { $0.data })
             }]
-            self.perform(request, key: key, attempt: 1)
+            self.perform(request, key: key, retry: RetryState(optimistic: optimistic))
         }
 
         return token
     }
 
-    private func perform(_ request: URLRequest, key: String, attempt: Int) {
+    private func perform(_ request: URLRequest, key: String, retry: RetryState) {
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             let httpResponse = response as? HTTPURLResponse
             let result = self.validate(data: data, response: httpResponse, error: error)
+            self.report(result)
+
+            if self.needsReauthentication(result, retry: retry) {
+                self.reauthenticate(key: key, result: result) { [weak self] in
+                    var again = retry
+                    again.reauthenticated = true
+                    var retried = request
+                    if retried.value(forHTTPHeaderField: "Authorization") != nil,
+                       let token = TrackerAccountManager.shared.token(for: .anilist) {
+                        retried.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
+                    self?.perform(retried, key: key, retry: again)
+                }
+                return
+            }
             self.clearAuthIfNeeded(for: result)
 
             if self.hasOnlyCancelledCallbacks(for: key) {
@@ -211,8 +283,15 @@ final class AniListRequestExecutor {
             }
 
             if case .failure(let requestError) = result,
+               retry.optimistic,
+               AniListOfflineQueue.isOfflineError(requestError) {
+                self.finish(key: key, result: result)
+                return
+            }
+
+            if case .failure(let requestError) = result,
                self.shouldRetry(requestError) {
-                self.scheduleRetry(request: request, key: key, attempt: attempt, error: requestError)
+                self.scheduleRetry(request: request, key: key, retry: retry, error: requestError)
                 return
             }
 
@@ -230,7 +309,7 @@ final class AniListRequestExecutor {
                          variables: [String: Any]?,
                          authorized: Bool,
                          key: String,
-                         attempt: Int) {
+                         retry: RetryState) {
         guard let request = makeRequest(query: query, variables: variables, authorized: authorized) else {
             finish(key: key, result: .failure(.encodingFailed(nil)))
             return
@@ -240,6 +319,16 @@ final class AniListRequestExecutor {
             guard let self else { return }
             let httpResponse = response as? HTTPURLResponse
             let result = self.validate(data: data, response: httpResponse, error: error)
+            self.report(result)
+
+            if self.needsReauthentication(result, retry: retry) {
+                self.reauthenticate(key: key, result: result) { [weak self] in
+                    var again = retry
+                    again.reauthenticated = true
+                    self?.perform(query: query, variables: variables, authorized: authorized, key: key, retry: again)
+                }
+                return
+            }
             self.clearAuthIfNeeded(for: result)
 
             if self.hasOnlyCancelledCallbacks(for: key) {
@@ -247,11 +336,23 @@ final class AniListRequestExecutor {
                 return
             }
 
+            if case .failure(let requestError) = result,
+               retry.optimistic,
+               AniListOfflineQueue.isOfflineError(requestError) {
+                self.finish(key: key, result: result)
+                return
+            }
+
             let cacheable = self.isCacheableQuery(query)
-            if case .failure = result,
+            if case .failure(let requestError) = result,
                cacheable,
                let cached = self.cachedGraphQLResult(for: key) {
                 self.finish(key: key, result: .success(cached))
+                // cache-and-network: the callers have their data, the request keeps retrying
+                if self.shouldRetry(requestError) {
+                    self.keepRefreshing(query: query, variables: variables, authorized: authorized,
+                                        key: key, retry: retry, error: requestError)
+                }
                 return
             }
 
@@ -261,7 +362,7 @@ final class AniListRequestExecutor {
                                    variables: variables,
                                    authorized: authorized,
                                    key: key,
-                                   attempt: attempt,
+                                   retry: retry,
                                    error: requestError)
                 return
             }
@@ -279,6 +380,56 @@ final class AniListRequestExecutor {
             callbacks.forEach { $0.token.attach(task) }
         }
         task.resume()
+    }
+
+    /// The query is retried after its callers were served from the cache, until one attempt works.
+    private func keepRefreshing(query: String,
+                                variables: [String: Any]?,
+                                authorized: Bool,
+                                key: String,
+                                retry: RetryState,
+                                error: AniListRequestError) {
+        let inserted = lockQueue.sync { refreshing.insert(key).inserted }
+        guard inserted else { return }
+        let (delay, next) = nextRetry(after: error, state: retry)
+        scheduleRefresh(query: query, variables: variables, authorized: authorized, key: key, retry: next, delay: delay)
+    }
+
+    private func scheduleRefresh(query: String,
+                                 variables: [String: Any]?,
+                                 authorized: Bool,
+                                 key: String,
+                                 retry: RetryState,
+                                 delay: TimeInterval) {
+        retryQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            // stopped, or a caller asked again and its own request took over
+            let proceed = self.lockQueue.sync { self.refreshing.contains(key) && self.inFlight[key] == nil }
+            guard proceed, let request = self.makeRequest(query: query, variables: variables, authorized: authorized) else {
+                self.lockQueue.async { self.refreshing.remove(key) }
+                return
+            }
+            self.session.dataTask(with: request) { [weak self] data, response, error in
+                guard let self else { return }
+                let result = self.validate(data: data, response: response as? HTTPURLResponse, error: error)
+                self.clearAuthIfNeeded(for: result)
+                self.report(result)
+                switch result {
+                case .success(let graphQLResult):
+                    AniListOperationCache.shared.store(data: graphQLResult.data, for: key)
+                    AniListOperationCache.shared.purgeStaleEntries()
+                    self.lockQueue.async { self.refreshing.remove(key) }
+                case .failure(let requestError):
+                    guard self.shouldRetry(requestError) else {
+                        self.lockQueue.async { self.refreshing.remove(key) }
+                        return
+                    }
+                    let (nextDelay, next) = self.nextRetry(after: requestError, state: retry)
+                    self.scheduleRefresh(query: query, variables: variables, authorized: authorized,
+                                         key: key, retry: next, delay: nextDelay)
+                }
+            }.resume()
+        }
     }
 
     private func isCacheableQuery(_ query: String) -> Bool {
@@ -314,6 +465,18 @@ final class AniListRequestExecutor {
         }
     }
 
+    /// urql-client.ts `tap`: `this.error.set(error)` for every result the network gives back.
+    private func report(_ result: Result<AniListGraphQLResult, AniListRequestError>) {
+        switch result {
+        case .success(let graphQLResult):
+            let messages = graphQLResult.graphQLErrors
+            AniListConnectionStatus.shared.report(messages.isEmpty ? nil : messages.map { "[GraphQL] \($0)" }.joined(separator: "\n"))
+        case .failure(let error):
+            guard let message = error.combinedMessage else { return }
+            AniListConnectionStatus.shared.report(message)
+        }
+    }
+
     private func validate(data: Data?,
                           response: HTTPURLResponse?,
                           error: Error?) -> Result<AniListGraphQLResult, AniListRequestError> {
@@ -321,23 +484,29 @@ final class AniListRequestExecutor {
             return .failure(.cancelled)
         }
         if let error { return .failure(.network(error)) }
-        if let response, response.statusCode < 200 || response.statusCode >= 300 {
-            return .failure(.httpStatus(response.statusCode, retryAfter: retryAfter(from: response)))
+        let status = response?.statusCode ?? 200
+        let isOK = status >= 200 && status < 300
+        let retryAfter = response.flatMap { retryAfter(from: $0) }
+        guard let data, !data.isEmpty else {
+            return .failure(isOK ? .emptyData : .httpStatus(status, retryAfter: retryAfter))
         }
-        guard let data, !data.isEmpty else { return .failure(.emptyData) }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return .failure(.invalidJSON)
+            return .failure(isOK ? .invalidJSON : .httpStatus(status, retryAfter: retryAfter))
         }
         if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
             let messages = errors.compactMap { $0["message"] as? String }
             let graphQLErrors = messages.isEmpty ? ["Unknown GraphQL error"] : messages
-            if hasUsableGraphQLData(json) {
+            if isOK, hasUsableGraphQLData(json) {
                 return .success(AniListGraphQLResult(data: data,
                                                      json: json,
                                                      response: response,
                                                      graphQLErrors: graphQLErrors))
             }
-            return .failure(.graphQLErrors(graphQLErrors))
+            return .failure(isOK ? .graphQLErrors(graphQLErrors)
+                                 : .graphQLHTTP(graphQLErrors, status: status, retryAfter: retryAfter))
+        }
+        if !isOK, json["data"] == nil {
+            return .failure(.httpStatus(status, retryAfter: retryAfter))
         }
         return .success(AniListGraphQLResult(data: data, json: json, response: response))
     }
@@ -354,9 +523,9 @@ final class AniListRequestExecutor {
                                variables: [String: Any]?,
                                authorized: Bool,
                                key: String,
-                               attempt: Int,
+                               retry: RetryState,
                                error: AniListRequestError) {
-        let delay = retryDelay(for: error, attempt: attempt)
+        let (delay, next) = nextRetry(after: error, state: retry)
         retryQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             if self.hasOnlyCancelledCallbacks(for: key) {
@@ -367,38 +536,57 @@ final class AniListRequestExecutor {
                          variables: variables,
                          authorized: authorized,
                          key: key,
-                         attempt: attempt + 1)
+                         retry: next)
         }
     }
 
     private func scheduleRetry(request: URLRequest,
                                key: String,
-                               attempt: Int,
+                               retry: RetryState,
                                error: AniListRequestError) {
-        let delay = retryDelay(for: error, attempt: attempt)
+        let (delay, next) = nextRetry(after: error, state: retry)
         retryQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             if self.hasOnlyCancelledCallbacks(for: key) {
                 self.finish(key: key, result: .failure(.cancelled))
                 return
             }
-            self.perform(request, key: key, attempt: attempt + 1)
+            self.perform(request, key: key, retry: next)
         }
     }
 
+    /// urql-client.ts `retryIf`: everything but a `validation` error is retried, forever. What
+    /// cannot be retried at all (nothing was sent, or the token is bad) is not an urql result.
     private func shouldRetry(_ error: AniListRequestError) -> Bool {
         switch error {
         case .cancelled, .encodingFailed, .invalidEndpoint, .unauthenticated:
             return false
-        case .network, .emptyData, .invalidJSON:
-            return true
-        case .httpStatus(let status, _):
-            return status == 429 || status >= 500
-        case .graphQLErrors(let messages):
-            if error.isInvalidToken { return false }
-            return messages.contains { message in
-                let lowercased = message.lowercased()
-                return lowercased.contains("429") || lowercased.contains("rate") || lowercased.contains("500")
+        default:
+            return !error.isInvalidToken && !error.isValidation
+        }
+    }
+
+    /// authExchange `didAuthError`: a response that says "Invalid token", once per request.
+    private func needsReauthentication(_ result: Result<AniListGraphQLResult, AniListRequestError>,
+                                       retry: RetryState) -> Bool {
+        guard !retry.reauthenticated, TrackerAccountManager.shared.token(for: .anilist) != nil else { return false }
+        switch result {
+        case .failure(let error): return error.isInvalidToken
+        case .success(let response): return response.hasInvalidTokenError
+        }
+    }
+
+    /// `refreshAuth`: the authorization runs again, then the request goes out with the new token.
+    private func reauthenticate(key: String,
+                                result: Result<AniListGraphQLResult, AniListRequestError>,
+                                resume: @escaping () -> Void) {
+        AniListReauth.shared.refresh { [weak self] refreshed in
+            guard let self else { return }
+            if refreshed, !self.hasOnlyCancelledCallbacks(for: key) {
+                resume()
+            } else {
+                self.clearAuthIfNeeded(for: result)
+                self.finish(key: key, result: result)
             }
         }
     }
@@ -414,36 +602,42 @@ final class AniListRequestExecutor {
         }
     }
 
-    private func retryDelay(for error: AniListRequestError, attempt: Int) -> TimeInterval {
-        if case .httpStatus(_, let retryAfter?) = error {
-            return retryAfter + 1
+    /// retry.ts: a rate limit waits for `retry-after` (plus a second) or the shared eleven seconds
+    /// and starts counting again; anything else waits `count * 100ms` up to 60s
+    /// (`initialDelayMs: 100, maxDelayMs: 60_000, randomDelay: false`), or the rate limit's
+    /// delay again once there has been one.
+    private func nextRetry(after error: AniListRequestError, state: RetryState) -> (TimeInterval, RetryState) {
+        if error.isRateLimit {
+            let delay = error.retryAfterHeader.map { $0 + 1 } ?? initialRetryDelay()
+            var limited = state
+            limited.count = 0
+            limited.delay = delay
+            limited.isRateLimit = true
+            return (delay, limited)
         }
+        var next = state
+        next.count += 1
+        var delay = next.delay ?? 0.1
+        if !next.isRateLimit { delay = min(Double(next.count) * 0.1, 60) }
+        next.delay = delay
+        return (delay, next)
+    }
 
-        // Interface retryExchange starts at 100ms and caps at 60s. For
-        // rate-limit-like failures, keep the native AniList-safe spacing that
-        // prevents immediate retry storms.
-        let baseDelay = min(0.1 * Double(attempt), 60)
-        guard error.isRateLimitLike else { return baseDelay }
-
-        let minimumSpacing: TimeInterval = 11
-        return lockQueue.sync {
+    /// retry.ts `getInitialRetryDelay`
+    private func initialRetryDelay() -> TimeInterval {
+        lockQueue.sync {
             let now = Date()
-            let elapsed = now.timeIntervalSince(lastRetryTime)
-            if elapsed < minimumSpacing {
-                return min(max(baseDelay, minimumSpacing - elapsed), 60)
-            }
+            let sinceLastRetry = now.timeIntervalSince(lastRetryTime)
+            if sinceLastRetry < 11 { return 11 - sinceLastRetry }
             lastRetryTime = now
-            return min(max(baseDelay, minimumSpacing), 60)
+            return 11
         }
     }
 
+    /// `parseInt(headers.get('retry-after'))`
     private func retryAfter(from response: HTTPURLResponse) -> TimeInterval? {
         guard let header = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
-        if let seconds = TimeInterval(header) { return seconds }
-        if let date = HTTPDateFormatter.shared.date(from: header) {
-            return max(0, date.timeIntervalSinceNow)
-        }
-        return nil
+        return Int(header.trimmingCharacters(in: .whitespaces).prefix(while: { $0.isNumber })).map { TimeInterval($0) }
     }
 
     private func finish(key: String, result: Result<AniListGraphQLResult, AniListRequestError>) {
@@ -479,21 +673,5 @@ final class AniListRequestExecutor {
             authKey = "public"
         }
         return "\(authKey)|\(query.hashValue)|\(variablesString)"
-    }
-}
-
-private final class HTTPDateFormatter {
-    static let shared = HTTPDateFormatter()
-
-    private let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter
-    }()
-
-    func date(from string: String) -> Date? {
-        formatter.date(from: string)
     }
 }
