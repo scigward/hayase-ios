@@ -286,15 +286,6 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     // MARK: - Configuration
 
-    func configure(with anime: Animes) {
-        let item = AniListUtil.animeItem(from: anime)
-        titleLabel.text = AniListUtil.title(for: item)
-        yearLabel.text = "TBA"   // Animes entity has no year field
-        formatLabel.text = "TV"  // Animes entity has no format field
-        configuredAnimeItem = item
-        loadCover(urlString: anime.animeImgL ?? anime.animeImgM ?? "")
-    }
-
     func configure(with item: AnimeItem) {
         configuredAnimeItem = item
         titleLabel.text = AniListUtil.title(for: item)
@@ -387,10 +378,6 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         default:
             break
         }
-    }
-
-    static func animeItem(from anime: Animes) -> AnimeItem {
-        AniListUtil.animeItem(from: anime)
     }
 }
 

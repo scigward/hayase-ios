@@ -1238,7 +1238,7 @@ extension AnimeDetailViewController {
     func makeEpisodeCell(for indexPath: IndexPath) -> UITableViewCell {
         let cols = usesSingleEpisodeGridTrack ? 1 : episodeColumnCount
         let pageSideInset = AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
-        let currentAnilistID = animeItem?.id ?? (animeEntity?.animeAnilistId?.intValue ?? 0)
+        let currentAnilistID = animeItem?.id ?? 0
         let isCompleted = currentListStatus == "COMPLETED"
         let isRepeating = currentListStatus == "REPEATING"
         let hideSpoilers = Settings.hideSpoilers
@@ -1308,13 +1308,7 @@ extension AnimeDetailViewController {
     /// +layout.ts: the episodes of the media, or of its parent when it is a special without an anidb
     /// mapping, and EpisodesList.svelte's `makeEpisodeList(media, eps)` on them.
     func fetchEpisodes() {
-        let anilistId: Int?
-        if let entity = animeEntity {
-            anilistId = entity.animeAnilistId?.intValue
-        } else {
-            anilistId = animeItem?.id
-        }
-        guard let id = anilistId else { return }
+        guard let id = animeItem?.id else { return }
 
         AniZipService.shared.episodes(anilistID: id) { [weak self] anizipResponse in
             guard let self = self else { return }

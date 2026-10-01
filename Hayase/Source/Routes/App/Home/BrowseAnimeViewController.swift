@@ -19,7 +19,6 @@ private let hayaseHomeBannerBackdropScrollOffsetKey = "scrollOffset"
 private let hayaseHomeBannerBackdropHeightKey = "height"
 private let hayaseHomeBannerBackdropRouteKey = "route"
 private let hayaseHomeBannerBackdropMediaKey = "media"
-private let hayaseHomeBannerBackdropClearKey = "clear"
 private let hayaseHomeBannerBackdropHomeRoute = "home"
 
 // MARK: - BannerGradientView
@@ -1768,17 +1767,12 @@ class BrowseAnimeViewController: UIViewController {
     /// Items used exclusively for the hero banner rotation.  Always sourced from
     /// the first *fetched* section (trending/popular) — never "Continue Watching".
     private var bannerItems: [AnimeItem] = []
-    private var isSearching: Bool = false
     private var isLoadingSections: Bool = false
-    private var animeResultsController: NSFetchedResultsController<Animes>?
     private var pendingAnimeItem: AnimeItem?
 
     private var collectionView: UICollectionView!
-    private var searchController: UISearchController!
     private var loadingIndicator: UIActivityIndicatorView!
     private var emptyLabel: UILabel!
-    private var lastSearchString = ""
-    private var searchDebounceTimer: Timer?
     private var homeRefreshTimer: Timer?
     private var personalSectionsLoadID = 0
     private var lastLocalContinueIDs: [Int] = []
@@ -1897,8 +1891,7 @@ class BrowseAnimeViewController: UIViewController {
         guard isViewLoaded else { return }
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self else { return }
-            let layout = self.isSearching ? self.makeSearchLayout() : self.makeHomeLayout()
-            self.collectionView.setCollectionViewLayout(layout, animated: false)
+            self.collectionView.setCollectionViewLayout(self.makeHomeLayout(), animated: false)
             self.updateHomeBackdropLayout(for: size.height)
         })
     }
@@ -1913,9 +1906,7 @@ class BrowseAnimeViewController: UIViewController {
         }
         updateHomeBackdropLayout()
         // Refresh the home layout (banner height changes between iPhone 70% and iPad 80%)
-        if !isSearching {
-            collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
-        }
+        collectionView.setCollectionViewLayout(makeHomeLayout(), animated: false)
     }
 
     private func updateHomeBackdropLayout(for height: CGFloat? = nil) {
@@ -1941,7 +1932,7 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func applyHomeCarouselOverflowBehavior() {
-        guard !isSearching, let collectionView else { return }
+        guard let collectionView else { return }
         disableOrthogonalScrollerClipping(in: collectionView, excluding: collectionView)
     }
 
@@ -1965,7 +1956,6 @@ class BrowseAnimeViewController: UIViewController {
     deinit {
         pendingHomeBannerRevealWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
-        searchDebounceTimer?.invalidate()
         homeRefreshTimer?.invalidate()
         resetHomeSectionQueries()
     }
@@ -2094,45 +2084,6 @@ class BrowseAnimeViewController: UIViewController {
         }
     }
 
-    private func makeSearchLayout() -> UICollectionViewLayout {
-        // Hayase search: grid-cols-[repeat(auto-fill,minmax(184px,max-content))]
-        // On iPhone (375-430pt wide), minmax(184px) fits 2 columns; on iPad use 4 columns.
-        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-        let cols: CGFloat = isIPad ? 4 : 2
-        let interColumnGap: CGFloat = 8  // gap between adjacent items (item.contentInsets.trailing)
-        let leadingPadding: CGFloat = 16
-        let trailingPadding: CGFloat = 8
-        // Each item contributes its trailing contentInset as the gap to its right neighbour (or section
-        // trailing for the last item), so totalPad = section.leading + section.trailing + cols * gap.
-        let totalPad: CGFloat = leadingPadding + trailingPadding + interColumnGap * cols
-        // Use view bounds if already laid out, else fall back to screen width.
-        // viewWillTransition recreates the layout after each rotation so this stays accurate.
-        let containerW = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
-        let itemWidth = floor((containerW - totalPad) / cols)
-        let itemHeight = floor(itemWidth * 290.0 / 152.0)
-        let item = NSCollectionLayoutItem(
-            layoutSize: .init(widthDimension: .absolute(itemWidth),
-                              heightDimension: .absolute(itemHeight)))
-        item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: interColumnGap)
-        let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: .init(widthDimension: .fractionalWidth(1.0),
-                              heightDimension: .absolute(itemHeight + 8)),
-            subitems: Array(repeating: item, count: Int(cols)))
-        let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: leadingPadding, bottom: 8, trailing: trailingPadding)
-        return UICollectionViewCompositionalLayout(section: section)
-    }
-
-    private func setupSearchController() {
-        searchController = UISearchController(searchResultsController: nil)
-        searchController.searchResultsUpdater = self
-        searchController.obscuresBackgroundDuringPresentation = false
-        searchController.searchBar.placeholder = "Search anime…"
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
-        definesPresentationContext = true
-    }
-
     private func setupOverlays() {
         loadingIndicator = UIActivityIndicatorView(style: .large)
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -2156,25 +2107,7 @@ class BrowseAnimeViewController: UIViewController {
         ])
     }
 
-    private func setupFetchedResultsController() {
-        let context = CoreDataService.sharedCoreDataService.mainQueueContext
-        let req = NSFetchRequest<Animes>(entityName: Animes.entityName)
-        req.predicate = NSPredicate(format: "animeFlagTemp == YES")
-        req.sortDescriptors = [NSSortDescriptor(key: "animeOrder", ascending: true)]
-        animeResultsController = NSFetchedResultsController(fetchRequest: req,
-                                                            managedObjectContext: context,
-                                                            sectionNameKeyPath: nil,
-                                                            cacheName: nil)
-        performFetch()
-    }
-
     private func setupNotifications() {
-        NotificationCenter.default.addObserver(self,
-            selector: #selector(handleDidUpdate),
-            name: NSNotification.Name(AniListClient.LocalAnimeDidUpdateNotification), object: nil)
-        NotificationCenter.default.addObserver(self,
-            selector: #selector(handleUpdateFailed),
-            name: NSNotification.Name(AniListClient.LocalAnimeUpdateFailedNotification), object: nil)
         NotificationCenter.default.addObserver(self,
             selector: #selector(handleTrackingDidChange(_:)),
             name: LocalTracking.didChange, object: nil)
@@ -2183,7 +2116,6 @@ class BrowseAnimeViewController: UIViewController {
     // MARK: - Data Loading
 
     private func loadSections() {
-        isSearching = false
         homeBackdropView.isHidden = false
         bannerItems = []
         isLoadingSections = false
@@ -2535,8 +2467,7 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func resumeHomeSectionIfNeeded(rowSection: Int) {
-        guard !isSearching,
-              rowSection >= 0,
+        guard rowSection >= 0,
               rowSection < sections.count,
               let id = sections[rowSection].queryID else { return }
         visibleHomeSectionIDs.insert(id)
@@ -2576,7 +2507,6 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     @objc private func handleTrackingDidChange(_ notification: Notification) {
-        guard !isSearching else { return }
         let hasAniList = TrackerAccountManager.shared.isLoggedIn(.anilist)
         let currentOtherLists = TrackerAggregator.listIDs()
         let currentLocalContinueIDs = currentOtherLists.continueIDs
@@ -2597,7 +2527,6 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func refreshPersonalSectionsIfLocalListsChanged() {
-        guard !isSearching else { return }
         guard !TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
         let currentOtherLists = TrackerAggregator.listIDs()
         let currentLocalContinueIDs = currentOtherLists.continueIDs
@@ -2626,40 +2555,6 @@ class BrowseAnimeViewController: UIViewController {
         updateHomeSection(section, id: "personal.continue")
     }
 
-    private func performFetch() {
-        try? animeResultsController?.performFetch()
-    }
-
-    private func anime(at indexPath: IndexPath) -> Animes? {
-        guard indexPath.section >= 0,
-              let sections = animeResultsController?.sections,
-              indexPath.section < sections.count,
-              indexPath.item >= 0,
-              indexPath.item < sections[indexPath.section].numberOfObjects else { return nil }
-        return animeResultsController?.object(at: indexPath)
-    }
-
-    private func reloadUI() {
-        performFetch()
-        collectionView.reloadData()
-        let count = animeResultsController?.sections?.first?.objects?.count ?? 0
-        emptyLabel.isHidden = count > 0
-    }
-
-    // MARK: - Notifications (search flow only)
-
-    @objc private func handleDidUpdate() {
-        guard isSearching else { return }
-        loadingIndicator.stopAnimating()
-        reloadUI()
-    }
-
-    @objc private func handleUpdateFailed() {
-        guard isSearching else { return }
-        loadingIndicator.stopAnimating()
-        reloadUI()
-    }
-
     // MARK: - Navigation
 
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
@@ -2669,8 +2564,6 @@ class BrowseAnimeViewController: UIViewController {
         if let item = pendingAnimeItem {
             destination.animeItem = item
             pendingAnimeItem = nil
-        } else if let indexPath = sender as? IndexPath {
-            destination.animeEntity = anime(at: indexPath)
         }
     }
 }
@@ -2680,7 +2573,6 @@ class BrowseAnimeViewController: UIViewController {
 extension BrowseAnimeViewController: UICollectionViewDataSource {
 
     func numberOfSections(in collectionView: UICollectionView) -> Int {
-        if isSearching { return 1 }
         // While loading, show 1 banner skeleton + 3 poster row skeletons
         if isLoadingSections { return 4 }
         // Section 0 = hero banner (only when we have data), sections 1..n = rows
@@ -2689,9 +2581,6 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
     func collectionView(_ collectionView: UICollectionView,
                         numberOfItemsInSection section: Int) -> Int {
-        if isSearching {
-            return animeResultsController?.sections?.first?.objects?.count ?? 0
-        }
         if isLoadingSections {
             return section == 0 ? 1 : 10
         }
@@ -2706,22 +2595,6 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        // Search mode: plain poster grid
-        if isSearching {
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: AnimeCollectionViewCell.reuseID,
-                for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
-            if let anime = anime(at: indexPath) {
-                cell.configure(with: anime)
-                let item = AnimeCollectionViewCell.animeItem(from: anime)
-                Hover.shared.bind(to: cell,
-                                  host: self,
-                                  mediaProvider: { item },
-                                  actions: hayasePreviewCardActions())
-            }
-            return cell
-        }
-
         // Skeleton mode: shimmer placeholders while sections load
         if isLoadingSections {
             if indexPath.section == 0 {
@@ -2752,7 +2625,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             cell.onBackdropImageChanged = { [weak self, weak cell] urlString, image in
                 let mediaID = cell?.currentItem?.id
                 DispatchQueue.main.async {
-                    guard let self, let cell, !self.isSearching,
+                    guard let self, let cell,
                           cell.currentItem?.id == mediaID,
                           self.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) === cell else { return }
                     self.homeBackdropView.setBackdrop(urlString: urlString, image: image)
@@ -2842,7 +2715,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         if isLoadingSections {
             header.configure(title: "")
             header.onViewMore = nil
-        } else if !isSearching, rowSection >= 0, rowSection < sections.count {
+        } else if rowSection >= 0, rowSection < sections.count {
             header.configure(title: sections[rowSection].title)
             let section = sections[rowSection]
             // "View More" → switch to Search tab (Hayase: goto('/app/search', { state: { search: variables } }))
@@ -2872,29 +2745,12 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         willDisplay cell: UICollectionViewCell,
                         forItemAt indexPath: IndexPath) {
-        guard !isSearching, !isLoadingSections, indexPath.section > 0 else { return }
+        guard !isLoadingSections, indexPath.section > 0 else { return }
         resumeHomeSectionIfNeeded(rowSection: indexPath.section - 1)
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
-        if isSearching {
-            if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
-               let anime = anime(at: indexPath) {
-                let item = AnimeCollectionViewCell.animeItem(from: anime)
-                if Hover.shared.handleTouchSelection(source: cell,
-                                                     host: self,
-                                                     media: item,
-                                                     actions: hayasePreviewCardActions()) {
-                    return
-                }
-            }
-            if let anime = anime(at: indexPath) {
-                Router.shared.navigateToAnime(AnimeCollectionViewCell.animeItem(from: anime),
-                                             hostTabIndex: hayaseTabIndex)
-            }
-            return
-        }
         // Ignore taps on skeleton placeholder cells
         if isLoadingSections { return }
         // Tap on hero banner → navigate to the currently-featured anime
@@ -2925,7 +2781,6 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         Hover.shared.scrollDidOccur()
-        guard !isSearching else { return }
         syncBannerToCurrentScrollPosition()
     }
 
@@ -2972,7 +2827,6 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
 
     /// A banner that is not on screen starts over the next time it is configured.
     private func remountFeaturedBanner() {
-        guard !isSearching else { return }
         selectedFeaturedID = nil
         (collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell)?.remount()
     }
@@ -2996,8 +2850,7 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingHomeBannerRevealWorkItem = nil
-            guard !self.isSearching,
-                  self.collectionView.contentOffset.y <= 100 else { return }
+            guard self.collectionView.contentOffset.y <= 100 else { return }
             let bannerCell = self.collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell
             self.applyHomeBannerVisibility(hidden: false, bannerCell: bannerCell)
         }
@@ -3073,41 +2926,5 @@ extension BrowseAnimeViewController: UICollectionViewDelegate {
             break
         }
         Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
-    }
-}
-
-extension BrowseAnimeViewController: UISearchResultsUpdating {
-    func updateSearchResults(for searchController: UISearchController) {
-        let text = searchController.searchBar.text ?? ""
-        searchDebounceTimer?.invalidate()
-
-        let newIsSearching = !text.isEmpty
-        if !newIsSearching {
-            if isSearching {
-                lastSearchString = ""
-                loadSections()
-            }
-            return
-        }
-
-        if !isSearching {
-            isSearching = true
-            homeBackdropView.isHidden = true
-            // The results replace the banner page, so the sidebar's slice of it goes as well.
-            NotificationCenter.default.post(name: hayaseHomeBannerBackdropDidChange, object: nil, userInfo: [
-                hayaseHomeBannerBackdropRouteKey: hayaseHomeBannerBackdropHomeRoute,
-                hayaseHomeBannerBackdropClearKey: true,
-            ])
-            collectionView.setCollectionViewLayout(makeSearchLayout(), animated: false)
-            collectionView.reloadData()
-        }
-
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-            guard let self = self, text != self.lastSearchString else { return }
-            self.lastSearchString = text
-            self.loadingIndicator.startAnimating()
-            self.emptyLabel.isHidden = true
-            AniListClient.shared.UpdateTempAnimesWithSearchString(text)
-        }
     }
 }

@@ -1376,39 +1376,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         // BannerImage is route-owned, matching interface +layout.svelte.
     }
 
-    // MARK: - Configure (Animes CoreData entity)
-
-    func configure(with anime: Animes?) {
-        guard let anime = anime else { return }
-        anilistId = anime.animeAnilistId?.intValue
-
-        let item = AniListUtil.animeItem(from: anime)
-        titleLabel.text = AniListUtil.title(for: item)
-        romajiLabel.text = AniListUtil.alternateTitle(for: item)
-        romajiLabel.isHidden = romajiLabel.text == nil
-
-        rebuildBadges(score:   anime.animeScore?.floatValue,
-                      status:  anime.animeStatus,
-                      episodes: anime.animeTotalEps?.intValue,
-                      nextEp:  anime.animeNextEps?.intValue,
-                      format:  nil, season: nil)
-
-        genresContainer.isHidden = true
-
-        setDescriptionText(anime.animeDescription)
-
-        trailerButton.isHidden = true
-
-        displayedBannerURL = anime.animeImgS ?? anime.animeImgL ?? anime.animeImgM
-        postSidebarBackdrop(urlString: displayedBannerURL,
-                            scrollOffset: 0,
-                            alpha: bannerHidden ? 0.05 : 1.0)
-        displayedCoverURL = anime.animeImgL ?? anime.animeImgM
-        setCoverSelected(false, animated: false)
-        loadImage(from: displayedCoverURL,
-                  into: coverImageView, task: &coverImageTask)
-    }
-
     // MARK: - Configure (AnimeItem from AniList)
 
     func configure(with item: AnimeItem) {
@@ -1940,9 +1907,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 class AnimeDetailViewController: UIViewController {
     private var renderedDisplayPreferences: Settings.DisplayPreferences?
 
-    var animeEntity: Animes?
     var animeItem: AnimeItem?
-    var routeAnimeID: Int? { animeItem?.id ?? animeEntity?.animeAnilistId?.intValue }
+    var routeAnimeID: Int? { animeItem?.id }
 
     var tableView: UITableView!
     private let animeBackdropView = AnimeDetailBannerBackdropView()
@@ -2469,8 +2435,6 @@ class AnimeDetailViewController: UIViewController {
                 tabBar.accentColor = accent
                 currentAnimeAccent = accent
             }
-        } else {
-            headerView.configure(with: animeEntity)
         }
         headerView.onFavorite = { [weak self] in
             guard let self, let item = self.animeItem else { return }
@@ -2542,8 +2506,7 @@ class AnimeDetailViewController: UIViewController {
         }
         headerView.onOpenAniList = { [weak self] in
             guard let self = self else { return }
-            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
-            guard let id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
+            guard let id = self.animeItem?.id, let url = URL(string: "https://anilist.co/anime/\(id)") else { return }
             let safari = SFSafariViewController(url: url)
             self.present(safari, animated: true)
         }
@@ -2739,7 +2702,7 @@ class AnimeDetailViewController: UIViewController {
     }
 
     private func refreshViewerStateAfterMutation() {
-        guard let id = animeItem?.id ?? animeEntity?.animeAnilistId?.intValue, id > 0 else { return }
+        guard let id = animeItem?.id, id > 0 else { return }
         AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
             DispatchQueue.main.async {
                 guard let self else { return }

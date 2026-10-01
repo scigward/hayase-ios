@@ -181,28 +181,6 @@ enum AniListQueries {
           }
     """
 
-    // MARK: - Airing anime (legacy CoreData flow)
-
-    static let airingAnime = """
-    query ($nsfw: [String]) {
-      Page(page: 1, perPage: 50) {
-        media(status: RELEASING, type: ANIME, format_not: MUSIC, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
-          id
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          popularity
-          episodes
-          duration
-          description(asHtml: false)
-          nextAiringEpisode { episode timeUntilAiring }
-          status
-          synonyms
-        }
-      }
-    }
-    """
 
     // MARK: - Search
 
@@ -217,28 +195,6 @@ enum AniListQueries {
     }
     """
 
-    // MARK: - Legacy text search (CoreData flow)
-
-    static let searchLegacy = """
-    query ($search: String, $nsfw: [String]) {
-      Page(page: 1, perPage: 50) {
-        media(search: $search, type: ANIME, format_not: MUSIC, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
-          id
-          title { romaji english native userPreferred }
-          coverImage { extraLarge large medium color }
-          bannerImage
-          averageScore
-          popularity
-          episodes
-          duration
-          description(asHtml: false)
-          nextAiringEpisode { episode timeUntilAiring }
-          status
-          synonyms
-        }
-      }
-    }
-    """
 
     // MARK: - Following many (full-banner.svelte)
 
