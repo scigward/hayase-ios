@@ -1967,12 +1967,8 @@ class AnimeDetailViewController: UIViewController {
     var anilistProgress: Int = 0
     var currentListStatus: String?
     var currentAnimeAccent: UIColor = .white
-    var relations: [AnimeRelation] = []
     var relationGraph: AnimeRelationGraph?
     var relationGraphExpanded = false
-    var staff: [AnimeStaffMember] = []
-    var scoreDistribution: [AnimeScorePoint] = []
-    var statusDistribution: [AnimeStatusCount] = []
 
     let episodesPerPage = 16
     var currentEpisodePage: Int = 1
@@ -2441,7 +2437,6 @@ class AnimeDetailViewController: UIViewController {
         tableView.register(EpisodeCell.self, forCellReuseIdentifier: EpisodeCell.reuseID)
         tableView.register(EpisodePairCell.self, forCellReuseIdentifier: EpisodePairCell.reuseID)
         tableView.register(ThreadPairCell.self, forCellReuseIdentifier: ThreadPairCell.reuseID)
-        tableView.register(HorizontalCardsCell.self, forCellReuseIdentifier: HorizontalCardsCell.relationsReuseID)
         tableView.register(RelationGraphCell.self, forCellReuseIdentifier: RelationGraphCell.reuseID)
         tableView.register(RecommendationGridCell.self, forCellReuseIdentifier: RecommendationGridCell.reuseID)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HeaderCell")
@@ -2469,7 +2464,6 @@ class AnimeDetailViewController: UIViewController {
     func setupHeaderView() {
         headerView = AnimeInfoHeaderView()
         if let item = animeItem {
-            relations = item.relations
             headerView.configure(with: item)
             if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
                 tabBar.accentColor = accent

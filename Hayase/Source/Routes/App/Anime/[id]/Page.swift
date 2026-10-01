@@ -328,8 +328,6 @@ extension AnimeDetailViewController: UITableViewDelegate {
 extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch collectionView.tag {
-        case 100: return relations.count
-        case 300: return staff.count
         case 400: return recommendations.count
         case 401: return RecommendationGridCell.skeletonItemCount
         default:  return 0
@@ -339,20 +337,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         switch collectionView.tag {
-        case 100:
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: RelationCardCell.reuseID, for: indexPath) as? RelationCardCell
-            else { return UICollectionViewCell() }
-            guard let relation = relations[safe: indexPath.item] else { return cell }
-            cell.configure(with: relation)
-            return cell
-        case 300:
-            guard let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: StaffCardCell.reuseID, for: indexPath) as? StaffCardCell
-            else { return UICollectionViewCell() }
-            guard let staffMember = staff[safe: indexPath.item] else { return cell }
-            cell.configure(with: staffMember)
-            return cell
         case 400:
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: AnimeCollectionViewCell.reuseID, for: indexPath) as? AnimeCollectionViewCell
@@ -378,9 +362,6 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
 extension AnimeDetailViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         switch collectionView.tag {
-        case 100:
-            guard let relation = relations[safe: indexPath.item] else { return }
-            Router.shared.navigateToAnime(relation.media, hostTabIndex: hayaseTabIndex)
         case 400:
             guard let item = recommendations[safe: indexPath.item] else { return }
             if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,

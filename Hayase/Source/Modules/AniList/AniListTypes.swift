@@ -270,24 +270,6 @@ struct AnimePagePayload {
     let relationGraph: AnimeRelationGraph?
 }
 
-// MARK: - Staff + Stats models
-
-struct AnimeStaffMember {
-    let name: String
-    let imageURL: String?
-    let role: String
-}
-
-struct AnimeScorePoint {
-    let score: Int
-    let amount: Int
-}
-
-struct AnimeStatusCount {
-    let status: String
-    let amount: Int
-}
-
 // MARK: - Airing schedule
 
 struct AiringScheduleEntry {
@@ -583,32 +565,6 @@ struct AiringSchedulePagedResponse: Codable {
                 struct PPCover: Codable { let large: String?; let color: String? }
             }
         }
-    }
-}
-
-struct StaffStatsResponse: Codable {
-    let data: SSData?
-    struct SSData: Codable { let Media: SSMedia? }
-    struct SSMedia: Codable {
-        let staff: StaffConn?
-        let stats: MediaStats?
-    }
-    struct StaffConn: Codable { let edges: [StaffEdge]? }
-    struct StaffEdge: Codable {
-        let role: String?
-        let node: StaffNode?
-    }
-    struct StaffNode: Codable {
-        let name: StaffName?
-        let image: StaffImage?
-        struct StaffName: Codable { let full: String? }
-        struct StaffImage: Codable { let medium: String? }
-    }
-    struct MediaStats: Codable {
-        let scoreDistribution: [ScoreDist]?
-        let statusDistribution: [StatusDist]?
-        struct ScoreDist: Codable { let score: Int?; let amount: Int? }
-        struct StatusDist: Codable { let status: String?; let amount: Int? }
     }
 }
 

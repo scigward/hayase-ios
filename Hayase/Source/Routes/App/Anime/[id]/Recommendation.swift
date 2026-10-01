@@ -135,9 +135,6 @@ extension AnimeDetailViewController {
                         self.currentAnimeAccent = accent
                         self.tabBar.accentColor = accent
                     }
-                    if !merged.relations.isEmpty {
-                        self.relations = merged.relations
-                    }
                     if let graph = payload.relationGraph {
                         self.applyRelationGraph(graph)
                         self.expandRelationGraphIfNeeded(graph)
