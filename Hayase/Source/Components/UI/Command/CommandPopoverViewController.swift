@@ -98,6 +98,8 @@ class CommandPopoverViewController: UIViewController {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
+        // A plain table pads the top of every section by 22pt, which left a gap above the first entry.
+        tableView.sectionHeaderTopPadding = 0
         tableView.rowHeight = 32
         tableView.estimatedRowHeight = 32
         tableView.dataSource = self
