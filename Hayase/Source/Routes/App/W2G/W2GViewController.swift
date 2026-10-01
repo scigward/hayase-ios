@@ -943,7 +943,7 @@ extension W2GViewController {
         player.fileIndex         = index
         player.anilistID         = selectedMedia?.id ?? anilistID
         player.episodeNumber     = selectedResolvedFile?.episodeReference.intValue ?? episode
-        player.totalEpisodes     = selectedMedia.map { TorrentBatchResolver.episodeCount(for: $0) }
+        player.totalEpisodes     = selectedMedia.map { TorrentBatchResolver.episodes(for: $0) }
             ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
         player.allVideos         = sortedVideos
         player.currentVideoIndex = selectedPosition
@@ -1104,7 +1104,7 @@ extension W2GViewController {
             player.fileIndex         = targetIndex
             player.anilistID         = media?.id ?? anilistID
             player.episodeNumber     = batchFiles.first { fileIndex(from: $0.entry.index) == Optional(targetIndex) }?.episodeReference.intValue ?? episode
-            player.totalEpisodes     = media.map { TorrentBatchResolver.episodeCount(for: $0) } ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
+            player.totalEpisodes     = media.map { TorrentBatchResolver.episodes(for: $0) } ?? (entity.animes?.animeTotalEps?.intValue) ?? animeItem?.episodes ?? 0
             player.allVideos         = videos
             player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
             player.batchFiles        = batchFiles

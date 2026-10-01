@@ -519,7 +519,7 @@ struct TorrentBatchResolver {
         let secondRaw = numbers.dropFirst().first
         let firstEpisode = firstRaw.flatMap(parseEpisodeInt)
         let secondEpisode = secondRaw.flatMap(parseEpisodeInt)
-        let maxEpisode = Self.episodeCount(for: media)
+        let maxEpisode = Self.episodes(for: media)
         let hasEpisodeCount = maxEpisode > 0
         let format = media.format
         let shouldResolve = format != "MOVIE" || hasEpisodeCount
@@ -635,7 +635,7 @@ struct TorrentBatchResolver {
         }
 
         let nextVisited = visited.union([media.id])
-        let rootHighest = Self.episodeCount(for: rootMedia)
+        let rootHighest = Self.episodes(for: rootMedia)
 
         func finishWithoutEdge(_ resolvedIncrement: Bool) {
             completion(SeasonResolveResult(media: media,
@@ -709,7 +709,7 @@ struct TorrentBatchResolver {
                 NSLog("[TorrentBatchResolver] Season edge media fetch failed: %@", error.description)
             }
             let nextMedia = (try? result.get()) ?? edge
-            let highest = Self.episodeCount(for: nextMedia)
+            let highest = Self.episodes(for: nextMedia)
             let diff = episode - (highest + offset)
             let nextOffset = offset + (increment ? rootHighest : highest)
             let nextRootMedia = increment ? nextMedia : rootMedia
@@ -1058,7 +1058,7 @@ struct TorrentBatchResolver {
     }
 
     private static func cacheKey(for parsedFilename: ParsedFilename) -> String {
-        var key = parsedFilename.animeTitle
+        var key = AniListUtil.removeDiacritics(parsedFilename.animeTitle)
         if let year = parsedFilename.animeYearValues.first {
             key += year
         }
@@ -1072,42 +1072,50 @@ struct TorrentBatchResolver {
         alternativeTitles(for: parseObject.filename)
     }
 
+    /// resolver.ts `alternativeTitles`, in the order it adds them: the first title that finds a media
+    /// is the one a file is given.
     private static func alternativeTitles(for parseObject: ParsedFilename) -> [String] {
-        let title = parseObject.animeTitle
+        let title = AniListUtil.removeDiacritics(parseObject.animeTitle)
 
         var titles: [String] = []
         var modified = title
 
-        if let season = parseObject.animeSeason, season > 1 {
-            modified = "\(title) \(season)\(seasonSuffix(season)) Season"
+        // remove trailing ` 2020`
+        if let yearMatch = firstMatch(in: title, pattern: #"\D(\d{4})$"#),
+           parseObject.animeYearValues.isEmpty || yearMatch == parseObject.animeYearValues.first {
+            modified = replaceFirst(in: title, pattern: #"\D(\d{4})$"#, with: "")
             appendUnique(modified, to: &titles)
-            appendUnique("\(title) Season \(season)", to: &titles)
-        } else if let seasonMatch = firstMatch(in: title, pattern: #" S(\d+)"#),
-                  let season = Int(seasonMatch) {
+        }
+
+        // preemptively change S2 into Season 2 or 2nd Season, otherwise this will have accuracy issues
+        let seasonMatch = firstMatch(in: modified, pattern: #" S(\d+)"#)
+        if let season = parseObject.animeSeason, season > 1 {
+            modified = modified + " \(season)\(seasonSuffix(season)) Season"
+            appendUnique(modified, to: &titles)
+            appendUnique(modified + " Season \(season)", to: &titles)
+        } else if let seasonMatch, let season = Int(seasonMatch) {
             if season == 1 {
-                modified = replaceFirst(in: title, pattern: #" S(\d+)"#, with: "")
+                // if this is S1, remove the " S1" or " S01"
+                modified = replaceFirst(in: modified, pattern: #" S(\d+)"#, with: "")
                 appendUnique(modified, to: &titles)
             } else {
-                modified = replaceFirst(in: title, pattern: #" S(\d+)"#, with: " \(season)\(seasonSuffix(season)) Season")
+                modified = replaceFirst(in: modified, pattern: #" S(\d+)"#, with: " \(season)\(seasonSuffix(season)) Season")
                 appendUnique(modified, to: &titles)
-                appendUnique(replaceFirst(in: title, pattern: #" S(\d+)"#, with: " Season \(season)"), to: &titles)
+                appendUnique(replaceFirst(in: modified, pattern: #" S(\d+)"#, with: " Season \(season)"), to: &titles)
             }
         } else {
+            // only add original title [to not duplicate with year] if we're sure there's no season stuff
             appendUnique(title, to: &titles)
         }
 
-        if let yearMatch = firstMatch(in: modified, pattern: #"\D(\d{4})$"#),
-           parseObject.animeYearValues.isEmpty || yearMatch == parseObject.animeYearValues.first {
-            modified = replaceFirst(in: modified, pattern: #"\D(\d{4})$"#, with: "")
-            appendUnique(modified, to: &titles)
-        }
-
+        // remove - :
         if modified.range(of: #"[-:]"#, options: .regularExpression) != nil {
             modified = modified.replacingOccurrences(of: #"[-:]"#, with: "", options: .regularExpression)
             modified = replaceFirst(in: modified, pattern: #"[ ]{2,}"#, with: " ")
             appendUnique(modified, to: &titles)
         }
 
+        // remove (TV)
         if modified.contains("(TV)") {
             modified = modified.replacingOccurrences(of: "(TV)", with: "", options: [], range: modified.range(of: "(TV)"))
             appendUnique(modified, to: &titles)
@@ -1131,6 +1139,14 @@ struct TorrentBatchResolver {
         return best
     }
 
+    /// util.ts `episodes(media)`
+    static func episodes(for media: AnimeItem) -> Int {
+        if let episodes = media.episodes, episodes != 0 { return episodes }
+        return max(media.airedSchedule.last?.episode ?? 0, media.notYetAiredSchedule.last?.episode ?? 0)
+    }
+
+    /// util.ts `of(media)`: `episodes(media, { episodeCount: $progress })`, what the banner and the
+    /// cards write as "x / y Episodes".
     static func episodeCount(for media: AnimeItem) -> Int {
         if let episodes = media.episodes, episodes != 0 { return episodes }
 

@@ -1403,7 +1403,7 @@ final class ExtensionSearchViewController: UIViewController {
         player.fileIndex         = targetIndex
         player.anilistID         = activeMedia?.id ?? Int(entity.animes?.animeAnilistId ?? 0)
         player.episodeNumber     = activeEpisode
-        player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodeCount(for: $0) } ?? self.animeItem?.episodes ?? 0
+        player.totalEpisodes     = activeMedia.map { TorrentBatchResolver.episodes(for: $0) } ?? self.animeItem?.episodes ?? 0
         player.allVideos         = videos
         player.currentVideoIndex = videos.firstIndex(of: video) ?? 0
         player.batchFiles        = batchFiles

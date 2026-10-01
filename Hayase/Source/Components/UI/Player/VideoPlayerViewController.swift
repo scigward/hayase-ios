@@ -2840,7 +2840,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     private var currentEpisodeLimit: Int {
         if let media = currentBatchFile?.media ?? currentResolvedVideo?.media {
-            return TorrentBatchResolver.episodeCount(for: media)
+            return TorrentBatchResolver.episodes(for: media)
         }
         return totalEpisodes
     }
@@ -2933,7 +2933,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         episodeNumber = episode
         if let media {
             anilistID = media.id
-            totalEpisodes = TorrentBatchResolver.episodeCount(for: media)
+            totalEpisodes = TorrentBatchResolver.episodes(for: media)
         }
         if let idx = videoEntity?.videoIndex, idx.intValue >= 0 {
             fileIndex = UInt(idx.intValue)

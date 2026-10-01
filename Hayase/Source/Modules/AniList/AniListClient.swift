@@ -917,13 +917,13 @@ public final class AniListClient: NSObject {
 
     func searchResolverAnimeIDsResult(titleGroups: [(key: String, titles: [String], year: String?)],
                                       completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
+        // resolver.ts `findAnimesByTitle`: the titles of a file, and the last of them once more for adult media
         let flattened = titleGroups.flatMap { group -> [(key: String, title: String, year: String?, isAdult: Bool)] in
-            group.titles.flatMap { title in
-                [
-                    (key: group.key, title: title, year: group.year, isAdult: false),
-                    (key: group.key, title: title, year: group.year, isAdult: true),
-                ]
+            var objects = group.titles.map { (key: group.key, title: $0, year: group.year, isAdult: false) }
+            if let last = objects.last {
+                objects.append((key: last.key, title: last.title, year: last.year, isAdult: true))
             }
+            return objects
         }
         searchResolverAnimeIDsResult(flattenedTitles: flattened, completion: completion)
     }
