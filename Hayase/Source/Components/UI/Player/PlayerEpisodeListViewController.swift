@@ -319,8 +319,9 @@ final class PlayerEpisodeListViewController: UIViewController {
 
     private func applyMediaState(_ item: AnimeItem?) {
         guard let item else { return }
-        anilistProgress = item.mediaListEntry?.progress ?? 0
-        listStatus = item.mediaListEntry?.status
+        let entry = item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id)
+        anilistProgress = entry?.progress ?? 0
+        listStatus = entry?.status
         if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {
             accentColor = accent
         }
@@ -343,18 +344,32 @@ final class PlayerEpisodeListViewController: UIViewController {
             group.leave()
         }
 
+        // `client.single(id)`, and `client.following(id)` that EpisodesList asks for itself
+        var fetchedMedia: AnimeItem?
+        var fetchedFollowing: [AniListFollowingEntry] = []
+
         group.enter()
-        AniListClient.shared.fetchAnimePageResult(id: anilistID) { result in
+        AniListClient.shared.fetchResolverMediaByIdResult(anilistID) { result in
             switch result {
-            case .success(let payload):
-                pagePayload = payload
+            case .success(let item):
+                fetchedMedia = item
             case .failure(let error):
-                NSLog("[PlayerEpisodeList] AnimePage failed: %@", error.description)
+                NSLog("[PlayerEpisodeList] Media failed: %@", error.description)
             }
             group.leave()
         }
 
+        group.enter()
+        AniListClient.shared.fetchFollowingResult(mediaID: anilistID) { result in
+            if case .success(let entries) = result { fetchedFollowing = entries }
+            group.leave()
+        }
+
         group.notify(queue: .main) { [weak self] in
+            pagePayload = fetchedMedia.map {
+                AnimePagePayload(media: $0, recommendations: [], threads: [], threadTotal: 0,
+                                 followingEntries: fetchedFollowing, relationGraph: nil)
+            }
             self?.handleFetched(anizip: anizipResponse, page: pagePayload)
         }
     }

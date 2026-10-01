@@ -1617,6 +1617,32 @@ public final class AniListClient: NSObject {
         }
     }
 
+    /// client.ts `following(id)`: who the viewer follows that has the media on a list.
+    @discardableResult
+    func fetchFollowingResult(mediaID: Int,
+                              completion: @escaping (Result<[AniListFollowingEntry], AniListRequestError>) -> Void) -> AniListRequestToken? {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
+            DispatchQueue.main.async { completion(.success([])) }
+            return nil
+        }
+        let variables: [String: Any] = ["id": mediaID]
+        return requestExecutor.execute(query: AniListQueries.following,
+                                       variables: variables,
+                                       authorized: true,
+                                       dedupeKey: cacheKey(prefix: "following", variables: variables),
+                                       cacheAndNetwork: false) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let graphQLResult):
+                let page = (graphQLResult.json["data"] as? [String: Any])?["following"] as? [String: Any]
+                let entries = self.parseFollowingEntries(from: page)
+                DispatchQueue.main.async { completion(.success(entries)) }
+            case .failure(let error):
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
     private func parseFollowingEntries(from page: [String: Any]?) -> [AniListFollowingEntry] {
         guard let viewerID = aniListViewerID else { return [] }
         let entries = page?["mediaList"] as? [[String: Any]] ?? []

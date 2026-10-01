@@ -242,6 +242,22 @@ enum AniListQueries {
 
     // MARK: - Following many (full-banner.svelte)
 
+    // MARK: - Following (EpisodesList.svelte's `client.following`)
+
+    static let following = """
+    query Following($id: Int!) {
+      following: Page {
+        mediaList(mediaId: $id, isFollowing: true, sort: UPDATED_TIME_DESC) {
+          id
+          status
+          score
+          progress
+          user { \(userFields) }
+        }
+      }
+    }
+    """
+
     static let followingMany = """
     query FollowingMany($ids: [Int]!) {
       Page {
