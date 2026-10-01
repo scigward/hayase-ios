@@ -126,14 +126,15 @@ import UIKit
 /// triangle body fills amber while its outline, and the '!' mark (which
 /// has no enclosed area for a fill to apply to), stay background-colored.
 ///
-/// Corner rounding is approximated as straight chords between the actual
-/// path's arc endpoints (radius 2 on a 24-unit grid) rather than true
-/// elliptical arcs — at this icon's fixed 192pt size the difference isn't
-/// visually distinguishable, and it avoids hand-porting SVG arc math for a
-/// single decorative icon.
+/// The icon's own paths, with their true arcs, so its corners round as the SVG's do.
 private final class ContentWarningIconView: UIView {
     private static let gridSize: CGFloat = 24
     private static let amber = UIColor(red: 0xF5 / 255.0, green: 0x9E / 255.0, blue: 0x0B / 255.0, alpha: 1)
+    private static let paths = [
+        "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z",
+        "M12 9v4",
+        "M12 17h.01",
+    ]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -148,41 +149,20 @@ private final class ContentWarningIconView: UIView {
 
     override func draw(_ rect: CGRect) {
         let scale = rect.width / Self.gridSize
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * scale, y: y * scale) }
-
-        // m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z
-        let triangle = UIBezierPath()
-        triangle.move(to: p(21.73, 18))
-        triangle.addLine(to: p(13.73, 4))
-        triangle.addLine(to: p(10.25, 4))
-        triangle.addLine(to: p(2.25, 18))
-        triangle.addLine(to: p(4, 21))
-        triangle.addLine(to: p(20, 21))
-        triangle.close()
-        triangle.lineJoinStyle = .round
-        triangle.lineWidth = 2 * scale
-        Self.amber.setFill()
-        UIColor.HayaseTheme.background.setStroke()
-        triangle.fill()
-        triangle.stroke()
-
-        // M12 9v4
-        let mark = UIBezierPath()
-        mark.move(to: p(12, 9))
-        mark.addLine(to: p(12, 13))
-        mark.lineCapStyle = .round
-        mark.lineWidth = 2 * scale
-        UIColor.HayaseTheme.background.setStroke()
-        mark.stroke()
-
-        // M12 17h.01
-        let dot = UIBezierPath()
-        dot.move(to: p(12, 17))
-        dot.addLine(to: p(12.01, 17))
-        dot.lineCapStyle = .round
-        dot.lineWidth = 2 * scale
-        UIColor.HayaseTheme.background.setStroke()
-        dot.stroke()
+        for (index, data) in Self.paths.enumerated() {
+            let path = UIBezierPath(cgPath: SVGPath.path(data))
+            path.apply(CGAffineTransform(scaleX: scale, y: scale))
+            path.lineWidth = 2 * scale
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            // fill='#f59e0b' on every path; only the triangle encloses anything
+            if index == 0 {
+                Self.amber.setFill()
+                path.fill()
+            }
+            UIColor.HayaseTheme.background.setStroke()
+            path.stroke()
+        }
     }
 }
 
