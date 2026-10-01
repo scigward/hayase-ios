@@ -230,73 +230,41 @@ final class PaddedLabel: UILabel {
     }
 }
 
-// MARK: - ChipWrapView
+// MARK: - ChipRowScrollView
 
-final class ChipWrapView: UIView {
-    let interItemSpacing: CGFloat = 8
-    let lineSpacing: CGFloat = 8
-    let chipHeight: CGFloat = 28
+/// `flex gap-2 items-center overflow-x-auto`: the genre and tag buttons in one scrolling row.
+/// Each button is placed by frame from its measured text, so the row is right the moment it is laid
+/// out; a stack view of buttons kept the widths from before the buttons were swapped and drew them
+/// on top of each other until something else (a tab change) forced a new layout.
+final class ChipRowScrollView: UIScrollView {
+    private let gap: CGFloat = 8
+    private let chipHeight: CGFloat = 28
+    private var chips: [UIButton] = []
 
-    private var chipWidths: [CGFloat] = []
-    private var lastLaidOutHeight: CGFloat = 0
-
-    func setChips(_ newChips: [UIView]) {
-        subviews.forEach { $0.removeFromSuperview() }
-        chipWidths = newChips.map { widthForChip($0) }
-        lastLaidOutHeight = 0
-        newChips.forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = true
-            addSubview($0)
-        }
-        invalidateIntrinsicContentSize()
+    func setChips(_ newChips: [UIButton]) {
+        chips.forEach { $0.removeFromSuperview() }
+        chips = newChips
+        chips.forEach { addSubview($0) }
         setNeedsLayout()
     }
 
-    private func widthForChip(_ chip: UIView) -> CGFloat {
-        if let btn = chip as? UIButton {
-            let text = btn.title(for: .normal) ?? btn.titleLabel?.text ?? ""
-            let font = btn.titleLabel?.font ?? .systemFont(ofSize: 13)
-            let textW = ceil((text as NSString).size(withAttributes: [.font: font]).width)
-            let hPad = btn.contentEdgeInsets.left + btn.contentEdgeInsets.right
-            return textW + (hPad > 0 ? hPad : 32)  // px-4 = 16pt each side
-        }
-        return chip.intrinsicContentSize.width
-    }
-
-    private func computeHeight(for width: CGFloat) -> CGFloat {
-        guard !chipWidths.isEmpty, width > 0 else { return chipWidths.isEmpty ? 0 : chipHeight }
-        var x: CGFloat = 0, y: CGFloat = 0
-        for w in chipWidths {
-            if x > 0 && x + w > width { x = 0; y += chipHeight + lineSpacing }
-            x += w + interItemSpacing
-        }
-        return y + chipHeight
-    }
-
-    override var intrinsicContentSize: CGSize {
-        let h = bounds.width > 0
-            ? computeHeight(for: bounds.width)
-            : (chipWidths.isEmpty ? 0 : chipHeight)
-        return CGSize(width: UIView.noIntrinsicMetric, height: max(h, chipWidths.isEmpty ? 0 : chipHeight))
+    private func width(of chip: UIButton) -> CGFloat {
+        let font = chip.titleLabel?.font ?? .systemFont(ofSize: 14)
+        let text = ((chip.title(for: .normal) ?? "") as NSString).size(withAttributes: [.font: font]).width
+        return ceil(text) + chip.contentEdgeInsets.left + chip.contentEdgeInsets.right
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let chips = subviews
-        guard !chips.isEmpty, bounds.width > 0 else { return }
-        var x: CGFloat = 0, y: CGFloat = 0
-        for (i, chip) in chips.enumerated() {
-            let w = i < chipWidths.count ? chipWidths[i] : widthForChip(chip)
-            if x > 0 && x + w > bounds.width { x = 0; y += chipHeight + lineSpacing }
+        var x: CGFloat = 0
+        let y = (bounds.height - chipHeight) / 2
+        for chip in chips {
+            let w = width(of: chip)
             chip.frame = CGRect(x: x, y: y, width: w, height: chipHeight)
-            x += w + interItemSpacing
+            x += w + gap
         }
-        let newH = y + chipHeight
-        if abs(newH - lastLaidOutHeight) > 0.5 {
-            lastLaidOutHeight = newH
-            invalidateIntrinsicContentSize()
-            superview?.setNeedsLayout()
-        }
+        let size = CGSize(width: max(0, x - gap), height: bounds.height)
+        if contentSize != size { contentSize = size }
     }
 }
 
@@ -763,24 +731,14 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Genres
 
-    private let genresStack: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.spacing = 8
-        sv.alignment = .center
-        return sv
-    }()
-    private let genresScrollView: UIScrollView = {
-        let sv = UIScrollView()
+    private let genresScrollView: ChipRowScrollView = {
+        let sv = ChipRowScrollView()
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         return sv
     }()
 
     private let genresContainer = UIView()
-    private let chipWrapView = ChipWrapView()
-    private var genresContainerHeightConstraint: NSLayoutConstraint?
-    private var chipWrapBottomConstraint: NSLayoutConstraint?
 
     private var coverImageTask: URLSessionDataTask?
     private var displayedCoverURL: String?
@@ -818,15 +776,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         backgroundColor = .clear
 
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
-        genresStack.translatesAutoresizingMaskIntoConstraints = false
-        genresScrollView.addSubview(genresStack)
-        NSLayoutConstraint.activate([
-            genresStack.topAnchor.constraint(equalTo: genresScrollView.topAnchor),
-            genresStack.bottomAnchor.constraint(equalTo: genresScrollView.bottomAnchor),
-            genresStack.leadingAnchor.constraint(equalTo: genresScrollView.leadingAnchor),
-            genresStack.trailingAnchor.constraint(equalTo: genresScrollView.trailingAnchor),
-            genresStack.heightAnchor.constraint(equalTo: genresScrollView.heightAnchor),
-        ])
 
         badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
         badgesStack.translatesAutoresizingMaskIntoConstraints = false
@@ -903,19 +852,13 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         headerFollowerStack.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         genresContainer.addSubview(genresScrollView)
-        chipWrapView.translatesAutoresizingMaskIntoConstraints = false
-        genresContainer.addSubview(chipWrapView)
         NSLayoutConstraint.activate([
             genresScrollView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
             genresScrollView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor),
             genresScrollView.centerXAnchor.constraint(equalTo: genresContainer.centerXAnchor),
             genresScrollView.widthAnchor.constraint(equalTo: genresContainer.widthAnchor),
-            chipWrapView.topAnchor.constraint(equalTo: genresContainer.topAnchor),
-            chipWrapView.leadingAnchor.constraint(equalTo: genresContainer.leadingAnchor),
-            chipWrapView.trailingAnchor.constraint(equalTo: genresContainer.trailingAnchor),
+            genresContainer.heightAnchor.constraint(equalToConstant: 28),
         ])
-        genresContainerHeightConstraint = genresContainer.heightAnchor.constraint(equalToConstant: 28)
-        chipWrapBottomConstraint = chipWrapView.bottomAnchor.constraint(equalTo: genresContainer.bottomAnchor)
 
         contentStack = UIStackView(arrangedSubviews: [coverAndTextColumn, actionsRow, genresContainer])
         contentStack.axis = .vertical
@@ -980,10 +923,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
         updateHeaderRowInsets(isRegular: isRegular)
         updateGenresScrollInset(isRegular: isRegular)
-        genresScrollView.isHidden = false
-        chipWrapView.isHidden = true
-        genresContainerHeightConstraint?.isActive = true
-        chipWrapBottomConstraint?.isActive = false
 
         if isRegular {
             coverAndTextColumn.axis = .horizontal
@@ -1705,7 +1644,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     // MARK: - Genres
 
     private func setGenres(_ genres: [String], tags: [AnimeTag] = []) {
-        genresStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let showHentai = Settings.showHentai
         let sortedTags = tags
             .filter { !$0.isAdult || showHentai }
@@ -1715,13 +1653,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             }
         let chips = genres.map { makeGenreChip(text: $0, isTag: false, isSpoiler: false) }
             + sortedTags.map { makeGenreChip(text: $0.name, isTag: true, isSpoiler: $0.isMediaSpoiler || $0.isGeneralSpoiler) }
-        chips.forEach { genresStack.addArrangedSubview($0) }
-        chipWrapView.setChips(chips.map { chip in
-            guard let button = chip as? AnimeTagChipButton else { return chip }
-            return makeGenreChip(text: button.title(for: .normal) ?? "",
-                                 isTag: button.dashedBorder,
-                                 isSpoiler: button.isSpoilerChip)
-        })
+        genresScrollView.setChips(chips)
         genresContainer.isHidden = chips.isEmpty
         resetGenresScrollPosition()
     }
@@ -1904,9 +1836,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         }
         btn.dashedBorder = isTag
         btn.isSpoilerChip = isSpoiler
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        btn.setContentHuggingPriority(.required, for: .horizontal)
         btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
         return btn
     }
