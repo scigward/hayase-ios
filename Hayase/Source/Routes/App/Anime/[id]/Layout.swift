@@ -2522,16 +2522,14 @@ class AnimeDetailViewController: UIViewController {
         }
 
         headerView.onShare = { [weak self] in
-            guard let self = self else { return }
-            let title = self.animeItem.map { AniListUtil.title(for: $0) }
-                ?? self.animeEntity.map { AniListUtil.title(for: $0) }
-                ?? "Anime"
-            let id = self.animeItem?.id ?? self.animeEntity?.animeAnilistId?.intValue
-            var items: [Any] = [title]
-            if let id = id, let url = URL(string: "https://anilist.co/anime/\(id)") {
+            guard let self = self, let item = self.animeItem else { return }
+            // `native.share({ title: 'Watch on Hayase - …romaji', text: desc(media), url })`
+            var items: [Any] = [item.description?.isEmpty == false ? item.description! : "No description available."]
+            if let url = URL(string: "https://hayase.watch/anime/\(item.id)") {
                 items.append(url)
             }
             let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            activity.setValue("Watch on Hayase - \(item.titleRomaji ?? "")", forKey: "subject")
             activity.popoverPresentationController?.sourceView = self.view
             self.present(activity, animated: true)
         }
