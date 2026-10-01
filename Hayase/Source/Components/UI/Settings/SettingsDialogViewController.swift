@@ -7,7 +7,7 @@ class SettingsDialogViewController: UIViewController {
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
     /// opts into shrink-to-fit. Existing settings dialogs remain full-width.
     var preferredPanelWidth: CGFloat?
-    private let panel = UIView()
+    let panel = UIView()
     private let backdrop = UIControl()
     private let stripedBackdrop = HayaseStripedBackdropView()
     private let heading: String

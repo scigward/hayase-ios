@@ -2682,44 +2682,8 @@ class AnimeDetailViewController: UIViewController {
     }
 
     private func presentTrailerDialog(trailerID: String) {
-        guard let url = URL(string: "https://www.youtube-nocookie.com/embed/\(trailerID)?autoplay=1&rel=0&cc_lang_pref=ja") else { return }
-
-        let dialog = UIViewController()
-        dialog.modalPresentationStyle = .overFullScreen
-        dialog.modalTransitionStyle = .crossDissolve
-        dialog.view.backgroundColor = UIColor.black.withAlphaComponent(0.82)
-
-        let webConfiguration = WKWebViewConfiguration()
-        webConfiguration.allowsInlineMediaPlayback = true
-        if #available(iOS 10.0, *) {
-            webConfiguration.mediaTypesRequiringUserActionForPlayback = []
-        }
-
-        let webView = WKWebView(frame: .zero, configuration: webConfiguration)
-        webView.scrollView.isScrollEnabled = false
-        webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.layer.cornerRadius = 8
-        webView.layer.masksToBounds = true
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        dialog.view.addSubview(webView)
-
-        let width = webView.widthAnchor.constraint(equalTo: dialog.view.widthAnchor, constant: -32)
-        width.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            webView.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
-            webView.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
-            webView.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, constant: -32),
-            webView.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, multiplier: 0.8),
-            webView.heightAnchor.constraint(equalTo: webView.widthAnchor, multiplier: 9.0 / 16.0),
-            width,
-        ])
-
-        let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
-        closeTap.cancelsTouchesInView = false
-        dialog.view.addGestureRecognizer(closeTap)
-        webView.load(URLRequest(url: url))
-        present(dialog, animated: true)
+        let title = animeItem?.titleUserPreferred ?? ""
+        present(TrailerDialogViewController(trailerID: trailerID, title: title), animated: false)
     }
 
     // MARK: - AniList Entry Editor
