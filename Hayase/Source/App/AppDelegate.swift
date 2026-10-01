@@ -18,6 +18,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Hayase is `color-scheme: only dark` — enforce dark mode throughout the app
         window?.overrideUserInterfaceStyle = .dark
         UIScrollView.installInstantTouches()
+        AniListRefocus.shared.start()
+        AniListConnectionStatus.shared.start()
+        _ = AniListOfflineQueue.shared   // the failed mutations of last time go out
         installSidebarShellIfNeeded()
 
         // Configure audio session for playback. This is required for:

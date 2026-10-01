@@ -64,6 +64,18 @@ enum AniListUtil {
         }
     }
 
+    /// util.ts `status(media)`
+    static func status(_ status: String?) -> String {
+        switch status {
+        case "RELEASING": return "Releasing"
+        case "NOT_YET_RELEASED": return "Not Yet Released"
+        case "FINISHED": return "Finished"
+        case "CANCELLED": return "Cancelled"
+        case "HIATUS": return "Hiatus"
+        default: return "N/A"
+        }
+    }
+
     /// util.ts `removeDiacritics`: for some reason diacritics started breaking AL search.
     static func removeDiacritics(_ string: String) -> String {
         var result = ""

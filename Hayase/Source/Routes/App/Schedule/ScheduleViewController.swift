@@ -325,6 +325,8 @@ final class ScheduleViewController: UIViewController {
 
         // Start at current month
         displayedMonth = startOfMonth(for: Date())
+        NotificationCenter.default.addObserver(self, selector: #selector(refocusSchedule),
+                                               name: AniListRefocus.didRefocus, object: nil)
     }
 
     override func viewDidLayoutSubviews() {
@@ -609,6 +611,12 @@ final class ScheduleViewController: UIViewController {
         let comps = cal.dateComponents([.year, .month], from: date)
         let month = ((comps.month ?? 1) - 1) / 3 * 3 + 1
         return cal.date(from: DateComponents(year: comps.year, month: month, day: 1))!
+    }
+
+    /// `refocusExchange`: the schedule asks again when the app comes back after a minute away.
+    @objc private func refocusSchedule() {
+        guard view.window != nil, requestedQuarter != nil else { return }
+        fetchSchedule()
     }
 
     private func fetchScheduleIfQuarterChanged() {

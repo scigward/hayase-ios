@@ -52,6 +52,9 @@ enum AniListRequestError: Error, CustomStringConvertible {
     /// A non-2xx response whose body still carries GraphQL errors, as AniList's 429 and 404 do.
     case graphQLHTTP([String], status: Int, retryAfter: TimeInterval?)
     case invalidJSON
+    /// An answer urql cannot read, a `networkError` with the reason as its message: the text of a
+    /// page, `JSON Parse error: …`, or `No Content`.
+    case responseBody(String)
 
     private var graphQLMessages: [String]? {
         switch self {
@@ -75,7 +78,7 @@ enum AniListRequestError: Error, CustomStringConvertible {
     /// that mentions one of them (case sensitive, like `String.includes`).
     var isRateLimit: Bool {
         switch self {
-        case .network, .httpStatus, .emptyData, .invalidJSON:
+        case .network, .httpStatus, .emptyData, .invalidJSON, .responseBody:
             return true
         case .graphQLHTTP(let messages, let status, _):
             return status == 429 || status == 500 || Self.mentionsRateLimit(messages)
@@ -105,6 +108,8 @@ enum AniListRequestError: Error, CustomStringConvertible {
             return nil
         case .network:
             return "[Network] Load failed"
+        case .responseBody(let message):
+            return "[Network] \(message)"
         case .httpStatus, .invalidJSON:
             return "[Network] JSON Parse error: Unrecognized token '<'"
         case .emptyData:
@@ -142,6 +147,8 @@ enum AniListRequestError: Error, CustomStringConvertible {
             return "AniList GraphQL errors: \(messages.joined(separator: ", "))"
         case .invalidJSON:
             return "AniList returned invalid JSON."
+        case .responseBody(let message):
+            return message
         }
     }
 }
@@ -221,12 +228,17 @@ final class AniListRequestExecutor {
                  authorized: Bool = true,
                  dedupeKey: String? = nil,
                  optimistic: Bool = false,
+                 cacheAndNetwork: Bool = false,
                  completion: @escaping (Result<AniListGraphQLResult, AniListRequestError>) -> Void) -> AniListRequestToken {
         let token = AniListRequestToken()
         let key = dedupeKey ?? makeDedupeKey(query: query, variables: variables, authorized: authorized)
 
         lockQueue.async { [weak self] in
             guard let self else { return }
+            // `requestPolicy: 'cache-and-network'`: what the cache has comes first, then the answer
+            if cacheAndNetwork, !token.isCancelled, let cached = self.cachedGraphQLResult(for: key) {
+                completion(.success(cached))
+            }
             if self.inFlight[key] != nil {
                 self.inFlight[key, default: []].append(CompletionBox(token: token, callback: completion))
                 return
@@ -265,6 +277,18 @@ final class AniListRequestExecutor {
     }
 
     private func perform(_ request: URLRequest, key: String, retry: RetryState) {
+        if request.value(forHTTPHeaderField: "Authorization") != nil, needsRefreshBeforeSending(retry: retry) {
+            refreshAuth(key: key, retry: retry, resume: { [weak self] again in
+                var retried = request
+                if let token = TrackerAccountManager.shared.token(for: .anilist) {
+                    retried.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                self?.perform(retried, key: key, retry: again)
+            }, retryLater: { [weak self] error, state in
+                self?.scheduleRetry(request: request, key: key, retry: state, error: error)
+            })
+            return
+        }
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             let httpResponse = response as? HTTPURLResponse
@@ -272,16 +296,16 @@ final class AniListRequestExecutor {
             self.report(result)
 
             if self.needsReauthentication(result, retry: retry) {
-                self.reauthenticate(key: key, result: result) { [weak self] in
-                    var again = retry
-                    again.reauthenticated = true
+                self.refreshAuth(key: key, retry: retry, resume: { [weak self] again in
                     var retried = request
                     if retried.value(forHTTPHeaderField: "Authorization") != nil,
                        let token = TrackerAccountManager.shared.token(for: .anilist) {
                         retried.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
                     self?.perform(retried, key: key, retry: again)
-                }
+                }, retryLater: { [weak self] error, state in
+                    self?.scheduleRetry(request: request, key: key, retry: state, error: error)
+                })
                 return
             }
             self.clearAuthIfNeeded(for: result)
@@ -323,6 +347,15 @@ final class AniListRequestExecutor {
             finish(key: key, result: .failure(.encodingFailed(nil)))
             return
         }
+        if authorized, needsRefreshBeforeSending(retry: retry) {
+            refreshAuth(key: key, retry: retry, resume: { [weak self] again in
+                self?.perform(query: query, variables: variables, authorized: authorized, key: key, retry: again)
+            }, retryLater: { [weak self] error, state in
+                self?.scheduleRetry(query: query, variables: variables, authorized: authorized,
+                                    key: key, retry: state, error: error)
+            })
+            return
+        }
 
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
@@ -331,11 +364,12 @@ final class AniListRequestExecutor {
             self.report(result)
 
             if self.needsReauthentication(result, retry: retry) {
-                self.reauthenticate(key: key, result: result) { [weak self] in
-                    var again = retry
-                    again.reauthenticated = true
+                self.refreshAuth(key: key, retry: retry, resume: { [weak self] again in
                     self?.perform(query: query, variables: variables, authorized: authorized, key: key, retry: again)
-                }
+                }, retryLater: { [weak self] error, state in
+                    self?.scheduleRetry(query: query, variables: variables, authorized: authorized,
+                                        key: key, retry: state, error: error)
+                })
                 return
             }
             self.clearAuthIfNeeded(for: result)
@@ -495,12 +529,22 @@ final class AniListRequestExecutor {
         if let error { return .failure(.network(error)) }
         let status = response?.statusCode ?? 200
         let isOK = status >= 200 && status < 300
-        let retryAfter = response.flatMap { retryAfter(from: $0) }
+        let retryAfter = response.flatMap { self.retryAfter(from: $0) }
+        // fetch.ts `fetchOperation`: a `text/*` answer that is not JSON is an error whose message is
+        // the text itself, anything else is parsed as JSON
+        let isText = (response?.value(forHTTPHeaderField: "Content-Type") ?? "").range(of: "text/", options: .caseInsensitive) != nil
+        func unreadable(_ data: Data?) -> AniListRequestError {
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            if isText { return .responseBody(text) }
+            if text.isEmpty { return .responseBody("JSON Parse error: Unexpected EOF") }
+            let first = text.first(where: { !$0.isWhitespace }).map(String.init) ?? ""
+            return .responseBody(first.isEmpty ? "JSON Parse error: Unexpected EOF" : "JSON Parse error: Unrecognized token '\(first)'")
+        }
         guard let data, !data.isEmpty else {
-            return .failure(isOK ? .emptyData : .httpStatus(status, retryAfter: retryAfter))
+            return .failure(unreadable(data))
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return .failure(isOK ? .invalidJSON : .httpStatus(status, retryAfter: retryAfter))
+            return .failure(unreadable(data))
         }
         if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
             let messages = errors.compactMap { $0["message"] as? String }
@@ -514,8 +558,9 @@ final class AniListRequestExecutor {
             return .failure(isOK ? .graphQLErrors(graphQLErrors)
                                  : .graphQLHTTP(graphQLErrors, status: status, retryAfter: retryAfter))
         }
-        if !isOK, json["data"] == nil {
-            return .failure(.httpStatus(status, retryAfter: retryAfter))
+        if json["data"] == nil {
+            // makeResult: neither `data` nor `errors`
+            return .failure(.responseBody("No Content"))
         }
         return .success(AniListGraphQLResult(data: data, json: json, response: response))
     }
@@ -585,17 +630,34 @@ final class AniListRequestExecutor {
         }
     }
 
-    /// `refreshAuth`: the authorization runs again, then the request goes out with the new token.
-    private func reauthenticate(key: String,
-                                result: Result<AniListGraphQLResult, AniListRequestError>,
-                                resume: @escaping () -> Void) {
+    /// authExchange `willAuthError`: the token is past its `expires`, so the authorization runs
+    /// before the request goes out.
+    private func needsRefreshBeforeSending(retry: RetryState) -> Bool {
+        guard !retry.reauthenticated else { return false }
+        let accounts = TrackerAccountManager.shared
+        return accounts.token(for: .anilist) != nil && accounts.isTokenExpired(for: .anilist)
+    }
+
+    /// `refreshAuth`: the authorization runs again, then the request goes out with the new token. When
+    /// it fails the request fails with that error, which is retried like any other.
+    private func refreshAuth(key: String,
+                             retry: RetryState,
+                             resume: @escaping (RetryState) -> Void,
+                             retryLater: @escaping (AniListRequestError, RetryState) -> Void) {
         AniListReauth.shared.refresh { [weak self] refreshed in
             guard let self else { return }
-            if refreshed, !self.hasOnlyCancelledCallbacks(for: key) {
-                resume()
+            if self.hasOnlyCancelledCallbacks(for: key) {
+                self.finish(key: key, result: .failure(.cancelled))
+                return
+            }
+            if refreshed {
+                var again = retry
+                again.reauthenticated = true
+                resume(again)
             } else {
-                self.clearAuthIfNeeded(for: result)
-                self.finish(key: key, result: result)
+                let error = AniListRequestError.responseBody("Authentication failed")
+                self.report(.failure(error))
+                retryLater(error, retry)
             }
         }
     }

@@ -142,7 +142,13 @@ final class AniListAuth {
 
 final class AniListTracking {
     static let shared = AniListTracking()
-    private init() {}
+    private init() {
+        // `userlists` is a query the app always has open: `refocusExchange` asks it again too
+        NotificationCenter.default.addObserver(forName: AniListRefocus.didRefocus, object: nil, queue: .main) { [weak self] _ in
+            guard TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+            self?.fetchUserLists(forceRefresh: true) { _ in self?.notifyTrackingDidChange() }
+        }
+    }
 
     private let endpoint = "https://graphql.anilist.co"
 

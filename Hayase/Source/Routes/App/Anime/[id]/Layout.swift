@@ -2031,7 +2031,7 @@ class AnimeDetailViewController: UIViewController {
     var hasCompletedInitialAnimeLayout = false
     var pendingAnimePagePayloadReload = false
     var pendingAnimePagePayloadReloadIncludesHeader = false
-    private var hasStartedInitialAnimeLoads = false
+    var hasStartedInitialAnimeLoads = false
 
     var activeSection: Section = .episodes
     var recommendationComponentMountGeneration: UInt = 0
@@ -2169,6 +2169,8 @@ class AnimeDetailViewController: UIViewController {
         setupTableView()
         setupHeaderView()
         observeAnimeBackdrop()
+        NotificationCenter.default.addObserver(self, selector: #selector(refocusAnimePage),
+                                               name: AniListRefocus.didRefocus, object: nil)
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         applyViewerStateFromRouteMedia()

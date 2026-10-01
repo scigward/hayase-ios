@@ -365,35 +365,29 @@ private final class RelationGraphNodeView: UIControl {
 
     func configure(media: AnimeItem, isCurrent: Bool, accentColor: UIColor) {
         mediaID = media.id
-        let title = AniListUtil.title(for: media)
+        let title = media.titleUserPreferred ?? "TBA"
         let foreground = isCurrent ? accentColor : UIColor(white: 0.92, alpha: 1)
-        titleLabel.text = title.isEmpty ? "TBA" : title
+        titleLabel.text = title
         titleLabel.textColor = foreground
         formatLabel.text = Self.displayFormat(media.format)
-        statusLabel.text = media.episodes.map { "\($0) Episodes" } ?? Self.displayStatus(media.status)
+        statusLabel.text = media.episodes.flatMap { $0 != 0 ? "\($0) Episodes" : nil } ?? Self.displayStatus(media.status)
         formatLabel.textColor = foreground
         statusLabel.textColor = foreground
         layer.borderColor = (isCurrent ? accentColor : UIColor(hex: 0x111111)).cgColor
     }
 
     static func preferredHeight(for media: AnimeItem) -> CGFloat {
-        let title = AniListUtil.title(for: media).isEmpty ? "TBA" : AniListUtil.title(for: media)
+        let title = media.titleUserPreferred ?? "TBA"
         let lineCount = max(1, Int(ceil(Double(title.count) / 20.0)))
         return baseHeight + CGFloat(lineCount) * titleLineHeight
     }
 
     private static func displayFormat(_ value: String?) -> String {
-        guard let value else { return "N/A" }
-        switch value {
-        case "TV": return "TV"
-        case "TV_SHORT": return "TV Short"
-        default: return value.replacingOccurrences(of: "_", with: " ").capitalized
-        }
+        AniListUtil.format(value)
     }
 
     private static func displayStatus(_ value: String?) -> String {
-        guard let value else { return "TBA" }
-        return value.replacingOccurrences(of: "_", with: " ").capitalized
+        AniListUtil.status(value)
     }
 }
 

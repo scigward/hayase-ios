@@ -390,37 +390,27 @@ enum AniListQueries {
           status
           format
           episodes
-          title { userPreferred romaji english native }
-          type
-          coverImage { extraLarge medium color }
-          season
-          seasonYear
+          title { userPreferred }
           relations {
             edges {
               relationType
               node {
+                type
                 id
                 status
                 format
                 episodes
-                title { userPreferred romaji english native }
-                type
-                coverImage { extraLarge medium color }
-                season
-                seasonYear
+                title { userPreferred }
                 relations {
                   edges {
                     relationType
                     node {
+                      type
                       id
                       status
                       format
                       episodes
-                      title { userPreferred romaji english native }
-                      type
-                      coverImage { extraLarge medium color }
-                      season
-                      seasonYear
+                      title { userPreferred }
                     }
                   }
                 }

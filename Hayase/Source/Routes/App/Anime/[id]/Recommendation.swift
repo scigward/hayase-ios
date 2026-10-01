@@ -100,6 +100,12 @@ final class RecommendationGridCell: UITableViewCell {
 // MARK: - AnimeDetailViewController + Recommendations
 
 extension AnimeDetailViewController {
+    /// `refocusExchange`: the page asks again when the app comes back after a minute away.
+    @objc func refocusAnimePage() {
+        guard hasStartedInitialAnimeLoads, tableView?.window != nil else { return }
+        fetchAnimePageData()
+    }
+
     func fetchAnimePageData() {
         guard let id = routeAnimeID, id > 0 else { return }
         let requestID = UUID()
@@ -110,7 +116,7 @@ extension AnimeDetailViewController {
         headerView?.clearFollowingAvatars()
         reloadAnimePagePayloadSections(includeHeader: false)
 
-        AniListClient.shared.fetchAnimePageResult(id: id) { [weak self] result in
+        AniListClient.shared.fetchAnimePageResult(id: id, policy: .cacheAndNetwork) { [weak self] result in
             guard let self,
                   self.routeAnimeID == id,
                   self.animePageRequestID == requestID else { return }

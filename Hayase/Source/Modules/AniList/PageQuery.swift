@@ -32,6 +32,37 @@ final class PageQuery<Value> {
     private var token: AniListRequestToken?
     private var resumeHandler: (() -> AniListRequestToken?)?
     private var hasStarted = false
+    /// Runs the query again (`requestPolicy: 'cache-and-network'`), for `refocusExchange`.
+    private var refetchHandler: (() -> AniListRequestToken?)?
+    private var refocusObserver: NSObjectProtocol?
+
+    init() {
+        refocusObserver = NotificationCenter.default.addObserver(forName: AniListRefocus.didRefocus,
+                                                                  object: nil, queue: .main) { [weak self] _ in
+            self?.refocus()
+        }
+    }
+
+    deinit {
+        if let refocusObserver { NotificationCenter.default.removeObserver(refocusObserver) }
+    }
+
+    func setRefetch(_ handler: @escaping () -> AniListRequestToken?) {
+        queue.async { [weak self] in
+            self?.refetchHandler = handler
+        }
+    }
+
+    /// An operation that has started, that is not paused and that is not waiting for an answer.
+    private func refocus() {
+        let handler = queue.sync { () -> (() -> AniListRequestToken?)? in
+            guard hasStarted, resumeHandler == nil, let refetchHandler else { return nil }
+            if case .fetching = state { return nil }
+            return refetchHandler
+        }
+        guard let handler else { return }
+        _ = handler()
+    }
 
     var currentValue: Value? {
         queue.sync {

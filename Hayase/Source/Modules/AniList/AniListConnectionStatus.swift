@@ -6,7 +6,7 @@
 //  lib/modules/anilist/urql-client.ts, which the Online bar reads.
 //
 
-import Foundation
+import UIKit
 import Network
 
 final class AniListConnectionStatus {
@@ -68,4 +68,29 @@ final class AniListConnectionStatus {
             NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
     }
+}
+
+/// Mirrors: interface urql-client.ts `refocusExchange({ minimumTime: 60_000 })`. When the app is
+/// visible again after at least a minute hidden, every query that is still on screen asks again.
+final class AniListRefocus {
+    static let shared = AniListRefocus()
+    /// Posted on the main queue; whoever holds an active query runs it again.
+    static let didRefocus = Notification.Name("HayaseAniListRefocus")
+
+    private var hiddenAt = Date(timeIntervalSince1970: 0)
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.hiddenAt = Date()
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            guard let self, Date().timeIntervalSince(self.hiddenAt) >= 60 else { return }
+            NotificationCenter.default.post(name: Self.didRefocus, object: nil)
+        }
+    }
+
+    /// Starts listening, so the first time the app is hidden is known.
+    func start() {}
 }

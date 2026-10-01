@@ -351,6 +351,9 @@ public final class AniListClient: NSObject {
             }
         }
         query?.attach(token)
+        query?.setRefetch { [weak self] in
+            self?.fetchBannerItemsResult(policy: .networkOnly, query: query, completion: completion)
+        }
         return token
     }
 
@@ -462,6 +465,9 @@ public final class AniListClient: NSObject {
             }
         }
         query?.attach(token)
+        query?.setRefetch { [weak self] in
+            self?.fetchHomeSectionResult(definition: definition, policy: .networkOnly, query: query, completion: completion)
+        }
         return token
     }
 
@@ -863,6 +869,14 @@ public final class AniListClient: NSObject {
             }
         }
         query?.attach(token)
+        // the pages after the first are appended by the page, only the first one is asked again
+        if (page ?? 1) == 1 { query?.setRefetch { [weak self] in
+            self?.searchAnimeItemsPage(title: title, genres: genres, tags: tags, formats: formats,
+                                       statuses: statuses, statusNot: statusNot, sort: sort,
+                                       seasonYear: seasonYear, season: season, isAdult: isAdult,
+                                       onList: onList, ids: ids, perPage: perPage, page: page,
+                                       policy: .networkOnly, query: query, completion: completion)
+        } }
         return token
     }
 
@@ -1344,7 +1358,10 @@ public final class AniListClient: NSObject {
 
     // MARK: - Anime page (anime/[id])
 
+    /// `cacheAndNetwork` is `client.animePage`'s `requestPolicy`: what is known comes first, the answer
+    /// of the network follows, so `completion` can run twice.
     func fetchAnimePageResult(id: Int,
+                              policy: AniListRequestPolicy = .cacheFirst,
                               completion: @escaping (Result<AnimePagePayload, AniListRequestError>) -> Void) {
         let cacheKey = animePageCacheKey(for: id)
         var cached: AnimePagePayload?
@@ -1352,7 +1369,7 @@ public final class AniListClient: NSObject {
 
         animePageQueue.sync {
             cached = animePageCache[cacheKey]
-            if cached == nil {
+            if cached == nil || policy == .cacheAndNetwork || policy == .networkOnly {
                 if animePageCompletions[cacheKey] != nil {
                     animePageCompletions[cacheKey]?.append(completion)
                 } else {
@@ -1362,9 +1379,9 @@ public final class AniListClient: NSObject {
             }
         }
 
-        if let cached = cached {
+        if let cached = cached, policy != .networkOnly {
             deliverAnimePagePayload(.success(cached), completion: completion)
-            return
+            if policy != .cacheAndNetwork { return }
         }
         if shouldStartRequest {
             fetchAnimePageFromNetwork(id, cacheKey: cacheKey)
@@ -1684,6 +1701,8 @@ public final class AniListClient: NSObject {
         if let type = mediaObject["type"] as? String, type != "ANIME" { return }
         guard let media = parseAnimeItem(from: mediaObject) else { return }
 
+        // client.ts `processEdges`: only a media that is not in the graph yet can be the end of it
+        let isNew = graph.nodes[media.id] == nil
         if let existing = graph.nodes[media.id] {
             graph.nodes[media.id] = existing.mergingRouteMedia(media)
         } else {
@@ -1691,7 +1710,7 @@ public final class AniListClient: NSObject {
         }
 
         if depth >= 2 {
-            if !expandedIDs.contains(media.id) {
+            if isNew, !expandedIDs.contains(media.id) {
                 graph.boundaryIDs.insert(media.id)
             }
             return
@@ -1705,18 +1724,11 @@ public final class AniListClient: NSObject {
             if let nodeType = nodeObject["type"] as? String, nodeType != "ANIME" { continue }
             guard let node = parseAnimeItem(from: nodeObject) else { continue }
 
-            if let existing = graph.nodes[node.id] {
-                graph.nodes[node.id] = existing.mergingRouteMedia(node)
-            } else {
-                graph.nodes[node.id] = node
-            }
-
             let edgeID = relationEdgeKey(media.id, node.id)
             if let existing = graph.edges[edgeID] {
                 if existing.relationType == "PARENT" {
                     graph.edges.removeValue(forKey: edgeID)
                 } else {
-                    mergeRelationMedia(nodeObject, into: &graph, depth: depth + 1, expandedIDs: expandedIDs)
                     continue
                 }
             }
@@ -1791,7 +1803,8 @@ public final class AniListClient: NSObject {
         return requestExecutor.execute(query: AniListQueries.threads,
                                        variables: variables,
                                        authorized: true,
-                                       dedupeKey: cacheKey(prefix: "threads", variables: variables)) { result in
+                                       dedupeKey: cacheKey(prefix: "threads", variables: variables),
+                                       cacheAndNetwork: true) { result in
             switch result {
             case .success(let graphQLResult):
                 guard let data = graphQLResult.json["data"] as? [String: Any],
@@ -1842,7 +1855,8 @@ public final class AniListClient: NSObject {
         return requestExecutor.execute(query: AniListQueries.schedule,
                                        variables: variables,
                                        authorized: true,
-                                       dedupeKey: cacheKey(prefix: "schedule", variables: variables)) { [weak self] result in
+                                       dedupeKey: cacheKey(prefix: "schedule", variables: variables),
+                                       cacheAndNetwork: true) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let graphQLResult):
