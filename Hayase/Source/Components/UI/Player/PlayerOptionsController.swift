@@ -15,13 +15,15 @@ import UIKit
 /// Represents a single item in the tree menu.
 /// Mirrors the web interface's `<Tree.Item>` component.
 private enum OptionItem {
-    /// An item with children (shows chevron, drills down on tap).
+    /// An item with children (opens an adjacent Tree.Sub panel).
     case expandable(title: String, children: [OptionItem])
-    /// A selectable leaf item (shows active dot, fires action).
+    /// A selectable leaf item (primary background when active).
     case selectable(title: String, isActive: Bool, action: () -> Void)
     /// A plain action item (no active state).
     case action(title: String, action: () -> Void)
-    /// A toggle item (shows active dot, toggles on tap).
+    case chapter(title: String, time: String, action: () -> Void)
+    case playlist(title: String, action: () -> Void)
+    /// A toggle item (primary background when active).
     case toggle(title: String, isActive: Bool, action: () -> Void)
     /// Inline subtitle delay input row.
     case subtitleDelay
@@ -179,9 +181,11 @@ final class PlayerOptionsController: UIViewController {
     var onTogglePiP: (() -> Void)?
     var onToggleFullscreen: (() -> Void)?
     var onScreenshot: (() -> Void)?
+    var onAddSubtitleFile: (() -> Void)?
     var onSubtitleDelayChanged: ((Double) -> Void)?
     var onSelectDisplay: ((WebTorrentDisplay) -> Void)?
     var onDismiss: (() -> Void)?
+    var onKeybindAction: ((String, Bool) -> Void)?
 
     // MARK: - Input data
 
@@ -201,32 +205,45 @@ final class PlayerOptionsController: UIViewController {
     /// only appears at all once at least one display has been found.
     var displays: [WebTorrentDisplay] = []
 
-    // MARK: - UI
+    // MARK: - Tree presentation: Tree.Root / Menu / Sub at every viewport width.
 
-    /// The dark rounded menu container — matches `menu.svelte`:
-    /// `w-64 bg-black rounded-md border p-1 shadow-md`
-    private let containerView = UIView()
-    private let tableView = UITableView(frame: .zero, style: .plain)
-    private let wideTreeView = UIView()
+    private let treeScrollView = UIScrollView()
+    private let treeCanvas = UIView()
     private let stripedBackdropView = HayaseStripedBackdropView()
-
-    /// Navigation stack for drill-down. Each entry is (title, items).
+    private let closeButton = HayaseCloseButton()
+    private let keybindsView = PlayerKeybindsView()
+    private var showKeybinds = false
     private var navigationStack: [(title: String?, items: [OptionItem])] = []
-
-    /// Width of the menu container (web: w-64 = 16rem ≈ 256px).
-    private let menuWidth: CGFloat = 256
-
-    /// Dynamic height constraint — updated whenever menu content changes.
-    private var containerHeightConstraint: NSLayoutConstraint?
-    private var wideTreeWidthConstraint: NSLayoutConstraint?
-    private var wideTreeHeightConstraint: NSLayoutConstraint?
-    private var wideTableLevels: [ObjectIdentifier: Int] = [:]
     private var activeIndices: [Int] = []
-    private var isUsingWideTree = false
-    /// Maximum height for the menu container.
-    private var maxMenuHeight: CGFloat = 500
+    private var menuViews: [UIView] = []
+    private var menuTables: [UITableView] = []
+    private var tableLevels: [ObjectIdentifier: Int] = [:]
+    private let menuWidth: CGFloat = 256
+    private var lastLayoutSize: CGSize = .zero
 
-    // MARK: - Lifecycle
+    func preparePresentation() {
+        modalPresentationStyle = .custom
+        transitioningDelegate = self
+    }
+
+    func openRootMenu(named title: String) {
+        loadViewIfNeeded()
+        guard let row = navigationStack[0].items.firstIndex(where: {
+            if case .expandable(let name, _) = $0 { return name == title }
+            return false
+        }), case .expandable(_, let children) = navigationStack[0].items[row] else { return }
+        showKeybinds = false
+        openLevel(from: 0, row: row, title: title, children: children)
+    }
+
+    func setTransitionProgress(_ shown: Bool) {
+        treeScrollView.alpha = shown ? 1 : 0
+        closeButton.alpha = shown ? 1 : 0
+        treeScrollView.transform = shown ? .identity
+            : CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+    }
+
+    func setBackdropVisible(_ shown: Bool) { stripedBackdropView.alpha = shown ? 1 : 0 }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -235,93 +252,234 @@ final class PlayerOptionsController: UIViewController {
         stripedBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         stripedBackdropView.isUserInteractionEnabled = false
         view.addSubview(stripedBackdropView)
-
-        // Tap-to-dismiss background (matches options.svelte on:pointerdown|self={close})
-        let tapBG = UITapGestureRecognizer(target: self, action: #selector(dismissSelf))
-        tapBG.cancelsTouchesInView = false
-        tapBG.delegate = self
-        view.addGestureRecognizer(tapBG)
-
-        setupContainer()
-        setupTableView()
-
-        // Build root menu and push it
-        let root = buildRootMenu()
-        navigationStack = [(title: nil, items: root)]
-        reloadCurrentPresentation()
+        treeScrollView.frame = view.bounds
+        treeScrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        treeScrollView.showsVerticalScrollIndicator = false
+        treeScrollView.contentInsetAdjustmentBehavior = .never
+        view.addSubview(treeScrollView)
+        treeScrollView.addSubview(treeCanvas)
+        keybindsView.frame = treeScrollView.bounds
+        keybindsView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        keybindsView.isHidden = true
+        keybindsView.onAction = { [weak self] id, shift in self?.onKeybindAction?(id, shift) }
+        treeScrollView.addSubview(keybindsView)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.addTarget(self, action: #selector(dismissSelf), for: .touchUpInside)
+        view.addSubview(closeButton)
+        NSLayoutConstraint.activate([
+            closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+        let tap = UITapGestureRecognizer(target: self, action: #selector(closeOutside))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        view.addGestureRecognizer(tap)
+        navigationStack = [(title: nil, items: buildRootMenu())]
+        reloadTree(animated: false)
     }
 
     override var prefersStatusBarHidden: Bool { true }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        presentingViewController?.supportedInterfaceOrientations ?? .allButUpsideDown
+    }
+    override var shouldAutorotate: Bool { presentingViewController?.shouldAutorotate ?? true }
+    override var canBecomeFirstResponder: Bool { true }
+    override var keyCommands: [UIKeyCommand]? {
+        PlayerKeyBindings.isEditing(in: viewIfLoaded) ? nil : PlayerKeyBindings.commands(action: #selector(runKeybind(_:)))
+    }
+    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); becomeFirstResponder() }
+    @objc private func runKeybind(_ command: UIKeyCommand) {
+        guard let binding = PlayerKeyBindings.binding(for: command) else { return }
+        onKeybindAction?(binding.id, command.modifierFlags.contains(.shift))
+    }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if isUsingWideTree != shouldUseWideTree {
-            reloadCurrentPresentation()
+        guard lastLayoutSize != view.bounds.size else { return }
+        lastLayoutSize = view.bounds.size
+        layoutTree(animated: false)
+    }
+
+    private func items(for table: UITableView) -> [OptionItem] {
+        guard let level = tableLevels[ObjectIdentifier(table)],
+              navigationStack.indices.contains(level) else { return [] }
+        return navigationStack[level].items
+    }
+
+    private func makeMenu() -> UIView {
+        let menu = UIView()
+        menu.backgroundColor = UIColor.HayaseTheme.background
+        menu.layer.cornerRadius = 6
+        menu.layer.borderWidth = 1
+        menu.layer.borderColor = UIColor.HayaseTheme.border.cgColor
+        menu.layer.shadowColor = UIColor.black.cgColor
+        menu.layer.shadowOpacity = 0.1
+        menu.layer.shadowRadius = 6
+        menu.layer.shadowOffset = CGSize(width: 0, height: 4)
+        return menu
+    }
+
+    private func reloadTree(animated: Bool) {
+        while menuViews.count > navigationStack.count {
+            menuViews.removeLast().removeFromSuperview()
+            tableLevels.removeValue(forKey: ObjectIdentifier(menuTables.removeLast()))
+        }
+        while menuViews.count < navigationStack.count {
+            let menu = makeMenu()
+            let table = UITableView(frame: .zero, style: .plain)
+            table.backgroundColor = .clear
+            table.separatorStyle = .none
+            table.showsVerticalScrollIndicator = false
+            table.contentInsetAdjustmentBehavior = .never
+            table.dataSource = self
+            table.delegate = self
+            table.isScrollEnabled = false
+            table.estimatedRowHeight = 0
+            table.register(PlayerOptionCell.self, forCellReuseIdentifier: PlayerOptionCell.reuseID)
+            table.register(PlayerSubtitleDelayCell.self, forCellReuseIdentifier: PlayerSubtitleDelayCell.reuseID)
+            menu.addSubview(table)
+            treeCanvas.addSubview(menu)
+            tableLevels[ObjectIdentifier(table)] = menuTables.count
+            menuViews.append(menu)
+            menuTables.append(table)
+        }
+        for (level, table) in menuTables.enumerated() {
+            // Tree.Item wraps its data-open button in a div. Consequently the
+            // source Menu's direct-child :has(>[data-open=true]) does not match;
+            // its background stays opaque while the buttons themselves dim.
+            menuViews[level].backgroundColor = UIColor.HayaseTheme.background
+            table.reloadData()
+        }
+        layoutTree(animated: animated)
+    }
+
+    private func layoutTree(animated: Bool) {
+        guard !menuViews.isEmpty, view.bounds.width > 0 else { return }
+        if showKeybinds {
+            treeCanvas.isHidden = true
+            keybindsView.isHidden = false
+            keybindsView.frame = CGRect(origin: .zero, size: treeScrollView.bounds.size)
+            treeScrollView.contentSize = treeScrollView.bounds.size
+            treeScrollView.contentOffset = .zero
+            return
+        }
+        treeCanvas.isHidden = false
+        keybindsView.isHidden = true
+        let gap: CGFloat = 8
+        let widths = navigationStack.map { menuWidth(for: $0.items) }
+        let rows = navigationStack.enumerated().map { level, menu in
+            menu.items.map { rowHeight(for: $0, width: widths[level]) }
+        }
+        let heights = rows.map { $0.reduce(0, +) + 10 }
+        var offsets = Array(repeating: CGFloat(0), count: navigationStack.count)
+        for level in 1..<navigationStack.count {
+            // border + p-1 = 5; Tree.Sub top=-5, cancel at the parent row.
+            offsets[level] = offsets[level - 1] + rows[level - 1].prefix(activeIndices[level - 1]).reduce(0, +)
+        }
+        let extent = zip(offsets, heights).map { $0.0 + $0.1 }.max() ?? heights[0]
+        let canvasHeight = max(view.bounds.height, extent)
+        let originY = min(max(0, (view.bounds.height - heights[0]) / 2), canvasHeight - extent)
+        treeCanvas.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: canvasHeight)
+        treeScrollView.contentSize = treeCanvas.bounds.size
+        // Tree.Root margin-left=-state.length*528 in a centered flex row:
+        // root moves left by 264 per level, centering the newest submenu.
+        let rootX = (view.bounds.width - menuWidth) / 2 - CGFloat(activeIndices.count) * (menuWidth + gap)
+        var frames: [CGRect] = []
+        var x = rootX
+        for level in menuViews.indices {
+            frames.append(CGRect(x: x, y: originY + offsets[level], width: widths[level], height: heights[level]))
+            x += widths[level] + gap
+        }
+        // Tree.Sub appears at its full size immediately; only the existing root's
+        // margin-left transitions. Do not grow a new panel from CGRect.zero.
+        for level in menuViews.indices where menuViews[level].bounds.isEmpty {
+            menuViews[level].frame = frames[level].offsetBy(dx: animated ? menuWidth + gap : 0, dy: 0)
+            menuTables[level].frame = menuViews[level].bounds.insetBy(dx: 5, dy: 5)
+        }
+        let changes = {
+            for level in self.menuViews.indices {
+                self.menuViews[level].frame = frames[level]
+                self.menuTables[level].frame = self.menuViews[level].bounds.insetBy(dx: 5, dy: 5)
+            }
+        }
+        if animated {
+            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState],
+                           animations: changes)
+        } else { changes() }
+    }
+
+    private func menuWidth(for items: [OptionItem]) -> CGFloat {
+        guard let first = items.first, case .playlist = first else { return menuWidth }
+        // Tree.Sub w-auto max-w-xl: nowrap filenames set the intrinsic width.
+        let font = UIFont.nunito(ofSize: 12, weight: .bold)
+        let widest = items.compactMap { item -> CGFloat? in
+            guard case .playlist(let title, _) = item else { return nil }
+            return ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        }.max() ?? 0
+        return min(576, max(26, widest + 26)) // menu border/padding 10 + item pl-4 16
+    }
+
+    private func rowHeight(for item: OptionItem, width: CGFloat) -> CGFloat {
+        let title: String
+        var trailing: CGFloat = 0
+        var minimumLineHeight: CGFloat = 14
+        switch item {
+        case .subtitleDelay: return 36
+        case .playlist: return 40 // text-xs leading-4 + py-2.5 + my-0.5
+        case .expandable(let text, _): title = text; trailing = 32; minimumLineHeight = 16
+        case .chapter(let text, let time, _):
+            title = text
+            trailing = ceil((time as NSString).size(withAttributes: [.font: UIFont.nunito(ofSize: 14, weight: .bold)]).width) + 16
+        case .action(let text, _), .selectable(let text, _, _), .toggle(let text, _, _): title = text
+        }
+        let font = UIFont.nunito(ofSize: 14, weight: .bold)
+        let textHeight = (title as NSString).boundingRect(
+            with: CGSize(width: max(1, width - 26 - trailing), height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin], attributes: [.font: font], context: nil).height
+        let lines = max(1, ceil(textHeight / font.lineHeight))
+        return max(minimumLineHeight, lines * 14) + 24
+    }
+
+    private func openLevel(from level: Int, row: Int, title: String, children: [OptionItem]) {
+        navigationStack = Array(navigationStack.prefix(level + 1))
+        activeIndices = Array(activeIndices.prefix(level))
+        activeIndices.append(row)
+        navigationStack.append((title: title, items: children))
+        reloadTree(animated: true)
+    }
+
+    private func collapseLevel(_ level: Int) {
+        navigationStack = Array(navigationStack.prefix(level + 1))
+        activeIndices = Array(activeIndices.prefix(level))
+        reloadTree(animated: true)
+    }
+
+    private func rebuildAndReload() {
+        navigationStack[0] = (title: nil, items: buildRootMenu())
+        reloadTree(animated: false)
+    }
+
+    @objc private func dismissSelf() { dismissWithCompletion(nil) }
+    @objc private func closeOutside() {
+        if showKeybinds { showKeybinds = false; layoutTree(animated: false) }
+        else { dismissSelf() }
+    }
+
+    private func dismissWithCompletion(_ completion: (() -> Void)?) {
+        let dismissed = onDismiss
+        dismiss(animated: true) {
+            dismissed?()
+            completion?()
         }
     }
 
-    // MARK: - Container setup
-
-    private func setupContainer() {
-        // menu.svelte: bg-black rounded-md border p-1 shadow-md
-        containerView.backgroundColor = UIColor.HayaseTheme.background
-        containerView.layer.cornerRadius = 6
-        containerView.layer.borderWidth = 1
-        containerView.layer.borderColor = UIColor.HayaseTheme.border.cgColor
-        containerView.layer.shadowColor = UIColor.black.cgColor
-        containerView.layer.shadowOpacity = 0.22
-        containerView.layer.shadowRadius = 6
-        containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
-        containerView.clipsToBounds = false
-        containerView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(containerView)
-
-        wideTreeView.backgroundColor = .clear
-        wideTreeView.clipsToBounds = false
-        wideTreeView.translatesAutoresizingMaskIntoConstraints = false
-        wideTreeView.isHidden = true
-        view.addSubview(wideTreeView)
-
-        maxMenuHeight = min(view.bounds.height * 0.75, 500)
-        let heightConstraint = containerView.heightAnchor.constraint(equalToConstant: maxMenuHeight)
-        let wideWidthConstraint = wideTreeView.widthAnchor.constraint(equalToConstant: menuWidth)
-        let wideHeightConstraint = wideTreeView.heightAnchor.constraint(equalToConstant: maxMenuHeight)
-        containerHeightConstraint = heightConstraint
-        wideTreeWidthConstraint = wideWidthConstraint
-        wideTreeHeightConstraint = wideHeightConstraint
-
-        NSLayoutConstraint.activate([
-            containerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            containerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            containerView.widthAnchor.constraint(equalToConstant: menuWidth),
-            heightConstraint,
-
-            wideTreeView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            wideTreeView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            wideWidthConstraint,
-            wideHeightConstraint,
-        ])
-    }
-
-    private func setupTableView() {
-        tableView.backgroundColor = .clear
-        tableView.separatorStyle = .none
-        tableView.showsVerticalScrollIndicator = false
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.register(TreeItemCell.self, forCellReuseIdentifier: TreeItemCell.reuseID)
-        tableView.register(SubtitleDelayCell.self, forCellReuseIdentifier: SubtitleDelayCell.reuseID)
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 40
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(tableView)
-
-        NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
-            tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 4),
-            tableView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -4),
-            tableView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -4),
-        ])
+    private func formatTime(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds))
+        return total >= 3600
+            ? String(format: "%d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60)
+            : String(format: "%d:%02d", total / 60, total % 60)
     }
 
     // MARK: - Menu building
@@ -386,6 +544,11 @@ final class PlayerOptionsController: UIViewController {
                 subChildren.append(.expandable(title: langTitle, children: trackItems))
             }
 
+            if onAddSubtitleFile != nil {
+                subChildren.append(.action(title: "Add Subtitle File") { [weak self] in
+                    self?.dismissWithCompletion(self?.onAddSubtitleFile)
+                })
+            }
             if onSubtitleDelayChanged != nil {
                 subChildren.append(.subtitleDelay)
             }
@@ -397,7 +560,7 @@ final class PlayerOptionsController: UIViewController {
             let chapterItems: [OptionItem] = chapters.map { ch in
                 let ts = formatTime(ch.time)
                 let title = ch.title.isEmpty ? "?" : ch.title
-                return .action(title: "\(title)  \(ts)") { [weak self] in
+                return .chapter(title: title.capitalized, time: ts) { [weak self] in
                     self?.onSeekTo?(ch.time)
                     self?.dismissSelf()
                 }
@@ -419,12 +582,12 @@ final class PlayerOptionsController: UIViewController {
         items.append(.expandable(title: "Playback Rate", children: speedItems))
 
         // Playlist (options.svelte: videoFiles — no active highlight in web)
-        if !allVideos.isEmpty {
+        do {
             let playlistItems: [OptionItem] = allVideos.map { video in
                 let name = video.videoName
                     ?? video.videoPath?.components(separatedBy: "/").last
                     ?? "Video"
-                return .action(title: name) { [weak self] in
+                return .playlist(title: name) { [weak self] in
                     self?.onSwitchVideo?(video)
                 }
             }
@@ -453,9 +616,9 @@ final class PlayerOptionsController: UIViewController {
 
         // Fullscreen (options.svelte: Fullscreen tree item)
         items.append(.toggle(title: "Fullscreen", isActive: isFullscreenActive) { [weak self] in
-            self?.dismissWithCompletion { [weak self] in
-                self?.onToggleFullscreen?()
-            }
+            self?.onToggleFullscreen?()
+            self?.isFullscreenActive.toggle()
+            self?.rebuildAndReload()
         })
 
         // Picture in Picture (options.svelte: toggle)
@@ -471,285 +634,31 @@ final class PlayerOptionsController: UIViewController {
             self?.rebuildAndReload()
         })
 
+        items.append(.action(title: "Keybinds") { [weak self] in
+            self?.showKeybinds = true
+            self?.keybindsView.refresh()
+            self?.layoutTree(animated: false)
+        })
+
         return items
     }
 
-    // MARK: - Navigation
-
-    private var shouldUseWideTree: Bool {
-        view.bounds.width >= 700 || traitCollection.horizontalSizeClass == .regular
-    }
-
-    private var currentItems: [OptionItem] {
-        navigationStack.last?.items ?? []
-    }
-
-    private func items(for tableView: UITableView) -> [OptionItem] {
-        if tableView === self.tableView { return currentItems }
-        let level = wideTableLevels[ObjectIdentifier(tableView)] ?? 0
-        guard navigationStack.indices.contains(level) else { return [] }
-        return navigationStack[level].items
-    }
-
-    private func reloadCurrentPresentation() {
-        isUsingWideTree = shouldUseWideTree
-        containerView.isHidden = isUsingWideTree
-        wideTreeView.isHidden = !isUsingWideTree
-        if isUsingWideTree {
-            reloadWideTree(animated: false)
-        } else {
-            tableView.reloadData()
-            updateContainerHeight()
-        }
-    }
-
-    private func pushLevel(title: String, items: [OptionItem]) {
-        navigationStack.append((title: title, items: items))
-        animateTransition(forward: true)
-    }
-
-    private func popLevel() {
-        guard navigationStack.count > 1 else { return }
-        navigationStack.removeLast()
-        animateTransition(forward: false)
-    }
-
-    private func openWideLevel(from level: Int, row: Int, title: String, items: [OptionItem]) {
-        navigationStack = Array(navigationStack.prefix(level + 1))
-        navigationStack.append((title: title, items: items))
-        activeIndices = Array(activeIndices.prefix(level))
-        activeIndices.append(row)
-        reloadWideTree(animated: true)
-    }
-
-    private func collapseWideLevel(_ level: Int) {
-        navigationStack = Array(navigationStack.prefix(level + 1))
-        activeIndices = Array(activeIndices.prefix(level))
-        reloadWideTree(animated: true)
-    }
-
-    private func animateTransition(forward: Bool) {
-        let direction: CGFloat = forward ? -1 : 1
-        let snapshot = tableView.snapshotView(afterScreenUpdates: false)
-        if let snap = snapshot {
-            snap.frame = tableView.frame
-            containerView.addSubview(snap)
-        }
-        tableView.reloadData()
-        updateContainerHeight()
-        tableView.transform = CGAffineTransform(translationX: -direction * menuWidth, y: 0)
-        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
-            self.tableView.transform = .identity
-            snapshot?.transform = CGAffineTransform(translationX: direction * self.menuWidth, y: 0)
-            snapshot?.alpha = 0
-            self.view.layoutIfNeeded()
-        } completion: { _ in
-            snapshot?.removeFromSuperview()
-        }
-    }
-
-    /// Recalculates the compact menu height to fit the table content,
-    /// capped at `maxMenuHeight`. Called after every table reload.
-    private func updateContainerHeight() {
-        tableView.layoutIfNeeded()
-        let contentH = tableView.contentSize.height + 8 // 4pt padding top + bottom
-        let clamped = min(contentH, maxMenuHeight)
-        containerHeightConstraint?.constant = max(clamped, 48) // minimum reasonable height
-    }
-
-    private func reloadWideTree(animated: Bool = false) {
-        let oldSnapshot = animated ? wideTreeView.snapshotView(afterScreenUpdates: false) : nil
-        oldSnapshot?.frame = wideTreeView.bounds
-
-        wideTreeView.subviews.forEach { $0.removeFromSuperview() }
-        wideTableLevels.removeAll()
-
-        let columnGap: CGFloat = 8
-        let rowHeight: CGFloat = 40
-        let submenuYOffset: CGFloat = -5
-
-        let columnHeights = navigationStack.map { columnHeight(for: $0.items) }
-        let totalWidth = CGFloat(navigationStack.count) * menuWidth + CGFloat(max(0, navigationStack.count - 1)) * columnGap
-        wideTreeWidthConstraint?.constant = totalWidth
-        wideTreeHeightConstraint?.constant = maxMenuHeight
-
-        let rootTop = max((maxMenuHeight - (columnHeights.first ?? 48)) / 2, 0)
-        var yOffsets = Array(repeating: rootTop, count: navigationStack.count)
-        if navigationStack.count > 1 {
-            for level in 1..<navigationStack.count {
-                let parentRow = CGFloat(activeIndices[safe: level - 1] ?? 0)
-                yOffsets[level] = yOffsets[level - 1] + parentRow * rowHeight + submenuYOffset
-            }
-        }
-
-        var newMenus: [UIView] = []
-        for level in navigationStack.indices {
-            let menu = makeMenuContainer()
-            let table = makeColumnTableView(level: level)
-            menu.addSubview(table)
-            wideTreeView.addSubview(menu)
-            newMenus.append(menu)
-
-            let x = CGFloat(level) * (menuWidth + columnGap)
-            NSLayoutConstraint.activate([
-                menu.leadingAnchor.constraint(equalTo: wideTreeView.leadingAnchor, constant: x),
-                menu.topAnchor.constraint(equalTo: wideTreeView.topAnchor, constant: yOffsets[level]),
-                menu.widthAnchor.constraint(equalToConstant: menuWidth),
-                menu.heightAnchor.constraint(equalToConstant: columnHeights[level]),
-
-                table.topAnchor.constraint(equalTo: menu.topAnchor, constant: 4),
-                table.leadingAnchor.constraint(equalTo: menu.leadingAnchor, constant: 4),
-                table.trailingAnchor.constraint(equalTo: menu.trailingAnchor, constant: -4),
-                table.bottomAnchor.constraint(equalTo: menu.bottomAnchor, constant: -4),
-            ])
-        }
-
-        view.layoutIfNeeded()
-
-        guard animated, let oldSnapshot else { return }
-        wideTreeView.addSubview(oldSnapshot)
-        newMenus.forEach {
-            $0.alpha = 0
-            $0.transform = CGAffineTransform(translationX: 12, y: 0)
-        }
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            oldSnapshot.alpha = 0
-            newMenus.forEach {
-                $0.alpha = 1
-                $0.transform = .identity
-            }
-        } completion: { _ in
-            oldSnapshot.removeFromSuperview()
-        }
-    }
-
-    private func columnHeight(for items: [OptionItem]) -> CGFloat {
-        min(max(CGFloat(items.count) * 40 + 8, 48), maxMenuHeight)
-    }
-
-    private func makeMenuContainer() -> UIView {
-        let menu = UIView()
-        menu.backgroundColor = UIColor.HayaseTheme.background
-        menu.layer.cornerRadius = 6
-        menu.layer.borderWidth = 1
-        menu.layer.borderColor = UIColor.HayaseTheme.border.cgColor
-        menu.layer.shadowColor = UIColor.black.cgColor
-        menu.layer.shadowOpacity = 0.22
-        menu.layer.shadowRadius = 6
-        menu.layer.shadowOffset = CGSize(width: 0, height: 4)
-        menu.clipsToBounds = false
-        menu.translatesAutoresizingMaskIntoConstraints = false
-        return menu
-    }
-
-    private func makeColumnTableView(level: Int) -> UITableView {
-        let table = UITableView(frame: .zero, style: .plain)
-        table.backgroundColor = .clear
-        table.separatorStyle = .none
-        table.showsVerticalScrollIndicator = false
-        table.dataSource = self
-        table.delegate = self
-        table.register(TreeItemCell.self, forCellReuseIdentifier: TreeItemCell.reuseID)
-        table.register(SubtitleDelayCell.self, forCellReuseIdentifier: SubtitleDelayCell.reuseID)
-        table.rowHeight = UITableView.automaticDimension
-        table.estimatedRowHeight = 40
-        table.translatesAutoresizingMaskIntoConstraints = false
-        wideTableLevels[ObjectIdentifier(table)] = level
-        return table
-    }
-
-    /// Rebuilds the root menu and reloads the current presentation.
-    /// Used for in-place state updates (e.g., Deband toggle) without dismissing.
-    private func rebuildAndReload() {
-        let root = buildRootMenu()
-        if !navigationStack.isEmpty {
-            navigationStack[0] = (title: nil, items: root)
-        }
-        reloadCurrentPresentation()
-    }
-
-    // MARK: - Helpers
-
-    @objc private func dismissSelf() {
-        dismissWithCompletion(nil)
-    }
-
-    private func dismissWithCompletion(_ completion: (() -> Void)?) {
-        dismiss(animated: true) { [weak self] in
-            self?.onDismiss?()
-            completion?()
-        }
-    }
-
-    private func formatTime(_ seconds: Double) -> String {
-        let total = Int(max(0, seconds))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        }
-        return String(format: "%d:%02d", m, s)
-    }
 }
 
-// MARK: - UITableViewDataSource / UITableViewDelegate
+extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items(for: tableView).count }
 
-extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
-
-    func numberOfSections(in tableView: UITableView) -> Int { 1 }
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if tableView === self.tableView {
-            // +1 for back button when compact navigation is in a sub-level.
-            let extra = navigationStack.count > 1 ? 1 : 0
-            return currentItems.count + extra
-        }
-        return items(for: tableView).count
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        let rows = items(for: tableView)
+        return rowHeight(for: rows[indexPath.row], width: menuWidth(for: rows))
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let isCompactTable = tableView === self.tableView
-        let level = wideTableLevels[ObjectIdentifier(tableView)] ?? navigationStack.count - 1
-
-        // Back button row in compact mode only. Wide mode mirrors Tree.Sub panels.
-        if isCompactTable && navigationStack.count > 1 && indexPath.row == 0 {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            let title = navigationStack.last?.title ?? "Back"
-            cell.configure(title: "← \(title)", isActive: false, hasChevron: false, isBackRow: true)
-            return cell
-        }
-
-        let itemIndex = isCompactTable && navigationStack.count > 1 ? indexPath.row - 1 : indexPath.row
-        let tableItems = items(for: tableView)
-        guard itemIndex >= 0, itemIndex < tableItems.count else { return UITableViewCell() }
-        let item = tableItems[itemIndex]
-        let activeRow = isCompactTable ? nil : activeIndices[safe: level]
-        let hasOpenChild = activeRow != nil
-
-        switch item {
-        case .expandable(let title, _):
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: activeRow == itemIndex, hasChevron: true, isBackRow: false, isDimmed: hasOpenChild)
-            return cell
-
-        case .selectable(let title, let isActive, _):
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: isActive, hasChevron: false, isBackRow: false, isDimmed: hasOpenChild)
-            return cell
-
-        case .action(let title, _):
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: false, hasChevron: false, isBackRow: false, isDimmed: hasOpenChild)
-            return cell
-
-        case .toggle(let title, let isActive, _):
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TreeItemCell.reuseID, for: indexPath) as? TreeItemCell else { return UITableViewCell() }
-            cell.configure(title: title, isActive: isActive, hasChevron: false, isBackRow: false, isDimmed: hasOpenChild)
-            return cell
-
-        case .subtitleDelay:
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: SubtitleDelayCell.reuseID, for: indexPath) as? SubtitleDelayCell else { return UITableViewCell() }
+        let level = tableLevels[ObjectIdentifier(tableView)] ?? 0
+        let item = items(for: tableView)[indexPath.row]
+        let activeRow = activeIndices[safe: level]
+        if case .subtitleDelay = item {
+            let cell = tableView.dequeueReusableCell(withIdentifier: PlayerSubtitleDelayCell.reuseID, for: indexPath) as! PlayerSubtitleDelayCell
             cell.configure(value: subtitleDelay)
             cell.onValueChanged = { [weak self] value in
                 self?.subtitleDelay = value
@@ -757,227 +666,54 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate {
             }
             return cell
         }
+        let cell = tableView.dequeueReusableCell(withIdentifier: PlayerOptionCell.reuseID, for: indexPath) as! PlayerOptionCell
+        switch item {
+        case .expandable(let title, _):
+            cell.configure(title: title, isActive: activeRow == indexPath.row, hasChevron: true, isBackRow: false,
+                           isDimmed: activeRow != nil)
+        case .selectable(let title, let active, _), .toggle(let title, let active, _):
+            cell.configure(title: title, isActive: active, hasChevron: false, isBackRow: false,
+                           isDimmed: activeRow != nil)
+        case .action(let title, _):
+            cell.configure(title: title, isActive: false, hasChevron: false, isBackRow: false,
+                           isDimmed: activeRow != nil)
+        case .chapter(let title, let time, _):
+            cell.configure(title: title, isActive: false, hasChevron: false, isBackRow: false,
+                           isDimmed: activeRow != nil, detail: time)
+        case .playlist(let title, _):
+            cell.configure(title: title, isActive: false, hasChevron: false, isBackRow: false,
+                           isDimmed: activeRow != nil, textSize: 12)
+        case .subtitleDelay: break
+        }
+        return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let level = tableLevels[ObjectIdentifier(tableView)] ?? 0
+        let item = items(for: tableView)[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: false)
-
-        let isCompactTable = tableView === self.tableView
-        let level = wideTableLevels[ObjectIdentifier(tableView)] ?? navigationStack.count - 1
-
-        // Back row in compact mode only.
-        if isCompactTable && navigationStack.count > 1 && indexPath.row == 0 {
-            popLevel()
-            return
-        }
-
-        let itemIndex = isCompactTable && navigationStack.count > 1 ? indexPath.row - 1 : indexPath.row
-        let tableItems = items(for: tableView)
-        guard itemIndex >= 0, itemIndex < tableItems.count else { return }
-        let item = tableItems[itemIndex]
-
         switch item {
         case .expandable(let title, let children):
-            if isCompactTable {
-                pushLevel(title: title, items: children)
-            } else if activeIndices[safe: level] == itemIndex {
-                collapseWideLevel(level)
-            } else {
-                openWideLevel(from: level, row: itemIndex, title: title, items: children)
-            }
-        case .selectable(_, _, let action):
-            if !isCompactTable && level == 0 { collapseWideLevel(0) }
+            if activeIndices[safe: level] == indexPath.row { collapseLevel(level) }
+            else { openLevel(from: level, row: indexPath.row, title: title, children: children) }
+        case .selectable(_, _, let action), .toggle(_, _, let action), .action(_, let action),
+             .chapter(_, _, let action), .playlist(_, let action):
+            collapseLevel(level)
             action()
-        case .action(_, let action):
-            if !isCompactTable && level == 0 { collapseWideLevel(0) }
-            action()
-        case .toggle(_, _, let action):
-            if !isCompactTable && level == 0 { collapseWideLevel(0) }
-            action()
-        case .subtitleDelay:
-            break
+        case .subtitleDelay: break
         }
     }
-}
 
-// MARK: - UIGestureRecognizerDelegate
-
-extension PlayerOptionsController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // Only dismiss when tapping the background, not an options menu column.
-        let location = touch.location(in: view)
-        if isUsingWideTree {
-            var touchedView: UIView? = touch.view
-            while let current = touchedView {
-                if current === wideTreeView { return false }
-                touchedView = current.superview
-            }
-            return true
+        if showKeybinds && keybindsView.containsContent(at: touch.location(in: keybindsView)) { return false }
+        var target = touch.view
+        while let current = target {
+            if current === closeButton || menuViews.contains(where: { $0 === current }) { return false }
+            target = current.superview
         }
-        return !containerView.frame.contains(location)
+        return true
     }
 }
-
-// MARK: - TreeItemCell
-
-/// A single row in the tree menu.
-/// Matches item.svelte: `w-full hover:bg-accent flex items-center rounded-sm
-/// py-2.5 font-bold text-sm pl-4` with active = `!bg-white !text-black`.
-private final class TreeItemCell: UITableViewCell {
-
-    static let reuseID = "TreeItemCell"
-
-    private let titleLabel = UILabel()
-    private let chevronImage = UIImageView()
-    private var showsActiveState = false
-    private var isDimmed = false
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        let bg = UIView()
-        bg.layer.cornerRadius = 3
-        selectedBackgroundView = bg
-
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(chevronImage)
-
-        titleLabel.font = .nunito(ofSize: 14, weight: .bold)
-        titleLabel.textColor = .white
-        titleLabel.numberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        chevronImage.image = UIImage.hayaseIcon("chevron-right", pointSize: 16)
-        chevronImage.tintColor = .white
-        chevronImage.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevronImage.leadingAnchor, constant: -8),
-
-            chevronImage.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            chevronImage.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevronImage.widthAnchor.constraint(equalToConstant: 16),
-            chevronImage.heightAnchor.constraint(equalToConstant: 16),
-
-            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(title: String, isActive: Bool, hasChevron: Bool, isBackRow: Bool, isDimmed: Bool = false) {
-        showsActiveState = isActive
-        self.isDimmed = isDimmed
-        titleLabel.text = title
-        chevronImage.isHidden = !hasChevron
-        contentView.alpha = isDimmed ? 0.30 : 1
-
-        if isActive {
-            // item.svelte: class:!bg-primary={active} class:!text-background={active}
-            contentView.backgroundColor = UIColor.HayaseTheme.primary
-            contentView.layer.cornerRadius = 3
-            titleLabel.textColor = UIColor.HayaseTheme.background
-            chevronImage.tintColor = UIColor.HayaseTheme.background
-        } else {
-            contentView.backgroundColor = .clear
-            contentView.layer.cornerRadius = 0
-            titleLabel.textColor = isBackRow ? UIColor.HayaseTheme.mutedForeground : UIColor.HayaseTheme.foreground
-            chevronImage.tintColor = UIColor.HayaseTheme.foreground
-        }
-    }
-
-    override func setHighlighted(_ highlighted: Bool, animated: Bool) {
-        super.setHighlighted(highlighted, animated: animated)
-        guard !showsActiveState else { return }
-        if highlighted {
-            // hover:bg-accent
-            contentView.backgroundColor = UIColor.HayaseTheme.accent
-            contentView.layer.cornerRadius = 3
-        } else {
-            contentView.backgroundColor = .clear
-            contentView.alpha = isDimmed ? 0.30 : 1
-        }
-    }
-}
-
-// MARK: - SubtitleDelayCell
-
-/// Inline numeric input for subtitle delay, matching options.svelte:
-/// `<Input type='number' step='0.1' bind:value={subtitleDelay} />`
-private final class SubtitleDelayCell: UITableViewCell {
-
-    static let reuseID = "SubtitleDelayCell"
-
-    var onValueChanged: ((Double) -> Void)?
-    private let inputField = UITextField()
-    private let delayLabel = UILabel()
-    private let secLabel = UILabel()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        delayLabel.text = "Delay"
-        delayLabel.font = .nunito(ofSize: 14, weight: .bold)
-        delayLabel.textColor = UIColor.HayaseTheme.foreground
-        delayLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(delayLabel)
-
-        secLabel.text = "sec"
-        secLabel.font = .nunito(ofSize: 14, weight: .regular)
-        secLabel.textColor = UIColor.HayaseTheme.foreground
-        secLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(secLabel)
-
-        inputField.keyboardType = .decimalPad
-        inputField.borderStyle = .none
-        inputField.backgroundColor = .clear
-        inputField.textColor = UIColor.HayaseTheme.foreground
-        inputField.textAlignment = .right
-        inputField.font = .nunito(ofSize: 14, weight: .regular)
-        inputField.translatesAutoresizingMaskIntoConstraints = false
-        inputField.addTarget(self, action: #selector(valueChanged), for: .editingChanged)
-        contentView.addSubview(inputField)
-
-        NSLayoutConstraint.activate([
-            delayLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            delayLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-            secLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            secLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-            inputField.trailingAnchor.constraint(equalTo: secLabel.leadingAnchor, constant: -4),
-            inputField.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            inputField.widthAnchor.constraint(equalToConstant: 60),
-
-            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        onValueChanged = nil
-    }
-
-    func configure(value: Double) {
-        inputField.text = String(format: "%.1f", value)
-    }
-
-    @objc private func valueChanged() {
-        if let text = inputField.text, let val = Double(text) {
-            onValueChanged?(val)
-        }
-    }
-}
-
 
 private extension Array {
     subscript(safe index: Index) -> Element? {

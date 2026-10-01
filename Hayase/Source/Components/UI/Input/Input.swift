@@ -11,6 +11,7 @@ final class Input: UITextField {
     private let iconName: String?
     private var iconImageView: UIImageView?
     private var isPointerOver = false
+    var showsFocusRing = true { didSet { updateRing() } }
 
     init(placeholder: String = "Any", iconName: String? = nil) {
         self.iconName = iconName
@@ -89,7 +90,7 @@ final class Input: UITextField {
 
     /// `focus-visible:ring-1 ring-ring` draws a 1px ring outside the field; otherwise `shadow-sm`.
     private func updateRing() {
-        if isFirstResponder {
+        if showsFocusRing && isFirstResponder {
             layer.shadowColor = UIColor.HayaseTheme.ring.cgColor
             layer.shadowOpacity = 1
             layer.shadowRadius = 0

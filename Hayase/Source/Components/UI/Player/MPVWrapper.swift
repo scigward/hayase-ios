@@ -699,6 +699,16 @@ final class MPVWrapper {
             return speed
         }
     }
+
+    func setVolume(_ volume: Double) { setProperty(name: "volume", value: String(min(100, max(0, volume)))) }
+    func getVolume() -> Double {
+        withHandle(100.0) { handle in
+            var volume: Double = 100
+            getProperty(handle: handle, name: "volume", format: MPV_FORMAT_DOUBLE, value: &volume)
+            return volume
+        }
+    }
+    func toggleMute() { withHandle(()) { _ = commandSync($0, ["cycle", "mute"]) } }
     
     // MARK: - Subtitle Controls
     
@@ -803,7 +813,7 @@ final class MPVWrapper {
         setProperty(name: "sub-delay", value: String(delay))
     }
 
-    func captureScreenshotPNGData(completion: @escaping (Data?) -> Void) {
+    func captureScreenshotPNGData(includeSubtitles: Bool = true, completion: @escaping (Data?) -> Void) {
         queue.async { [weak self] in
             guard let self, let handle = self.mpv, !self.isStopping else {
                 DispatchQueue.main.async { completion(nil) }
@@ -812,7 +822,7 @@ final class MPVWrapper {
 
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("hayase_screenshot_\(UUID().uuidString).png")
-            let status = self.commandSync(handle, ["screenshot-to-file", url.path, "subtitles"])
+            let status = self.commandSync(handle, ["screenshot-to-file", url.path, includeSubtitles ? "subtitles" : "video"])
             let data = status >= 0 ? try? Data(contentsOf: url) : nil
             try? FileManager.default.removeItem(at: url)
 

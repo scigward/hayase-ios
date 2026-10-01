@@ -3,6 +3,7 @@
 import UIKit
 import AVKit
 import CoreMedia
+import UniformTypeIdentifiers
 import LibTorrent
 
 // MARK: - SegmentedSeekBar (interface seekbar.svelte)
@@ -18,6 +19,12 @@ private final class SegmentedSeekBar: UIControl {
     var value: CGFloat = 0 {
         didSet { layoutSegmentFills() }
     }
+    var buffer: CGFloat = 0 {
+        didSet { layoutSegmentFills() }
+    }
+    private var initialSeekOffset: CGFloat = 0
+    var onHover: ((CGFloat?) -> Void)?
+    private var hoverValue: CGFloat = 0
 
     /// True while the user is touching/dragging the bar.
     private(set) var isSeeking = false
@@ -34,7 +41,7 @@ private final class SegmentedSeekBar: UIControl {
     // MARK: - UI
 
     /// Each element: (container view, background layer, progress fill layer).
-    private var segmentViews: [(container: UIView, bg: CALayer, fill: CALayer)] = []
+    private var segmentViews: [(container: UIView, bg: CALayer, buffered: CALayer, hover: CALayer, fill: CALayer)] = []
 
     // MARK: - Constants (matching interface seekbar.svelte)
 
@@ -52,7 +59,7 @@ private final class SegmentedSeekBar: UIControl {
     /// Background color: rgba(217,217,217,0.4) from interface.
     private let bgColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.4)
     /// Progress fill color: white from interface.
-    private let fillColor = UIColor.white
+    private var fillColor: UIColor { UIColor.HayaseTheme.primary }
 
     private var barHeight: CGFloat = 2
 
@@ -70,6 +77,7 @@ private final class SegmentedSeekBar: UIControl {
     override init(frame: CGRect) {
         super.init(frame: frame)
         rebuildSegmentViews()
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(pointerMoved(_:))))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -119,12 +127,19 @@ private final class SegmentedSeekBar: UIControl {
             bg.backgroundColor = bgColor.cgColor
             container.layer.addSublayer(bg)
 
+            let buffered = CALayer()
+            buffered.backgroundColor = bgColor.cgColor
+            container.layer.addSublayer(buffered)
+            let hover = CALayer()
+            hover.backgroundColor = bgColor.cgColor
+            container.layer.addSublayer(hover)
+
             let fill = CALayer()
             fill.backgroundColor = fillColor.cgColor
             container.layer.addSublayer(fill)
 
             addSubview(container)
-            segmentViews.append((container, bg, fill))
+            segmentViews.append((container, bg, buffered, hover, fill))
         }
         setNeedsLayout()
     }
@@ -139,26 +154,25 @@ private final class SegmentedSeekBar: UIControl {
 
     private func layoutSegmentFrames() {
         let totalWidth = bounds.width
-        let gaps = segmentGap * CGFloat(max(0, segments.count - 1))
-        let usable = totalWidth - gaps
         // Center the thin visual bar within the real padded frame,
         // just like interface's py-4 + flex items-center.
         let cy = bounds.midY
 
-        var x: CGFloat = 0
         for (i, seg) in segments.enumerated() {
             guard i < segmentViews.count else { break }
-            let w = usable * seg.size
-            let (container, bg, _) = segmentViews[i]
-            container.frame = CGRect(x: x, y: cy - barHeight / 2, width: w, height: barHeight)
-            container.layer.cornerRadius = min(segmentRadius, barHeight / 2)
+            let gap = i > 0 ? segmentGap : 0
+            let w = max(0, totalWidth * seg.size - gap)
+            let seek = isSeeking ? value : hoverValue
+            let h = seek > seg.offset && seek < seg.offset + seg.size ? activeHeight : normalHeight
+            let (container, bg, _, _, _) = segmentViews[i]
+            container.frame = CGRect(x: totalWidth * seg.offset + gap, y: cy - h / 2, width: w, height: h)
+            container.layer.cornerRadius = min(segmentRadius, h / 2)
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             bg.frame = container.bounds
             CATransaction.commit()
 
-            x += w + segmentGap
         }
     }
 
@@ -167,7 +181,9 @@ private final class SegmentedSeekBar: UIControl {
         CATransaction.setDisableActions(true)
         for (i, seg) in segments.enumerated() {
             guard i < segmentViews.count else { break }
-            let (container, _, fill) = segmentViews[i]
+            let (container, _, buffered, hover, fill) = segmentViews[i]
+            buffered.frame = CGRect(x: 0, y: 0, width: container.bounds.width * localFill(buffer, offset: seg.offset, size: seg.size), height: container.bounds.height)
+            hover.frame = CGRect(x: 0, y: 0, width: container.bounds.width * localFill(hoverValue, offset: seg.offset, size: seg.size), height: container.bounds.height)
             let localProgress = localFill(value, offset: seg.offset, size: seg.size)
             fill.frame = CGRect(x: 0, y: 0, width: container.bounds.width * localProgress, height: container.bounds.height)
         }
@@ -184,7 +200,11 @@ private final class SegmentedSeekBar: UIControl {
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         isSeeking = true
-        value = fractionForTouch(touch)
+        // Interface touch seeking is relative: touching far from playback does
+        // not jump immediately; subsequent movement adjusts the current position.
+        initialSeekOffset = touch.type == .direct ? fractionForTouch(touch) - value : 0
+        value = min(max(fractionForTouch(touch) - initialSeekOffset, 0), 1)
+        onHover?(nil)
         animateHeight(activeHeight)
         sendActions(for: .touchDown)
         sendActions(for: .valueChanged)
@@ -192,20 +212,23 @@ private final class SegmentedSeekBar: UIControl {
     }
 
     override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        value = fractionForTouch(touch)
+        value = min(max(fractionForTouch(touch) - initialSeekOffset, 0), 1)
+        layoutSegmentFrames()
         sendActions(for: .valueChanged)
         return true
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        if let t = touch { value = fractionForTouch(t) }
+        if let t = touch { value = min(max(fractionForTouch(t) - initialSeekOffset, 0), 1) }
         isSeeking = false
+        initialSeekOffset = 0
         animateHeight(normalHeight)
         sendActions(for: .touchUpInside)
     }
 
     override func cancelTracking(with event: UIEvent?) {
         isSeeking = false
+        initialSeekOffset = 0
         animateHeight(normalHeight)
         sendActions(for: .touchCancel)
     }
@@ -215,11 +238,21 @@ private final class SegmentedSeekBar: UIControl {
         return min(max(x / max(bounds.width, 1), 0), 1)
     }
 
+    @objc private func pointerMoved(_ gesture: UIHoverGestureRecognizer) {
+        guard !isSeeking else { return }
+        let hovering = gesture.state == .began || gesture.state == .changed
+        hoverValue = hovering ? min(1, max(0, gesture.location(in: self).x / max(1, bounds.width))) : 0
+        layoutSegmentFrames()
+        layoutSegmentFills()
+        onHover?(hovering ? hoverValue : nil)
+    }
+
     private func animateHeight(_ h: CGFloat) {
         guard barHeight != h else { return }
         barHeight = h
         UIView.animate(withDuration: 0.075) {
             self.layoutSegmentFrames()
+            self.layoutSegmentFills()
         }
     }
 }
@@ -229,6 +262,7 @@ private final class SegmentedSeekBar: UIControl {
 private final class InterfaceSpinnerView: UIView {
     private let spinnerLayer = CAShapeLayer()
     private var isAnimating = false
+    private var revealWork: DispatchWorkItem?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -261,8 +295,8 @@ private final class InterfaceSpinnerView: UIView {
         spinnerLayer.frame = bounds
         spinnerLayer.path = UIBezierPath(arcCenter: CGPoint(x: bounds.midX, y: bounds.midY),
                                          radius: min(rect.width, rect.height) / 2,
-                                         startAngle: -.pi / 2,
-                                         endAngle: 0,
+                                         startAngle: -3 * .pi / 4,
+                                         endAngle: -.pi / 4,
                                          clockwise: true).cgPath
         if isAnimating {
             ensureSpinAnimation()
@@ -270,12 +304,26 @@ private final class InterfaceSpinnerView: UIView {
     }
 
     func setAnimating(_ animating: Bool) {
+        guard isAnimating != animating else { return }
         isAnimating = animating
-        isHidden = !animating
+        revealWork?.cancel()
         if animating {
-            ensureSpinAnimation()
+            // player.svelte: in:fade duration=200, delay=500.
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.isAnimating else { return }
+                self.alpha = 0
+                self.isHidden = false
+                self.ensureSpinAnimation()
+                UIView.animate(withDuration: 0.2) { self.alpha = 1 }
+            }
+            revealWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
         } else {
-            spinnerLayer.removeAnimation(forKey: "spin")
+            UIView.animate(withDuration: 0.2, animations: { self.alpha = 0 }) { [weak self] _ in
+                guard let self, !self.isAnimating else { return }
+                self.isHidden = true
+                self.spinnerLayer.removeAnimation(forKey: "spin")
+            }
         }
     }
 
@@ -284,7 +332,7 @@ private final class InterfaceSpinnerView: UIView {
         let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
         rotation.fromValue = 0
         rotation.toValue = CGFloat.pi * 2
-        rotation.duration = 0.8
+        rotation.duration = 1
         rotation.repeatCount = .infinity
         rotation.timingFunction = CAMediaTimingFunction(name: .linear)
         spinnerLayer.add(rotation, forKey: "spin")
@@ -295,6 +343,7 @@ private final class InterfaceProgressButton: UIControl {
     private let label = UILabel()
     private let progressView = UIView()
     private var pendingCompletion = false
+    var isAnimatingProgress: Bool { pendingCompletion }
     var onTrigger: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -376,7 +425,12 @@ private final class InterfaceProgressButton: UIControl {
     }
 }
 
-final class VideoPlayerViewController: UIViewController {
+final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegate {
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        surface.mpv.addSubtitleFile(url: url.path)
+    }
 
     // MARK: - Input (set before presenting)
 
@@ -458,11 +512,11 @@ final class VideoPlayerViewController: UIViewController {
     private let overlay       = UIView()
     private let bottomBar     = UIView()
     private let bottomGradient = CAGradientLayer()
-    private let mobileOptionsButton = UIButton(type: .system)
+    private let mobileOptionsButton = SelectButton(frame: .zero)
     private let mobileControlsStack = UIStackView()
-    private let mobilePrevButton = UIButton(type: .system)
-    private let mobilePlayPauseButton = UIButton(type: .system)
-    private let mobileNextButton = UIButton(type: .system)
+    private let mobilePrevButton = SelectButton(frame: .zero)
+    private let mobilePlayPauseButton = SelectButton(frame: .zero)
+    private let mobileNextButton = SelectButton(frame: .zero)
     private let bufferingSpinner = InterfaceSpinnerView()
     private let fastForwardBadge = UIView()
     private let fastForwardLabel = UILabel()
@@ -471,15 +525,15 @@ final class VideoPlayerViewController: UIViewController {
 
     // Hayase downloadstats.svelte — floating HUD at top center
     private let statsHUD = UIStackView()
-    private let statsPeersLabel = UILabel()
-    private let statsDownLabel = UILabel()
-    private let statsUpLabel = UILabel()
+    private let statsPeersLabel = TextShadowLabel()
+    private let statsDownLabel = TextShadowLabel()
+    private let statsUpLabel = TextShadowLabel()
 
     // Bottom bar — above seekbar row
-    private let titleLabel    = UILabel()
-    private let episodeLabel  = UILabel()   // Hayase episodesmodal.svelte: session.description below title
-    private let chapterLabel  = UILabel()
-    private let timeLabel     = UILabel()
+    private let titleLabel    = TextShadowLabel()
+    private let episodeLabel  = TextShadowLabel()   // Hayase episodesmodal.svelte: session.description below title
+    private let chapterLabel  = TextShadowLabel()
+    private let timeLabel     = TextShadowLabel()
 
     // Bottom bar — seekbar row
     private let seekBar       = SegmentedSeekBar()
@@ -550,6 +604,7 @@ final class VideoPlayerViewController: UIViewController {
     private var isFastForwarding = false
     private var playbackRateBeforeFastForward = 1.0
     private var wasPausedBeforeFastForward = false
+    private var wasPausedBeforeScrub: Bool?
     private var currentSkippableChapter: SkippableChapter?
     private var autoSkipStartedFor: Set<String> = []
     private var visibilityPauseWasPlaying = false
@@ -559,6 +614,12 @@ final class VideoPlayerViewController: UIViewController {
     private var doubleTapRecognizer: UITapGestureRecognizer?
     private var longPressRecognizer: UILongPressGestureRecognizer?
     private var statsTimer: Timer?
+    private var technicalStatsView: PlayerTechnicalStatsView?
+    private var technicalStatsTimer: Timer?
+    private let thumbnailer = PlayerThumbnailer()
+    private let seekingImage = UIImageView()
+    private let seekPreview = PlayerSeekPreviewView()
+    private var previewRequest = UUID()
     private var webStatsUpdateInFlight = false
     // Hayase castplayer.svelte / native.getDisplays — Chromecast/DLNA discovery
     // is push-based on the bridge side (mDNS/SSDP), but our RPC transport is
@@ -689,6 +750,9 @@ final class VideoPlayerViewController: UIViewController {
         setupGestures()
         
         surface.mpv.delegate = self
+        if let volume = UserDefaults.standard.object(forKey: "volume") as? Double {
+            surface.mpv.setVolume(volume * 100)
+        }
         ExternalDisplayManager.shared.register(self)
 
         // System PiP (streamyfin): create the AVPictureInPictureController
@@ -781,6 +845,9 @@ final class VideoPlayerViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Presenting a native subtitle picker may cover the whole phone screen.
+        // Covering the player is not leaving its route and must not stop MPV.
+        guard presentedViewController == nil else { return }
         // Don't tear down when minimizing to in-app PiP — the video keeps
         // playing in the mini-player (Hayase wrapper.svelte keeps the player
         // component mounted when navigating away from /app/player).
@@ -797,6 +864,10 @@ final class VideoPlayerViewController: UIViewController {
     /// NOT minimizing, and from MiniPlayerManager when the user closes the
     /// mini-player.
     func tearDownPlayer() {
+        previewRequest = UUID()
+        thumbnailer.cancel()
+        technicalStatsTimer?.invalidate()
+        technicalStatsTimer = nil
         exitFullscreenPresentation()
         onCancelMetadataLoading?()
         onCancelMetadataLoading = nil
@@ -832,6 +903,120 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     override var prefersStatusBarHidden: Bool              { true }
+    override var canBecomeFirstResponder: Bool { true }
+    override var keyCommands: [UIKeyCommand]? {
+        guard !PlayerKeyBindings.isEditing(in: viewIfLoaded), !isMinimizing,
+              !(MiniPlayerManager.shared.isActive && MiniPlayerManager.shared.activePlayer === self) else { return nil }
+        return PlayerKeyBindings.commands(action: #selector(runPlayerKeyCommand(_:)))
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        becomeFirstResponder()
+    }
+    @objc private func runPlayerKeyCommand(_ command: UIKeyCommand) {
+        guard let binding = PlayerKeyBindings.binding(for: command) else { return }
+        runPlayerKeybind(binding.id, shift: command.modifierFlags.contains(.shift))
+    }
+
+    private func runPlayerKeybind(_ id: String, shift: Bool) {
+        switch id {
+        case "play_arrow": playPauseTapped()
+        case "screenshot_monitor": captureScreenshot()
+        case "skip_next": if canNavigateToNextEpisode { nextTapped() }
+        case "skip_previous": if canNavigateToPreviousEpisode { prevTapped() }
+        case "deblur": Settings.deband.toggle()
+        case "volume_off": surface.mpv.toggleMute()
+        case "fullscreen": toggleFullscreenPresentation()
+        case "picture_in_picture":
+            if pipController?.isPictureInPictureActive == true { pipController?.stopPictureInPicture() }
+            else { pipController?.startPictureInPicture() }
+        case "fast_forward": performDoubleTapSeek(forward: true)
+        case "fast_rewind": performDoubleTapSeek(forward: false)
+        case "volume_up", "volume_down":
+            let volume = min(100, max(0, surface.mpv.getVolume() + (id == "volume_up" ? 5 : -5)))
+            surface.mpv.setVolume(volume)
+            UserDefaults.standard.set(volume / 100, forKey: "volume")
+            showPlayerAnimation(icon: id == "volume_up" ? "volume-2" : "volume-1")
+        case "history", "update", "schedule":
+            playbackRate = id == "schedule" ? 1 : min(16, max(0.1, playbackRate + (id == "update" ? 0.1 : -0.1)))
+            surface.mpv.setSpeed(playbackRate)
+            updateSpeedLabel()
+        case "subtitle_delay_minus", "subtitle_delay_plus":
+            subtitleDelay += id == "subtitle_delay_plus" ? 0.1 : -0.1
+            surface.mpv.setSubtitleDelay(subtitleDelay)
+        case "subtitles":
+            let subtitles = currentTracksForOptions().filter { $0.type == "sub" }
+            guard !subtitles.isEmpty else { return }
+            let current = subtitles.firstIndex { $0.isSelected } ?? -1
+            let next = current + (shift ? -1 : 1)
+            // JS Array.at supports negative indices; beyond either end selects OFF.
+            let index = next < 0 ? subtitles.count + next : next
+            let track = subtitles.indices.contains(index) ? subtitles[index] : nil
+            surface.mpv.setSubtitleTrack(track?.id ?? -1)
+            showPlayerTextAnimation(track?.title ?? track?.lang ?? "Off")
+        case "fit_width":
+            surface.displayLayer.videoGravity = surface.displayLayer.videoGravity == .resizeAspect ? .resizeAspectFill : .resizeAspect
+        case "cast":
+            if let options = presentedViewController as? PlayerOptionsController { options.openRootMenu(named: "Cast") }
+            else { showOptionsSheet(openMenu: "Cast") }
+        case "+90":
+            let target: Double
+            if let chapter = chapterWindow(at: currentTime) {
+                target = skippableChapter(at: currentTime) == nil && chapter.end - chapter.start > 100
+                    ? currentTime + 85 : chapter.end + 0.5
+            } else { target = currentTime < 10 ? 90 : duration - currentTime < 90 ? duration : currentTime + 85 }
+            streamer?.seekTo(fraction: duration > 0 ? min(1, target / duration) : 0)
+            surface.mpv.seek(to: min(duration, target))
+            showPlayerAnimation(icon: "fast-forward")
+        case "list": toggleTechnicalStats()
+        default: break
+        }
+    }
+
+    private func toggleTechnicalStats() {
+        if let panel = technicalStatsView {
+            panel.removeFromSuperview()
+            technicalStatsView = nil
+            technicalStatsTimer?.invalidate()
+            technicalStatsTimer = nil
+            return
+        }
+        let panel = PlayerTechnicalStatsView()
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.onClose = { [weak self] in self?.toggleTechnicalStats() }
+        overlay.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 20),
+            panel.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 20),
+            panel.widthAnchor.constraint(equalToConstant: 288),
+        ])
+        technicalStatsView = panel
+        updateTechnicalStats()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.updateTechnicalStats() }
+        RunLoop.main.add(timer, forMode: .common)
+        technicalStatsTimer = timer
+    }
+
+    private func updateTechnicalStats() {
+        guard let panel = technicalStatsView else { return }
+        let info = surface.mpv.getTechnicalInfo()
+        let width = (info["videoWidth"] as? Int) ?? 0
+        let height = (info["videoHeight"] as? Int) ?? 0
+        panel.update([
+            "Resolution": "\(width)x\(height)", "Viewport": "\(Int(surface.bounds.width))x\(Int(surface.bounds.height))",
+            "FPS": (info["fps"] as? Double).map { String(format: "%.1f", $0) } ?? "-",
+            "Dropped Frames": String((info["droppedFrames"] as? Int) ?? 0),
+            "Position": "\(fmtTime(currentTime)) / \(fmtTime(duration))",
+            "Speed": String(format: "x%.2f", playbackRate), "Volume": String(format: "%.0f%%", surface.mpv.getVolume()),
+            "Subtitle Delay": String(format: "%.1fs", subtitleDelay),
+            // Native state is named honestly; DOM HAVE_* and frame callback counters
+            // do not exist in MPV. Unavailable counters retain the interface's '-'.
+            "Ready State": isBuffering ? "Buffering" : isPaused ? "Paused" : "Playing",
+            "Audio": String(tracks.filter { $0.type == "audio" }.count),
+            "Video": String(tracks.filter { $0.type == "video" }.count),
+            "Health": "\(Int((info["cacheSeconds"] as? Double) ?? 0)) s",
+        ])
+    }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .none }
     override var prefersHomeIndicatorAutoHidden: Bool      { !controlsVisible }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
@@ -864,10 +1049,20 @@ final class VideoPlayerViewController: UIViewController {
 
         // Download stats — top center (Hayase downloadstats.svelte)
         setupStatsHUD()
+        seekingImage.frame = overlay.bounds
+        seekingImage.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        seekingImage.contentMode = .scaleAspectFit
+        seekingImage.backgroundColor = UIColor.HayaseTheme.background
+        seekingImage.isHidden = true
+        seekingImage.isUserInteractionEnabled = false
+        overlay.addSubview(seekingImage)
         setupMobilePlayerControls()
         // Bottom overlay with gradient
         setupBottomBar()
         setupInterfacePlayerOverlays()
+        seekPreview.isHidden = true
+        overlay.addSubview(seekPreview)
+        seekBar.onHover = { [weak self] fraction in self?.showSeekPreview(at: fraction) }
     }
 
     /// Hayase downloadstats.svelte — floating HUD at top center showing
@@ -882,10 +1077,6 @@ final class VideoPlayerViewController: UIViewController {
         statsHUD.alignment = .center
         statsHUD.isHidden = true
         // Text/icon shadow via layer (matches Hayase text-shadow-lg)
-        statsHUD.layer.shadowColor = UIColor.black.cgColor
-        statsHUD.layer.shadowOffset = .zero
-        statsHUD.layer.shadowOpacity = 0.8
-        statsHUD.layer.shadowRadius = 4
 
         statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "users", label: statsPeersLabel))
         statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "chevron-down", label: statsDownLabel))
@@ -898,7 +1089,7 @@ final class VideoPlayerViewController: UIViewController {
         ])
     }
 
-    private func makeStatsHUDItem(icon: String, label: UILabel) -> UIStackView {
+    private func makeStatsHUDItem(icon: String, label: TextShadowLabel) -> UIStackView {
         let imageView = UIImageView(image: UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)))
         imageView.tintColor = .white
         imageView.contentMode = .scaleAspectFit
@@ -909,7 +1100,8 @@ final class VideoPlayerViewController: UIViewController {
         ])
 
         label.font = .nunito(ofSize: 18, weight: .bold)
-        label.textColor = .white
+        label.lineHeight = 28
+        label.textColor = UIColor.HayaseTheme.foreground
         label.setContentHuggingPriority(.required, for: .horizontal)
 
         let stack = UIStackView(arrangedSubviews: [imageView, label])
@@ -921,12 +1113,14 @@ final class VideoPlayerViewController: UIViewController {
 
     private func setupMobilePlayerControls() {
         mobileOptionsButton.translatesAutoresizingMaskIntoConstraints = false
+        mobileOptionsButton.applyGhostVariant()
+        mobileOptionsButton.restingBackground = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
         mobileOptionsButton.tintColor = .white
         mobileOptionsButton.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
-        mobileOptionsButton.layer.cornerRadius = 24
+        mobileOptionsButton.layer.cornerRadius = 6
         mobileOptionsButton.clipsToBounds = true
-        mobileOptionsButton.setImage(UIImage.hayaseIcon("ellipsis-vertical"), for: .normal)
-        mobileOptionsButton.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        mobileOptionsButton.setImage(UIImage.hayaseIcon("ellipsis-vertical", pointSize: 22), for: .normal)
+        mobileOptionsButton.imageEdgeInsets = UIEdgeInsets(top: 13, left: 13, bottom: 13, right: 13)
         mobileOptionsButton.addTarget(self, action: #selector(optionsTapped), for: .touchUpInside)
         overlay.addSubview(mobileOptionsButton)
 
@@ -944,7 +1138,7 @@ final class VideoPlayerViewController: UIViewController {
         configureMobileControlButton(mobilePlayPauseButton,
                                      icon: "pause",
                                      size: 48,
-                                     inset: 12,
+                                     inset: 10,
                                      action: #selector(playPauseTapped))
         configureMobileControlButton(mobileNextButton,
                                      icon: "skip-forward",
@@ -974,12 +1168,14 @@ final class VideoPlayerViewController: UIViewController {
         ])
     }
 
-    private func configureMobileControlButton(_ button: UIButton,
+    private func configureMobileControlButton(_ button: SelectButton,
                                               icon: String,
                                               size: CGFloat,
                                               inset: CGFloat,
                                               action: Selector) {
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.applyGhostVariant()
+        button.restingBackground = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
         button.tintColor = .white
         button.backgroundColor = UIColor.HayaseTheme.background.withAlphaComponent(0.2)
         button.layer.cornerRadius = size / 2
@@ -1040,6 +1236,7 @@ final class VideoPlayerViewController: UIViewController {
             fastForwardStack.trailingAnchor.constraint(equalTo: fastForwardBadge.trailingAnchor, constant: -16),
             fastForwardIcon.widthAnchor.constraint(equalToConstant: 12),
             fastForwardIcon.heightAnchor.constraint(equalToConstant: 12),
+            fastForwardLabel.heightAnchor.constraint(equalToConstant: 14),
 
             skipChapterButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
             skipChapterButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -160),
@@ -1062,14 +1259,11 @@ final class VideoPlayerViewController: UIViewController {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textColor = .white
         titleLabel.font = .nunito(ofSize: 18, weight: .regular)
+        titleLabel.lineHeight = 18
         titleLabel.textAlignment = .left
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.text = animeTitleText()
+        titleLabel.content = animeTitleText()
         // Text shadow (Hayase text-shadow-lg)
-        titleLabel.layer.shadowColor = UIColor.black.cgColor
-        titleLabel.layer.shadowOffset = .zero
-        titleLabel.layer.shadowOpacity = 0.8
-        titleLabel.layer.shadowRadius = 3
         // Hayase episodesmodal.svelte: the title is a link back to the anime page —
         // `<button class='... hover:text-muted-foreground hover:underline'
         //          onclick={() => goto(`/#/app/anime/${mediaInfo.media.id}`)}>`
@@ -1081,13 +1275,10 @@ final class VideoPlayerViewController: UIViewController {
         episodeLabel.translatesAutoresizingMaskIntoConstraints = false
         episodeLabel.textColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.6)
         episodeLabel.font = .nunito(ofSize: 14, weight: .light)
+        episodeLabel.lineHeight = 14
         episodeLabel.textAlignment = .left
         episodeLabel.lineBreakMode = .byTruncatingTail
-        episodeLabel.text = episodeDescriptionText()
-        episodeLabel.layer.shadowColor = UIColor.black.cgColor
-        episodeLabel.layer.shadowOffset = .zero
-        episodeLabel.layer.shadowOpacity = 0.8
-        episodeLabel.layer.shadowRadius = 3
+        episodeLabel.content = episodeDescriptionText()
         // Hayase episodesmodal.svelte: the description is the `Sheet.Trigger` that
         // opens the episode list — `<Sheet.Trigger class='... hover:underline'>`.
         episodeLabel.isUserInteractionEnabled = true
@@ -1096,31 +1287,53 @@ final class VideoPlayerViewController: UIViewController {
 
         chapterLabel.translatesAutoresizingMaskIntoConstraints = false
         chapterLabel.textColor = UIColor(white: 0.85, alpha: 0.6) // rgba(217,217,217,0.6)
-        chapterLabel.font = .nunito(ofSize: 12, weight: .light)
+        chapterLabel.font = .nunito(ofSize: 14, weight: .light)
+        chapterLabel.lineHeight = 14
         chapterLabel.textAlignment = .right
         chapterLabel.lineBreakMode = .byTruncatingTail
-        chapterLabel.text = ""
+        chapterLabel.content = ""
         bottomBar.addSubview(chapterLabel)
 
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.textColor = .white
-        timeLabel.font = .nunito(ofSize: 13, weight: .light)
+        timeLabel.font = .nunito(ofSize: 14, weight: .light)
+        timeLabel.lineHeight = 14
         timeLabel.textAlignment = .right
-        timeLabel.text = "0:00 / 0:00"
+        timeLabel.content = "0:00 / 0:00"
         timeLabel.isUserInteractionEnabled = true
         timeLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleTimeFormat)))
         // Text shadow
-        timeLabel.layer.shadowColor = UIColor.black.cgColor
-        timeLabel.layer.shadowOffset = .zero
-        timeLabel.layer.shadowOpacity = 0.8
-        timeLabel.layer.shadowRadius = 3
         bottomBar.addSubview(timeLabel)
+
+        // player.svelte: two gap-2 columns in a gap-1 flex row, aligned at the bottom.
+        let titleColumn = UIStackView(arrangedSubviews: [titleLabel, episodeLabel])
+        titleColumn.axis = .vertical
+        titleColumn.spacing = 8
+        titleColumn.alignment = .leading
+        let timeColumn = UIStackView(arrangedSubviews: [chapterLabel, timeLabel])
+        timeColumn.axis = .vertical
+        timeColumn.spacing = 8
+        timeColumn.alignment = .trailing
+        timeColumn.setContentHuggingPriority(.required, for: .horizontal)
+        timeColumn.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        // The time stays nowrap, but a long chapter must still truncate on phones.
+        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        chapterLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let textRow = UIStackView(arrangedSubviews: [titleColumn, timeColumn])
+        textRow.axis = .horizontal
+        textRow.alignment = .bottom
+        textRow.spacing = 4
+        textRow.translatesAutoresizingMaskIntoConstraints = false
+        bottomBar.addSubview(textRow)
+        for label in [titleLabel, episodeLabel] {
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
 
         // --- Row 2: Seekbar (full width, chapter-segmented — matching interface seekbar.svelte) ---
         seekBar.translatesAutoresizingMaskIntoConstraints = false
         seekBar.addTarget(self, action: #selector(seekBegan),   for: .touchDown)
         seekBar.addTarget(self, action: #selector(seekChanged), for: .valueChanged)
-        seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside])
+        seekBar.addTarget(self, action: #selector(seekEnded),   for: [.touchUpInside, .touchUpOutside, .touchCancel])
         bottomBar.addSubview(seekBar)
 
         // --- Row 3: Controls ---
@@ -1189,24 +1402,14 @@ final class VideoPlayerViewController: UIViewController {
         let baseConstraints = [
             // Row 1: title + episode (left), chapter + time (right)
             // Hayase: title on top, episode below; chapter above time on right
-            titleLabel.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
-            titleLabel.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chapterLabel.leadingAnchor, constant: -12),
-
-            episodeLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            episodeLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-            episodeLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -12),
-
-            chapterLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
-            chapterLabel.bottomAnchor.constraint(equalTo: timeLabel.topAnchor, constant: -2),
-
-            timeLabel.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
-            timeLabel.centerYAnchor.constraint(equalTo: episodeLabel.centerYAnchor),
+            textRow.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
+            textRow.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
+            textRow.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
 
             // Row 2: seekbar (real padded frame: py-4 16pt × 2 + active bar 4pt = 36pt)
             seekBar.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: pad),
             seekBar.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -pad),
-            seekBar.topAnchor.constraint(equalTo: episodeLabel.bottomAnchor, constant: 0),
+            seekBar.topAnchor.constraint(equalTo: textRow.bottomAnchor),
             seekBar.heightAnchor.constraint(equalToConstant: 36),
         ]
 
@@ -1415,7 +1618,7 @@ final class VideoPlayerViewController: UIViewController {
 
     /// Single-tap: toggle controls visibility.
     @objc private func handleSingleTap(_ gesture: UITapGestureRecognizer) {
-        setControls(visible: !controlsVisible)
+        setControls(visible: isPaused || isBuffering || !controlsVisible)
     }
 
     /// Double-tap: left/right quarters seek; center toggles fullscreen.
@@ -1494,11 +1697,11 @@ final class VideoPlayerViewController: UIViewController {
     private func renderSeekTargetUI(time: Double) {
         seekBar.value = duration > 0 ? CGFloat(time / duration) : 0
         if showRemainingTime {
-            timeLabel.text = "-\(fmtTime(max(0, duration - time))) / \(fmtTime(duration))"
+            timeLabel.content = "-\(fmtTime(max(0, duration - time))) / \(fmtTime(duration))"
         } else {
-            timeLabel.text = "\(fmtTime(time)) / \(fmtTime(duration))"
+            timeLabel.content = "\(fmtTime(time)) / \(fmtTime(duration))"
         }
-        chapterLabel.text = chapterTitle(at: time)
+        chapterLabel.content = chapterTitle(at: time)
     }
 
     private func showPlayerAnimation(icon: String) {
@@ -1523,6 +1726,23 @@ final class VideoPlayerViewController: UIViewController {
         } completion: { _ in
             iconView.removeFromSuperview()
         }
+    }
+
+    private func showPlayerTextAnimation(_ text: String) {
+        guard !Settings.minimalPlayerUI else { return }
+        let label = UILabel()
+        label.text = text
+        label.font = .nunito(ofSize: 36, weight: .bold)
+        label.textColor = UIColor.HayaseTheme.foreground
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isUserInteractionEnabled = false
+        overlay.addSubview(label)
+        NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                                     label.centerYAnchor.constraint(equalTo: overlay.centerYAnchor)])
+        UIView.animate(withDuration: 0.4, delay: 0, options: [.curveLinear], animations: {
+            label.alpha = 0
+            label.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+        }, completion: { _ in label.removeFromSuperview() })
     }
 
     // MARK: - Video loading
@@ -1662,10 +1882,14 @@ final class VideoPlayerViewController: UIViewController {
         }
 
         surface.mpv.load(url: url, with: preset)
+        thumbnailer.updateSource(url)
+        seekingImage.isHidden = true
+        seekPreview.isHidden = true
+        previewRequest = UUID()
         
         // Hayase episodesmodal.svelte: title = anime name, description = episode info
-        titleLabel.text = animeTitleText()
-        episodeLabel.text = episodeDescriptionText()
+        titleLabel.content = animeTitleText()
+        episodeLabel.content = episodeDescriptionText()
         // Hayase mediahandler.svelte: hasPrev = episode > 1; hasNext = episode < totalEps.
         // Enable buttons based on episode bounds, not just allVideos array bounds.
         // When onEpisodeChange is set, out-of-batch navigation triggers a new search.
@@ -1833,9 +2057,9 @@ final class VideoPlayerViewController: UIViewController {
 
     private func applyWebTorrentStats(peers: Int, downloadSpeed: UInt64, uploadSpeed: UInt64) {
         statsHUD.isHidden = Settings.minimalPlayerUI
-        statsPeersLabel.text = "\(peers)"
-        statsDownLabel.text = "\(fmtBits(downloadSpeed * 8))/s"
-        statsUpLabel.text = "\(fmtBits(uploadSpeed * 8))/s"
+        statsPeersLabel.content = "\(peers)"
+        statsDownLabel.content = "\(fmtBits(downloadSpeed * 8))/s"
+        statsUpLabel.content = "\(fmtBits(uploadSpeed * 8))/s"
     }
 
     private func updateNativeTorrentStats(handle: TorrentHandle) {
@@ -1865,9 +2089,9 @@ final class VideoPlayerViewController: UIViewController {
         let peers = snap.numberOfSeeds
         let downBits = fmtBits(snap.downloadRate * 8)
         let upBits = fmtBits(snap.uploadRate * 8)
-        statsPeersLabel.text = "\(peers)"
-        statsDownLabel.text = "\(downBits)/s"
-        statsUpLabel.text = "\(upBits)/s"
+        statsPeersLabel.content = "\(peers)"
+        statsDownLabel.content = "\(downBits)/s"
+        statsUpLabel.content = "\(upBits)/s"
     }
 
     /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).
@@ -2157,7 +2381,7 @@ final class VideoPlayerViewController: UIViewController {
             self.setControls(visible: false)
         }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     private func setControls(visible: Bool) {
@@ -2173,17 +2397,26 @@ final class VideoPlayerViewController: UIViewController {
         overlay.alpha = 1
         bufferingSpinner.setAnimating(isBuffering)
 
-        let controlsAlpha: CGFloat = controlsVisible ? 1 : 0
-        let mobileControlsAlpha: CGFloat = controlsVisible && !isSeeking ? 1 : 0
+        let visible = !isFastForwarding && (controlsVisible || isPaused || isBuffering || isSeeking || isEOFTriggered)
+        let controlsAlpha: CGFloat = visible ? 1 : 0
+        let mobileControlsAlpha: CGFloat = visible && !isSeeking ? 1 : 0
         let showFastForward = isFastForwarding
-        let showSkip = controlsVisible && currentSkippableChapter != nil
+        let showSkip = currentSkippableChapter != nil && (visible || skipChapterButton.isAnimatingProgress)
 
-        if showFastForward { fastForwardBadge.isHidden = false }
+        if showFastForward && fastForwardBadge.isHidden {
+            fastForwardBadge.isHidden = false
+            fastForwardBadge.alpha = 0
+            UIView.animate(withDuration: animated ? 0.4 : 0, delay: 0,
+                           options: [.curveEaseInOut, .beginFromCurrentState]) { self.fastForwardBadge.alpha = 1 }
+        } else if !showFastForward {
+            fastForwardBadge.alpha = 0
+            fastForwardBadge.isHidden = true
+        }
         if showSkip { skipChapterButton.isHidden = false }
 
-        mobileOptionsButton.isUserInteractionEnabled = controlsVisible
-        mobileControlsStack.isUserInteractionEnabled = controlsVisible && !isSeeking
-        bottomBar.isUserInteractionEnabled = controlsVisible
+        mobileOptionsButton.isUserInteractionEnabled = visible
+        mobileControlsStack.isUserInteractionEnabled = visible && !isSeeking
+        bottomBar.isUserInteractionEnabled = visible
         skipChapterButton.isUserInteractionEnabled = showSkip
 
         let changes = {
@@ -2192,17 +2425,17 @@ final class VideoPlayerViewController: UIViewController {
             self.mobileControlsStack.alpha = mobileControlsAlpha
             self.bottomBar.alpha = controlsAlpha
             self.skipChapterButton.alpha = showSkip ? 1 : 0
-            self.fastForwardBadge.alpha = showFastForward ? 1 : 0
             self.mobilePlayPauseButton.alpha = self.isBuffering ? 0.10 : 1
         }
 
         let completion: (Bool) -> Void = { _ in
-            if !showFastForward { self.fastForwardBadge.isHidden = true }
             if !showSkip { self.skipChapterButton.isHidden = true }
         }
 
         if animated {
-            UIView.animate(withDuration: 0.25, animations: changes, completion: completion)
+            UIView.animate(withDuration: 0.15, delay: visible ? 0 : 0.15,
+                           options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
+                           animations: changes, completion: completion)
         } else {
             changes()
             completion(true)
@@ -2254,6 +2487,8 @@ final class VideoPlayerViewController: UIViewController {
         bottomRightControls.isHidden = true
         mobileControlsStack.isHidden = false
         mobileOptionsButton.isHidden = false
+        mobilePrevButton.alpha = mobilePrevButton.isEnabled ? 1 : 0.5
+        mobileNextButton.alpha = mobileNextButton.isEnabled ? 1 : 0.5
         updateInterfaceOverlayVisibility(animated: false)
     }
 
@@ -2264,11 +2499,11 @@ final class VideoPlayerViewController: UIViewController {
         seekBar.value = duration > 0 ? CGFloat(currentTime / duration) : 0
         // Hayase format: "current / total" or "-remaining / total"
         if showRemainingTime {
-            timeLabel.text = "-\(fmtTime(max(0, duration - currentTime))) / \(fmtTime(duration))"
+            timeLabel.content = "-\(fmtTime(max(0, duration - currentTime))) / \(fmtTime(duration))"
         } else {
-            timeLabel.text = "\(fmtTime(currentTime)) / \(fmtTime(duration))"
+            timeLabel.content = "\(fmtTime(currentTime)) / \(fmtTime(duration))"
         }
-        chapterLabel.text = chapterTitle(at: currentTime)
+        chapterLabel.content = chapterTitle(at: currentTime)
         updateSkipChapterButton()
     }
 
@@ -2297,7 +2532,7 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     private func chapterTitle(at time: Double) -> String {
-        chapterWindow(at: time)?.title ?? ""
+        (chapterWindow(at: time)?.title ?? "").capitalized
     }
 
     private func skippableChapter(at time: Double) -> SkippableChapter? {
@@ -2817,6 +3052,9 @@ final class VideoPlayerViewController: UIViewController {
     }
 
     @objc private func seekBegan() {
+        guard wasPausedBeforeScrub == nil else { return }
+        wasPausedBeforeScrub = isPaused
+        if !isPaused { surface.mpv.pausePlayback() }
         doubleTapSeekRestoreWork?.cancel()
         doubleTapSeekRestoreWork = nil
         isSeeking = true
@@ -2827,15 +3065,27 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func seekChanged() {
         let t = Double(seekBar.value) * duration
         if showRemainingTime {
-            timeLabel.text = "-\(fmtTime(max(0, duration - t))) / \(fmtTime(duration))"
+            timeLabel.content = "-\(fmtTime(max(0, duration - t))) / \(fmtTime(duration))"
         } else {
-            timeLabel.text = "\(fmtTime(t)) / \(fmtTime(duration))"
+            timeLabel.content = "\(fmtTime(t)) / \(fmtTime(duration))"
         }
-        chapterLabel.text = chapterTitle(at: t)
+        chapterLabel.content = chapterTitle(at: t)
+        previewRequest = UUID()
+        let request = previewRequest
+        thumbnailer.thumbnail(at: t) { [weak self] image in
+            guard let self, self.previewRequest == request, self.seekBar.isSeeking else { return }
+            self.seekingImage.image = image
+            self.seekingImage.contentMode = self.surface.displayLayer.videoGravity == .resizeAspectFill ? .scaleAspectFill : .scaleAspectFit
+            self.seekingImage.isHidden = image == nil
+        }
         updateInterfaceOverlayVisibility(animated: true)
     }
 
     @objc private func seekEnded() {
+        guard let wasPaused = wasPausedBeforeScrub else { return }
+        wasPausedBeforeScrub = nil
+        previewRequest = UUID()
+        seekingImage.isHidden = true
         let seekFraction = Double(seekBar.value)
         let targetTime = seekFraction * duration
         pendingSeekDisplayTime = targetTime
@@ -2846,6 +3096,8 @@ final class VideoPlayerViewController: UIViewController {
         // the required pieces are downloaded, so we can seek immediately.
         streamer?.seekTo(fraction: seekFraction)
         surface.mpv.seek(to: targetTime)
+        showPlayerAnimation(icon: targetTime > currentTime ? "fast-forward" : "rewind")
+        if !wasPaused { surface.mpv.play() }
         updateInterfaceOverlayVisibility(animated: true)
         scheduleHide()
 
@@ -2864,6 +3116,30 @@ final class VideoPlayerViewController: UIViewController {
     @objc private func optionsTapped() {
         hideWork?.cancel()
         showOptionsSheet()
+    }
+
+    private func showSeekPreview(at fraction: CGFloat?) {
+        previewRequest = UUID()
+        guard let fraction, fraction > 0, duration > 0 else { seekPreview.isHidden = true; return }
+        let request = previewRequest
+        let time = Double(fraction) * duration
+        let title = chapterTitle(at: time)
+        seekPreview.configure(title: title, time: fmtTime(time), image: nil)
+        seekPreview.isHidden = false
+        positionSeekPreview(fraction: fraction)
+        thumbnailer.thumbnail(at: time) { [weak self] image in
+            guard let self, self.previewRequest == request else { return }
+            self.seekPreview.configure(title: title, time: self.fmtTime(time), image: image)
+            self.positionSeekPreview(fraction: fraction)
+        }
+    }
+
+    private func positionSeekPreview(fraction: CGFloat) {
+        let bar = seekBar.convert(seekBar.bounds, to: overlay)
+        let centerX = bar.minX + min(max(70, bar.width * fraction), max(70, bar.width - 70))
+        let size = seekPreview.intrinsicContentSize
+        seekPreview.frame = CGRect(x: centerX - size.width / 2, y: bar.maxY - 36 - size.height,
+                                   width: size.width, height: size.height)
     }
 
     @objc private func speedLabelTapped() {
@@ -2962,15 +3238,15 @@ final class VideoPlayerViewController: UIViewController {
         (presentedViewController ?? self).present(alert, animated: true)
     }
 
-    private func showOptionsSheet() {
+    private func showOptionsSheet(openMenu: String? = nil) {
+        guard presentedViewController == nil else { return }
         // Keep this synchronous path cheap so the menu appears immediately.
         // MKV language parsing can touch disk and is done from track readiness instead.
         let freshTracks = currentTracksForOptions()
         self.tracks = freshTracks
 
         let optionsVC = PlayerOptionsController()
-        optionsVC.modalPresentationStyle = .overFullScreen
-        optionsVC.modalTransitionStyle = .crossDissolve
+        optionsVC.preparePresentation()
 
         // Populate data
         optionsVC.audioTracks = freshTracks.filter { $0.type == "audio" }
@@ -2992,10 +3268,12 @@ final class VideoPlayerViewController: UIViewController {
         // Wire callbacks
         optionsVC.onSelectAudioTrack = { [weak self] trackId in
             self?.surface.mpv.setAudioTrack(trackId)
+            self?.showPlayerTextAnimation(freshTracks.first { $0.type == "audio" && $0.id == trackId }?.title ?? "Default")
         }
 
         optionsVC.onSelectVideoTrack = { [weak self] trackId in
             self?.surface.mpv.setVideoTrack(trackId)
+            self?.showPlayerTextAnimation(freshTracks.first { $0.type == "video" && $0.id == trackId }?.title ?? "Default")
         }
 
         optionsVC.onSelectSubtitleTrack = { [weak self] trackId in
@@ -3044,6 +3322,12 @@ final class VideoPlayerViewController: UIViewController {
             self?.subtitleDelay = delay
             self?.surface.mpv.setSubtitleDelay(delay)
         }
+        optionsVC.onAddSubtitleFile = { [weak self] in
+            let types = ["ass", "ssa", "srt", "vtt", "sub"].map { UTType(filenameExtension: $0) ?? .data }
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+            picker.delegate = self
+            self?.present(picker, animated: true)
+        }
 
         optionsVC.onSelectDisplay = { [weak self] display in
             self?.startCasting(to: display)
@@ -3052,6 +3336,8 @@ final class VideoPlayerViewController: UIViewController {
         optionsVC.onDismiss = { [weak self] in
             self?.scheduleHide()
         }
+        optionsVC.onKeybindAction = { [weak self] id, shift in self?.runPlayerKeybind(id, shift: shift) }
+        if let openMenu { optionsVC.openRootMenu(named: openMenu) }
 
         present(optionsVC, animated: true)
     }
@@ -3104,6 +3390,8 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
 
     func renderer(_ renderer: MPVWrapper, didUpdatePosition position: Double, duration: Double, cacheSeconds: Double) {
         self.duration = duration
+        if !isBuffering, !isSeeking, duration > 0, position > 0 { thumbnailer.rememberFrame(at: position, from: renderer) }
+        seekBar.buffer = duration > 0 ? CGFloat(min(1, max(0, (position + cacheSeconds) / duration))) : 0
         if !isSeeking {
             self.currentTime = position
         }
@@ -3199,7 +3487,9 @@ extension VideoPlayerViewController: MPVWrapperDelegate {
         }
 
         playPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
-        mobilePlayPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause"), for: .normal)
+        mobilePlayPauseButton.setImage(UIImage.hayaseFilledIcon(isPaused ? "play" : "pause", pointSize: isPaused ? 24 : 28), for: .normal)
+        let inset: CGFloat = isPaused ? 12 : 10
+        mobilePlayPauseButton.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         if isPaused {
             hideWork?.cancel()
             setControls(visible: true)
