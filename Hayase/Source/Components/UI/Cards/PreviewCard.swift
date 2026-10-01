@@ -19,23 +19,29 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private let bannerContainer: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.HayaseTheme.background
+        v.backgroundColor = .clear
+        v.isOpaque = false
         v.clipsToBounds = true
         v.layer.cornerRadius = 4
         v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         return v
     }()
 
-    private let blurredImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.alpha = 0.85
-        return iv
+    private let bannerGlow = PreviewAmbientGlowView(
+        bannerSize: CGSize(width: PreviewCard.size.width, height: PreviewCard.size.height * 0.45)
+    )
+    private let bodyBackground: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.HayaseTheme.muted
+        view.layer.cornerRadius = 4
+        view.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        view.isUserInteractionEnabled = false
+        return view
     }()
 
     private let bannerImageView: UIImageView = {
         let iv = UIImageView()
+        iv.backgroundColor = UIColor.HayaseTheme.background
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         return iv
@@ -85,6 +91,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     private var imageTask: URLSessionDataTask?
     private var currentImageURL: String?
     private var bannerLoadToken = 0
+    private var effectsEnabled = false
+    private var isDismissed = false
     private var isFavorite = false
     private var isBookmarked = false
 
@@ -98,16 +106,25 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         setup()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { prepareForDismissal() }
+    }
+
     private func setup() {
-        backgroundColor = UIColor.HayaseTheme.muted
-        layer.cornerRadius = 4
-        clipsToBounds = true
+        // The glow must escape the card. Only the foreground banner and body
+        // have rounded surfaces; clipping this root cuts off the ambient light.
+        backgroundColor = .clear
+        isOpaque = false
+        clipsToBounds = false
         isUserInteractionEnabled = true
 
-        bannerContainer.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(bannerContainer)
+        [bannerGlow, youtubeIframe.ambientView, bannerContainer, bodyBackground].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
 
-        [blurredImageView, bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
+        [bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             bannerContainer.addSubview($0)
         }
@@ -143,6 +160,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             bannerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             bannerContainer.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.45),
 
+            bodyBackground.topAnchor.constraint(equalTo: bannerContainer.bottomAnchor),
+            bodyBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bodyBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bodyBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             contentStack.topAnchor.constraint(equalTo: bannerContainer.bottomAnchor),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
@@ -155,7 +177,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             bookmarkButton.heightAnchor.constraint(equalToConstant: 26),
         ])
 
-        [blurredImageView, bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
+        [bannerGlow, youtubeIframe.ambientView, bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
             NSLayoutConstraint.activate([
                 $0.topAnchor.constraint(equalTo: bannerContainer.topAnchor),
                 $0.leadingAnchor.constraint(equalTo: bannerContainer.leadingAnchor),
@@ -179,7 +201,19 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func setBackdropBlurHidden(_ hidden: Bool) {
-        blurredImageView.isHidden = hidden
+        bannerGlow.isHidden = !effectsEnabled || hidden
+        // Reveal the already-playing foreground beneath the banner, rather than
+        // hiding the image abruptly or fading both layers through the page below.
+        // Interface keeps its banner mounted underneath the fading trailer.
+        if hidden {
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           options: [.beginFromCurrentState, .curveEaseInOut]) {
+                self.bannerImageView.alpha = 0
+            }
+        } else {
+            bannerImageView.layer.removeAllAnimations()
+            bannerImageView.alpha = 1
+        }
     }
 
     private func configureButtons() {
@@ -217,6 +251,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     func configure(media: AnimeItem, actions: PreviewCardActions) {
+        isDismissed = false
+        // Native counterpart of SUPPORTS.isUnderPowered, with Low Power Mode
+        // respected as well. Neither blurred images nor dual trailer decoders run.
+        effectsEnabled = !ProcessInfo.processInfo.isLowPowerModeEnabled
+            && ProcessInfo.processInfo.physicalMemory >= 4 * 1_024 * 1_024 * 1_024
         self.media = media
         self.actions = actions
         titleLabel.text = AniListUtil.title(for: media)
@@ -229,15 +268,15 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         setBackdropBlurHidden(false)
         loadBanner(for: media)
 
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+        videoframe.reset()
+        videoframe.isHidden = true
+        if !effectsEnabled {
             youtubeIframe.reset()
             youtubeIframe.isHidden = true
         } else {
             youtubeIframe.isHidden = media.trailerYouTubeID == nil
             youtubeIframe.configure(id: media.trailerYouTubeID)
         }
-        videoframe.reset()
-        videoframe.isHidden = true
 
         AniListTracking.shared.checkIsFavourite(mediaID: media.id) { [weak self] favorite in
             DispatchQueue.main.async {
@@ -368,8 +407,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         let token = bannerLoadToken
         currentImageURL = nil
         bannerImageView.image = nil
-        blurredImageView.image = nil
-        bannerImageView.backgroundColor = .clear
+        bannerGlow.reset()
+        bannerImageView.backgroundColor = UIColor.HayaseTheme.background
 
         let fallbackURL = resolvedFallbackBannerURL(for: media)
         guard usesWideBannerSource else {
@@ -380,6 +419,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         AniZipService.shared.imagesCached(anilistID: media.id) { [weak self] response in
             DispatchQueue.main.async {
                 guard let self,
+                      !self.isDismissed,
                       self.bannerLoadToken == token,
                       self.media?.id == media.id else { return }
                 self.loadResolvedBannerURL(Self.anizipBannerURL(from: response) ?? fallbackURL,
@@ -453,7 +493,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
                   let data,
                   let image = UIImage(data: data) else { return }
             DispatchQueue.main.async {
-                guard self.bannerLoadToken == token,
+                guard !self.isDismissed,
+                      self.bannerLoadToken == token,
                       self.media?.id == media.id,
                       self.currentImageURL == urlString else { return }
                 if Self.isMissingYoutubeThumbnail(image, urlString: urlString),
@@ -469,9 +510,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func applyImage(_ image: UIImage, for urlString: String) {
-        guard currentImageURL == urlString else { return }
+        guard !isDismissed, currentImageURL == urlString else { return }
         bannerImageView.image = image
-        blurredImageView.image = image
+        if effectsEnabled {
+            bannerGlow.configure(image: image, cacheKey: urlString)
+        }
     }
 
     private func formatString(_ raw: String?) -> String {
@@ -520,9 +563,11 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     func prepareForDismissal() {
+        isDismissed = true
         bannerLoadToken += 1
         imageTask?.cancel()
         imageTask = nil
+        bannerGlow.reset()
         youtubeIframe.reset()
         videoframe.reset()
         setBackdropBlurHidden(false)

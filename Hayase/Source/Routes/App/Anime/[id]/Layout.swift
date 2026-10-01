@@ -795,6 +795,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     private var trailerMinutesLoader: TrailerMinutes?
     private var mappedEpisodeCount = 0
     private var trailerTooltip: TrailerTooltipView?
+    private var trailerTooltipConstraints: [NSLayoutConstraint] = []
+    private var trailerTooltipMedium: Bool?
     private var rawDescription: String?
     private var lastAppliedLabelMaxWidth: CGFloat = 0
 
@@ -1789,15 +1791,24 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     /// The tooltip is open as long as the trailer button is shown and the trailer is the media.
     private func updateTrailerTooltip() {
         guard window != nil, !trailerButton.isHidden, trailerIsMedia, let table = enclosingTableView else {
+            NSLayoutConstraint.deactivate(trailerTooltipConstraints)
+            trailerTooltipConstraints = []
+            trailerTooltipMedium = nil
             trailerTooltip?.removeFromSuperview()
             trailerTooltip = nil
             return
         }
-        guard trailerTooltip == nil else {
+        if let tooltip = trailerTooltip {
+            if tooltip.superview !== table {
+                NSLayoutConstraint.deactivate(trailerTooltipConstraints)
+                trailerTooltipConstraints = []
+                table.addSubview(tooltip)
+            }
             positionTrailerTooltip()
             return
         }
         let tooltip = TrailerTooltipView()
+        tooltip.translatesAutoresizingMaskIntoConstraints = false
         tooltip.layer.zPosition = 1000   // z-50
         table.addSubview(tooltip)
         trailerTooltip = tooltip
@@ -1805,25 +1816,55 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         // flyAndScale in, 150ms
         tooltip.alpha = 0
         tooltip.transform = CGAffineTransform(translationX: 0, y: 8).scaledBy(x: 0.95, y: 0.95)
-        UIView.animate(withDuration: 0.15) {
-            tooltip.alpha = 1
-            tooltip.transform = .identity
+        // Wait until the header's current layout pass is over before resolving
+        // the portal constraints. Never animate in from an unresolved zero frame.
+        DispatchQueue.main.async { [weak self, weak tooltip] in
+            guard let self, let tooltip, self.trailerTooltip === tooltip else { return }
+            tooltip.superview?.layoutIfNeeded()
+            UIView.animate(withDuration: 0.15) {
+                tooltip.alpha = 1
+                tooltip.transform = .identity
+            }
         }
     }
 
-    /// `side='bottom'` with `sideOffset` 4, at the button's start from `md` and at its end below it.
+    /// Keep a live anchor like TooltipPrimitive.Content: table section reloads
+    /// can move/reparent the header without calling its layoutSubviews again.
+    /// A copied frame in table coordinates drifts when that happens.
     private func positionTrailerTooltip() {
-        guard let tooltip = trailerTooltip, let table = tooltip.superview else { return }
+        guard let tooltip = trailerTooltip, let table = enclosingTableView,
+              tooltip.superview === table else { return }
         let medium = (window?.rootViewController?.view.bounds.width ?? bounds.width) >= 768
-        let transform = tooltip.transform
-        tooltip.transform = .identity
         tooltip.configure(medium: medium)
-        let anchor = table.convert(trailerButton.bounds, from: trailerButton)
         let size = tooltip.fittingSize
-        var x = medium ? anchor.minX : anchor.maxX - size.width
-        x = min(max(x, 0), max(0, table.bounds.width - size.width))
-        tooltip.frame = CGRect(x: x, y: anchor.maxY + 4, width: size.width, height: size.height)
-        tooltip.transform = transform
+
+        // Removing/reparenting the header/button automatically deactivates its
+        // cross-hierarchy anchor. Rebuild it against the current table, not an
+        // old reusable cell. Keep the tooltip outside the header's fitting size.
+        if trailerTooltipConstraints.first?.isActive != true || trailerTooltipMedium != medium {
+            NSLayoutConstraint.deactivate(trailerTooltipConstraints)
+            let alignment = medium
+                ? tooltip.leadingAnchor.constraint(equalTo: trailerButton.leadingAnchor)
+                : tooltip.trailingAnchor.constraint(equalTo: trailerButton.trailingAnchor)
+            alignment.priority = UILayoutPriority(998)
+            let rightEdge = tooltip.trailingAnchor.constraint(lessThanOrEqualTo: table.frameLayoutGuide.trailingAnchor)
+            // A temporarily zero-width table during attachment must not create
+            // an unsatisfiable required constraint; normal widths still clamp.
+            rightEdge.priority = UILayoutPriority(999)
+            trailerTooltipConstraints = [
+                tooltip.topAnchor.constraint(equalTo: trailerButton.bottomAnchor, constant: 4),
+                tooltip.widthAnchor.constraint(equalToConstant: size.width),
+                tooltip.heightAnchor.constraint(equalToConstant: size.height),
+                tooltip.leadingAnchor.constraint(greaterThanOrEqualTo: table.frameLayoutGuide.leadingAnchor),
+                rightEdge,
+                alignment,
+            ]
+            trailerTooltipMedium = medium
+            NSLayoutConstraint.activate(trailerTooltipConstraints)
+        } else {
+            trailerTooltipConstraints.first { $0.firstAttribute == .width }?.constant = size.width
+            trailerTooltipConstraints.first { $0.firstAttribute == .height }?.constant = size.height
+        }
     }
 
     func updateMALButtonVisibility() {
