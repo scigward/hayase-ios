@@ -728,28 +728,31 @@ final class RelationGraphCell: UITableViewCell, UIScrollViewDelegate {
             return values.reduce(0, +) / CGFloat(values.count)
         }
 
+        // A strict ordering: equal averages fall through to the title sort, as a comparator
+        // that says both "a < b" and "b < a" can crash `sorted`.
+        func precedes(_ lhs: Int, _ rhs: Int, targetRank: Int, positions: [Int: CGFloat]) -> Bool {
+            let left = neighborAverage(id: lhs, targetRank: targetRank, positions: positions)
+            let right = neighborAverage(id: rhs, targetRank: targetRank, positions: positions)
+            switch (left, right) {
+            case let (left?, right?) where left != right: return left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return relationSort(graph: graph)(lhs, rhs)
+            }
+        }
+
         for _ in 0..<8 {
             var positions = rankPositions(grouped)
             for rank in sortedRanks.dropFirst() {
-                grouped[rank] = (grouped[rank] ?? []).sorted { lhs, rhs in
-                    let left = neighborAverage(id: lhs, targetRank: rank - 1, positions: positions)
-                    let right = neighborAverage(id: rhs, targetRank: rank - 1, positions: positions)
-                    if let left, let right, left != right { return left < right }
-                    if left != nil { return true }
-                    if right != nil { return false }
-                    return relationSort(graph: graph)(lhs, rhs)
+                grouped[rank] = (grouped[rank] ?? []).sorted {
+                    precedes($0, $1, targetRank: rank - 1, positions: positions)
                 }
             }
 
             positions = rankPositions(grouped)
             for rank in sortedRanks.dropLast().reversed() {
-                grouped[rank] = (grouped[rank] ?? []).sorted { lhs, rhs in
-                    let left = neighborAverage(id: lhs, targetRank: rank + 1, positions: positions)
-                    let right = neighborAverage(id: rhs, targetRank: rank + 1, positions: positions)
-                    if let left, let right, left != right { return left < right }
-                    if left != nil { return true }
-                    if right != nil { return false }
-                    return relationSort(graph: graph)(lhs, rhs)
+                grouped[rank] = (grouped[rank] ?? []).sorted {
+                    precedes($0, $1, targetRank: rank + 1, positions: positions)
                 }
             }
         }
