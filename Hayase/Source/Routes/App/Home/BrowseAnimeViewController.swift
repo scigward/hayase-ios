@@ -930,16 +930,13 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
                           self.items[self.currentIndex].id == itemIDForState else { return }
                     guard case .success(let payload) = result else { return }
                     let isOnList = payload.entry != nil
+                    self.playButton.setTitle(Self.playButtonTitle(status: payload.entry?.status), for: .normal)
                     self.bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
                 }
             }
-            // Play button label: matches Hayase play.svelte — "Rewatch" / "Continue" / "Watch Now"
-            let continueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-            if continueIDs.contains(item.id) {
-                self.playButton.setTitle("  Continue", for: .normal)
-            } else {
-                self.playButton.setTitle("  Watch Now", for: .normal)
-            }
+            // play.svelte: the label follows the status of the media's list entry
+            let status = item.mediaListEntry?.status ?? TrackerAggregator.externalEntry(for: item.id)?.status
+            self.playButton.setTitle(Self.playButtonTitle(status: status), for: .normal)
         }
         block()
         if fadeIn && !UIAccessibility.isReduceMotionEnabled {
@@ -2249,8 +2246,10 @@ class BrowseAnimeViewController: UIViewController {
     }
 
     private func personalHomeSectionDescriptors(userListIDs: AniListTracking.UserListIDs?) -> [HomeSectionDescriptor] {
-        let localContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-        let localPlanningIDs = LocalTracking.shared.planningIDs()
+        // `authAggregator`: AniList's lists, or those of the first other tracker that is signed in
+        let otherLists = TrackerAggregator.listIDs()
+        let localContinueIDs = otherLists.continueIDs
+        let localPlanningIDs = otherLists.planningIDs
         lastLocalContinueIDs = localContinueIDs
         lastLocalPlanningIDs = localPlanningIDs
         let hasAniList = TrackerAccountManager.shared.isLoggedIn(.anilist)
@@ -2576,11 +2575,21 @@ class BrowseAnimeViewController: UIViewController {
         removeHomeSectionQueries(where: { _ in true })
     }
 
+    /// play.svelte: "Rewatch", "Continue" or "Watch Now".
+    private static func playButtonTitle(status: String?) -> String {
+        switch status {
+        case "COMPLETED": return "  Rewatch"
+        case "CURRENT", "REPEATING", "PAUSED": return "  Continue"
+        default: return "  Watch Now"
+        }
+    }
+
     @objc private func handleTrackingDidChange(_ notification: Notification) {
         guard !isSearching else { return }
         let hasAniList = TrackerAccountManager.shared.isLoggedIn(.anilist)
-        let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-        let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
+        let currentOtherLists = TrackerAggregator.listIDs()
+        let currentLocalContinueIDs = currentOtherLists.continueIDs
+        let currentLocalPlanningIDs = currentOtherLists.planningIDs
         let remoteListChanged = notification.object is AniListTracking
         guard remoteListChanged ||
               (!hasAniList &&
@@ -2599,8 +2608,9 @@ class BrowseAnimeViewController: UIViewController {
     private func refreshPersonalSectionsIfLocalListsChanged() {
         guard !isSearching else { return }
         guard !TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
-        let currentLocalContinueIDs = WatchProgressService.shared.continueWatchingAnilistIDs()
-        let currentLocalPlanningIDs = LocalTracking.shared.planningIDs()
+        let currentOtherLists = TrackerAggregator.listIDs()
+        let currentLocalContinueIDs = currentOtherLists.continueIDs
+        let currentLocalPlanningIDs = currentOtherLists.planningIDs
         guard currentLocalContinueIDs != lastLocalContinueIDs ||
               currentLocalPlanningIDs != lastLocalPlanningIDs else { return }
         refreshPersonalSectionQueries(fetchRemoteLists: false)
@@ -2761,10 +2771,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             if !bannerItems.isEmpty {
                 cell.configure(with: bannerItems, selectedID: selectedFeaturedID)
             }
-            // Wire play button → navigate to anime detail
+            // play.svelte: the play button starts the episode search, not the page
             cell.onPlayTapped = { [weak self] item in
-                guard let self else { return }
-                Router.shared.navigateToAnime(item, hostTabIndex: self.hayaseTabIndex)
+                self?.hayasePreviewCardActions().play(item)
             }
             // Wire favorite/bookmark buttons to AniList tracking
             cell.onFavorite = { item in

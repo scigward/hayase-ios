@@ -1842,7 +1842,7 @@ public final class AniListClient: NSObject {
         if onList {
             if TrackerAccountManager.shared.isLoggedIn(.anilist) { variables["onList"] = true }
             else {
-                let ids = LocalTracking.shared.scheduleMediaIDs()
+                let ids = TrackerAggregator.scheduleIDs()
                 guard !ids.isEmpty else {
                     DispatchQueue.main.async { completion(.success([])) }
                     return nil
@@ -1948,7 +1948,7 @@ public final class AniListClient: NSObject {
                 status: entry["status"] as? String, progress: intValue(entry["progress"]) ?? 0,
                 score: 0, repeatCount: 0, customLists: [])
         } else if !TrackerAccountManager.shared.isLoggedIn(.anilist) {
-            item.mediaListEntry = LocalTracking.shared.entry(for: id)
+            item.mediaListEntry = TrackerAggregator.listEntry(for: id)
         }
         return item
     }
@@ -2046,11 +2046,11 @@ public final class AniListClient: NSObject {
 
     private static func _fetchAniZipImages(anilistID: Int) {
         // Web Hayase uses episodesCached(id), which calls:
-        //   https://api.ani.zip/v2/images/tmdb?anilist_id=<id>
+        //   https://hayase.ani.zip/v2/images/tmdb?anilist_id=<id>
         // and then picks TMDB backdrops/logos by vote_average. The previous native
         // path used api.ani.zip/v1 mappings images (Fanart/Poster), which is why
         // the Swift banner could show a completely different red key visual.
-        var comps = URLComponents(string: "https://api.ani.zip/v2/images/tmdb")
+        var comps = URLComponents(string: "https://hayase.ani.zip/v2/images/tmdb")
         comps?.queryItems = [URLQueryItem(name: "anilist_id", value: String(anilistID))]
         guard let url = comps?.url else {
             _fanartQueue.async(flags: .barrier) {

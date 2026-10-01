@@ -130,6 +130,8 @@ final class TrackerAccountManager {
         setToken(nil, for: tracker)
         if tracker == .anilist {
             clearAniListRuntimeState()
+        } else {
+            TrackerAggregator.signedOut(tracker)
         }
         notify()
     }

@@ -211,6 +211,24 @@ final class AniListTracking {
         }
     }
 
+    /// A query: the token goes along when there is one, a media does not need one to be read.
+    private func queryResult(query: String,
+                             variables: [String: Any],
+                             completion: @escaping (Result<[String: Any], AniListRequestError>) -> Void) {
+        AniListRequestExecutor.shared.execute(query: query, variables: variables, authorized: true) { result in
+            switch result {
+            case .success(let graphQLResult):
+                guard let dataObj = graphQLResult.json["data"] as? [String: Any] else {
+                    completion(.failure(.emptyData))
+                    return
+                }
+                completion(.success(dataObj))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
     // MARK: - Fetch current list entry
 
     func fetchMediaWithEntry(anilistID: Int, completion: @escaping (AnimeItem.MediaListEntry?, String?, Int?, String?, Int?) -> Void) {
@@ -220,15 +238,14 @@ final class AniListTracking {
                 completion(payload.entry, payload.mediaStatus, payload.episodes, payload.format, payload.duration)
             case .failure(let error):
                 NSLog("[AniListTracking] fetchMediaWithEntry failed: %@", error.description)
-                let fallbackEntry = TrackerAccountManager.shared.isLoggedIn(.anilist) ? nil : LocalTracking.shared.entry(for: anilistID)
-                completion(fallbackEntry, nil, nil, nil, nil)
+                completion(TrackerAggregator.externalEntry(for: anilistID), nil, nil, nil, nil)
             }
         }
     }
 
     func fetchMediaWithEntryResult(anilistID: Int,
                                    completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?, scheduleEpisodes: Int), AniListRequestError>) -> Void) {
-        authRequestResult(query: AniListQueries.trackingSingleMedia, variables: ["id": anilistID]) { [weak self] result in
+        queryResult(query: AniListQueries.trackingSingleMedia, variables: ["id": anilistID]) { [weak self] result in
             guard let self else {
                 completion(.failure(.cancelled))
                 return
@@ -270,8 +287,9 @@ final class AniListTracking {
                         repeatCount: self.jsonInt(mle["repeat"]),
                         customLists: enabledLists)
                 }
-                let fallbackEntry = TrackerAccountManager.shared.isLoggedIn(.anilist) ? nil : LocalTracking.shared.entry(for: anilistID)
-                completion(.success((entry ?? fallbackEntry, mediaStatus, episodes, format, duration, scheduleEpisodes)))
+                // `mediaListEntry`: AniList's entry first, then kitsu, mal, simkl and the local one
+                completion(.success((entry ?? TrackerAggregator.externalEntry(for: anilistID),
+                                     mediaStatus, episodes, format, duration, scheduleEpisodes)))
             case .failure(let error):
                 completion(.failure(error))
             }
@@ -318,10 +336,18 @@ final class AniListTracking {
             score: score,
             repeatCount: repeatCount,
             lists: lists) : nil
+        // auth/client.ts `entry`: kitsu, mal and simkl get the change whatever AniList does
+        TrackerAggregator.entry(TrackerEntryVariables(id: mediaID, status: status, progress: progress,
+                                                      score: score.map { $0 * 10 }, repeatCount: repeatCount,
+                                                      lists: lists))
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
             if let localEntry {
                 completion(.success(localEntry))
+            } else if Self.syncsToAnotherTracker {
+                completion(.success(AnimeItem.MediaListEntry(listID: mediaID, status: status, progress: progress ?? 0,
+                                                             score: score ?? 0, repeatCount: repeatCount ?? 0,
+                                                             customLists: lists ?? [])))
             } else {
                 completion(.failure(.unauthenticated))
             }
@@ -404,6 +430,12 @@ final class AniListTracking {
         }
     }
 
+    /// Kitsu, MAL or Simkl is signed in and on.
+    private static var syncsToAnotherTracker: Bool {
+        let manager = TrackerAccountManager.shared
+        return [TrackerKind.kitsu, .mal, .simkl].contains { manager.isSyncEnabled(for: $0) && manager.viewer(for: $0) != nil }
+    }
+
     // MARK: - deleteEntry()
 
     func deleteEntry(listID: Int, mediaID: Int? = nil, completion: ((Bool) -> Void)? = nil) {
@@ -421,10 +453,11 @@ final class AniListTracking {
     func deleteEntryResult(listID: Int,
                            mediaID: Int? = nil,
                            completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        if let mediaID { TrackerAggregator.delete(mediaID: mediaID, malID: nil) }
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
               TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
             guard TrackerAccountManager.shared.isSyncEnabled(for: .local) else {
-                completion(.failure(.unauthenticated))
+                completion(Self.syncsToAnotherTracker ? .success(true) : .failure(.unauthenticated))
                 return
             }
             completion(.success(LocalTracking.shared.delete(mediaID: mediaID ?? listID)))
@@ -484,9 +517,6 @@ final class AniListTracking {
     func watch(anilistID: Int, episodeProgress: Int) {
         // auth/client.ts `watch`: `!isFinite(progress) || progress < 0`
         guard episodeProgress >= 0 else { return }
-        if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
-            LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress)
-        }
         fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
             guard let self else { return }
 
@@ -503,9 +533,6 @@ final class AniListTracking {
             let counted = (totalEps ?? 0) != 0 ? (totalEps ?? 0) : payload.scheduleEpisodes
             let total = counted == 0 ? 1 : counted
             if total < episodeProgress { return }
-            if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
-                LocalTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeProgress, totalEpisodes: total)
-            }
 
             let currentProgress = currentEntry?.progress ?? 0
             if currentProgress >= episodeProgress { return }
@@ -529,9 +556,6 @@ final class AniListTracking {
     // MARK: - setInitialState()
 
     func setInitialState(anilistID: Int, episode: Int) {
-        if TrackerAccountManager.shared.isSyncEnabled(for: .local) {
-            LocalTracking.shared.setInitialState(anilistID: anilistID, episode: episode)
-        }
         guard episode == 1 else { return }
 
         fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
@@ -782,14 +806,26 @@ final class AniListTracking {
 
     func toggleFavouriteResult(mediaID: Int,
                                completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
+        // `toggleFav`: AniList, Kitsu and the local list, each when it is signed in; no sync switch asks
         let localFavourite = LocalTracking.shared.toggleFavourite(mediaID: mediaID)
-        guard TrackerAccountManager.shared.isLoggedIn(.anilist),
-              TrackerAccountManager.shared.isSyncEnabled(for: .anilist) else {
-            AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: localFavourite)
-            notifyTrackingDidChange()
-            completion(.success(localFavourite))
+        let kitsuSignedIn = KitsuSync.shared.isSignedIn
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
+            guard kitsuSignedIn else {
+                AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: localFavourite)
+                notifyTrackingDidChange()
+                completion(.success(localFavourite))
+                return
+            }
+            Task {
+                await KitsuSync.shared.toggleFavourite(mediaID: mediaID)
+                let isFavourite = KitsuSync.shared.isFavourite(mediaID: mediaID)
+                AniListMutationUpdaters.applyFavourite(mediaID: mediaID, isFavourite: isFavourite)
+                self.notifyTrackingDidChange()
+                completion(.success(isFavourite))
+            }
             return
         }
+        if kitsuSignedIn { Task { await KitsuSync.shared.toggleFavourite(mediaID: mediaID) } }
 
         authRequestResult(query: AniListQueries.toggleFavourite, variables: ["id": mediaID], optimistic: true) { [weak self] result in
             switch result {
@@ -831,7 +867,7 @@ final class AniListTracking {
     func checkIsFavouriteResult(mediaID: Int,
                                 completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
-            completion(.success(LocalTracking.shared.isFavourite(mediaID: mediaID)))
+            completion(.success(TrackerAggregator.isFavourite(mediaID: mediaID)))
             return
         }
         authRequestResult(query: AniListQueries.isFavourite, variables: ["id": mediaID]) { result in

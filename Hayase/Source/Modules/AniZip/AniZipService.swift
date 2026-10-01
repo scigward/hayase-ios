@@ -12,8 +12,8 @@ final class AniZipService {
     static let shared = AniZipService()
     private init() {}
 
-    private let baseURL = "https://api.ani.zip/v1"
-    private let imagesBaseURL = "https://api.ani.zip/v2/images/tmdb"
+    private let baseURL = "https://hayase.ani.zip/v1"
+    private let imagesBaseURL = "https://hayase.ani.zip/v2/images/tmdb"
 
     // MARK: - Cached episodes
 

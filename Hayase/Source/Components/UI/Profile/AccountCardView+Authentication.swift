@@ -121,7 +121,7 @@ extension HayaseAccountCardView {
     func loginSimkl() {
         guard let vc = parentVC else { return }
         guard !SimklAuth.clientID.isEmpty, !SimklAuth.clientSecret.isEmpty else {
-            showSimklSettings()
+            TrackerToast.error("Simkl Sync", "Simkl Client ID and Client Secret must be configured in Simkl settings.")
             return
         }
         let state = UUID().uuidString.replacingOccurrences(of: "-", with: "")

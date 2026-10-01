@@ -155,13 +155,9 @@ extension UIViewController {
             },
             play: { [weak self] media in
                 guard let self else { return }
-                let status = media.mediaListEntry?.status
-                let episode: Int
-                if status == "COMPLETED" {
-                    episode = 1
-                } else {
-                    episode = (media.mediaListEntry?.progress ?? 0) + 1
-                }
+                // play.svelte: `$status === 'COMPLETED' ? 1 : ($progressStore ?? 0) + 1`
+                let entry = media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id)
+                let episode = entry?.status == "COMPLETED" ? 1 : (entry?.progress ?? 0) + 1
                 self.presentHayasePreviewExtensionSearch(media: media, episode: episode)
             },
             favorite: { media, completion in

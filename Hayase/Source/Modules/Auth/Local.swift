@@ -81,7 +81,13 @@ final class LocalTracking {
 
     private let udKey = "hayase_localTracking"
     private let entriesLock = NSLock()
-    private init() {}
+    /// `entries` is a Map that was filled from an object: its keys come back in ascending order, and
+    /// whatever is added after that goes at the end.
+    private var order: [Int] = []
+
+    private init() {
+        order = allEntries().keys.sorted()
+    }
 
     func entry(mediaID: Int,
                status: String? = nil,
@@ -163,21 +169,6 @@ final class LocalTracking {
         return allEntries()[mediaID]?.isFavourite ?? false
     }
 
-    func watch(anilistID: Int, episodeProgress: Int, totalEpisodes: Int? = nil) {
-        guard anilistID > 0, episodeProgress > 0 else { return }
-        let total = totalEpisodes ?? Int.max
-        let status = episodeProgress >= total ? "COMPLETED" : "CURRENT"
-        _ = entry(mediaID: anilistID, status: status, progress: episodeProgress)
-    }
-
-    func setInitialState(anilistID: Int, episode: Int) {
-        guard anilistID > 0, episode == 1 else { return }
-        let current = entry(for: anilistID)
-        if current == nil || current?.status == "PLANNING" || current?.status == "PAUSED" {
-            _ = entry(mediaID: anilistID, status: "CURRENT", progress: current?.progress ?? 0)
-        }
-    }
-
     func entry(for mediaID: Int) -> AnimeItem.MediaListEntry? {
         entriesLock.lock()
         defer { entriesLock.unlock() }
@@ -205,14 +196,12 @@ final class LocalTracking {
     private func mediaIDs(withStatuses statuses: Set<String>) -> [Int] {
         entriesLock.lock()
         defer { entriesLock.unlock() }
-        return allEntries().values
-            .filter { entry in
-                guard entry.hasMediaListEntry else { return false }
-                guard let status = entry.status else { return false }
-                return statuses.contains(status)
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .map(\.mediaID)
+        let entries = allEntries()
+        return order.compactMap { id -> Int? in
+            guard let entry = entries[id], entry.hasMediaListEntry, let status = entry.status,
+                  statuses.contains(status) else { return nil }
+            return id
+        }
     }
 
     private func allEntries() -> [Int: LocalMediaTrackingEntry] {
@@ -224,6 +213,7 @@ final class LocalTracking {
     }
 
     private func save(_ entries: [Int: LocalMediaTrackingEntry]) {
+        for id in entries.keys.sorted() where !order.contains(id) { order.append(id) }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: udKey)
     }

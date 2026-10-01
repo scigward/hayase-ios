@@ -346,7 +346,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updatePlayTitle(for media: AnimeItem) {
-        let status = media.mediaListEntry?.status
+        let status = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.status
         let title: String
         if status == "COMPLETED" {
             title = "  Rewatch"

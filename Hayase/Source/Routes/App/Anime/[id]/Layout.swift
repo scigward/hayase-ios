@@ -2546,7 +2546,9 @@ class AnimeDetailViewController: UIViewController {
             self.presentTrailerDialog(trailerID: trailerID)
         }
         headerView.onWatch = { [weak self] in
-            self?.openExtensionSearch(episode: 1)
+            // play.svelte: `$status === 'COMPLETED' ? 1 : ($progressStore ?? 0) + 1`
+            guard let self else { return }
+            self.openExtensionSearch(episode: self.currentListStatus == "COMPLETED" ? 1 : self.anilistProgress + 1)
         }
         headerView.onEntryEditor = { [weak self] in
             self?.showEntryEditor()
@@ -2728,14 +2730,18 @@ class AnimeDetailViewController: UIViewController {
     }
 
     func applyViewerState(from item: AnimeItem) {
-        if let favourite = item.isFavourite {
-            isFavorite = favourite
+        // auth/client.ts `isFavourite`: AniList's own, else Kitsu's, else the local list's
+        if TrackerAccountManager.shared.isLoggedIn(.anilist) {
+            if let favourite = item.isFavourite { isFavorite = favourite }
+        } else {
+            isFavorite = TrackerAggregator.isFavourite(mediaID: item.id)
         }
-        if let entry = item.mediaListEntry {
+        // `mediaListEntry`: AniList's entry first, then kitsu, mal, simkl and the local one
+        if let entry = item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id) {
             isOnList = true
             currentListStatus = entry.status
             anilistProgress = entry.progress
-        } else if TrackerAccountManager.shared.isLoggedIn(.anilist) {
+        } else {
             isOnList = false
             currentListStatus = nil
             anilistProgress = 0

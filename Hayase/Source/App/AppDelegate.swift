@@ -19,6 +19,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.overrideUserInterfaceStyle = .dark
         UIScrollView.installInstantTouches()
         AniListRefocus.shared.start()
+        TrackerAggregator.start()
         AniListConnectionStatus.shared.start()
         _ = AniListOfflineQueue.shared   // the failed mutations of last time go out
         installSidebarShellIfNeeded()

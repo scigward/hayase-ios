@@ -593,7 +593,7 @@ final class ExtensionService {
     /// Fetch raw JSON from api.ani.zip for a given AniList ID.
     /// Shared by fetchAniZipData for both the primary request and the parent fallback.
     private func fetchAniZipJSON(anilistID: Int) async -> [String: Any]? {
-        guard let url = URL(string: "https://api.ani.zip/v1/episodes?anilist_id=\(anilistID)") else {
+        guard let url = URL(string: "https://hayase.ani.zip/v1/episodes?anilist_id=\(anilistID)") else {
             return nil
         }
         var req = URLRequest(url: url, timeoutInterval: 15)

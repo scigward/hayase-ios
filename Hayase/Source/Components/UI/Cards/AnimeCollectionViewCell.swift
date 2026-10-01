@@ -309,7 +309,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
                   ?? item.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
                   ?? item.coverURL ?? "")
         // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
-        if let status = item.mediaListEntry?.status {
+        if let status = (item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id))?.status {
             statusDotView.backgroundColor = statusDotColor(for: status)
             statusDotView.isHidden = false
         } else {
