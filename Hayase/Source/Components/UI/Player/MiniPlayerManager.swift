@@ -14,6 +14,27 @@ import UIKit
 import LibTorrent
 import CoreData
 
+/// Reports finger down / up, which `mobile:active:paused-show` needs and gesture
+/// recognizers (a tap or drag cancels the touch) would hide.
+private final class MiniPlayerContainerView: UIView {
+    var onPress: ((Bool) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        onPress?(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        onPress?(false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        onPress?(false)
+    }
+}
+
 final class MiniPlayerManager {
 
     static let shared = MiniPlayerManager()
@@ -25,16 +46,15 @@ final class MiniPlayerManager {
     /// min(viewport, 352pt) minus 32pt horizontal padding.
     private let maxOuterWidth: CGFloat = 352
     private let edgePadding: CGFloat = 16
-    /// Corner radius matching Hayase's `[&>*]:rounded-lg`.
-    private let cornerRadius: CGFloat = 12
+    /// Corner radius matching Hayase's `[&>*]:rounded-lg` (`--radius: 0.5rem`).
+    private let cornerRadius: CGFloat = 8
     /// Snap animation (Hayase: `transition-transform duration-[500ms]
     /// ease-[cubic-bezier(0.3,1.5,0.8,1)]`).
     private let snapDuration: TimeInterval = 0.5
-    /// How much of the mini-player is visible when tucked to the edge
-    /// (Hayase: `.paused { --padding-right: calc(100% - 3rem) }` → 3rem ≈ 48pt).
-    private let peekWidth: CGFloat = 48
-    /// Seconds of inactivity before the mini-player auto-tucks to the edge.
-    private let autoHideDelay: TimeInterval = 3.0
+    /// How much of the video is visible when tucked to the edge (Hayase: `.paused
+    /// { --padding-right: calc(100% - 3rem) }` leaves 3rem of the box, which is 2rem of
+    /// video once the `px-4` padding is taken off).
+    private let peekWidth: CGFloat = 32
     /// Maximum number of retry attempts when restoring the mini-player session
     /// and the torrent metadata hasn't been parsed yet by libtorrent.
     /// Set high enough to cover re-added magnets that need DHT peer discovery
@@ -74,9 +94,6 @@ final class MiniPlayerManager {
     /// The floating container inside the app shell.
     private var containerView: UIView?
 
-    /// The play/pause button in the mini-player overlay.
-    private var playPauseButton: UIButton?
-
     /// True when the mini-player is currently visible.
     var isActive: Bool { containerView != nil && activePlayer != nil }
 
@@ -90,8 +107,8 @@ final class MiniPlayerManager {
 
     /// Whether the mini-player is currently tucked to the edge (mostly hidden).
     private var isTucked = false
-    /// Timer that auto-tucks the mini-player after inactivity.
-    private var autoHideTimer: Timer?
+    /// A finger is down on the mini-player (`mobile:active:paused-show`).
+    private var isPressed = false
     /// The fully-revealed frame saved on snap / reposition.
     private var revealedFrame: CGRect = .zero
     /// Whether the container last snapped to the right side (`true`) or left (`false`).
@@ -216,7 +233,7 @@ final class MiniPlayerManager {
         }
 
         // Root view transitions fade wrapper.svelte with the destination.
-        isTucked = false
+        isTucked = player.isPaused
         isSnappedToRight = true
         isSnappedToTop = false
         repositionContainer()
@@ -228,9 +245,6 @@ final class MiniPlayerManager {
                 container.alpha = 1
             }.startAnimation()
         }
-
-        // Start auto-hide timer so the mini-player tucks after a few seconds.
-        resetAutoHideTimer()
 
         // Flag to prevent viewWillDisappear from tearing down the player.
         // Keep this state for the entire mini-player lifetime: tab and modal
@@ -269,7 +283,6 @@ final class MiniPlayerManager {
               let player = activePlayer,
               let container = containerView else { return }
 
-        cancelAutoHideTimer()
         isTucked = false
 
         // Find a presenting VC.
@@ -311,7 +324,6 @@ final class MiniPlayerManager {
     func close() {
         guard let player = activePlayer else { return }
 
-        cancelAutoHideTimer()
         cancelPendingWebTorrentRestore()
         isRestoring = false
         isTucked = false
@@ -377,9 +389,11 @@ final class MiniPlayerManager {
 
     // MARK: - Host + Container creation
 
+    /// The video keeps its own proportions, `aspect-video` only applies while there is none.
     private func miniSize(in host: UIView) -> CGSize {
         let visibleWidth = max(peekWidth, min(maxOuterWidth, host.bounds.width) - (edgePadding * 2))
-        return CGSize(width: visibleWidth, height: visibleWidth * 9 / 16)
+        let aspect = activePlayer?.videoAspectRatio ?? 16.0 / 9.0
+        return CGSize(width: visibleWidth, height: visibleWidth / aspect)
     }
 
     private func miniPlayerHost() -> UIView? {
@@ -390,13 +404,11 @@ final class MiniPlayerManager {
     /// mini-player div with rounded corners and shadow).
     private func makeContainer() -> UIView {
         let fallbackWidth = maxOuterWidth - (edgePadding * 2)
-        let v = UIView(frame: CGRect(x: 0, y: 0, width: fallbackWidth, height: fallbackWidth * 9 / 16))
-        // Don't clip the outer view — it needs to show the shadow.
-        v.clipsToBounds = false
-        v.layer.shadowColor = UIColor.black.cgColor
-        v.layer.shadowOpacity = 0.5
-        v.layer.shadowRadius = 8
-        v.layer.shadowOffset = CGSize(width: 0, height: 4)
+        let v = MiniPlayerContainerView(frame: CGRect(x: 0, y: 0, width: fallbackWidth, height: fallbackWidth * 9 / 16))
+        v.onPress = { [weak self] pressed in
+            self?.isPressed = pressed
+            self?.settle()
+        }
         // Inner container clips content to rounded corners.
         let inner = UIView(frame: v.bounds)
         inner.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -416,9 +428,9 @@ final class MiniPlayerManager {
         return v
     }
 
-    /// Adds the controls overlay to the mini-player: play/pause normally, or
-    /// (Mirrors: hayase-app/interface/src/lib/components/ui/player/castplayer.svelte,
-    /// `isMiniplayer` branch) the Now Casting display while actively casting.
+    /// Adds the Now Casting display while actively casting (Mirrors: hayase-app/interface/
+    /// src/lib/components/ui/player/castplayer.svelte, `isMiniplayer` branch). The miniplayer
+    /// has no controls otherwise: the video is all there is, and a tap opens the player.
     /// Re-callable: removes any existing overlay first so cast state changes
     /// while already minimized can rebuild it in place.
     func refreshLoadingState(for player: VideoPlayerViewController) {
@@ -429,7 +441,7 @@ final class MiniPlayerManager {
     private func addOverlay(to container: UIView) {
         guard let inner = container.viewWithTag(innerContainerTag) else { return }
         inner.viewWithTag(overlayTag)?.removeFromSuperview()
-        guard activePlayer?.isLoadingMetadata != true else { return }
+        guard activePlayer?.isLoadingMetadata != true, activePlayer?.isCasting == true else { return }
 
         let overlay = UIView()
         overlay.tag = overlayTag
@@ -442,30 +454,8 @@ final class MiniPlayerManager {
             overlay.trailingAnchor.constraint(equalTo: inner.trailingAnchor),
         ])
 
-        if activePlayer?.isCasting == true {
-            overlay.backgroundColor = UIColor.HayaseTheme.background   // bg-background (opaque, unlike the 0.3-alpha play/pause overlay)
-            buildCastOverlay(in: overlay)
-        } else {
-            overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-            buildPlayPauseOverlay(in: overlay)
-        }
-    }
-
-    private func buildPlayPauseOverlay(in overlay: UIView) {
-        let ppBtn = UIButton(type: .system)
-        ppBtn.translatesAutoresizingMaskIntoConstraints = false
-        let icon = activePlayer?.isPaused == true ? "play" : "pause"
-        ppBtn.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
-        ppBtn.tintColor = .white
-        ppBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
-        overlay.addSubview(ppBtn)
-        playPauseButton = ppBtn
-        NSLayoutConstraint.activate([
-            ppBtn.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            ppBtn.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
-            ppBtn.widthAnchor.constraint(equalToConstant: 36),
-            ppBtn.heightAnchor.constraint(equalToConstant: 36),
-        ])
+        overlay.backgroundColor = UIColor.HayaseTheme.background   // bg-background
+        buildCastOverlay(in: overlay)
     }
 
     /// `isMiniplayer` branch: no max-w-[320px] cap, no `{#if !isMiniplayer}`
@@ -607,7 +597,6 @@ final class MiniPlayerManager {
         switch gesture.state {
         case .began:
             isDragging = true
-            cancelAutoHideTimer()
             // If tucked, un-tuck so the drag starts from wherever the container is.
             if isTucked { isTucked = false }
         case .changed:
@@ -623,22 +612,10 @@ final class MiniPlayerManager {
         }
     }
 
-    /// Tap gesture — if tucked, reveal first; otherwise restore fullscreen
-    /// (Hayase: clicking mini-player calls `goto('/app/player/')`).
+    /// Tap gesture — restore fullscreen, tucked or not (Hayase: `openPlayer` on pointerup
+    /// calls `goto('/app/player/')`).
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        if isTucked {
-            reveal()
-            return
-        }
         Router.shared.navigate(.player)
-    }
-
-    @objc private func playPauseTapped() {
-        activePlayer?.togglePlayPause()
-        // Routes through the same function the player's didChangePause
-        // delegate uses, so this gets identical timer/tuck handling instead
-        // of a second, separately-drifting copy of the same logic.
-        updatePlayPauseIcon(isPaused: activePlayer?.isPaused == true)
     }
 
     // MARK: - Corner snapping (Hayase endDragging)
@@ -678,96 +655,31 @@ final class MiniPlayerManager {
             width: size.width, height: size.height)
         revealedFrame = targetFrame
 
-        // Hayase: `transition-transform duration-[500ms]
-        // ease-[cubic-bezier(0.3,1.5,0.8,1)]` — a springy overshoot.
-        UIView.animate(
-            withDuration: snapDuration,
-            delay: 0,
-            usingSpringWithDamping: 0.6,
-            initialSpringVelocity: 0.8,
-            options: .curveEaseOut
-        ) {
-            container.frame = targetFrame
-        } completion: { [weak self] _ in
-            self?.resetAutoHideTimer()
-        }
+        settle()
     }
 
-    // MARK: - Tuck / Reveal (Hayase .paused idle behavior)
+    // MARK: - Tuck / Reveal (Hayase .paused)
 
-    /// Tucks the mini-player to the nearest horizontal edge, leaving only
-    /// `peekWidth` visible. Matches Hayase's `.paused` CSS class:
-    /// `--padding-right: calc(100% - 3rem)`.
-    private func tuck() {
+    /// Moves the mini-player to where it belongs: tucked to its edge, leaving `peekWidth`
+    /// of the video, while the video is paused, and whole while it plays or is pressed
+    /// (Hayase: `!$isPlaying && 'paused'` plus `mobile:active:paused-show`), with the
+    /// `transition-transform duration-[500ms] ease-[cubic-bezier(0.3,1.5,0.8,1)]` the
+    /// class change is animated with.
+    private func settle(isPaused: Bool? = nil) {
         guard let container = containerView,
               let host = hostView,
-              !isDragging else { return }
-        isTucked = true
-
-        var tuckedFrame = revealedFrame
-        if isSnappedToRight {
-            tuckedFrame.origin.x = host.bounds.width - peekWidth
-        } else {
-            tuckedFrame.origin.x = -(revealedFrame.width - peekWidth)
+              !isDragging, !isRestoring else { return }
+        isTucked = (isPaused ?? (activePlayer?.isPaused == true)) && !isPressed
+        var frame = revealedFrame
+        if isTucked {
+            frame.origin.x = isSnappedToRight ? host.bounds.width - peekWidth : -(frame.width - peekWidth)
         }
-
-        UIView.animate(
-            withDuration: snapDuration,
-            delay: 0,
-            usingSpringWithDamping: 0.8,
-            initialSpringVelocity: 0.5,
-            options: .curveEaseOut
-        ) {
-            container.frame = tuckedFrame
-        }
-    }
-
-    /// Reveals the full mini-player from its tucked state. Starts the
-    /// auto-hide timer so it will tuck again after `autoHideDelay`.
-    private func reveal() {
-        guard isTucked, let container = containerView else {
-            resetAutoHideTimer()
-            return
-        }
-        isTucked = false
-
-        UIView.animate(
-            withDuration: snapDuration,
-            delay: 0,
-            usingSpringWithDamping: 0.6,
-            initialSpringVelocity: 0.8,
-            options: .curveEaseOut
-        ) {
-            container.frame = self.revealedFrame
-        }
-
-        resetAutoHideTimer()
-    }
-
-    /// (Re)starts the auto-hide timer. After `autoHideDelay` seconds the
-    /// mini-player tucks to the edge.
-    ///
-    /// Refuses to arm while the video is actually playing, regardless of
-    /// which caller asked — several call sites (button taps, drag-end snap
-    /// completions) used to call this unconditionally, so checking here
-    /// once covers all of them instead of requiring every call site to
-    /// remember to check first. `tuck()`'s own doc comment already called
-    /// this ".paused / idle behavior"; this just makes that actually true.
-    private func resetAutoHideTimer() {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
-        guard activePlayer?.isPaused == true else { return }
-        autoHideTimer = Timer.scheduledTimer(
-            withTimeInterval: autoHideDelay, repeats: false
-        ) { [weak self] _ in
-            self?.tuck()
-        }
-    }
-
-    /// Cancels the auto-hide timer (e.g. on restore / close).
-    private func cancelAutoHideTimer() {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        let animator = UIViewPropertyAnimator(
+            duration: snapDuration,
+            timingParameters: UICubicTimingParameters(controlPoint1: CGPoint(x: 0.3, y: 1.5),
+                                                      controlPoint2: CGPoint(x: 0.8, y: 1)))
+        animator.addAnimations { container.frame = frame }
+        animator.startAnimation()
     }
 
     // MARK: - Helpers
@@ -791,27 +703,10 @@ final class MiniPlayerManager {
                                         ])
     }
 
-    /// Updates the play/pause icon in the mini-player. Called from the
-    /// player's didChangePause delegate.
-    ///
-    /// Also governs the auto-hide/tuck timer here, since this is the only
-    /// place play/pause state actually reaches this class. Previously the
-    /// timer was armed unconditionally whenever the mini-player was shown
-    /// (see the "Start auto-hide timer" call right after minimizing) with
-    /// no regard for play state at all — so it would tuck itself away
-    /// during active playback despite the tuck() code being explicitly
-    /// commented as ".paused / idle behavior". Matches interface, which
-    /// doesn't hide/shrink its mini-player while a video is playing.
+    /// Called from the player's didChangePause delegate: a paused video tucks away at once,
+    /// a playing one comes back out.
     func updatePlayPauseIcon(isPaused: Bool) {
-        let icon = isPaused ? "play" : "pause"
-        playPauseButton?.setImage(UIImage.hayaseFilledIcon(icon), for: .normal)
-
-        if isPaused {
-            resetAutoHideTimer()
-        } else {
-            if isTucked { reveal() }
-            cancelAutoHideTimer()
-        }
+        settle(isPaused: isPaused)
     }
 
     // MARK: - Session State Persistence

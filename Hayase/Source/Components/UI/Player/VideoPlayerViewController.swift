@@ -997,6 +997,14 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         technicalStatsTimer = timer
     }
 
+    /// The video's own width over height, once mpv knows it (the miniplayer is sized by it).
+    var videoAspectRatio: CGFloat? {
+        let info = surface.mpv.getTechnicalInfo()
+        guard let width = info["videoWidth"] as? Int, let height = info["videoHeight"] as? Int,
+              width > 0, height > 0 else { return nil }
+        return CGFloat(width) / CGFloat(height)
+    }
+
     private func updateTechnicalStats() {
         guard let panel = technicalStatsView else { return }
         let info = surface.mpv.getTechnicalInfo()
