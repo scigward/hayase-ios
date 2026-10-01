@@ -169,6 +169,8 @@ final class FollowerAvatarStackView: UIView {
     private var avatarSize: CGFloat = 32
     private var overlap: CGFloat = 4
     private var cutoutBorder: CGFloat?
+    /// What the row currently shows, so asking for the same row again leaves it alone.
+    private var shownKey: String?
 
     var isEmpty: Bool { buttons.isEmpty }
 
@@ -205,11 +207,17 @@ final class FollowerAvatarStackView: UIView {
                    ringColor: UIColor = UIColor.HayaseTheme.background,
                    overlap: CGFloat = 4, cutoutBorder: CGFloat? = nil,
                    detailFetcher: ((Int, @escaping (AniListUserSummary?) -> Void) -> Void)? = nil) {
+        let visibleUsers = users.filter { !$0.name.isEmpty }
+        // A page that shows its cache and then its network answer asks twice for the same
+        // followers; a keyed `{#each}` keeps the avatars it already has, so this does too.
+        let key = ([String(describing: avatarSize), String(describing: overlap)]
+            + visibleUsers.map { "\($0.id)|\($0.name)|\($0.avatarURL ?? "")" }).joined(separator: ",")
+        if key == shownKey, !buttons.isEmpty { return }
         reset()
+        shownKey = key
         self.avatarSize = avatarSize
         self.overlap = overlap
         self.cutoutBorder = cutoutBorder
-        let visibleUsers = users.filter { !$0.name.isEmpty }
         isHidden = visibleUsers.isEmpty
         visibleUsers.forEach { user in
             let button = ProfileButton(user: user,
@@ -228,6 +236,7 @@ final class FollowerAvatarStackView: UIView {
     func reset() {
         buttons.forEach { $0.prepareForReuse() }
         buttons.removeAll()
+        shownKey = nil
         subviews.forEach { $0.removeFromSuperview() }
         isHidden = true
         invalidateIntrinsicContentSize()
