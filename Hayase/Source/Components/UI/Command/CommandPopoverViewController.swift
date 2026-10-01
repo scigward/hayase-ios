@@ -24,6 +24,8 @@ class CommandPopoverViewController: UIViewController {
     private let searchField = Input(placeholder: "Any", iconName: "search")
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyLabel = UILabel()
+    /// `p-1` around each group.
+    private static let groupPadding: CGFloat = 4
 
     init(title: String,
          placeholder: String = "Any",
@@ -144,7 +146,8 @@ class CommandPopoverViewController: UIViewController {
         let maxContentHeight = min(CGFloat(320), bounds.height * 0.6)
         let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
         let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
-        let listHeight = min(maxContentHeight, CGFloat(rows) * 32 + CGFloat(headings) * 26)
+        let listHeight = min(maxContentHeight, CGFloat(rows) * 32 + CGFloat(headings) * 26
+                             + CGFloat(filteredGroups.count) * Self.groupPadding * 2)
         let searchHeight: CGFloat = showsSearch ? 37 : 0
         let height = min(maxContentHeight + searchHeight, max(showsSearch ? 96 : 32, searchHeight + listHeight))
         let width = min(max(sourceRect.width, showsSearch ? 176 : 0), bounds.width - 24)
@@ -216,17 +219,21 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
         wrapper.addSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -8),
-            label.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            label.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 8 + Self.groupPadding),
+            label.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -8 - Self.groupPadding),
+            label.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: Self.groupPadding),
             label.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
         ])
         return wrapper
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        guard let title = filteredGroups[safe: section]?.title, !title.isEmpty else { return .leastNormalMagnitude }
-        return 26
+        guard let title = filteredGroups[safe: section]?.title, !title.isEmpty else { return Self.groupPadding }
+        return 26 + Self.groupPadding
+    }
+
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        Self.groupPadding
     }
 
     func tableView(_ tableView: UITableView,

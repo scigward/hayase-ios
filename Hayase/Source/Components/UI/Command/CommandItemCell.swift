@@ -30,11 +30,23 @@ final class CommandItemCell: UITableViewCell {
         setup()
     }
 
+    /// Items sit inside their group's `p-1`.
+    override var frame: CGRect {
+        get { super.frame }
+        set {
+            var inset = newValue
+            inset.origin.x += 4
+            inset.size.width -= 8
+            super.frame = inset
+        }
+    }
+
     private func setup() {
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         selectedBackgroundView = UIView()
         selectedBackgroundView?.backgroundColor = UIColor.HayaseTheme.accent
+        selectedBackgroundView?.layer.cornerRadius = 4   // rounded-sm
 
         checkContainer.translatesAutoresizingMaskIntoConstraints = false
         checkContainer.layer.cornerRadius = 3
