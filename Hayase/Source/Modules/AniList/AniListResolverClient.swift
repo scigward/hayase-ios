@@ -82,6 +82,15 @@ extension AniListClient {
         run(0)
     }
 
+    /// `client.single(id)`: IDMedia asks for the media itself, with no adult or format filter like a
+    /// search by ids has.
+    func singleMediaResult(id: Int,
+                           completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) {
+        fetchResolverMediaByIdResult(id) { result in
+            completion(result.map { [$0] })
+        }
+    }
+
     func singleTitleResult(id: Int,
                            completion: @escaping (Result<AniListSingleTitle?, AniListRequestError>) -> Void) {
         AniListRequestExecutor.shared.execute(query: AniListQueries.idTitle,

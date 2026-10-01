@@ -2036,7 +2036,7 @@ class DownloadsViewController: UIViewController {
         }
 
         guard fallbackMediaID > 0 else { return }
-        AniListClient.shared.fetchAnimeByIdsResult([fallbackMediaID]) { [weak self] result in
+        AniListClient.shared.singleMediaResult(id: fallbackMediaID) { [weak self] result in
             switch result {
             case .success(let items):
                 guard let media = items.first else { return }

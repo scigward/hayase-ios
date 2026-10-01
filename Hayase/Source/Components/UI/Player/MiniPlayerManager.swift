@@ -1205,7 +1205,7 @@ final class MiniPlayerManager {
         close()
 
         // Fetch the AnimeItem so the search VC has full metadata for queries.
-        AniListClient.shared.fetchAnimeByIdsResult([anilistID]) { [weak self] result in
+        AniListClient.shared.singleMediaResult(id: anilistID) { [weak self] result in
             switch result {
             case .success(let items):
                 guard let animeItem = items.first else { return }
