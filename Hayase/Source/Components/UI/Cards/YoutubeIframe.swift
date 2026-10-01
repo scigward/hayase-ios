@@ -269,7 +269,7 @@ final class YoutubeIframe: UIView, WKScriptMessageHandler {
     }
 }
 
-private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
     weak var delegate: WKScriptMessageHandler?
 
     init(delegate: WKScriptMessageHandler) {

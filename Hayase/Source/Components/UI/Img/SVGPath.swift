@@ -151,7 +151,8 @@ enum SVGPath {
             return characters[index]
         }
 
-        /// A number; a second `.` or a sign starts the next one (`.855.506`, `1-.5`).
+        /// A number; a second `.` or a sign starts the next one (`.855.506`, `1-.5`), and an exponent
+        /// (`-1.29001e-05`) belongs to the number it follows.
         mutating func number() -> CGFloat? {
             skipSeparators()
             let start = index
@@ -168,6 +169,14 @@ enum SVGPath {
                     break
                 }
                 index += 1
+            }
+            if seenDigit, index < characters.count, characters[index] == "e" || characters[index] == "E" {
+                var end = index + 1
+                if end < characters.count, characters[end] == "-" || characters[end] == "+" { end += 1 }
+                if end < characters.count, characters[end].isNumber {
+                    while end < characters.count, characters[end].isNumber { end += 1 }
+                    index = end
+                }
             }
             guard seenDigit, let value = Double(String(characters[start..<index])) else { return nil }
             return CGFloat(value)

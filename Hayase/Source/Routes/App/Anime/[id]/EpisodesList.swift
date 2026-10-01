@@ -1636,6 +1636,9 @@ extension AnimeDetailViewController {
 
     private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistEpisodes: Int?, anilistId: Int,
                                         alSchedule: [Int: Date]? = nil) {
+        DispatchQueue.main.async { [weak self] in
+            self?.headerView?.setMappedEpisodeCount(response.episodeCount)
+        }
         let parsed = AnimeDetailViewController.buildEpisodeList(
             from: response,
             anilistEpisodes: anilistEpisodes,

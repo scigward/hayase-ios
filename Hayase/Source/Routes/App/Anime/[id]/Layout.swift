@@ -788,6 +788,13 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     private var coverOverlayAnimator: UIViewPropertyAnimator?
     private var bannerHidden = false
     private var hasTrailer = false
+    // "Also available on YouTube!": +layout.svelte's `trailerIsMedia`
+    private var trailerMedia: AnimeItem?
+    private var trailerVideoID: String?
+    private var trailerMinutes = 0
+    private var trailerMinutesLoader: TrailerMinutes?
+    private var mappedEpisodeCount = 0
+    private var trailerTooltip: TrailerTooltipView?
     private var rawDescription: String?
     private var lastAppliedLabelMaxWidth: CGFloat = 0
 
@@ -1054,11 +1061,13 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
                 invalidateIntrinsicContentSize()
             }
         }
+        updateTrailerTooltip()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         updateActionVisibilityForCurrentWidth()
+        positionTrailerTooltip()
         let isRegular = traitCollection.horizontalSizeClass == .regular
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
@@ -1125,6 +1134,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
         shareButton.isHidden = isNarrow
         trailerButton.isHidden = isNarrow || !hasTrailer
+        updateTrailerTooltip()
         anilistButton.isHidden = !isRegular
         malButton.isHidden = !isRegular || malId == nil
         headerFollowerStack.isHidden = !isRegular || headerFollowerStack.arrangedSubviews.isEmpty
@@ -1403,6 +1413,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     func configure(with item: AnimeItem) {
         anilistId = item.id
+        trailerMedia = item
         malId = item.malId
         // `$: bannerSrc.value = media` in +layout.svelte: the sidebar's banner switches to this
         // media now, before its image is known.
@@ -1758,6 +1769,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     func updateAnimePageDetails(with item: AnimeItem) {
         anilistId = item.id
+        trailerMedia = item
         malId = item.malId
         titleLabel.text = AniListUtil.title(for: item)
         romajiLabel.text = AniListUtil.alternateTitle(for: item)
@@ -1770,7 +1782,86 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     func updateTrailerButton(trailerYouTubeID: String?) {
         hasTrailer = trailerYouTubeID != nil
+        if trailerYouTubeID != trailerVideoID {
+            // `$: trailerMinutes = minutes(trailerId)`
+            trailerVideoID = trailerYouTubeID
+            trailerMinutes = 0
+            trailerMinutesLoader?.cancel()
+            trailerMinutesLoader = trailerYouTubeID.flatMap { id in
+                TrailerMinutes.load(videoID: id) { [weak self] minutes in
+                    self?.trailerMinutes = minutes
+                    self?.updateTrailerTooltip()
+                }
+            }
+        }
         updateActionVisibilityForCurrentWidth()
+    }
+
+    /// `eps?.episodeCount`, what `episodes(media, eps)` counts besides the media itself.
+    func setMappedEpisodeCount(_ count: Int?) {
+        mappedEpisodeCount = count ?? 0
+        updateTrailerTooltip()
+    }
+
+    // MARK: - Also available on YouTube!
+
+    /// `(count === 1 || !count) && media.duration && $trailerMinutes === media.duration`, with
+    /// `count = episodes(media, eps)`.
+    private var trailerIsMedia: Bool {
+        guard let media = trailerMedia, let duration = media.duration, duration != 0 else { return false }
+        let count: Int
+        if let episodes = media.episodes, episodes != 0 {
+            count = episodes
+        } else {
+            count = max(media.airedSchedule.last?.episode ?? 0, media.notYetAiredSchedule.last?.episode ?? 0, mappedEpisodeCount)
+        }
+        return (count == 1 || count == 0) && trailerMinutes == duration
+    }
+
+    private var enclosingTableView: UITableView? {
+        var view = superview
+        while let current = view, !(current is UITableView) { view = current.superview }
+        return view as? UITableView
+    }
+
+    /// The tooltip is open as long as the trailer button is shown and the trailer is the media.
+    private func updateTrailerTooltip() {
+        guard window != nil, !trailerButton.isHidden, trailerIsMedia, let table = enclosingTableView else {
+            trailerTooltip?.removeFromSuperview()
+            trailerTooltip = nil
+            return
+        }
+        guard trailerTooltip == nil else {
+            positionTrailerTooltip()
+            return
+        }
+        let tooltip = TrailerTooltipView()
+        tooltip.layer.zPosition = 1000   // z-50
+        table.addSubview(tooltip)
+        trailerTooltip = tooltip
+        positionTrailerTooltip()
+        // flyAndScale in, 150ms
+        tooltip.alpha = 0
+        tooltip.transform = CGAffineTransform(translationX: 0, y: 8).scaledBy(x: 0.95, y: 0.95)
+        UIView.animate(withDuration: 0.15) {
+            tooltip.alpha = 1
+            tooltip.transform = .identity
+        }
+    }
+
+    /// `side='bottom'` with `sideOffset` 4, at the button's start from `md` and at its end below it.
+    private func positionTrailerTooltip() {
+        guard let tooltip = trailerTooltip, let table = tooltip.superview else { return }
+        let medium = (window?.rootViewController?.view.bounds.width ?? bounds.width) >= 768
+        let transform = tooltip.transform
+        tooltip.transform = .identity
+        tooltip.configure(medium: medium)
+        let anchor = table.convert(trailerButton.bounds, from: trailerButton)
+        let size = tooltip.fittingSize
+        var x = medium ? anchor.minX : anchor.maxX - size.width
+        x = min(max(x, 0), max(0, table.bounds.width - size.width))
+        tooltip.frame = CGRect(x: x, y: anchor.maxY + 4, width: size.width, height: size.height)
+        tooltip.transform = transform
     }
 
     func updateMALButtonVisibility() {
