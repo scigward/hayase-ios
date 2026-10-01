@@ -18,7 +18,6 @@ import CoreData
 /// recognizers (a tap or drag cancels the touch) would hide.
 private final class MiniPlayerContainerView: UIView, UIGestureRecognizerDelegate {
     var onPress: ((Bool) -> Void)?
-    var onBackgroundTouchBegan: (() -> Void)?
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
@@ -30,7 +29,6 @@ private final class MiniPlayerContainerView: UIView, UIGestureRecognizerDelegate
             if view === self { break }
             candidate = view.superview
         }
-        if gestureRecognizer is UITapGestureRecognizer { onBackgroundTouchBegan?() }
         return true
     }
 
@@ -126,9 +124,6 @@ final class MiniPlayerManager {
     private var isTucked = false
     /// A finger is down on the mini-player (`mobile:active:paused-show`).
     private var isPressed = false
-    /// A first tap on the peek reveals controls; only a subsequent video tap opens the player.
-    private var isRevealedForInteraction = false
-    private var touchBeganTucked = false
     private var settleAnimator: UIViewPropertyAnimator?
     /// The fully-revealed frame saved on snap / reposition.
     private var revealedFrame: CGRect = .zero
@@ -255,7 +250,6 @@ final class MiniPlayerManager {
 
         // Root view transitions fade wrapper.svelte with the destination.
         isPressed = false
-        isRevealedForInteraction = false
         isTucked = player.isPaused
         isSnappedToRight = true
         isSnappedToTop = false
@@ -310,7 +304,6 @@ final class MiniPlayerManager {
         guard let presenter = topViewController(), presenter !== player else { return }
         isTucked = false
         isPressed = false
-        isRevealedForInteraction = false
         if settleAnimator?.state == .active { settleAnimator?.stopAnimation(true) }
         settleAnimator = nil
         playPauseButton = nil
@@ -356,7 +349,6 @@ final class MiniPlayerManager {
         isRestoring = false
         isTucked = false
         isPressed = false
-        isRevealedForInteraction = false
         if settleAnimator?.state == .active { settleAnimator?.stopAnimation(true) }
         settleAnimator = nil
         playPauseButton = nil
@@ -442,12 +434,6 @@ final class MiniPlayerManager {
             self?.isPressed = pressed
             self?.settle()
         }
-        v.onBackgroundTouchBegan = { [weak self] in
-            guard let self else { return }
-            // Capture before press-to-reveal changes the tucked frame/state.
-            self.touchBeganTucked = self.isTucked ||
-                (self.activePlayer?.isPaused == true && !self.isRevealedForInteraction)
-        }
         // Inner container clips content to rounded corners.
         let inner = UIView(frame: v.bounds)
         inner.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -504,7 +490,10 @@ final class MiniPlayerManager {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.tintColor = UIColor.HayaseTheme.foreground
             button.clipsToBounds = false
-            button.addTarget(self, action: #selector(toggleMiniPlayback), for: .touchUpInside)
+            // interface toggles on pointerdown, stopping propagation to navigation.
+            button.addTarget(self, action: #selector(toggleMiniPlayback), for: .touchDown)
+            button.addTarget(self, action: #selector(endMiniPlaybackPress),
+                             for: [.touchUpInside, .touchUpOutside, .touchCancel])
             overlay.addSubview(button)
             NSLayoutConstraint.activate([
                 button.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
@@ -518,7 +507,16 @@ final class MiniPlayerManager {
     }
 
     @objc private func toggleMiniPlayback() {
+        // Keep mobile:active:paused-show while pressing a control too. Its
+        // touches are intentionally excluded from the container recognizers.
+        isPressed = true
+        settle()
         activePlayer?.togglePlayPause()
+    }
+
+    @objc private func endMiniPlaybackPress() {
+        isPressed = false
+        settle()
     }
 
     private func setPlayPauseImage(isPaused: Bool) {
@@ -694,16 +692,10 @@ final class MiniPlayerManager {
         }
     }
 
-    /// A peek tap reveals the paused mini-player without navigating or resuming.
-    /// This touch adaptation leaves its controls reachable after finger release.
+    /// Match wrapper.svelte's openPlayer on release; press-to-reveal is
+    /// transient, not a latched first-tap state. Controls stop propagation.
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, !isDragging, !isRestoring else { return }
-        if touchBeganTucked {
-            touchBeganTucked = false
-            isRevealedForInteraction = true
-            settle()
-            return
-        }
         Router.shared.navigate(.player)
     }
 
@@ -758,7 +750,7 @@ final class MiniPlayerManager {
         guard let container = containerView,
               let host = hostView,
               !isDragging, !isRestoring else { return }
-        isTucked = (isPaused ?? (activePlayer?.isPaused == true)) && !isPressed && !isRevealedForInteraction
+        isTucked = (isPaused ?? (activePlayer?.isPaused == true)) && !isPressed
         var frame = revealedFrame
         if isTucked {
             frame.origin.x = isSnappedToRight ? host.bounds.width - peekWidth : -(frame.width - peekWidth)
@@ -801,7 +793,6 @@ final class MiniPlayerManager {
     /// a playing one comes back out.
     func updatePlayPauseIcon(isPaused: Bool) {
         setPlayPauseImage(isPaused: isPaused)
-        isRevealedForInteraction = false
         settle(isPaused: isPaused)
     }
 
@@ -1279,7 +1270,6 @@ final class MiniPlayerManager {
         // Start tucked to the right edge (Hayase: mini-player appears
         // at the edge on launch, user taps to reveal).
         isPressed = false
-        isRevealedForInteraction = false
         isTucked = true
         isSnappedToRight = true
         isSnappedToTop = false
