@@ -3,6 +3,29 @@
 Reference: `hayase-app/interface` at `cde83e2`; native starting revision:
 `7ff20d2675558f1b7d6caed755a938b8755fd2d6`.
 
+## Spacing follow-up (2026-10-01)
+
+- The player now opts into exact single-line CSS alignment boxes (stats 28pt,
+  title 18pt, episode/chapter/time 14pt). Shadow and accent-glyph drawing bleed
+  sits outside those boxes. Previously text was centred inside the extra
+  shadow height, placing stats text below its icons and changing footer gaps.
+  Homepage multiline labels keep their existing sizing/drawing path.
+  Title/episode tap feedback also retains the line style when its underline ends.
+- Stats retain the source's 16pt group gaps and 8pt icon gaps, with 18pt Lucide
+  icons and both chained drop shadows. Speed formatting follows fastPrettyBits,
+  including lowercase `kb` and removing an unnecessary trailing `.0`.
+- A browser probe of the Tree CSS measured a 122px menu containing an expanded
+  row and two leaf rows. Tree.Item's vertical margins collapse: a 2px row gap,
+  38px expanded-row advance and 36px leaf-row advance. The submenu starts at
+  x259/y2 relative to its outer parent, rather than x264/y0. Native geometry now
+  uses those measurements, including the 4pt rounded-sm corners.
+- Tall submenus preserve root centring. Tree movement uses Tailwind's 150ms
+  cubic-bezier(.4,0,.2,1); the shared close button travels and scales with the
+  rest of Dialog.Content. Chapter time labels share the title's 14pt leading.
+
+These measurements verify CSS geometry; UIKit glyph rendering and animation
+still require the compact/iPad checks below. No iOS build was run locally.
+
 ## Implemented
 
 - Mobile controls follow `player.svelte`: 40-point previous/next controls,

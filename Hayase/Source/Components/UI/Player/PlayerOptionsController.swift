@@ -164,7 +164,7 @@ private func groupByLanguage(_ tracks: [MPVTrack]) -> [(lang: String, tracks: [M
 /// The visual design matches Hayase's `options.svelte` + Tree components:
 /// - Dark rounded bordered container (w-64 → 256pt)
 /// - Items: `py-2.5 pl-4 font-bold text-sm rounded-sm`
-/// - Active item: white bg / black text
+/// - Active item: primary bg / background text
 /// - Expandable items show a chevron on the right
 /// - Tapping outside the container dismisses the menu
 final class PlayerOptionsController: UIViewController {
@@ -209,6 +209,7 @@ final class PlayerOptionsController: UIViewController {
 
     private let treeScrollView = UIScrollView()
     private let treeCanvas = UIView()
+    private let optionsContentView = UIView()
     private let stripedBackdropView = HayaseStripedBackdropView()
     private let closeButton = HayaseCloseButton()
     private let keybindsView = PlayerKeybindsView()
@@ -218,6 +219,7 @@ final class PlayerOptionsController: UIViewController {
     private var menuViews: [UIView] = []
     private var menuTables: [UITableView] = []
     private var tableLevels: [ObjectIdentifier: Int] = [:]
+    private var treeAnimator: UIViewPropertyAnimator?
     private let menuWidth: CGFloat = 256
     private var lastLayoutSize: CGSize = .zero
 
@@ -237,9 +239,10 @@ final class PlayerOptionsController: UIViewController {
     }
 
     func setTransitionProgress(_ shown: Bool) {
-        treeScrollView.alpha = shown ? 1 : 0
-        closeButton.alpha = shown ? 1 : 0
-        treeScrollView.transform = shown ? .identity
+        // The source Dialog.Content contains both the tree and its close button;
+        // flyAndScale moves them together around the full viewport's centre.
+        optionsContentView.alpha = shown ? 1 : 0
+        optionsContentView.transform = shown ? .identity
             : CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
     }
 
@@ -252,11 +255,14 @@ final class PlayerOptionsController: UIViewController {
         stripedBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         stripedBackdropView.isUserInteractionEnabled = false
         view.addSubview(stripedBackdropView)
+        optionsContentView.frame = view.bounds
+        optionsContentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(optionsContentView)
         treeScrollView.frame = view.bounds
         treeScrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         treeScrollView.showsVerticalScrollIndicator = false
         treeScrollView.contentInsetAdjustmentBehavior = .never
-        view.addSubview(treeScrollView)
+        optionsContentView.addSubview(treeScrollView)
         treeScrollView.addSubview(treeCanvas)
         keybindsView.frame = treeScrollView.bounds
         keybindsView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -265,10 +271,10 @@ final class PlayerOptionsController: UIViewController {
         treeScrollView.addSubview(keybindsView)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(dismissSelf), for: .touchUpInside)
-        view.addSubview(closeButton)
+        optionsContentView.addSubview(closeButton)
         NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeButton.topAnchor.constraint(equalTo: optionsContentView.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: optionsContentView.trailingAnchor, constant: -16),
             closeButton.widthAnchor.constraint(equalToConstant: 16),
             closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
@@ -357,6 +363,11 @@ final class PlayerOptionsController: UIViewController {
 
     private func layoutTree(animated: Bool) {
         guard !menuViews.isEmpty, view.bounds.width > 0 else { return }
+        if let treeAnimator {
+            treeAnimator.stopAnimation(false)
+            treeAnimator.finishAnimation(at: .current)
+            self.treeAnimator = nil
+        }
         if showKeybinds {
             treeCanvas.isHidden = true
             keybindsView.isHidden = false
@@ -372,42 +383,60 @@ final class PlayerOptionsController: UIViewController {
         let rows = navigationStack.enumerated().map { level, menu in
             menu.items.map { rowHeight(for: $0, width: widths[level]) }
         }
-        let heights = rows.map { $0.reduce(0, +) + 10 }
+        // The button's my-0.5 margins collapse through Tree.Item's relative div.
+        // Adjacent buttons therefore have a 2pt gap, with 2pt at each outer end;
+        // border + p-1 adds another 5pt at the top and bottom.
+        let heights = rows.map { $0.reduce(0, +) + ($0.isEmpty ? 10 : 12) }
         var offsets = Array(repeating: CGFloat(0), count: navigationStack.count)
         for level in 1..<navigationStack.count {
-            // border + p-1 = 5; Tree.Sub top=-5, cancel at the parent row.
-            offsets[level] = offsets[level - 1] + rows[level - 1].prefix(activeIndices[level - 1]).reduce(0, +)
+            // The first relative wrapper starts at 5 + its collapsed 2pt margin.
+            // Tree.Sub top=-5 leaves 2pt, plus each preceding row's advance.
+            offsets[level] = offsets[level - 1] + 2 + rows[level - 1].prefix(activeIndices[level - 1]).reduce(0, +)
         }
         let extent = zip(offsets, heights).map { $0.0 + $0.1 }.max() ?? heights[0]
-        let canvasHeight = max(view.bounds.height, extent)
-        let originY = min(max(0, (view.bounds.height - heights[0]) / 2), canvasHeight - extent)
+        // Absolutely positioned Tree.Sub panels do not change the centred root's
+        // vertical position. Grow the scrollable extent instead of moving it up.
+        let originY = max(0, (view.bounds.height - heights[0]) / 2)
+        let canvasHeight = max(view.bounds.height, originY + extent)
         treeCanvas.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: canvasHeight)
         treeScrollView.contentSize = treeCanvas.bounds.size
         // Tree.Root margin-left=-state.length*528 in a centered flex row:
-        // root moves left by 264 per level, centering the newest submenu.
+        // root moves left by 264 per level.
         let rootX = (view.bounds.width - menuWidth) / 2 - CGFloat(activeIndices.count) * (menuWidth + gap)
         var frames: [CGRect] = []
         var x = rootX
         for level in menuViews.indices {
             frames.append(CGRect(x: x, y: originY + offsets[level], width: widths[level], height: heights[level]))
-            x += widths[level] + gap
+            // Tree.Sub's 100% is the inner Tree.Item wrapper, not the outer
+            // bordered menu: 5 + (width - 10) + 8 = width + 3.
+            x += widths[level] + gap - 5
         }
         // Tree.Sub appears at its full size immediately; only the existing root's
         // margin-left transitions. Do not grow a new panel from CGRect.zero.
         for level in menuViews.indices where menuViews[level].bounds.isEmpty {
             menuViews[level].frame = frames[level].offsetBy(dx: animated ? menuWidth + gap : 0, dy: 0)
-            menuTables[level].frame = menuViews[level].bounds.insetBy(dx: 5, dy: 5)
+            menuTables[level].frame = tableFrame(in: menuViews[level].bounds)
         }
         let changes = {
             for level in self.menuViews.indices {
                 self.menuViews[level].frame = frames[level]
-                self.menuTables[level].frame = self.menuViews[level].bounds.insetBy(dx: 5, dy: 5)
+                self.menuTables[level].frame = self.tableFrame(in: self.menuViews[level].bounds)
             }
         }
         if animated {
-            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState],
-                           animations: changes)
+            // Tailwind transition-[margin-left] uses 150ms cubic-bezier(.4,0,.2,1).
+            let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.4, y: 0),
+                                                controlPoint2: CGPoint(x: 0.2, y: 1))
+            let animator = UIViewPropertyAnimator(duration: 0.15, timingParameters: timing)
+            animator.addAnimations(changes)
+            animator.addCompletion { [weak self] _ in self?.treeAnimator = nil }
+            treeAnimator = animator
+            animator.startAnimation()
         } else { changes() }
+    }
+
+    private func tableFrame(in bounds: CGRect) -> CGRect {
+        CGRect(x: 5, y: 7, width: max(0, bounds.width - 10), height: max(0, bounds.height - 12))
     }
 
     private func menuWidth(for items: [OptionItem]) -> CGFloat {
@@ -427,7 +456,7 @@ final class PlayerOptionsController: UIViewController {
         var minimumLineHeight: CGFloat = 14
         switch item {
         case .subtitleDelay: return 36
-        case .playlist: return 40 // text-xs leading-4 + py-2.5 + my-0.5
+        case .playlist: return 38 // leading-4 + py-2.5 + collapsed 2pt row margin
         case .expandable(let text, _): title = text; trailing = 32; minimumLineHeight = 16
         case .chapter(let text, let time, _):
             title = text
@@ -439,7 +468,7 @@ final class PlayerOptionsController: UIViewController {
             with: CGSize(width: max(1, width - 26 - trailing), height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin], attributes: [.font: font], context: nil).height
         let lines = max(1, ceil(textHeight / font.lineHeight))
-        return max(minimumLineHeight, lines * 14) + 24
+        return max(minimumLineHeight, lines * 14) + 22
     }
 
     private func openLevel(from level: Int, row: Int, title: String, children: [OptionItem]) {

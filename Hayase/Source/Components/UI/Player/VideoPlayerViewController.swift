@@ -1075,8 +1075,9 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         statsHUD.axis = .horizontal
         statsHUD.spacing = 16
         statsHUD.alignment = .center
+        statsHUD.isUserInteractionEnabled = false // downloadstats.svelte pointer-events-none
         statsHUD.isHidden = true
-        // Text/icon shadow via layer (matches Hayase text-shadow-lg)
+        // text-shadow-lg is drawn by the labels; SVGs use drop-shadow.
 
         statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "users", label: statsPeersLabel))
         statsHUD.addArrangedSubview(makeStatsHUDItem(icon: "chevron-down", label: statsDownLabel))
@@ -1090,21 +1091,39 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private func makeStatsHUDItem(icon: String, label: TextShadowLabel) -> UIStackView {
-        let imageView = UIImageView(image: UIImage.hayaseIcon(icon, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)))
-        imageView.tintColor = .white
+        // Tailwind drop-shadow chains two filters; the wrapper shadows the
+        // icon plus its first shadow, while its alignment box stays 18pt.
+        let iconContainer = UIView()
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.layer.shadowColor = UIColor.black.cgColor
+        iconContainer.layer.shadowOpacity = 0.06
+        iconContainer.layer.shadowOffset = CGSize(width: 0, height: 1)
+        iconContainer.layer.shadowRadius = 1
+        let imageView = UIImageView(image: UIImage.hayaseIcon(icon, pointSize: 18))
+        imageView.tintColor = UIColor.HayaseTheme.foreground
         imageView.contentMode = .scaleAspectFit
+        imageView.layer.shadowColor = UIColor.black.cgColor
+        imageView.layer.shadowOpacity = 0.1
+        imageView.layer.shadowOffset = CGSize(width: 0, height: 1)
+        imageView.layer.shadowRadius = 2
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.addSubview(imageView)
         NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: 18),
-            imageView.heightAnchor.constraint(equalToConstant: 18),
+            iconContainer.widthAnchor.constraint(equalToConstant: 18),
+            iconContainer.heightAnchor.constraint(equalToConstant: 18),
+            imageView.leadingAnchor.constraint(equalTo: iconContainer.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: iconContainer.trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: iconContainer.topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: iconContainer.bottomAnchor),
         ])
 
         label.font = .nunito(ofSize: 18, weight: .bold)
         label.lineHeight = 28
+        label.usesFixedLineBox = true
         label.textColor = UIColor.HayaseTheme.foreground
         label.setContentHuggingPriority(.required, for: .horizontal)
 
-        let stack = UIStackView(arrangedSubviews: [imageView, label])
+        let stack = UIStackView(arrangedSubviews: [iconContainer, label])
         stack.axis = .horizontal
         stack.spacing = 8
         stack.alignment = .center
@@ -1260,6 +1279,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         titleLabel.textColor = .white
         titleLabel.font = .nunito(ofSize: 18, weight: .regular)
         titleLabel.lineHeight = 18
+        titleLabel.usesFixedLineBox = true
         titleLabel.textAlignment = .left
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.content = animeTitleText()
@@ -1276,6 +1296,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         episodeLabel.textColor = UIColor(red: 217/255, green: 217/255, blue: 217/255, alpha: 0.6)
         episodeLabel.font = .nunito(ofSize: 14, weight: .light)
         episodeLabel.lineHeight = 14
+        episodeLabel.usesFixedLineBox = true
         episodeLabel.textAlignment = .left
         episodeLabel.lineBreakMode = .byTruncatingTail
         episodeLabel.content = episodeDescriptionText()
@@ -1289,6 +1310,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         chapterLabel.textColor = UIColor(white: 0.85, alpha: 0.6) // rgba(217,217,217,0.6)
         chapterLabel.font = .nunito(ofSize: 14, weight: .light)
         chapterLabel.lineHeight = 14
+        chapterLabel.usesFixedLineBox = true
         chapterLabel.textAlignment = .right
         chapterLabel.lineBreakMode = .byTruncatingTail
         chapterLabel.content = ""
@@ -1298,6 +1320,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         timeLabel.textColor = .white
         timeLabel.font = .nunito(ofSize: 14, weight: .light)
         timeLabel.lineHeight = 14
+        timeLabel.usesFixedLineBox = true
         timeLabel.textAlignment = .right
         timeLabel.content = "0:00 / 0:00"
         timeLabel.isUserInteractionEnabled = true
@@ -2096,11 +2119,14 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     /// Formats bits per second into a human-readable string (Hayase fastPrettyBits).
     private func fmtBits(_ bps: UInt64) -> String {
-        if bps == 0              { return "0 b" }
-        if bps >= 1_000_000_000  { return String(format: "%.1f Gb", Double(bps) / 1_000_000_000) }
-        if bps >= 1_000_000      { return String(format: "%.1f Mb", Double(bps) / 1_000_000) }
-        if bps >= 1_000          { return String(format: "%.0f Kb", Double(bps) / 1_000) }
-        return "\(bps) b"
+        guard bps > 0 else { return "0 b" }
+        let units = [" b", " kb", " Mb", " Gb", " Tb"]
+        let exponent = min(Int(floor(log10(Double(bps)) / 3)), units.count - 1)
+        let value = (Double(bps) / pow(1000, Double(exponent)) * 10).rounded() / 10
+        // fastPrettyBits converts toFixed(1) back to Number: 27 Mb, not
+        // 27.0 Mb, and 59 kb, not 59 Kb. Keep the HUD's intrinsic width equal.
+        let number = value.rounded() == value ? String(format: "%.0f", value) : String(format: "%.1f", value)
+        return number + units[exponent]
     }
 
     // MARK: - Casting (Hayase castplayer.svelte / native.getDisplays / castPlay / castClose)
@@ -2944,23 +2970,17 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
 
     /// Touch equivalent of Tailwind's `hover:text-muted-foreground hover:underline` —
     /// a brief muted + underlined flash so the tap is acknowledged.
-    private func flashInteractiveLabel(_ label: UILabel) {
-        guard let text = label.text, !text.isEmpty else { return }
-        let font = label.font ?? .nunito(ofSize: 14)
+    private func flashInteractiveLabel(_ label: TextShadowLabel) {
+        guard let text = label.content, !text.isEmpty, !label.underlinesText else { return }
         let color = label.textColor ?? .white
         let highlight = UIColor.HayaseTheme.mutedForeground
-        label.attributedText = NSAttributedString(string: text, attributes: [
-            .font: font,
-            .foregroundColor: highlight,
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-            .underlineColor: highlight,
-        ])
+        // Preserve the label's CSS leading/baseline during and after feedback.
+        label.textColor = highlight
+        label.underlinesText = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak label] in
             guard let label else { return }
-            label.attributedText = nil
-            label.font = font
+            label.underlinesText = false
             label.textColor = color
-            label.text = text
         }
     }
 

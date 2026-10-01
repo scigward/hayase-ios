@@ -15,7 +15,7 @@ final class PlayerOptionCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
-        rowBackground.layer.cornerRadius = 2
+        rowBackground.layer.cornerRadius = 4 // rounded-sm: --radius (8pt) - 4pt
         rowBackground.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(rowBackground)
         for label in [titleLabel, detailLabel] {
@@ -32,7 +32,7 @@ final class PlayerOptionCell: UITableViewCell {
         NSLayoutConstraint.activate([
             rowBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             rowBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            rowBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
+            rowBackground.topAnchor.constraint(equalTo: contentView.topAnchor),
             rowBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
             titleLabel.leadingAnchor.constraint(equalTo: rowBackground.leadingAnchor, constant: 16),
             titleLabel.centerYAnchor.constraint(equalTo: rowBackground.centerYAnchor),
@@ -58,11 +58,24 @@ final class PlayerOptionCell: UITableViewCell {
         paragraph.minimumLineHeight = textSize == 12 ? 16 : 14
         paragraph.maximumLineHeight = paragraph.minimumLineHeight
         paragraph.lineBreakMode = textSize == 12 ? .byTruncatingTail : .byWordWrapping
+        titleLabel.lineBreakMode = paragraph.lineBreakMode
         titleLabel.attributedText = NSAttributedString(string: title, attributes: [
             .font: titleLabel.font as Any, .paragraphStyle: paragraph,
             .baselineOffset: (paragraph.minimumLineHeight - titleLabel.font.lineHeight) / 2,
         ])
         detailLabel.text = detail
+        if let detail {
+            // Chapter timestamps inherit Tree.Item's text-sm leading-none,
+            // so their baseline must match the title rather than natural leading.
+            let detailParagraph = NSMutableParagraphStyle()
+            detailParagraph.minimumLineHeight = 14
+            detailParagraph.maximumLineHeight = 14
+            detailParagraph.lineBreakMode = .byTruncatingTail
+            detailLabel.attributedText = NSAttributedString(string: detail, attributes: [
+                .font: detailLabel.font as Any, .paragraphStyle: detailParagraph,
+                .baselineOffset: (14 - detailLabel.font.lineHeight) / 2,
+            ])
+        }
         detailLabel.isHidden = detail == nil
         chevronImage.isHidden = !hasChevron
         titleTrailing?.isActive = false
@@ -83,7 +96,8 @@ final class PlayerOptionCell: UITableViewCell {
     private func updateBackground(hovering: Bool) {
         rowBackground.backgroundColor = active ? UIColor.HayaseTheme.primary
             : hovering ? UIColor.HayaseTheme.accent : .clear
-        titleLabel.textColor = active ? UIColor.HayaseTheme.background : UIColor.HayaseTheme.foreground
+        titleLabel.textColor = active ? UIColor.HayaseTheme.background
+            : hovering ? UIColor.HayaseTheme.accentForeground : UIColor.HayaseTheme.foreground
         detailLabel.textColor = active ? UIColor.HayaseTheme.background : UIColor.HayaseTheme.mutedForeground
         chevronImage.tintColor = titleLabel.textColor
     }
@@ -121,7 +135,7 @@ final class PlayerSubtitleDelayCell: UITableViewCell {
         inputField.showsFocusRing = false // options.svelte border-0 !ring-0
         inputField.backgroundColor = UIColor.HayaseTheme.muted
         inputField.font = .nunito(ofSize: 14, weight: .bold)
-        inputField.layer.cornerRadius = 2
+        inputField.layer.cornerRadius = 4
         inputField.textAlignment = .right
         inputField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 48, height: 36))
         inputField.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 48, height: 36))
