@@ -39,13 +39,12 @@ final class ComboBox: UIControl {
         accessibilityTraits = [.button]
         translatesAutoresizingMaskIntoConstraints = false
 
-        valueLabel.font = .nunito(ofSize: 14, weight: .regular)
+        valueLabel.font = .nunito(ofSize: 14, weight: .medium)   // text-sm font-medium of the Button
         valueLabel.numberOfLines = 1
         valueLabel.lineBreakMode = .byTruncatingTail
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        caretView.image = UIImage.hayaseIcon("chevrons-up-down")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .regular))
+        caretView.image = RadixIcons.caretSort(size: 16)   // CaretSort ml-2 h-4 w-4
         caretView.tintColor = UIColor.HayaseTheme.foreground.withAlphaComponent(0.5)   // opacity-50
         caretView.contentMode = .scaleAspectFit
         caretView.translatesAutoresizingMaskIntoConstraints = false
@@ -55,11 +54,12 @@ final class ComboBox: UIControl {
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 36),
-            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            // size default: px-4
+            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             valueLabel.trailingAnchor.constraint(equalTo: caretView.leadingAnchor, constant: -8),
             valueLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            caretView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            caretView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             caretView.centerYAnchor.constraint(equalTo: centerYAnchor),
             caretView.widthAnchor.constraint(equalToConstant: 16),
             caretView.heightAnchor.constraint(equalToConstant: 16),

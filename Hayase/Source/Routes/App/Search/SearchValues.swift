@@ -58,7 +58,11 @@ enum SearchFilterType: Int, CaseIterable {
     }
 
     var placeholder: String {
-        self == .sort ? "Accuracy" : "Any"
+        switch self {
+        case .sort: return "Accuracy"
+        case .onList: return "List"
+        default: return "Any"
+        }
     }
 }
 

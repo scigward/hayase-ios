@@ -64,8 +64,9 @@ final class Badge: UIControl {
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            // px-2.5 inside a 1px border
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -11),
             closeWidthConstraint,
             closeIconView.heightAnchor.constraint(equalToConstant: 12),
         ])
@@ -91,7 +92,7 @@ final class Badge: UIControl {
     override var intrinsicContentSize: CGSize {
         let titleSize = titleLabel.intrinsicContentSize
         let closeWidth: CGFloat = shouldRevealCloseIcon ? 20 : 0
-        return CGSize(width: ceil(titleSize.width + closeWidth + 20),
+        return CGSize(width: ceil(titleSize.width + closeWidth + 22),
                       height: max(22, ceil(titleSize.height + 6)))
     }
 

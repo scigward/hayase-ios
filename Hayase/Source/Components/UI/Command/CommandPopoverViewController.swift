@@ -9,6 +9,9 @@ import UIKit
 
 class CommandPopoverViewController: UIViewController {
     var onSelectionChanged: ((Set<String>) -> Void)?
+    /// cmdk's own filter: an item is shown when its `value` (not its label) scores above 0 against
+    /// the search, and the groups with the best matches come first.
+    var filtersByCommandScore = false
 
     private let accessibilityTitle: String
     private let placeholder: String
@@ -20,12 +23,18 @@ class CommandPopoverViewController: UIViewController {
     private weak var sourceView: UIView?
 
     private let dismissControl = UIControl()
+    /// `Dialog.Overlay`, behind the card where the width is below `md`.
+    private let dialogBackdrop = HayaseStripedBackdropView()
     private let containerView = UIView()
     private let searchField = Input(placeholder: "Any", iconName: "search")
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyLabel = UILabel()
     /// `p-1` around each group.
     private static let groupPadding: CGFloat = 4
+    /// `px-2 py-1.5 text-xs`: a 16pt line between 6pt paddings.
+    private static let headingHeight: CGFloat = 28
+    /// Below `md` the combobox is a dialog, not a popover.
+    private static let popoverMinimumWidth: CGFloat = 768
 
     init(title: String,
          placeholder: String = "Any",
@@ -63,6 +72,17 @@ class CommandPopoverViewController: UIViewController {
     private func setupViews() {
         view.backgroundColor = .clear
 
+        dialogBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        dialogBackdrop.isHidden = true
+        dialogBackdrop.isUserInteractionEnabled = false
+        view.addSubview(dialogBackdrop)
+        NSLayoutConstraint.activate([
+            dialogBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            dialogBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dialogBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            dialogBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
         dismissControl.translatesAutoresizingMaskIntoConstraints = false
         dismissControl.backgroundColor = .clear
         dismissControl.addTarget(self, action: #selector(dismissSelf), for: .touchUpInside)
@@ -89,6 +109,11 @@ class CommandPopoverViewController: UIViewController {
             string: placeholder,
             attributes: [.foregroundColor: UIColor.HayaseTheme.mutedForeground.withAlphaComponent(0.5)])
         searchField.backgroundColor = UIColor.HayaseTheme.muted
+        // command-input.svelte: MagnifyingGlass `h-4 w-4 opacity-50 absolute left-3`
+        searchField.usesRadixMagnifier = true
+        searchField.searchIconSize = 16
+        searchField.iconLeadingInset = 12
+        searchField.highlightsIconOnFocus = false
         searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         searchField.accessibilityLabel = accessibilityTitle
         searchField.isHidden = !showsSearch
@@ -138,19 +163,47 @@ class CommandPopoverViewController: UIViewController {
         ])
     }
 
+    /// Whether the combobox is the centred dialog (`ComboboxShell` below `md`).
+    private var usesDialog: Bool {
+        showsSearch && view.bounds.width < Self.popoverMinimumWidth
+    }
+
     private func layoutContainer() {
+        let dialog = usesDialog
+        dialogBackdrop.isHidden = !dialog
+        containerView.layer.cornerRadius = dialog ? 8 : 6   // rounded-lg dialog, rounded-md popover
         let bounds = view.bounds.inset(by: view.safeAreaInsets)
+        let searchHeight: CGFloat = showsSearch ? 37 : 0
+        let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
+        let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
+        let naturalList = rows == 0
+            ? CGFloat(68)   // Command.Empty: py-6 around a 20pt line
+            : CGFloat(rows) * 32 + CGFloat(headings) * Self.headingHeight
+                + CGFloat(filteredGroups.count) * Self.groupPadding * 2
+
+        if dialog {
+            // top-[10%] w-full max-w-[clamp(0px,95dvw,30rem)] max-h-[80dvh], centred
+            let width = min(view.bounds.width * 0.95, 480)
+            let height = min(searchHeight + naturalList, view.bounds.height * 0.8)
+            containerView.frame = CGRect(x: (view.bounds.width - width) / 2,
+                                         y: view.bounds.height * 0.1,
+                                         width: width, height: height)
+            return
+        }
+
         let sourceRect = sourceView?.convert(sourceView?.bounds ?? .zero, to: view)
             ?? CGRect(x: bounds.midX - 88, y: bounds.minY + 80, width: 176, height: 36)
 
-        let maxContentHeight = min(CGFloat(320), bounds.height * 0.6)
-        let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
-        let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
-        let listHeight = min(maxContentHeight, CGFloat(rows) * 32 + CGFloat(headings) * 26
-                             + CGFloat(filteredGroups.count) * Self.groupPadding * 2)
-        let searchHeight: CGFloat = showsSearch ? 37 : 0
-        let height = min(maxContentHeight + searchHeight, max(showsSearch ? 96 : 32, searchHeight + listHeight))
-        let width = min(max(sourceRect.width, showsSearch ? 176 : 0), bounds.width - 24)
+        let height: CGFloat
+        if showsSearch {
+            // Command.Root max-h-[clamp(0px,20rem,60lvh)] around the input and a list of at most 300pt
+            let maxHeight = min(CGFloat(320), view.bounds.height * 0.6)
+            height = min(maxHeight, searchHeight + min(300, naturalList))
+        } else {
+            let maxContentHeight = min(CGFloat(320), bounds.height * 0.6)
+            height = min(maxContentHeight, max(32, naturalList))
+        }
+        let width = min(sourceRect.width, bounds.width - 24)
 
         var x = sourceRect.minX
         x = max(bounds.minX + 12, min(x, bounds.maxX - width - 12))
@@ -163,10 +216,11 @@ class CommandPopoverViewController: UIViewController {
     }
 
     @objc private func searchChanged() {
-        let query = (searchField.text ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if query.isEmpty {
+        let raw = searchField.text ?? ""
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if filtersByCommandScore {
+            filteredGroups = Self.scoredGroups(groups, search: raw)
+        } else if query.isEmpty {
             filteredGroups = groups
         } else {
             filteredGroups = groups.compactMap { group in
@@ -179,6 +233,19 @@ class CommandPopoverViewController: UIViewController {
         tableView.reloadData()
         updateEmptyState()
         view.setNeedsLayout()
+    }
+
+    /// cmdk-sv: without a search everything shows; with one only the items whose value scores
+    /// above 0 do, in their own order, and the groups go by their best item.
+    private static func scoredGroups(_ groups: [CommandGroup], search: String) -> [CommandGroup] {
+        guard !search.isEmpty else { return groups }
+        let scored = groups.enumerated().compactMap { index, group -> (Int, Double, CommandGroup)? in
+            let scores = group.options.map { CommandScore.score(value: $0.value, search: search) }
+            let options = zip(group.options, scores).filter { $0.1 > 0 }.map { $0.0 }
+            guard !options.isEmpty else { return nil }
+            return (index, scores.max() ?? 0, CommandGroup(title: group.title, options: options))
+        }
+        return scored.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }.map { $0.2 }
     }
 
     private func updateEmptyState() {
@@ -213,7 +280,7 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
         label.font = .nunito(ofSize: 12, weight: .medium)
         label.textColor = UIColor.HayaseTheme.mutedForeground
         label.backgroundColor = UIColor.HayaseTheme.muted
-        label.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 26)
+        label.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: Self.headingHeight)
         let wrapper = UIView()
         wrapper.backgroundColor = UIColor.HayaseTheme.muted
         wrapper.addSubview(label)
@@ -229,7 +296,7 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         guard let title = filteredGroups[safe: section]?.title, !title.isEmpty else { return Self.groupPadding }
-        return 26 + Self.groupPadding
+        return Self.headingHeight + Self.groupPadding
     }
 
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {

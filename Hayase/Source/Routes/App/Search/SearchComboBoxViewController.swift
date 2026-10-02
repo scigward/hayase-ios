@@ -18,6 +18,7 @@ final class SearchComboBoxViewController: CommandPopoverViewController {
                    selectedValues: selectedValues,
                    allowsMultiple: filterType.isMultiSelect,
                    sourceView: sourceView)
+        filtersByCommandScore = true   // cmdk filters the search page's items by their `value`
     }
 
     required init?(coder: NSCoder) {

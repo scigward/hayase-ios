@@ -19,6 +19,7 @@ final class CommandItemCell: UITableViewCell {
     private var titleLeadingToContentConstraint: NSLayoutConstraint?
     private var titleTrailingToCheckConstraint: NSLayoutConstraint?
     private var titleTrailingToContentConstraint: NSLayoutConstraint?
+    private var checkSizeConstraints: [NSLayoutConstraint] = []
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -49,8 +50,9 @@ final class CommandItemCell: UITableViewCell {
         selectedBackgroundView?.layer.cornerRadius = 4   // rounded-sm
 
         checkContainer.translatesAutoresizingMaskIntoConstraints = false
-        checkContainer.layer.cornerRadius = 3
-        checkContainer.layer.masksToBounds = true
+        checkContainer.layer.cornerRadius = 4   // rounded-sm
+        // the Check icon is 24pt in its 16pt box and overflows it
+        checkContainer.layer.masksToBounds = false
 
         checkView.image = UIImage.hayaseIcon("check")?
             .withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
@@ -72,15 +74,17 @@ final class CommandItemCell: UITableViewCell {
         titleTrailingToCheckConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkContainer.leadingAnchor, constant: -8)
         titleTrailingToContentConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8)
 
-        NSLayoutConstraint.activate([
+        checkSizeConstraints = [
+            checkView.widthAnchor.constraint(equalToConstant: 12),
+            checkView.heightAnchor.constraint(equalToConstant: 12),
+        ]
+        NSLayoutConstraint.activate(checkSizeConstraints + [
             checkContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             checkContainer.widthAnchor.constraint(equalToConstant: 16),
             checkContainer.heightAnchor.constraint(equalToConstant: 16),
 
             checkView.centerXAnchor.constraint(equalTo: checkContainer.centerXAnchor),
             checkView.centerYAnchor.constraint(equalTo: checkContainer.centerYAnchor),
-            checkView.widthAnchor.constraint(equalToConstant: 12),
-            checkView.heightAnchor.constraint(equalToConstant: 12),
 
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
@@ -89,10 +93,18 @@ final class CommandItemCell: UITableViewCell {
     func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {
         titleLabel.text = option.label
         checkContainer.layer.borderWidth = multiple ? 1 : 0
-        checkContainer.layer.borderColor = UIColor.HayaseTheme.primary.cgColor
+        // an unselected box has `opacity-50`
+        checkContainer.layer.borderColor = UIColor.HayaseTheme.primary
+            .withAlphaComponent(selected || selectStyle ? 1 : 0.5).cgColor
         checkContainer.backgroundColor = selected && !selectStyle ? UIColor.HayaseTheme.primary : .clear
         checkView.tintColor = selectStyle ? UIColor.HayaseTheme.foreground : UIColor.HayaseTheme.primaryForeground
         checkView.isHidden = !selected
+        // `<Check className=…>` never reaches the svg, which keeps svelte-radix's default 24
+        let checkSize: CGFloat = selectStyle ? 12 : 24
+        checkView.image = selectStyle
+            ? UIImage.hayaseIcon("check")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
+            : RadixIcons.check(size: checkSize)
+        checkSizeConstraints.forEach { $0.constant = checkSize }
 
         checkLeadingConstraint?.isActive = multiple
         checkTrailingConstraint?.isActive = !multiple

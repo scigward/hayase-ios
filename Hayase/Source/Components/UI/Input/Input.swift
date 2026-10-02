@@ -16,11 +16,19 @@ final class Input: UITextField {
         didSet { updateSelectState() }
     }
     var searchIconSize: CGFloat = 14 {
-        didSet {
-            guard let iconName else { return }
-            iconImageView?.image = UIImage.hayaseIcon(iconName, pointSize: searchIconSize)
-            updateIconFrame()
-        }
+        didSet { applyIcon() }
+    }
+    /// The interface's search inputs draw `svelte-radix` MagnifyingGlass, not lucide's search.
+    var usesRadixMagnifier = false {
+        didSet { applyIcon() }
+    }
+
+    private func applyIcon() {
+        guard let iconName else { return }
+        iconImageView?.image = usesRadixMagnifier
+            ? RadixIcons.magnifyingGlass(size: searchIconSize)
+            : UIImage.hayaseIcon(iconName, pointSize: searchIconSize)
+        updateIconFrame()
     }
     var iconLeadingInset: CGFloat? { didSet { updateIconFrame() } }
     var highlightsIconOnFocus = true { didSet { updateSelectState() } }
