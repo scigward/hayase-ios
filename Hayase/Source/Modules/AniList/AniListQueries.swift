@@ -221,16 +221,6 @@ enum AniListQueries {
     }
     """
 
-    static let byIds = """
-    query ($ids: [Int], $nsfw: [String]) {
-      Page(page: 1, perPage: 50) {
-        media(type: ANIME, format_not: MUSIC, id_in: $ids, sort: POPULARITY_DESC, genre_not_in: $nsfw) {
-          \(fullMediaFields)
-        }
-      }
-    }
-    """
-
     // MARK: - Detail (relations)
 
 

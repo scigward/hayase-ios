@@ -2,30 +2,22 @@
 //  SearchViewController.swift
 //  NyaiS
 //
-//  Mirrors: src/routes/app/search/+page.svelte and src/lib/components/ui/cards/query.svelte
+//  Mirrors: src/routes/app/search/+page.svelte and src/lib/components/ui/cards/query.svelte,
+//  trace.svelte and episode.svelte
 //
 //  Hayase-style AniList anime search tab.
 //
-//  Mobile layout:
-//  Title label + input + [camera] [bolt]  - always visible
+//  Compact layout:
+//  Title label + input + [image] [bolt]  - always visible
 //  Labeled filter panels (horizontal scroll) - when bolt tapped
 //  Wrapping active chips row
-//  2-column grid (minmax(184px))
+//  Grid of cards, each a 184pt column (`minmax(184px, max-content)`)
+//
+//  From `md` (768) the title and the filters wrap over rows of their own, and the buttons
+//  follow the last of them.
 
 import UIKit
 import PhotosUI
-
-// MARK: - trace.moe response (private to this file)
-
-private struct TraceMoeResponse: Decodable {
-    let result: [TraceMoeHit]
-    let error: String?
-}
-
-private struct TraceMoeHit: Decodable {
-    /// AniList anime ID returned by trace.moe
-    let anilist: Int
-}
 
 private enum SearchHeaderItem {
     case title
@@ -41,20 +33,33 @@ class SearchViewController: UIViewController {
     // MARK: - Hayase color constants
     private static let bgBlack      = UIColor.black
     private static let bgBackground = UIColor.HayaseTheme.background
-    private static let mutedFg      = UIColor.HayaseTheme.mutedForeground
+    private static let foreground   = UIColor.HayaseTheme.foreground
 
-    // MARK: - Filter state
-    // Hayase: genres/tags, formats and status multi-select; year/season/sort/onList single-select.
-    private var selectedGenres:   [String] = []
-    private var selectedTags:     [String] = []
+    // MARK: - Search state (`search` in +page.svelte)
+    // genres/tags, formats and status multi-select; year/season/sort/onList single-select.
+
+    /// `search.genres`: genres and tags together, in the order they were picked.
+    private var selectedGenreTags: [String] = []
+    private var selectedGenres: [String] { selectedGenreTags.filter { SearchValues.genreSet.contains($0) } }
+    private var selectedTags: [String] { selectedGenreTags.filter { !SearchValues.genreSet.contains($0) } }
     private var selectedYear:     String?  = nil
     private var selectedSeason:   String?  = nil
     private var selectedFormats:  [String] = []
     private var selectedStatuses: [String] = []
     private var selectedSort:     String?  = "TRENDING_DESC"
     private var selectedOnList:   Bool?    = nil
+    /// `search.name`
+    private var currentTitle = ""
+    /// `inputText`: what the input holds. `search.name` only follows it once typing settles.
+    private var inputText = ""
+    /// `search.ids`
+    private var traceIds: [Int]?
+    /// `trace`: the frames trace.moe matched. Set by a lookup, and kept when only the IDs chip goes.
+    private var traceMatches: [TraceAnime]?
 
-    // Active chip entries mirror interface list(search), including sort and trace IDs.
+    /// The order `list(search)` goes through the values in: the object a page starts with has
+    /// them in one order, the one `variablesToSearch` builds from a remembered state in another.
+    private var chipsFollowRestoredState = false
     private var activeChipEntries: [(label: String, type: SearchFilterType, apiValue: String)] = []
 
     // MARK: - Results state
@@ -69,13 +74,8 @@ class SearchViewController: UIViewController {
     private var fetchRequestID = 0
     private var searchTask: AniListRequestToken?
     private let searchQuery = PageQuery<AniListSearchPage>()
-    private var currentTitle = ""
     private var debounceTimer: Timer?
     private var trackingRefreshTimer: Timer?
-    /// Set when a trace.moe image search is active; causes grid to show trace results.
-    private var traceIds: [Int]?
-    /// True while the trace.moe network request is in-flight.
-    private var isTracing = false
     private var lastFilterLayoutSignature = ""
     private let searchFlipDuration: TimeInterval = 0.4
     /// Frames of the currently displayed result cells, captured immediately before a reset
@@ -93,7 +93,7 @@ class SearchViewController: UIViewController {
     private var titleLabel:    UILabel!
     private var searchInputRow: UIView!
     private var searchField:   Input!
-    private var rightButtons:  UIStackView!  // horizontal: camera + bolt
+    private var rightButtons:  UIStackView!  // horizontal: image + bolt
     private var cameraButton:  Button!
     private var boltButton:    Toggle!
 
@@ -102,6 +102,8 @@ class SearchViewController: UIViewController {
     private var filterCollectionView: UICollectionView!
     private var filterRowHeightConstraint: NSLayoutConstraint!
     private var titleRowSpacerHeightConstraint: NSLayoutConstraint!
+    /// The width of each item of the header row at the current size.
+    private var headerItemWidths: [CGFloat] = []
 
     deinit {
         debounceTimer?.invalidate()
@@ -118,20 +120,19 @@ class SearchViewController: UIViewController {
     private var lastChipLayoutWidth: CGFloat = 0
 
     private var collectionView:    UICollectionView!
-    private var loadingIndicator:  UIActivityIndicatorView!
-    private var emptyLabel:        UILabel!
+    private let messageView = SearchMessageView()
 
-    // min-w-44 = 176pt; panel height = label(20)+gap(4)+picker(36)+padding(24) = 84pt
+    // min-w-44 = 176pt; a panel is p-2 around a 28pt label, mb-1 and a 36pt control
     private static let filterItemMinWidth: CGFloat = 176
-    private static let filterPanelHeight: CGFloat = 80
-    private static let regularHorizontalInset: CGFloat = 40
-    private static let regularActionWidth: CGFloat = 104
+    private static let onListItemMinWidth: CGFloat = 144   // min-w-36
+    private static let filterPanelHeight: CGFloat = 84
+    private static let labelHeight: CGFloat = 28           // text-xl
+    /// p-2 around the two 36pt buttons and their gap-4
+    private static let actionsWidth: CGFloat = 104
+    private static let defaultSort = "TRENDING_DESC"
 
     // Pending route state from Router.navigate(.search(...)) before the view is loaded.
     private var pendingRouteState: Route.SearchState?
-
-    // Pending prefill from older call sites. Kept as a compatibility shim.
-    private var pendingPrefill: (genre: String?, sort: String?)?
 
     // MARK: - Init
 
@@ -141,6 +142,18 @@ class SearchViewController: UIViewController {
             title: "Search",
             image: UIImage.hayaseIcon("search"),
             selectedImage: UIImage.hayaseIcon("search"))
+    }
+
+    // MARK: - Breakpoints
+
+    /// `$breakpoints.md`
+    private func isRegularSearchLayout(width: CGFloat? = nil) -> Bool {
+        (width ?? view.bounds.width) >= 768
+    }
+
+    /// `px-2 sm:px-10` of the sticky header
+    private func horizontalPadding(width: CGFloat? = nil) -> CGFloat {
+        (width ?? view.bounds.width) >= 640 ? 40 : 8
     }
 
     // MARK: - Lifecycle
@@ -157,11 +170,10 @@ class SearchViewController: UIViewController {
         refreshFilterPickers()
         rebuildActiveChips()
         updateBoltTint()
-        // Hayase: goto('/app/search', { state: { search: variables } }) creates a fresh page with the
-        // state pre-applied. Mirror this: if a prefill is pending (View More tapped before this tab was
-        // ever opened), skip the default fetch here — viewWillAppear will call applyPrefill which runs
-        // the correct fetch with the prefilled filters.
-        if pendingPrefill == nil && pendingRouteState == nil {
+        // goto('/app/search', { state: { search: variables } }) creates a fresh page with the
+        // state pre-applied. Mirror this: if a route state is pending (it was set before this tab
+        // was ever opened), skip the default fetch here — viewWillAppear applies it and fetches.
+        if pendingRouteState == nil {
             fetchResults(reset: true)
         }
     }
@@ -178,7 +190,7 @@ class SearchViewController: UIViewController {
         renderedDisplayPreferences = preferences
         if let previous = previousPreferences, previous != preferences {
             collectionView.reloadData()
-            if pendingRouteState == nil, pendingPrefill == nil,
+            if pendingRouteState == nil,
                previous.showAdultContent != preferences.showAdultContent ||
                 previous.accountLanguage != preferences.accountLanguage {
                 fetchResults(reset: true)
@@ -187,16 +199,6 @@ class SearchViewController: UIViewController {
         if let state = pendingRouteState {
             pendingRouteState = nil
             applySearchRouteState(state)
-        } else if let pending = pendingPrefill {
-            pendingPrefill = nil
-            let ext = pendingExtended
-            pendingExtended = nil
-            applyPrefillExtended(genre: pending.genre,
-                                 format: ext?.format,
-                                 status: ext?.status,
-                                 season: ext?.season,
-                                 seasonYear: ext?.seasonYear,
-                                 sort: pending.sort)
         }
     }
 
@@ -220,108 +222,95 @@ class SearchViewController: UIViewController {
         guard isViewLoaded else { return }
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self = self else { return }
-            self.collectionView.setCollectionViewLayout(self.makeLayout(), animated: false)
+            self.collectionView.collectionViewLayout.invalidateLayout()
             self.updateResponsiveHeaderLayout(animated: false, targetWidth: size.width)
         })
     }
 
-    // MARK: - Prefill from Home
+    // MARK: - Route state
 
+    /// `variablesToSearch($page.state.search) ?? defaults`. A visit that remembers a search comes
+    /// back to it; one that does not starts afresh, unless it is a click on this same page.
     func applyRouteState(_ state: Route.SearchState?) {
-        guard let state else { return }
-        if isViewLoaded {
-            applySearchRouteState(state)
-        } else {
-            pendingRouteState = state
+        guard isViewLoaded else {
+            pendingRouteState = state   // nil: the page is still the fresh one
+            return
         }
+        applySearchRouteState(state)
     }
 
-    private func applySearchRouteState(_ state: Route.SearchState) {
+    private static let defaultState = Route.SearchState(sort: defaultSort)
+
+    private func currentRouteState() -> Route.SearchState {
+        Route.SearchState(title: currentTitle.isEmpty ? nil : currentTitle,
+                          genres: selectedGenres,
+                          tags: selectedTags,
+                          year: selectedYear,
+                          season: selectedSeason,
+                          formats: selectedFormats,
+                          statuses: selectedStatuses,
+                          sort: selectedSort,
+                          onList: selectedOnList,
+                          ids: traceIds)
+    }
+
+    /// `replaceState(location.href, { search })`
+    private func rememberRouteState() {
+        let state = currentRouteState()
+        Router.shared.remember(.search(state == Self.defaultState ? nil : state))
+    }
+
+    private func applySearchRouteState(_ state: Route.SearchState?) {
+        guard let state else {
+            if case .search? = Router.shared.previousRoute { return }
+            guard currentRouteState() != Self.defaultState || !inputText.isEmpty else { return }
+            resetSearch(sort: Self.defaultSort)
+            return
+        }
+        guard state != currentRouteState() else { return }
         currentTitle = state.title ?? ""
-        searchField?.text = currentTitle
-        selectedGenres = state.genres
-        selectedTags = state.tags
+        inputText = currentTitle
+        searchField?.text = inputText
+        // `genres.filter(…)` then `tags.filter(…)`: the order of the lists, not of the variables
+        let genres = SearchValues.genres.map(\.value).filter { state.genres.contains($0) }
+        let tags = SearchValues.tags.map(\.value).filter { state.tags.contains($0) }
+        selectedGenreTags = genres + tags
         selectedYear = state.year
         selectedSeason = state.season
-        selectedFormats = state.formats
-        selectedStatuses = state.statuses
-        selectedSort = state.sort
+        selectedFormats = SearchValues.formats.map(\.value).filter { state.formats.contains($0) }
+        selectedStatuses = SearchValues.statuses.map(\.value).filter { state.statuses.contains($0) }
+        selectedSort = state.sort.flatMap { value in SearchValues.sorts.contains { $0.value == value } ? value : nil }
         selectedOnList = state.onList
         traceIds = state.ids
-        rebuildActiveChipEntries()
-        refreshFilterPickers()
-        rebuildActiveChips()
-        updateBoltTint()
-        fetchResults(reset: true)
+        traceMatches = nil
+        chipsFollowRestoredState = true
+        commitSearchChange()
     }
 
-    func prefillSearch(genre: String?, sort: String?) {
-        if isViewLoaded { applyPrefill(genre: genre, sort: sort) }
-        else { pendingPrefill = (genre: genre, sort: sort) }
+    /// The page's initial `search` (Trending) or what `clear()` leaves (nothing, not even a sort).
+    private func resetSearch(sort: String?) {
+        resetState(sort: sort)
+        commitSearchChange()
     }
 
-    /// Extended prefill matching web `goto('/app/search', { state: { search: { ... } } })`.
-    /// Accepts optional genre, format, status, season + year, sort filters.
-    func prefillSearchExtended(genre: String? = nil,
-                               format: String? = nil,
-                               status: String? = nil,
-                               season: String? = nil,
-                               seasonYear: Int? = nil,
-                               sort: String? = nil) {
-        if isViewLoaded {
-            applyPrefillExtended(genre: genre, format: format, status: status,
-                                 season: season, seasonYear: seasonYear, sort: sort)
-        } else {
-            // Store for later
-            pendingPrefill = (genre: genre, sort: sort)
-            pendingExtended = (format: format, status: status,
-                               season: season, seasonYear: seasonYear)
-        }
-    }
-
-    private var pendingExtended: (format: String?, status: String?,
-                                  season: String?, seasonYear: Int?)?
-
-    private func applyPrefill(genre: String?, sort: String?) {
-        applyPrefillExtended(genre: genre, sort: sort)
-    }
-
-    private func applyPrefillExtended(genre: String? = nil,
-                                      format: String? = nil,
-                                      status: String? = nil,
-                                      season: String? = nil,
-                                      seasonYear: Int? = nil,
-                                      sort: String? = nil) {
-        selectedGenres = []
-        selectedTags = []
+    private func resetState(sort: String?) {
+        selectedGenreTags = []
         selectedYear = nil
         selectedSeason = nil
         selectedFormats = []
         selectedStatuses = []
-        selectedSort = nil
+        selectedSort = sort
         selectedOnList = nil
         traceIds = nil
-        if let genre = genre {
-            if SearchValues.genreSet.contains(genre) {
-                selectedGenres = [genre]
-            } else {
-                selectedTags = [genre]
-            }
-        }
-        if let format = format {
-            selectedFormats = [format]
-        }
-        if let status = status {
-            selectedStatuses = [status]
-        }
-        if let season = season {
-            selectedSeason = season
-        }
-        if let seasonYear = seasonYear {
-            let yearStr = String(seasonYear)
-            selectedYear = yearStr
-        }
-        if let sort = sort { selectedSort = sort }
+        traceMatches = nil
+        currentTitle = ""
+        inputText = ""
+        searchField?.text = ""
+        chipsFollowRestoredState = false
+    }
+
+    /// `$: searchChanged(search)`, for a change of anything but the name.
+    private func commitSearchChange() {
         rebuildActiveChipEntries()
         refreshFilterPickers()
         rebuildActiveChips()
@@ -362,19 +351,33 @@ class SearchViewController: UIViewController {
     }
 
     // MARK: - Title Row
-    // Hayase mobile: [Title label + input (flex-1)] | [camera btn, bolt btn (items-end)]
+    // Compact: [Title label + input (flex-1 p-2)] | [image btn, bolt btn (w-auto p-2 gap-4 items-end)]
     private func setupTitleRow() {
         titleLabel = UILabel()
         titleLabel.text = "Title"
         titleLabel.font = .nunito(ofSize: 20, weight: .bold) // text-xl font-bold
-        titleLabel.textColor = .white
+        titleLabel.textColor = Self.foreground
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // `mb-1 ml-1`: the label sits 4pt in from the input and 28pt tall
+        let labelRow = UIView()
+        labelRow.translatesAutoresizingMaskIntoConstraints = false
+        labelRow.addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: labelRow.topAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: labelRow.bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: labelRow.leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: labelRow.trailingAnchor),
+            labelRow.heightAnchor.constraint(equalToConstant: Self.labelHeight),
+        ])
 
         searchInputRow = UIView()
         searchInputRow.translatesAutoresizingMaskIntoConstraints = false
 
         searchField = Input(placeholder: "Any", iconName: "search")
-        searchField.autocapitalizationType = .words   // capitalize
+        configureSearchInput(searchField)
         searchField.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
+        searchField.addTarget(self, action: #selector(searchFieldEnded), for: .editingDidEnd)
         searchInputRow.addSubview(searchField)
         NSLayoutConstraint.activate([
             searchField.topAnchor.constraint(equalTo: searchInputRow.topAnchor),
@@ -385,11 +388,11 @@ class SearchViewController: UIViewController {
         ])
 
         // Left stack: "Title" (mb-1=4pt) + input
-        leftStack = UIStackView(arrangedSubviews: [titleLabel, searchInputRow])
+        leftStack = UIStackView(arrangedSubviews: [labelRow, searchInputRow])
         leftStack.translatesAutoresizingMaskIntoConstraints = false
         leftStack.axis = .vertical; leftStack.spacing = 4; leftStack.alignment = .fill
 
-        // Camera button (FileImage) — interface Button variant=outline size=icon border-0.
+        // Image button (FileImage) — interface Button variant=outline size=icon border-0.
         cameraButton = Button(iconName: "file-image", pointSize: 16)
         cameraButton.iconAnimation = .wobble   // animated-icon
         cameraButton.addTarget(self, action: #selector(cameraTapped), for: .touchUpInside)
@@ -404,15 +407,15 @@ class SearchViewController: UIViewController {
         rightButtons.translatesAutoresizingMaskIntoConstraints = false
         rightButtons.axis = .horizontal; rightButtons.spacing = 16; rightButtons.alignment = .bottom
 
-        // Title row: leftStack (flex-1) | rightButtons (w-auto)
+        // Title row: leftStack (flex-1 p-2) | rightButtons (w-auto p-2): 16 between the two
         titleRowStack = UIStackView(arrangedSubviews: [leftStack, rightButtons])
         titleRowStack.translatesAutoresizingMaskIntoConstraints = false
-        titleRowStack.axis = .horizontal; titleRowStack.spacing = 8; titleRowStack.alignment = .fill
-        titleRowStack.layoutMargins = UIEdgeInsets(top: 20, left: 8, bottom: 8, right: 8) // pt-5, px-2
+        titleRowStack.axis = .horizontal; titleRowStack.spacing = 16; titleRowStack.alignment = .fill
         titleRowStack.isLayoutMarginsRelativeArrangement = true
+        titleRowStack.layoutMargins = Self.compactTitleMargins(horizontal: horizontalPadding(width: UIScreen.main.bounds.width))
         headerView.addSubview(titleRowStack)
         // Anchor to safeAreaLayoutGuide so content starts below the status bar.
-        // The layoutMargins.top = 20 provides the pt-5 breathing room inside.
+        // The layoutMargins.top provides the pt-5 and p-2 breathing room inside.
         NSLayoutConstraint.activate([
             titleRowStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             titleRowStack.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
@@ -420,6 +423,19 @@ class SearchViewController: UIViewController {
         ])
         titleRowSpacerHeightConstraint = titleRowStack.heightAnchor.constraint(equalToConstant: 20)
         titleRowSpacerHeightConstraint.isActive = false
+    }
+
+    /// pt-5 and p-2 above the row, p-2 below it, and the header's own `px-2 sm:px-10` plus p-2 aside
+    private static func compactTitleMargins(horizontal: CGFloat) -> UIEdgeInsets {
+        UIEdgeInsets(top: 28, left: horizontal + 8, bottom: 8, right: horizontal + 8)
+    }
+
+    /// `pl-9 … capitalize placeholder:opacity-50` with `svelte-radix` MagnifyingGlass `left-3`
+    private func configureSearchInput(_ field: Input) {
+        field.autocapitalizationType = .words   // capitalize
+        field.usesRadixMagnifier = true
+        field.searchIconSize = 16
+        field.iconLeadingInset = 12
     }
 
     // MARK: - Filter Row
@@ -463,7 +479,8 @@ class SearchViewController: UIViewController {
         chipsContainer = UIView()
         chipsContainer.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(chipsContainer)
-        chipsHeightConstraint = chipsContainer.heightAnchor.constraint(equalToConstant: 36)
+        // min-h-9 (36) around the 4pt pb-1 leaves the chips 32
+        chipsHeightConstraint = chipsContainer.heightAnchor.constraint(equalToConstant: 32)
         chipsHeightConstraint.isActive = true
         chipsLeadingConstraint = chipsContainer.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12)
         chipsTrailingConstraint = chipsContainer.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12)
@@ -478,16 +495,10 @@ class SearchViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func cameraTapped() {
-        if #available(iOS 14, *) {
-            var config = PHPickerConfiguration()
-            config.filter = .images; config.selectionLimit = 1
-            let picker = PHPickerViewController(configuration: config)
-            picker.delegate = self; present(picker, animated: true)
-        } else {
-            let picker = UIImagePickerController()
-            picker.sourceType = .photoLibrary; picker.delegate = self
-            present(picker, animated: true)
-        }
+        var config = PHPickerConfiguration()
+        config.filter = .images; config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self; present(picker, animated: true)
     }
 
     @objc private func boltTapped() {
@@ -500,45 +511,45 @@ class SearchViewController: UIViewController {
         handleSearchTextChanged(field.text ?? "")
     }
 
-    @objc private func clearTapped() {
-        clearSearchState()
+    @objc private func searchFieldEnded() {
+        updateName()   // on:blur={updateName}
     }
 
+    /// `handleInput`: a trailing space settles the name at once, anything else after 500ms.
     private func handleSearchTextChanged(_ text: String) {
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if searchField.text != text { searchField.text = text }
-        debounceTimer?.invalidate()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in
-            guard let self = self, query != self.currentTitle else { return }
-            self.currentTitle = query
-            self.rebuildActiveChipEntries()
-            self.rebuildActiveChips()
-            self.fetchResults(reset: true)
+        inputText = text
+        if text.hasSuffix(" ") {
+            updateName()
+        } else {
+            debounceTimer?.invalidate()
+            debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                self?.updateName()
+            }
         }
+        updateClearButton()
     }
 
-    private func clearSearchState() {
-        selectedGenres = []
-        selectedTags = []
-        selectedYear = nil
-        selectedSeason = nil
-        selectedFormats = []
-        selectedStatuses = []
-        selectedSort = nil
-        selectedOnList = nil
-        traceIds = nil
-        currentTitle = ""
-        searchField.text = ""
+    /// `search.name = inputText.trim()`
+    private func updateName() {
         debounceTimer?.invalidate()
+        debounceTimer = nil
+        let name = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != currentTitle else { return }
+        currentTitle = name
+        // the inputs stay as they are: reloading the row would take the focus from the one typed in
         rebuildActiveChipEntries()
-        refreshFilterPickers()
         rebuildActiveChips()
-        updateBoltTint()
+        updateClearButton()
         fetchResults(reset: true)
     }
 
+    /// `clear()`
+    private func clearSearchState() {
+        resetSearch(sort: nil)
+    }
+
     private var hasAnySearchState: Bool {
-        !currentTitle.isEmpty || !selectedGenres.isEmpty || !selectedTags.isEmpty
+        !currentTitle.isEmpty || !selectedGenreTags.isEmpty
             || selectedYear != nil || selectedSeason != nil
             || !selectedFormats.isEmpty || !selectedStatuses.isEmpty
             || selectedSort != nil || selectedOnList != nil || traceIds != nil
@@ -563,52 +574,38 @@ class SearchViewController: UIViewController {
         return [.title] + filters + [.actions]
     }
 
-    private func isRegularSearchLayout(width: CGFloat? = nil) -> Bool {
-        let value = width ?? view.bounds.width
-        return value >= 768 || traitCollection.horizontalSizeClass == .regular
-    }
-
     private func updateResponsiveHeaderLayout(animated: Bool, targetWidth: CGFloat? = nil) {
         guard isViewLoaded, filterCollectionView != nil else { return }
         let width = max(targetWidth ?? view.bounds.width, 320)
         let regular = isRegularSearchLayout(width: width)
+        let hpad = horizontalPadding(width: width)
         let visible = regular || filterRowVisible
 
         leftStack.isHidden = regular
         rightButtons.isHidden = regular
         titleRowSpacerHeightConstraint.isActive = regular
         titleRowStack.layoutMargins = regular
-            ? UIEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)
-            : UIEdgeInsets(top: 20, left: 8, bottom: 8, right: 8)
-        let chipInset = (regular ? Self.regularHorizontalInset : 8) + 4
-        chipsLeadingConstraint.constant = chipInset
-        chipsTrailingConstraint.constant = -chipInset
+            ? UIEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)   // pt-5
+            : Self.compactTitleMargins(horizontal: hpad)
+        chipsLeadingConstraint.constant = hpad + 4    // px-1
+        chipsTrailingConstraint.constant = -(hpad + 4)
 
         if let layout = filterCollectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             layout.scrollDirection = regular ? .vertical : .horizontal
             layout.minimumInteritemSpacing = 0
             layout.minimumLineSpacing = 0
-            layout.sectionInset = UIEdgeInsets(top: 0,
-                                               left: regular ? Self.regularHorizontalInset : 8,
-                                               bottom: 0,
-                                               right: regular ? Self.regularHorizontalInset : 8)
+            layout.sectionInset = UIEdgeInsets(top: 0, left: hpad, bottom: 0, right: hpad)
             layout.invalidateLayout()
         }
 
-        let signature = filterLayoutSignature(isRegular: regular, isVisible: visible)
+        let layoutResult = headerItemLayout(width: width, regular: regular, hpad: hpad)
+        let signature = filterLayoutSignature(isRegular: regular, isVisible: visible, widths: layoutResult.widths)
         let shouldReloadFilters = signature != lastFilterLayoutSignature
         lastFilterLayoutSignature = signature
+        headerItemWidths = layoutResult.widths
 
-        let rows: CGFloat
-        if !visible {
-            rows = 0
-        } else if regular {
-            rows = visibleHeaderItems.count > 4 ? 2 : 1
-        } else {
-            rows = 1
-        }
         filterCollectionView.isScrollEnabled = !regular
-        filterRowHeightConstraint.constant = rows * Self.filterPanelHeight
+        filterRowHeightConstraint.constant = visible ? CGFloat(layoutResult.rows) * Self.filterPanelHeight : 0
         boltButton.isHidden = regular
         if shouldReloadFilters {
             filterCollectionView.reloadData()
@@ -625,7 +622,7 @@ class SearchViewController: UIViewController {
         }
     }
 
-    private func filterLayoutSignature(isRegular: Bool, isVisible: Bool) -> String {
+    private func filterLayoutSignature(isRegular: Bool, isVisible: Bool, widths: [CGFloat]) -> String {
         let itemSignature = visibleHeaderItems.map { item -> String in
             switch item {
             case .title: return "title"
@@ -633,36 +630,77 @@ class SearchViewController: UIViewController {
             case .filter(let type): return "filter-\(type.rawValue)"
             }
         }.joined(separator: ",")
-        return "regular=\(isRegular);visible=\(isVisible);items=\(itemSignature)"
+        return "regular=\(isRegular);visible=\(isVisible);items=\(itemSignature);widths=\(widths)"
     }
 
-    private func filterItemSize(for indexPath: IndexPath, in collectionView: UICollectionView) -> CGSize {
-        guard isRegularSearchLayout() else {
-            return CGSize(width: Self.filterItemMinWidth, height: Self.filterPanelHeight)
+    /// How wide each item of the header row is and over how many rows they go. Compact, the row
+    /// scrolls and each item is as wide as its `min-w`. Regular, it is a wrapping flex row: the
+    /// first four items are `md:w-1/4`, the rest `flex-1`, and the buttons `w-auto`.
+    private func headerItemLayout(width: CGFloat, regular: Bool, hpad: CGFloat) -> (widths: [CGFloat], rows: Int) {
+        let items = visibleHeaderItems
+        func minimum(_ item: SearchHeaderItem) -> CGFloat {
+            if case .filter(.onList) = item { return Self.onListItemMinWidth }
+            if case .actions = item { return Self.actionsWidth }
+            return Self.filterItemMinWidth
+        }
+        guard regular else {
+            return (items.map(minimum), 1)
         }
 
-        let usableWidth = max(collectionView.bounds.width - Self.regularHorizontalInset * 2,
-                              Self.filterItemMinWidth * 2)
-        let item = visibleHeaderItems[safe: indexPath.item]
-        if case .actions? = item {
-            return CGSize(width: Self.regularActionWidth, height: Self.filterPanelHeight)
+        let usable = width - 2 * hpad
+        // flex-basis, min-width and flex-grow of each item
+        let specs: [(base: CGFloat, min: CGFloat, grow: CGFloat)] = items.enumerated().map { index, item in
+            if case .actions = item { return (Self.actionsWidth, Self.actionsWidth, 0) }
+            if index < 4 { return (usable / 4, minimum(item), 1) }
+            return (0, minimum(item), 1)
         }
 
-        let width: CGFloat
-        if indexPath.item < 4 {
-            width = floor(usableWidth / 4)
-        } else {
-            let secondRowFilterCount = visibleHeaderItems
-                .dropFirst(4)
-                .filter {
-                    if case .actions = $0 { return false }
-                    return true
+        // flex-wrap: an item goes on the next line when it no longer fits at its hypothetical size
+        var lines: [[Int]] = [[]]
+        var used: CGFloat = 0
+        for (index, spec) in specs.enumerated() {
+            let hypothetical = max(spec.base, spec.min)
+            if used + hypothetical > usable, !lines[lines.count - 1].isEmpty {
+                lines.append([])
+                used = 0
+            }
+            lines[lines.count - 1].append(index)
+            used += hypothetical
+        }
+
+        // resolving flexible lengths, growing: free space goes to the items by flex-grow, and an item
+        // that would end up under its min-width stays at it while the others share what is left
+        var widths = [CGFloat](repeating: 0, count: items.count)
+        for line in lines {
+            var frozen = Set(line.filter { specs[$0].grow == 0 })
+            var sizes: [Int: CGFloat] = [:]
+            for index in frozen { sizes[index] = max(specs[index].base, specs[index].min) }
+            while frozen.count < line.count {
+                let flexible = line.filter { !frozen.contains($0) }
+                let taken = line.reduce(CGFloat(0)) { $0 + (frozen.contains($1) ? sizes[$1]! : specs[$1].base) }
+                let free = usable - taken
+                let totalGrow = flexible.reduce(CGFloat(0)) { $0 + specs[$1].grow }
+                let targets = Dictionary(uniqueKeysWithValues: flexible.map {
+                    ($0, specs[$0].base + free * specs[$0].grow / totalGrow)
+                })
+                let violators = flexible.filter { targets[$0]! < specs[$0].min }
+                if violators.isEmpty {
+                    for index in flexible { sizes[index] = targets[index]! }
+                    break
                 }
-                .count
-            let divisor = CGFloat(max(1, secondRowFilterCount))
-            width = floor((usableWidth - Self.regularActionWidth) / divisor)
+                for index in violators {
+                    sizes[index] = specs[index].min
+                    frozen.insert(index)
+                }
+            }
+            for index in line { widths[index] = floor(sizes[index] ?? specs[index].min) }
         }
-        return CGSize(width: max(Self.filterItemMinWidth, width), height: Self.filterPanelHeight)
+        return (widths, lines.count)
+    }
+
+    private func filterItemSize(for indexPath: IndexPath) -> CGSize {
+        let width = headerItemWidths[safe: indexPath.item] ?? Self.filterItemMinWidth
+        return CGSize(width: width, height: Self.filterPanelHeight)
     }
 
     private func showFilterPicker(for type: SearchFilterType, sourceView: UIView?) {
@@ -678,7 +716,7 @@ class SearchViewController: UIViewController {
 
     private func selectedValues(for type: SearchFilterType) -> Set<String> {
         switch type {
-        case .genres: return Set(selectedGenres + selectedTags)
+        case .genres: return Set(selectedGenreTags)
         case .year:
             guard let selectedYear else { return [] }
             return [selectedYear]
@@ -698,60 +736,49 @@ class SearchViewController: UIViewController {
         }
     }
 
+    /// What a combobox's `handleSelect` does: a single one takes the item, a multiple one adds it
+    /// to the end of its values or takes it out of them.
+    private func picked(_ values: Set<String>, from current: [String]) -> [String] {
+        current.filter { values.contains($0) } + values.subtracting(current).sorted()
+    }
+
     private func applySelection(_ values: Set<String>, for type: SearchFilterType) {
-        let ordered = orderedValues(Array(values), for: type)
         switch type {
         case .genres:
-            selectedGenres = ordered.filter { SearchValues.genreSet.contains($0) }
-            selectedTags = ordered.filter { !SearchValues.genreSet.contains($0) }
+            selectedGenreTags = picked(values, from: selectedGenreTags)
         case .year:
-            selectedYear = ordered.first
+            selectedYear = values.first
         case .season:
-            selectedSeason = ordered.first
+            selectedSeason = values.first
         case .format:
-            selectedFormats = ordered
+            selectedFormats = picked(values, from: selectedFormats)
         case .status:
-            selectedStatuses = ordered
+            selectedStatuses = picked(values, from: selectedStatuses)
         case .sort:
-            selectedSort = ordered.first
+            selectedSort = values.first
         case .onList:
-            selectedOnList = ordered.first.map { $0 == "true" }
+            selectedOnList = values.first.map { $0 == "true" }
         case .trace:
-            if ordered.isEmpty { clearTrace(); return }
+            if values.isEmpty { traceIds = nil }
         case .title:
-            currentTitle = ordered.first ?? ""
-            searchField.text = currentTitle
+            currentTitle = values.first ?? ""
         }
-        rebuildActiveChipEntries()
-        refreshFilterPickers()
-        rebuildActiveChips()
-        updateBoltTint()
-        fetchResults(reset: true)
-    }
-
-    private func orderedValues(_ values: [String], for type: SearchFilterType) -> [String] {
-        let selected = Set(values)
-        let ordered = SearchValues.options(for: type)
-            .map(\.value)
-            .filter { selected.contains($0) }
-        let extras = values.filter { !ordered.contains($0) }
-        return ordered + extras
-    }
-
-    private func clearFilter(type: SearchFilterType) {
-        if type == .trace {
-            clearTrace()
-            return
-        }
-        applySelection([], for: type)
+        commitSearchChange()
     }
 
     private func updateBoltTint() {
         boltButton.pressed = filterRowVisible
     }
 
+    /// `selectedValue`: the labels of the values joined by ", ", or the placeholder.
     private func selectedTitle(for type: SearchFilterType) -> String {
-        let values = orderedValues(Array(selectedValues(for: type)), for: type)
+        let values: [String]
+        switch type {
+        case .genres: values = selectedGenreTags
+        case .format: values = selectedFormats
+        case .status: values = selectedStatuses
+        default: values = Array(selectedValues(for: type))
+        }
         guard !values.isEmpty else { return type.placeholder }
         if type == .trace { return "IDs" }
         return values.map { SearchValues.label(for: $0, in: type) }.joined(separator: ", ")
@@ -767,40 +794,41 @@ class SearchViewController: UIViewController {
         updateResponsiveHeaderLayout(animated: false)
     }
 
+    /// The trash is blue while there is something to clear, `text-muted-foreground opacity-50` else.
+    private func updateClearButton() {
+        guard let items = filterCollectionView?.indexPathsForVisibleItems else { return }
+        for indexPath in items {
+            if let cell = filterCollectionView.cellForItem(at: indexPath) as? SearchActionItemCell {
+                cell.configure(clearEnabled: hasAnySearchState)
+            }
+        }
+    }
+
+    /// `list(search)`: the label of every value there is, in the order of the object's keys.
     private func rebuildActiveChipEntries() {
-        var entries: [(label: String, type: SearchFilterType, apiValue: String)] = []
-        if !currentTitle.isEmpty {
-            entries.append((currentTitle, .title, currentTitle))
+        typealias Entry = (label: String, type: SearchFilterType, apiValue: String)
+        func entry(_ label: String, _ type: SearchFilterType, _ value: String) -> Entry {
+            (label, type, value)
         }
-        for value in selectedGenres {
-            entries.append((SearchValues.label(for: value, in: .genres), .genres, value))
+        let name: [Entry] = currentTitle.isEmpty ? [] : [entry(currentTitle, .title, currentTitle)]
+        let genres: [Entry] = selectedGenreTags.map { entry(SearchValues.label(for: $0, in: .genres), .genres, $0) }
+        var years: [Entry] = []
+        if let selectedYear { years = [entry(selectedYear, .year, selectedYear)] }
+        var seasons: [Entry] = []
+        if let selectedSeason { seasons = [entry(SearchValues.label(for: selectedSeason, in: .season), .season, selectedSeason)] }
+        let formats: [Entry] = selectedFormats.map { entry(SearchValues.label(for: $0, in: .format), .format, $0) }
+        let statuses: [Entry] = selectedStatuses.map { entry(SearchValues.label(for: $0, in: .status), .status, $0) }
+        var sorts: [Entry] = []
+        if let selectedSort { sorts = [entry(SearchValues.label(for: selectedSort, in: .sort), .sort, selectedSort)] }
+        let ids: [Entry] = traceIds == nil ? [] : [entry("IDs", .trace, "trace")]
+        var onList: [Entry] = []
+        if let selectedOnList {
+            let raw = selectedOnList ? "true" : "false"
+            onList = [entry(SearchValues.label(for: raw, in: .onList), .onList, raw)]
         }
-        for value in selectedTags {
-            entries.append((SearchValues.label(for: value, in: .genres), .genres, value))
-        }
-        if let selectedYear = selectedYear {
-            entries.append((selectedYear, .year, selectedYear))
-        }
-        if let selectedSeason = selectedSeason {
-            entries.append((SearchValues.label(for: selectedSeason, in: .season), .season, selectedSeason))
-        }
-        for value in selectedFormats {
-            entries.append((SearchValues.label(for: value, in: .format), .format, value))
-        }
-        for value in selectedStatuses {
-            entries.append((SearchValues.label(for: value, in: .status), .status, value))
-        }
-        if let selectedSort = selectedSort {
-            entries.append((SearchValues.label(for: selectedSort, in: .sort), .sort, selectedSort))
-        }
-        if let selectedOnList = selectedOnList {
-            let value = selectedOnList ? "true" : "false"
-            entries.append((SearchValues.label(for: value, in: .onList), .onList, value))
-        }
-        if traceIds != nil {
-            entries.append(("IDs", .trace, "trace"))
-        }
-        activeChipEntries = entries
+        activeChipEntries = chipsFollowRestoredState
+            ? ids + name + onList + genres + years + seasons + formats + statuses + sorts
+            : name + genres + years + seasons + formats + statuses + sorts + ids + onList
     }
 
     // MARK: - Active chips (wrapping frame layout)
@@ -810,7 +838,7 @@ class SearchViewController: UIViewController {
         chipsContainer.subviews.forEach { $0.removeFromSuperview() }
         guard !activeChipEntries.isEmpty else {
             UIView.animate(withDuration: 0.2) {
-                self.chipsHeightConstraint.constant = 36
+                self.chipsHeightConstraint.constant = 32
                 self.headerView.layoutIfNeeded(); self.view.layoutIfNeeded()
             }
             return
@@ -837,7 +865,7 @@ class SearchViewController: UIViewController {
             x += cw + hSpacing; rowH = max(rowH, ch)
         }
 
-        let newH = max(36, y + rowH + 4)
+        let newH = max(32, y + rowH + 4)
         UIView.animate(withDuration: 0.2) {
             self.chipsHeightConstraint.constant = newH
             self.headerView.layoutIfNeeded(); self.view.layoutIfNeeded()
@@ -855,6 +883,7 @@ class SearchViewController: UIViewController {
         return chip
     }
 
+    /// `remove(label)`
     @objc private func removeChipTapped(_ sender: UIControl) {
         guard let id = sender.accessibilityIdentifier, let colon = id.range(of: ":") else { return }
         let typeRaw  = Int(id[id.startIndex..<colon.lowerBound]) ?? -1
@@ -862,23 +891,23 @@ class SearchViewController: UIViewController {
         guard let type = SearchFilterType(rawValue: typeRaw) else { return }
         switch type {
         case .title:
+            // only `search.name` is emptied; the input keeps what was typed in it
             currentTitle = ""
-            searchField.text = ""
-            debounceTimer?.invalidate()
-            filterCollectionView?.reloadData()
-        case .genres:
-            selectedGenres.removeAll { $0 == apiValue }
-            selectedTags.removeAll { $0 == apiValue }
-            activeChipEntries.removeAll { $0.type == .genres && $0.apiValue == apiValue }
-        case .year:    selectedYear = nil;   activeChipEntries.removeAll { $0.type == .year }
-        case .season:  selectedSeason = nil; activeChipEntries.removeAll { $0.type == .season }
-        case .format:  selectedFormats.removeAll { $0 == apiValue };  activeChipEntries.removeAll { $0.type == .format && $0.apiValue == apiValue }
-        case .status:  selectedStatuses.removeAll { $0 == apiValue }; activeChipEntries.removeAll { $0.type == .status && $0.apiValue == apiValue }
-        case .sort:    selectedSort = nil; activeChipEntries.removeAll { $0.type == .sort }
-        case .onList:  selectedOnList = nil; activeChipEntries.removeAll { $0.type == .onList }
-        case .trace:   clearTrace(); return  // clearTrace() handles its own fetch
+            rebuildActiveChipEntries()
+            rebuildActiveChips()
+            updateClearButton()
+            fetchResults(reset: true)
+            return
+        case .genres:  selectedGenreTags.removeAll { $0 == apiValue }
+        case .year:    selectedYear = nil
+        case .season:  selectedSeason = nil
+        case .format:  selectedFormats.removeAll { $0 == apiValue }
+        case .status:  selectedStatuses.removeAll { $0 == apiValue }
+        case .sort:    selectedSort = nil
+        case .onList:  selectedOnList = nil
+        case .trace:   traceIds = nil   // `search.ids = undefined`; `trace` is left as it is
         }
-        refreshFilterPickers(); rebuildActiveChips(); updateBoltTint(); fetchResults(reset: true)
+        commitSearchChange()
     }
 
     // MARK: - Collection view
@@ -892,6 +921,8 @@ class SearchViewController: UIViewController {
                                 forCellWithReuseIdentifier: AnimeCollectionViewCell.reuseID)
         collectionView.register(SkeletonCardCell.self,
                                 forCellWithReuseIdentifier: SkeletonCardCell.reuseID)
+        collectionView.register(SkeletonTraceCardCell.self,
+                                forCellWithReuseIdentifier: SkeletonTraceCardCell.reuseID)
         collectionView.keyboardDismissMode = .onDrag
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -912,36 +943,84 @@ class SearchViewController: UIViewController {
         return layout
     }
 
+    /// Trace results are the wide `episode.svelte` cards, and a `trace` that stays after its IDs
+    /// chip is removed keeps the page drawing them.
+    private var showsEpisodeCards: Bool { traceMatches != nil }
+
+    private var cardWidth: CGFloat {
+        showsEpisodeCards ? AnimeCollectionViewCell.traceOuterWidth : AnimeCollectionViewCell.outerWidth
+    }
+
+    /// `grid-cols-[repeat(auto-fill,minmax(184px,max-content))]`; the trace grid has its columns
+    /// from `md` only, and below it everything sits in one.
+    private func gridColumns(for width: CGFloat) -> Int {
+        if showsEpisodeCards && !isRegularSearchLayout(width: width) { return 1 }
+        let available = max(width - gridHorizontalPadding(for: width) * 2, cardWidth)
+        return max(1, Int(floor(available / cardWidth)))
+    }
+
+    private func gridHorizontalPadding(for width: CGFloat) -> CGFloat {
+        isRegularSearchLayout(width: width) ? 28 : 0   // md:px-7
+    }
+
+    /// `justify-center`: the columns sit in the middle, never closer to the sides than `px-7`.
     private func resultSectionInsets(for width: CGFloat) -> UIEdgeInsets {
-        let horizontalPadding: CGFloat = isRegularSearchLayout(width: width) ? 28 : 0
-        let available = max(width - horizontalPadding * 2, AnimeCollectionViewCell.outerWidth)
-        let columns = max(1, floor(available / AnimeCollectionViewCell.outerWidth))
-        let used = columns * AnimeCollectionViewCell.outerWidth
-        let centeredInset = floor((width - used) / 2)
-        let inset = max(horizontalPadding, centeredInset)
-        return UIEdgeInsets(top: 12, left: inset, bottom: 16, right: inset)
+        let padding = gridHorizontalPadding(for: width)
+        let used = CGFloat(gridColumns(for: width)) * cardWidth
+        let inset = max(padding, floor((width - used) / 2))
+        return UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
+    }
+
+    // MARK: - Episode cards
+
+    private func traceMatch(for item: AnimeItem) -> TraceAnime? {
+        traceMatches?.first { $0.anilist == item.id }
+    }
+
+    /// The height of an `episode.svelte` card: `p-4` around a 9rem picture, `pt-3` and the title
+    /// (at most two lines, beside the episode and the match), `pt-2` and the year and format line.
+    private func episodeCardHeight(for item: AnimeItem) -> CGFloat {
+        let font = UIFont.nunito(ofSize: 13, weight: .black)
+        var titleWidth = AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding
+        if (item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id)) != nil { titleWidth -= 12.8 }
+        var infoHeight: CGFloat = 0
+        if let trace = traceMatch(for: item) {
+            let small = UIFont.nunito(ofSize: 12, weight: .medium)
+            let info = max(("Episode \(trace.episode)" as NSString).size(withAttributes: [.font: small]).width,
+                           ("100%" as NSString).size(withAttributes: [.font: small]).width)
+            titleWidth -= ceil(info) + 8   // gap-2
+            infoHeight = 35                // pt-[1px], two 16pt lines and mt-0.5
+        }
+        let text = AniListUtil.title(for: item) as NSString
+        let lines = min(2, max(1, Int(ceil(text.size(withAttributes: [.font: font]).width / max(titleWidth, 1)))))
+        let titleHeight = max(CGFloat(lines) * 19.2, infoHeight)
+        return AnimeCollectionViewCell.contentPadding * 2 + AnimeCollectionViewCell.traceCoverHeight
+            + 12 + titleHeight + 8 + 16
+    }
+
+    /// Every card of a grid row is as tall as the tallest of the row, with the year and format at
+    /// the bottom.
+    private func episodeCardSize(at index: Int, width: CGFloat) -> CGSize {
+        let columns = gridColumns(for: width)
+        let start = index / columns * columns
+        let end = min(start + columns, animeResults.count)
+        let height = (start..<max(start + 1, end)).map { row -> CGFloat in
+            animeResults[safe: row].map(episodeCardHeight(for:)) ?? 216
+        }.max() ?? 216
+        return CGSize(width: AnimeCollectionViewCell.traceOuterWidth, height: height)
     }
 
     // MARK: - Overlays
 
     private func setupOverlays() {
-        loadingIndicator = UIActivityIndicatorView(style: .large)
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        loadingIndicator.hidesWhenStopped = true; loadingIndicator.color = .white
-        view.addSubview(loadingIndicator)
-
-        emptyLabel = UILabel()
-        emptyLabel.textColor = Self.mutedFg; emptyLabel.font = .nunito(ofSize: 16)
-        emptyLabel.textAlignment = .center; emptyLabel.numberOfLines = 0
-        emptyLabel.isHidden = true; emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(emptyLabel)
+        messageView.translatesAutoresizingMaskIntoConstraints = false
+        messageView.isHidden = true
+        view.addSubview(messageView)
         NSLayoutConstraint.activate([
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 60),
-            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 60),
-            emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
-            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
+            messageView.topAnchor.constraint(equalTo: collectionView.topAnchor),
+            messageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            messageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            messageView.heightAnchor.constraint(equalToConstant: 320),   // h-80
         ])
     }
 
@@ -955,6 +1034,7 @@ class SearchViewController: UIViewController {
             searchTask?.cancel()
             searchTask = nil
             isFetching = false
+            rememberRouteState()
         }
         guard !isFetching, hasNextPage else { return }
         isFetching = true
@@ -963,10 +1043,11 @@ class SearchViewController: UIViewController {
             // isShowingSkeleton flips, visibleSearchItemFrames() can no longer see them.
             let frames = visibleSearchItemFrames()
             pendingFlipFrames = frames.isEmpty ? nil : frames
-            // Show skeleton placeholders instead of spinner (matches web fetching → SkeletonCard)
+            // Skeleton placeholders while the query is fetching
             isShowingSkeleton = true
+            collectionView.collectionViewLayout.invalidateLayout()
             collectionView.reloadData()
-            emptyLabel.isHidden = true
+            messageView.isHidden = true
         }
         let myRequestID = fetchRequestID
 
@@ -994,7 +1075,6 @@ class SearchViewController: UIViewController {
                 self.isFetching = false
                 if !page.isCacheResult { self.searchTask = nil }
                 self.isShowingSkeleton = false
-                self.loadingIndicator.stopAnimating()
                 let updatedResults: [AnimeItem]
                 if reset {
                     if page.isCacheResult || self.currentPage <= requestedPage + 1 {
@@ -1015,23 +1095,34 @@ class SearchViewController: UIViewController {
                 }
                 self.hasNextPage = page.hasNextPage
                 self.currentPage = max(self.currentPage, requestedPage + 1)
-                self.emptyLabel.isHidden = !updatedResults.isEmpty
                 if updatedResults.isEmpty {
-                    self.emptyLabel.text = self.currentTitle.isEmpty
-                        ? "No results found" : "No results for \"\(self.currentTitle)\""
+                    self.messageView.show(["Looks like there's nothing here."])
+                } else {
+                    self.messageView.isHidden = true
                 }
-                self.applySearchResults(updatedResults)
+                self.applySearchResults(self.orderedForTrace(updatedResults))
             case .failure(let error):
                 self.isFetching = false
                 self.searchTask = nil
                 self.isShowingSkeleton = false
-                self.loadingIndicator.stopAnimating()
                 if reset { self.applySearchResults([], animated: false) }
                 self.hasNextPage = false
-                self.emptyLabel.isHidden = false
-                self.emptyLabel.text = "Ooops!\nLooks like something went wrong!\n\(error.description)"
+                if self.animeResults.isEmpty {
+                    self.messageView.show(["Looks like something went wrong!", error.description])
+                }
             }
         }
+    }
+
+    /// trace.svelte: the cards go in the order the lookup gave their anime.
+    private func orderedForTrace(_ items: [AnimeItem]) -> [AnimeItem] {
+        guard let matches = traceMatches else { return items }
+        let order = matches.map(\.anilist)
+        return items.enumerated().sorted { lhs, rhs in
+            let left = order.firstIndex(of: lhs.element.id) ?? -1
+            let right = order.firstIndex(of: rhs.element.id) ?? -1
+            return left != right ? left < right : lhs.offset < rhs.offset
+        }.map { $0.element }
     }
 
     private func setupNotifications() {
@@ -1068,6 +1159,7 @@ class SearchViewController: UIViewController {
 
         animeResults = results
         guard isViewLoaded, collectionView != nil else { return }
+        collectionView.collectionViewLayout.invalidateLayout()
 
         if shouldFlip {
             UIView.performWithoutAnimation {
@@ -1116,127 +1208,36 @@ class SearchViewController: UIViewController {
 
     // MARK: - trace.moe image search
     //
-    // Hayase: traceAnime(file) from $lib/utils → POST multipart to api.trace.moe/search
-    // On success: clear() all filters, set search.ids = unique anilist IDs, show results.
-    //
+    // Hayase: traceAnime(file) from $lib/utils posts the image to api.trace.moe/search, behind a
+    // toast.promise. On success: clear() all filters, set search.ids = unique anilist IDs, show results.
 
-    /// Upload an image to trace.moe and show matching anime.
-    /// Mirrors Hayase's traceReq() behaviour exactly.
-    private func performTraceSearch(imageData: Data) {
-        guard !isTracing else { return }
-        isTracing = true
-        isShowingSkeleton = true
-        collectionView.reloadData()
-        emptyLabel.isHidden = true
-
-        let boundary = "Boundary-\(UUID().uuidString)"
-        guard let url = URL(string: "https://api.trace.moe/search") else {
-            finishTrace(success: false); return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)",
-                         forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-        func append(_ s: String) { if let d = s.data(using: .utf8) { body.append(d) } }
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"image\"; filename=\"image.jpg\"\r\n")
-        append("Content-Type: image/jpeg\r\n\r\n")
-        body.append(imageData)
-        append("\r\n--\(boundary)--\r\n")
-        request.httpBody = body
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+    /// `traceReq`
+    private func traceReq(imageData: Data, mimeType: String) {
+        let toast = AppErrorToast.startPromise(title: "Looking up anime for image...",
+                                               description: "You can also paste an URL to an image.")
+        TraceMoe.lookup(image: imageData, mimeType: mimeType) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.isTracing = false
-                self.isShowingSkeleton = false
-
-                guard let data = data,
-                      let resp = try? JSONDecoder().decode(TraceMoeResponse.self, from: data),
-                      (resp.error ?? "").isEmpty,
-                      !resp.result.isEmpty else {
-                    self.finishTrace(success: false)
-                    return
+                switch result {
+                case .success(let matches):
+                    AppErrorToast.resolvePromise(toast, title: "Found anime for image!")
+                    self?.applyTraceResults(matches)
+                case .failure:
+                    AppErrorToast.resolvePromise(
+                        toast,
+                        title: "Couldn't find anime for specified image! Try to remove black bars, or use a more detailed image.",
+                        failed: true)
                 }
-                // Deduplicate IDs, preserving result order
-                var seen = Set<Int>()
-                let ids = resp.result.map { $0.anilist }.filter { seen.insert($0).inserted }
-                self.applyTraceResults(ids: ids)
-            }
-        }.resume()
-    }
-
-    /// Called after trace.moe returns IDs — clears filters and shows trace results.
-    /// Mirrors Hayase's clear() + search.ids = [...] sequence.
-    private func applyTraceResults(ids: [Int]) {
-        // Clear all regular filters (mirrors Hayase's clear())
-        selectedGenres = []; selectedTags = []; selectedYear = nil; selectedSeason = nil
-        selectedFormats = []; selectedStatuses = []; selectedSort = nil; selectedOnList = nil
-        currentTitle = ""; searchField.text = ""
-        traceIds = ids
-        rebuildActiveChipEntries()
-        refreshFilterPickers()
-        rebuildActiveChips()
-        updateBoltTint()
-        fetchResults(reset: true)
-    }
-
-    /// Clears trace state and returns to a normal search.
-    /// Mirrors removing the "IDs" chip in Hayase (remove("IDs") → search.ids = undefined).
-    private func clearTrace() {
-        traceIds = nil
-        rebuildActiveChipEntries()
-        rebuildActiveChips()
-        updateBoltTint()
-        fetchResults(reset: true)
-    }
-
-    /// Mirrors search/+page.svelte's failed trace lookup toast.
-    private func finishTrace(success: Bool) {
-        isTracing = false
-        isShowingSkeleton = false
-        loadingIndicator.stopAnimating()
-        collectionView.reloadData()
-        guard !success else { return }
-        emptyLabel.isHidden = !animeResults.isEmpty
-        AppErrorToast.show("You can also paste an URL to an image.",
-            title: "Couldn't find anime for specified image! Try to remove black bars, or use a more detailed image.", duration: 4)
-    }
-
-    // MARK: - Fetch by IDs (trace.moe results)
-
-    private func fetchResultsByIds(_ ids: [Int]) {
-        guard !isFetching else { return }
-        isFetching = true
-        // See fetchResults(reset:) — snapshot before the skeleton wipe so applySearchResults
-        // still has real prior frames to flip from once these results land.
-        let frames = visibleSearchItemFrames()
-        pendingFlipFrames = frames.isEmpty ? nil : frames
-        isShowingSkeleton = true
-        collectionView.reloadData()
-        emptyLabel.isHidden = true
-
-        AniListClient.shared.fetchAnimeByIdsResult(ids) { [weak self] result in
-            guard let self = self else { return }
-            self.hasNextPage = false
-            self.currentPage = 2
-            self.isFetching = false
-            self.isShowingSkeleton = false
-            self.loadingIndicator.stopAnimating()
-
-            switch result {
-            case .success(let items):
-                self.applySearchResults(items)
-                self.emptyLabel.isHidden = !items.isEmpty
-                if items.isEmpty { self.emptyLabel.text = "No matching anime found" }
-            case .failure(let error):
-                self.applySearchResults([], animated: false)
-                self.emptyLabel.isHidden = false
-                self.emptyLabel.text = "Ooops!\nLooks like something went wrong!\n\(error.description)"
             }
         }
+    }
+
+    /// `clear()` and `search.ids = [...new Set(res.map(r => r.anilist))]`, which the page answers once.
+    private func applyTraceResults(_ matches: [TraceAnime]) {
+        resetState(sort: nil)
+        var seen = Set<Int>()
+        traceIds = matches.map(\.anilist).filter { seen.insert($0).inserted }
+        traceMatches = matches
+        commitSearchChange()
     }
 }
 
@@ -1248,8 +1249,8 @@ extension SearchViewController: UICollectionViewDataSource {
         if collectionView === filterCollectionView {
             return visibleHeaderItems.count
         }
-        // Web: shows 50 SkeletonCard while fetching; we show enough to fill the visible area
-        if isShowingSkeleton { return 50 }
+        // query.svelte shows 20 SkeletonCards while it fetches, trace.svelte 50 SkeletonTraceCards
+        if isShowingSkeleton { return showsEpisodeCards ? 50 : 20 }
         return animeResults.count
     }
 
@@ -1264,9 +1265,12 @@ extension SearchViewController: UICollectionViewDataSource {
                 guard let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SearchTitleItemCell.reuseID,
                     for: indexPath) as? SearchTitleItemCell else { return UICollectionViewCell() }
-                cell.configure(text: currentTitle)
+                cell.configure(text: inputText)
                 cell.onTextChanged = { [weak self] text in
                     self?.handleSearchTextChanged(text)
+                }
+                cell.onEndEditing = { [weak self] in
+                    self?.updateName()
                 }
                 return cell
             case .filter(let type):
@@ -1290,17 +1294,20 @@ extension SearchViewController: UICollectionViewDataSource {
         }
         if isShowingSkeleton {
             return collectionView.dequeueReusableCell(
-                withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+                withReuseIdentifier: showsEpisodeCards ? SkeletonTraceCardCell.reuseID : SkeletonCardCell.reuseID,
+                for: indexPath)
         }
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
             for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
         guard let item = animeResults[safe: indexPath.item] else { return cell }
-        cell.configure(with: item)
+        let trace = traceMatch(for: item)
+        cell.configure(with: item, trace: trace, episodeStyle: showsEpisodeCards)
         Hover.shared.bind(to: cell,
                           host: self,
                           mediaProvider: { item },
-                          actions: hayasePreviewCardActions())
+                          actions: hayasePreviewCardActions(),
+                          trace: trace)
         return cell
     }
 }
@@ -1321,7 +1328,8 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
            Hover.shared.handleTouchSelection(source: cell,
                                              host: self,
                                              media: item,
-                                             actions: hayasePreviewCardActions()) {
+                                             actions: hayasePreviewCardActions(),
+                                             trace: traceMatch(for: item)) {
             return
         }
         Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
@@ -1341,10 +1349,17 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
         if collectionView === filterCollectionView {
-            return filterItemSize(for: indexPath, in: collectionView)
+            return filterItemSize(for: indexPath)
         }
-        return CGSize(width: AnimeCollectionViewCell.outerWidth,
-                      height: AnimeCollectionViewCell.outerHeight)
+        guard showsEpisodeCards else {
+            return CGSize(width: AnimeCollectionViewCell.outerWidth,
+                          height: AnimeCollectionViewCell.outerHeight)
+        }
+        if isShowingSkeleton {
+            // skeletontrace.svelte: p-4 around a 9rem picture and two bars
+            return CGSize(width: AnimeCollectionViewCell.traceOuterWidth, height: 216)
+        }
+        return episodeCardSize(at: indexPath.item, width: collectionView.bounds.width)
     }
 
     func collectionView(_ collectionView: UICollectionView,
@@ -1357,9 +1372,8 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
     }
 }
 
-// MARK: - PHPickerViewControllerDelegate (iOS 14+)
+// MARK: - PHPickerViewControllerDelegate
 
-@available(iOS 14, *)
 extension SearchViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
@@ -1367,26 +1381,58 @@ extension SearchViewController: PHPickerViewControllerDelegate {
               provider.hasItemConformingToTypeIdentifier("public.image") else { return }
         provider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
             guard let data = data else { return }
-            // Convert to JPEG at a moderate quality to reduce payload size for trace.moe
+            // Photos are often HEIC, which trace.moe does not read: send a JPEG
             let jpegData = UIImage(data: data)?.jpegData(compressionQuality: 0.8) ?? data
-            DispatchQueue.main.async { self?.performTraceSearch(imageData: jpegData) }
+            DispatchQueue.main.async { self?.traceReq(imageData: jpegData, mimeType: "image/jpeg") }
         }
     }
 }
 
-// MARK: - UIImagePickerControllerDelegate (iOS 13)
+// MARK: - SearchMessageView
 
-extension SearchViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    func imagePickerController(_ picker: UIImagePickerController,
-                               didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        picker.dismiss(animated: true)
-        let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage
-        guard let jpegData = image?.jpegData(compressionQuality: 0.8) else { return }
-        performTraceSearch(imageData: jpegData)
+/// The `Ooops!` block of query.svelte: a centred `h-80` area at the top of the results.
+private final class SearchMessageView: UIView {
+    private let stack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 20),   // p-5
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+        ])
     }
 
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    /// `lines` are the muted `text-lg` lines under the heading.
+    func show(_ lines: [String]) {
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let heading = UILabel()
+        heading.text = "Ooops!"
+        heading.font = .nunito(ofSize: 36, weight: .bold)   // text-4xl font-bold
+        heading.textColor = UIColor.HayaseTheme.foreground
+        heading.textAlignment = .center
+        stack.addArrangedSubview(heading)
+        stack.setCustomSpacing(4, after: heading)   // mb-1
+        for line in lines {
+            let label = UILabel()
+            label.text = line
+            label.font = .nunito(ofSize: 18, weight: .regular)   // text-lg
+            label.textColor = UIColor.HayaseTheme.mutedForeground
+            label.textAlignment = .center
+            label.numberOfLines = 0
+            stack.addArrangedSubview(label)
+        }
+        isHidden = false
     }
 }
 
@@ -1396,11 +1442,15 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
     static let reuseID = "SearchTitleItemCell"
 
     var onTextChanged: ((String) -> Void)?
+    var onEndEditing: (() -> Void)?
 
     private let titleLabel = UILabel()
     private let searchField: Input = {
         let field = Input(placeholder: "Any", iconName: "search")
         field.autocapitalizationType = .words   // capitalize
+        field.usesRadixMagnifier = true
+        field.searchIconSize = 16
+        field.iconLeadingInset = 12
         return field
     }()
 
@@ -1430,6 +1480,7 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
         contentView.addSubview(searchField)
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            titleLabel.heightAnchor.constraint(equalToConstant: 28),
             titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
 
@@ -1450,8 +1501,11 @@ private final class SearchTitleItemCell: UICollectionViewCell, UITextFieldDelega
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         textField.resignFirstResponder()
-        onTextChanged?(textField.text ?? "")
         return true
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        onEndEditing?()
     }
 }
 
@@ -1500,7 +1554,8 @@ private final class SearchActionItemCell: UICollectionViewCell {
             imageButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
             clearButton.leadingAnchor.constraint(equalTo: imageButton.trailingAnchor, constant: 16),
             clearButton.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
-            imageButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            // items-end inside p-2
+            imageButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
             clearButton.bottomAnchor.constraint(equalTo: imageButton.bottomAnchor),
         ])
     }
@@ -1554,6 +1609,7 @@ private final class SearchFilterItemCell: UICollectionViewCell {
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            titleLabel.heightAnchor.constraint(equalToConstant: 28),
             titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8),
 

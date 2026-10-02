@@ -99,6 +99,13 @@ final class Router {
         return true
     }
 
+    /// `replaceState(location.href, { search })`: the entry the page is on remembers its state,
+    /// and nothing navigates.
+    func remember(_ route: Route) {
+        guard case .search = currentRoute, case .search = route else { return }
+        history.replace(route, hostTabIndex: history.current.hostTabIndex)
+    }
+
     func sync(_ route: Route, hostTabIndex: Int? = nil) {
         pendingAnimeNavigationID = nil
         pendingThreadNavigationID = nil

@@ -674,39 +674,6 @@ public final class AniListClient: NSObject {
         return token
     }
 
-    // MARK: - Fetch by IDs (single / trace.moe)
-
-    @discardableResult
-    func fetchAnimeByIdsResult(_ ids: [Int],
-                               completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        guard !ids.isEmpty else {
-            DispatchQueue.main.async { completion(.success([])) }
-            return nil
-        }
-        let variables = applyNsfwFilter(to: ["ids": ids])
-        return requestExecutor.execute(query: AniListQueries.byIds,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "search", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
-                    guard let pageData = response.data?.Page else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-                    let items = (pageData.media ?? []).compactMap { AniListUtil.animeItem(from: $0) }
-                    DispatchQueue.main.async { completion(.success(items)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-    }
-
     // MARK: - Resolver search/fetch (player resolver.ts parity)
 
     func searchResolverAnimeIDsResult(titleGroups: [(key: String, titles: [String], year: String?)],
