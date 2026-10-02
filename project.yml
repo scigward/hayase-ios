@@ -41,6 +41,9 @@ packages:
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup.git
     from: "2.13.6"
+  Xyflow:
+    url: https://github.com/scigward/Xyflow-Swift.git
+    branch: main
 
 targets:
   Hayase:
@@ -91,6 +94,10 @@ targets:
       - package: Starscream
       - package: CobeKit
       - package: SwiftSoup
+      - package: Xyflow
+        product: Xyflow
+      - package: Xyflow
+        product: XYSystem
 
     postBuildScripts:
       - name: Embed WebTorrent backend resources

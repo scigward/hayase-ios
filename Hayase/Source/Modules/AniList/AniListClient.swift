@@ -1346,7 +1346,7 @@ public final class AniListClient: NSObject {
         if let existing = graph.nodes[media.id] {
             graph.nodes[media.id] = existing.mergingRouteMedia(media)
         } else {
-            graph.nodes[media.id] = media
+            graph.setNode(media)
         }
 
         if depth >= 2 {
@@ -1367,18 +1367,18 @@ public final class AniListClient: NSObject {
             let edgeID = relationEdgeKey(media.id, node.id)
             if let existing = graph.edges[edgeID] {
                 if existing.relationType == "PARENT" {
-                    graph.edges.removeValue(forKey: edgeID)
+                    graph.removeEdge(edgeID)
                 } else {
                     continue
                 }
             }
 
             let isPrequel = relationType == "PREQUEL"
-            graph.edges[edgeID] = AnimeRelationGraphEdge(
+            graph.setEdge(edgeID, AnimeRelationGraphEdge(
                 id: "e\(edgeID)",
                 sourceID: isPrequel ? node.id : media.id,
                 targetID: isPrequel ? media.id : node.id,
-                relationType: isPrequel ? "SEQUEL" : relationType)
+                relationType: isPrequel ? "SEQUEL" : relationType))
 
             mergeRelationMedia(nodeObject, into: &graph, depth: depth + 1, expandedIDs: expandedIDs)
         }

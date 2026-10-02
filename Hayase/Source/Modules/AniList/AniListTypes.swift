@@ -130,8 +130,41 @@ struct AnimeRelationGraphEdge {
 struct AnimeRelationGraph {
     var nodes: [Int: AnimeItem]
     var edges: [String: AnimeRelationGraphEdge]
+    /// The order the nodes and the edges were added in. The interface keeps them in `Map`s, and the layout of the
+    /// graph depends on that order.
+    var nodeOrder: [Int] = []
+    var edgeOrder: [String] = []
     var boundaryIDs: Set<Int> = []
     var expandedIDs: Set<Int> = []
+
+    mutating func setNode(_ item: AnimeItem) {
+        if nodes[item.id] == nil { nodeOrder.append(item.id) }
+        nodes[item.id] = item
+    }
+
+    mutating func setEdge(_ key: String, _ edge: AnimeRelationGraphEdge) {
+        if edges[key] == nil { edgeOrder.append(key) }
+        edges[key] = edge
+    }
+
+    mutating func removeEdge(_ key: String) {
+        edges.removeValue(forKey: key)
+        edgeOrder.removeAll { $0 == key }
+    }
+
+    /// The nodes in the order they were added. Nodes that were put in without `setNode` come last, by id.
+    var orderedNodes: [AnimeItem] {
+        let known = Set(nodeOrder)
+        let rest = nodes.keys.filter { !known.contains($0) }.sorted()
+        return (nodeOrder + rest).compactMap { nodes[$0] }
+    }
+
+    /// The edges in the order they were added. Edges that were put in without `setEdge` come last, by key.
+    var orderedEdges: [AnimeRelationGraphEdge] {
+        let known = Set(edgeOrder)
+        let rest = edges.keys.filter { !known.contains($0) }.sorted()
+        return (edgeOrder + rest).compactMap { edges[$0] }
+    }
 
     var visibleRelations: [AnimeRelation] {
         edges.values
