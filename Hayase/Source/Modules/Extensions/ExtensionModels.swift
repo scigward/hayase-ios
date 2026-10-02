@@ -42,7 +42,7 @@ enum AnyCodableValue: Codable, Equatable {
     var stringValue: String {
         switch self {
         case .string(let s): return s
-        case .number(let n): return n.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(n)) : String(n)
+        case .number(let n): return n.truncatingRemainder(dividingBy: 1) == 0 && abs(n) < 1e15 ? String(Int(n)) : String(n)
         case .bool(let b):   return b ? "true" : "false"
         case .null:          return ""
         }
@@ -194,14 +194,14 @@ extension TorrentResult {
     /// return numeric fields as strings). Returns 0 for nil/unparseable.
     private static func parseIntValue(_ value: Any?) -> Int {
         if let n = value as? NSNumber { return n.intValue }
-        if let s = value as? String { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let s = value as? String { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return 0
     }
 
     /// Parse a value that may be NSNumber or String into Int64 (for byte sizes).
     private static func parseInt64Value(_ value: Any?) -> Int64 {
         if let n = value as? NSNumber { return n.int64Value }
-        if let s = value as? String { return Int64(s) ?? Int64(Double(s) ?? 0) }
+        if let s = value as? String { return Int64(s) ?? Int64(Int(safe: Double(s) ?? 0)) }
         return 0
     }
 }
@@ -336,7 +336,7 @@ struct TorrentQuery {
             "status": jsonValue(item.status),
             "episodes": jsonValue(item.episodes),
             "duration": jsonValue(item.duration),
-            "averageScore": jsonValue(item.score.map { Int($0.rounded()) }),
+            "averageScore": jsonValue(item.score.map { Int(safe: Double($0.rounded())) }),
             "genres": item.genres,
             "isFavourite": jsonValue(item.isFavourite),
             "coverImage": coverImageJSON(url: item.coverURL, color: item.coverColor),

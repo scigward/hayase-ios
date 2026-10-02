@@ -70,14 +70,15 @@ final class TorrentLibraryDeleteDialog: SettingsDialogViewController {
             ])
             rows.addArrangedSubview(row)
         }
-        listHeight = list.heightAnchor.constraint(equalToConstant: 32)
+        let listHeight = list.heightAnchor.constraint(equalToConstant: 32)
+        self.listHeight = listHeight
         NSLayoutConstraint.activate([
             rows.topAnchor.constraint(equalTo: list.contentLayoutGuide.topAnchor, constant: 16),
             rows.leadingAnchor.constraint(equalTo: list.contentLayoutGuide.leadingAnchor, constant: 20),
             rows.trailingAnchor.constraint(equalTo: list.contentLayoutGuide.trailingAnchor),
             rows.bottomAnchor.constraint(equalTo: list.contentLayoutGuide.bottomAnchor, constant: -16),
             rows.widthAnchor.constraint(equalTo: list.frameLayoutGuide.widthAnchor, constant: -20),
-            listHeight!,
+            listHeight,
         ])
         let delete = SelectButton()
         delete.restingBackground = UIColor.HayaseTheme.destructive

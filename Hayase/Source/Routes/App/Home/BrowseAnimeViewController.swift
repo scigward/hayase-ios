@@ -1907,7 +1907,8 @@ class BrowseAnimeViewController: UIViewController {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        guard traitCollection.horizontalSizeClass != previousTraitCollection?.horizontalSizeClass else { return }
+        guard isViewLoaded,
+              traitCollection.horizontalSizeClass != previousTraitCollection?.horizontalSizeClass else { return }
         // Update banner cell layout for new size class
         let isRegular = traitCollection.horizontalSizeClass == .regular
         if let bannerCell = collectionView.cellForItem(at: IndexPath(item: 0, section: 0)) as? FeaturedBannerCell {
@@ -1982,12 +1983,14 @@ class BrowseAnimeViewController: UIViewController {
         homeBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(homeBackdropView)
         view.addSubview(homeBackdropCoverView)
-        homeBackdropLeadingConstraint = homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        homeBackdropTrailingConstraint = homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let homeBackdropLeadingConstraint = homeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        self.homeBackdropLeadingConstraint = homeBackdropLeadingConstraint
+        let homeBackdropTrailingConstraint = homeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        self.homeBackdropTrailingConstraint = homeBackdropTrailingConstraint
         NSLayoutConstraint.activate([
             homeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            homeBackdropLeadingConstraint!,
-            homeBackdropTrailingConstraint!,
+            homeBackdropLeadingConstraint,
+            homeBackdropTrailingConstraint,
             homeBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             homeBackdropCoverView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -2263,12 +2266,12 @@ class BrowseAnimeViewController: UIViewController {
 
         let newIDs = Set(descriptors.map(\.id))
         removeHomeSectionQueries(where: { !newIDs.contains($0) })
-        homeSectionDescriptors = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+        homeSectionDescriptors = Dictionary(descriptors.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let existing = Dictionary(uniqueKeysWithValues: sections.compactMap { section -> (String, HomeSectionData)? in
+        let existing = Dictionary(sections.compactMap { section -> (String, HomeSectionData)? in
             guard let id = section.queryID else { return nil }
             return (id, section)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         sections = descriptors.map { descriptor in
             existing[descriptor.id] ?? placeholderSection(for: descriptor)
         }
@@ -2619,7 +2622,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
             }
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: FeaturedBannerCell.reuseID,
-                for: indexPath) as? FeaturedBannerCell else { return UICollectionViewCell() }
+                for: indexPath) as? FeaturedBannerCell else {
+                return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonBannerCell.reuseID, for: indexPath)
+            }
             cell.layer.zPosition = 0
             cell.onFeaturedChanged = { [weak self] id in self?.selectedFeaturedID = id }
             cell.onBackdropImageChanged = { [weak self, weak cell] urlString, image in
@@ -2667,7 +2672,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         // Sections 1..n: poster row
         let rowSection = indexPath.section - 1
-        guard rowSection < sections.count else { return UICollectionViewCell() }
+        guard rowSection >= 0, rowSection < sections.count else {
+            return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+        }
         let homeSection = sections[rowSection]
 
         if homeSection.contentState.showsPlaceholderItems {
@@ -2680,7 +2687,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
         if let message = homeSection.contentState.message {
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: HomeSectionMessageCell.reuseID,
-                for: indexPath) as? HomeSectionMessageCell else { return UICollectionViewCell() }
+                for: indexPath) as? HomeSectionMessageCell else {
+                return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+            }
             cell.layer.zPosition = 10
             cell.configure(title: "Ooops!", message: message)
             return cell
@@ -2688,7 +2697,9 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
 
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
-            for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
+            for: indexPath) as? AnimeCollectionViewCell else {
+            return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+        }
         cell.layer.zPosition = 10
         if indexPath.item < homeSection.items.count {
             let item = homeSection.items[indexPath.item]

@@ -525,12 +525,12 @@ final class ScheduleViewController: UIViewController {
         let firstWeekday = cal.component(.weekday, from: monthStart)
         // Calendar weekday ordinals remain Sunday=1, even with an ISO calendar.
         let offsetToMonday = (firstWeekday + 5) % 7
-        let gridStart = cal.date(byAdding: .day, value: -offsetToMonday, to: monthStart)!
+        let gridStart = cal.date(byAdding: .day, value: -offsetToMonday, to: monthStart) ?? monthStart
 
-        let monthEnd = cal.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart)!
+        let monthEnd = cal.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) ?? monthStart
         let lastWeekday = cal.component(.weekday, from: monthEnd)
         let offsetToSunday = (8 - lastWeekday) % 7
-        let gridEnd = cal.date(byAdding: .day, value: offsetToSunday, to: monthEnd)!
+        let gridEnd = cal.date(byAdding: .day, value: offsetToSunday, to: monthEnd) ?? monthEnd
 
         var days: [(date: Date, number: Int, isCurrentMonth: Bool)] = []
         var current = gridStart
@@ -538,7 +538,8 @@ final class ScheduleViewController: UIViewController {
             let number = cal.component(.day, from: current)
             let isCurrentMonth = cal.component(.month, from: current) == cal.component(.month, from: monthStart)
             days.append((date: current, number: number, isCurrentMonth: isCurrentMonth))
-            current = cal.date(byAdding: .day, value: 1, to: current)!
+            guard let next = cal.date(byAdding: .day, value: 1, to: current), next > current else { break }
+            current = next
         }
         calendarDays = days
         groupEpisodesByDay()
@@ -564,7 +565,7 @@ final class ScheduleViewController: UIViewController {
     private func startOfMonth(for date: Date) -> Date {
         let cal = Calendar.current
         let comps = cal.dateComponents([.year, .month], from: date)
-        return cal.date(from: comps)!
+        return cal.date(from: comps) ?? date
     }
 
     /// `aggregate()`: each episode goes on the day it airs, whatever month that is, and the
@@ -592,13 +593,13 @@ final class ScheduleViewController: UIViewController {
     }
 
     @objc private func prevMonth() {
-        displayedMonth = Calendar.current.date(byAdding: .month, value: -1, to: displayedMonth)!
+        displayedMonth = Calendar.current.date(byAdding: .month, value: -1, to: displayedMonth) ?? displayedMonth
         reloadCalendar()
         fetchScheduleIfQuarterChanged()
     }
 
     @objc private func nextMonth() {
-        displayedMonth = Calendar.current.date(byAdding: .month, value: 1, to: displayedMonth)!
+        displayedMonth = Calendar.current.date(byAdding: .month, value: 1, to: displayedMonth) ?? displayedMonth
         reloadCalendar()
         fetchScheduleIfQuarterChanged()
     }
@@ -610,7 +611,7 @@ final class ScheduleViewController: UIViewController {
         let cal = Calendar.current
         let comps = cal.dateComponents([.year, .month], from: date)
         let month = ((comps.month ?? 1) - 1) / 3 * 3 + 1
-        return cal.date(from: DateComponents(year: comps.year, month: month, day: 1))!
+        return cal.date(from: DateComponents(year: comps.year, month: month, day: 1)) ?? date
     }
 
     /// `refocusExchange`: the schedule asks again when the app comes back after a minute away.

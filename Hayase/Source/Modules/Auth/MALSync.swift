@@ -34,10 +34,10 @@ final class MALSync: ListTracker {
     private var malToAL: [Int: Int] {
         get {
             let stored = UserDefaults.standard.dictionary(forKey: malToALKey) as? [String: Int] ?? [:]
-            return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in Int(key).map { ($0, value) } })
+            return Dictionary(stored.compactMap { key, value in Int(key).map { ($0, value) } }, uniquingKeysWith: { first, _ in first })
         }
         set {
-            UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: newValue.map { (String($0.key), $0.value) }), forKey: malToALKey)
+            UserDefaults.standard.set(Dictionary(newValue.map { (String($0.key), $0.value) }, uniquingKeysWith: { first, _ in first }), forKey: malToALKey)
         }
     }
 

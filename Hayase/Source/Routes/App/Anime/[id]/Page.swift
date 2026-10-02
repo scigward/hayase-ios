@@ -340,7 +340,7 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
         case 400:
             guard let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: AnimeCollectionViewCell.reuseID, for: indexPath) as? AnimeCollectionViewCell
-            else { return UICollectionViewCell() }
+            else { return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath) }
             guard let item = recommendations[safe: indexPath.item] else { return cell }
             cell.configure(with: item)
             Hover.shared.bind(to: cell,
@@ -352,7 +352,7 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
             return collectionView.dequeueReusableCell(
                 withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
         default:
-            return UICollectionViewCell()
+            return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
         }
     }
 }

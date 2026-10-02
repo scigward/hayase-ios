@@ -400,7 +400,7 @@ final class AnimeTagChipButton: UIButton {
         let perimeter = 2 * (bounds.width + bounds.height - 4 * radius) + 2 * .pi * radius
         let dashCount = perimeter / dash
         // WebKit widens the gaps when an odd, non-integral number of dashes fits.
-        if Int(dashCount) % 2 == 1, dashCount != dashCount.rounded(.down) {
+        if Int(safe: Double(dashCount)) % 2 == 1, dashCount != dashCount.rounded(.down) {
             gap += dash / (dashCount / 2)
         }
 
@@ -446,7 +446,7 @@ final class AnimeTagChipButton: UIButton {
         }
         let animation = CAKeyframeAnimation(keyPath: "contents")
         animation.values = values
-        animation.keyTimes = (0..<values.count).map { NSNumber(value: Double($0) / Double(values.count - 1)) }
+        animation.keyTimes = (0..<values.count).map { NSNumber(value: Double($0) / Double(max(1, values.count - 1))) }
         animation.calculationMode = .discrete
         animation.duration = 0.15
         animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)
@@ -1405,7 +1405,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         guard let badge = scoreBadge, let score = displayedScore else { return }
         let hidden = Settings.hideSpoilers && (listStatus == "CURRENT" || listStatus == "PLANNING")
         badge.setTitle(hidden ? "50%" : String(format: "%.0f%%", score), for: .normal)
-        let value = hidden ? 100 : Int(score)
+        let value = hidden ? 100 : Int(safe: Double(score))
         badge.normalBgColor = value >= 75 ? UIColor(red: 21/255, green: 128/255, blue: 61/255, alpha: 1)
             : value >= 65 ? UIColor(red: 251/255, green: 146/255, blue: 60/255, alpha: 1)
             : UIColor(red: 248/255, green: 113/255, blue: 113/255, alpha: 1)
@@ -1486,7 +1486,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
         if let sc = score, sc > 0 {
             let scoreBG: UIColor
-            let scoreInt = Int(sc)
+            let scoreInt = Int(safe: Double(sc))
             if scoreInt >= 75 {
                 scoreBG = UIColor(red: 21/255.0, green: 128/255.0, blue: 61/255.0, alpha: 1)
             } else if scoreInt >= 65 {
@@ -2148,6 +2148,7 @@ class AnimeDetailViewController: UIViewController {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        guard isViewLoaded else { return }
         if previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
             configureAnimeBackdropForCurrentSize()
             applyTabBarLayoutForSizeClass()
@@ -2157,7 +2158,9 @@ class AnimeDetailViewController: UIViewController {
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
-        coordinator.animate(alongsideTransition: { _ in
+        guard isViewLoaded else { return }
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
             self.configureAnimeBackdropForCurrentSize(width: size.width)
             self.tableView.reloadData()
         })
@@ -2216,12 +2219,14 @@ class AnimeDetailViewController: UIViewController {
         animeBackdropCoverView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(animeBackdropView)
         view.addSubview(animeBackdropCoverView)
-        animeBackdropLeadingConstraint = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        animeBackdropTrailingConstraint = animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let animeBackdropLeadingConstraint = animeBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        self.animeBackdropLeadingConstraint = animeBackdropLeadingConstraint
+        let animeBackdropTrailingConstraint = animeBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        self.animeBackdropTrailingConstraint = animeBackdropTrailingConstraint
         NSLayoutConstraint.activate([
             animeBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            animeBackdropLeadingConstraint!,
-            animeBackdropTrailingConstraint!,
+            animeBackdropLeadingConstraint,
+            animeBackdropTrailingConstraint,
 
             animeBackdropCoverView.topAnchor.constraint(equalTo: view.topAnchor),
             animeBackdropCoverView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2452,7 +2457,7 @@ class AnimeDetailViewController: UIViewController {
         headerView.onShare = { [weak self] in
             guard let self = self, let item = self.animeItem else { return }
             // `native.share({ title: 'Watch on Hayase - …romaji', text: desc(media), url })`
-            var items: [Any] = [item.description?.isEmpty == false ? item.description! : "No description available."]
+            var items: [Any] = [item.description.flatMap { $0.isEmpty ? nil : $0 } ?? "No description available."]
             if let url = URL(string: "https://hayase.watch/anime/\(item.id)") {
                 items.append(url)
             }

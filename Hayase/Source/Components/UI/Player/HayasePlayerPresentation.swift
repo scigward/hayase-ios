@@ -43,6 +43,11 @@ extension UIViewController {
         }
 
         player.modalPresentationStyle = .fullScreen
+        // presenting a controller that is already on screen raises, whichever way it got there
+        guard player.presentingViewController == nil, player.parent == nil, !player.isBeingPresented else {
+            completion?()
+            return
+        }
         present(player, animated: animated, completion: completion)
     }
 

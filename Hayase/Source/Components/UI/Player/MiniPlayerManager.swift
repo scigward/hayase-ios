@@ -656,7 +656,7 @@ final class MiniPlayerManager {
     }
 
     private func fmtDisplayTime(_ seconds: Double) -> String {
-        let s = max(0, Int(seconds))
+        let s = max(0, Int(safe: seconds))
         let h = s / 3600; let m = (s % 3600) / 60; let sec = s % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec)
                      : String(format: "%d:%02d", m, sec)
@@ -1204,7 +1204,11 @@ final class MiniPlayerManager {
             return
         }
 
-        let selectedVideo = videos.first { ($0.videoIndex?.uintValue ?? UInt.max) == fileIndex } ?? videos.first!
+        guard let selectedVideo = videos.first(where: { ($0.videoIndex?.uintValue ?? UInt.max) == fileIndex }) ?? videos.first else {
+            pendingWebTorrentRestoreService = nil
+            clearSessionState()
+            return
+        }
         let selectedIndex = selectedVideo.videoIndex?.uintValue ?? fileIndex
         let resolvedPath = videoService.UpdateFilePathForFileIndex(selectedIndex)
         if !resolvedPath.isEmpty, selectedVideo.videoPath != resolvedPath {

@@ -84,7 +84,7 @@ final class PlayerEpisodeListViewController: UIViewController {
     }
 
     private var totalPages: Int {
-        max(1, Int(ceil(Double(episodes.count) / Double(perPage))))
+        max(1, Int(ceil(Double(episodes.count) / Double(max(1, perPage)))))
     }
 
     // MARK: - Views

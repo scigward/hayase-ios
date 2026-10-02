@@ -33,7 +33,7 @@ extension UIColor {
         let newChroma = (1 - abs(2 * lightness - 1)) * saturation
         let x = newChroma * (1 - abs(hue.truncatingRemainder(dividingBy: 2) - 1))
         let (r, g, b): (CGFloat, CGFloat, CGFloat)
-        switch Int(hue) {
+        switch Int(safe: Double(hue)) {
         case 0: (r, g, b) = (newChroma, x, 0)
         case 1: (r, g, b) = (x, newChroma, 0)
         case 2: (r, g, b) = (0, newChroma, x)

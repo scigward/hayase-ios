@@ -132,7 +132,10 @@ private final class TorrentGlobeRenderer: NSObject, MTKViewDelegate {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = library.makeFunction(name: "torrentGlobeVertex")
         descriptor.fragmentFunction = library.makeFunction(name: "torrentGlobeFragment")
-        let attachment = descriptor.colorAttachments[0]!
+        guard let attachment = descriptor.colorAttachments[0] else {
+            throw NSError(domain: "TorrentGlobe", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Globe renderer resources are unavailable."])
+        }
         attachment.pixelFormat = pixelFormat
         attachment.isBlendingEnabled = true
         attachment.sourceRGBBlendFactor = .one

@@ -162,7 +162,7 @@ final class HayaseProgressBar: UIView {
         bar.isHidden = !isVisible
         leader.isHidden = !running
         bar.isAccessibilityElement = isVisible
-        bar.accessibilityValue = String(format: "%d%%", Int((width * 100).rounded()))  // aria-valuenow
+        bar.accessibilityValue = String(format: "%d%%", Int(safe: Double((width * 100).rounded())))  // aria-valuenow
         stopAnimation()
         guard isVisible else { return }
         guard wasVisible else {

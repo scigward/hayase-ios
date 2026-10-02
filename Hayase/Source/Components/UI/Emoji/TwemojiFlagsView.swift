@@ -32,7 +32,7 @@ enum TwemojiFlagArtwork {
     static func image(for code: String) -> UIImage? {
         let key = code.uppercased() as NSString
         if let image = cache.object(forKey: key) { return image }
-        guard let (source, manifest) = atlas,
+        guard let (source, manifest) = atlas, manifest.columns > 0,
               let index = manifest.indices[key as String] else { return nil }
         let side = manifest.size
         let rect = CGRect(x: (index % manifest.columns) * side,

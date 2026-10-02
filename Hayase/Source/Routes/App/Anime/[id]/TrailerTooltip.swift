@@ -74,8 +74,8 @@ final class TrailerMinutes: NSObject, WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "trailer", let duration = message.body as? Double, let completion else { return }
         // cache.set(videoId, Math.ceil(duration / 60)); set(Math.round(duration / 60))
-        Self.cache[videoID] = Int((duration / 60).rounded(.up))
-        let minutes = Int((duration / 60).rounded())
+        Self.cache[videoID] = Int(safe: (duration / 60).rounded(.up))
+        let minutes = Int(safe: (duration / 60).rounded())
         cancel()
         completion(minutes)
     }

@@ -290,7 +290,7 @@ enum AniListUtil {
             "status": jsonValue(media.status),
             "episodes": jsonValue(media.episodes),
             "duration": jsonValue(media.duration),
-            "averageScore": jsonValue(media.averageScore.map { Int($0.rounded()) }),
+            "averageScore": jsonValue(media.averageScore.map { Int(safe: Double($0.rounded())) }),
             "genres": jsonValue(media.genres),
             "isFavourite": jsonValue(media.isFavourite),
             "coverImage": coverImageJSON(media.coverImage, fields: [.extraLarge, .medium, .color]),
@@ -482,7 +482,7 @@ enum AniListUtil {
                 listID: mle.id ?? 0,
                 status: mle.status,
                 progress: mle.progress ?? 0,
-                score: Int(mle.score ?? 0),
+                score: Int(safe: Double(mle.score ?? 0)),
                 repeatCount: mle.repeatCount ?? 0,
                 customLists: mediaListCustomLists(from: mle.customLists))
         }

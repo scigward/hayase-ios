@@ -467,7 +467,7 @@ final class ExtensionService {
 
     private static func intValue(_ value: Any?) -> Int? {
         if let n = value as? NSNumber { return n.intValue }
-        if let s = value as? String { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let s = value as? String { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return nil
     }
 

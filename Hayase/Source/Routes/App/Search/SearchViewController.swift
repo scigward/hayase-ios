@@ -699,7 +699,7 @@ class SearchViewController: UIViewController {
             for index in frozen { sizes[index] = max(specs[index].base, specs[index].min) }
             while frozen.count < line.count {
                 let flexible = line.filter { !frozen.contains($0) }
-                let taken = line.reduce(CGFloat(0)) { $0 + (frozen.contains($1) ? sizes[$1]! : specs[$1].base) }
+                let taken = line.reduce(CGFloat(0)) { $0 + (frozen.contains($1) ? (sizes[$1] ?? specs[$1].min) : specs[$1].base) }
                 let free = usable - taken
                 let totalGrow = flexible.reduce(CGFloat(0)) { $0 + specs[$1].grow }
                 var targets: [Int: CGFloat] = [:]
@@ -1302,13 +1302,15 @@ extension SearchViewController: UICollectionViewDataSource {
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if collectionView === filterCollectionView {
             guard let item = visibleHeaderItems[safe: indexPath.item] else {
-                return UICollectionViewCell()
+                return collectionView.dequeueReusableCell(withReuseIdentifier: SearchTitleItemCell.reuseID, for: indexPath)
             }
             switch item {
             case .title:
                 guard let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SearchTitleItemCell.reuseID,
-                    for: indexPath) as? SearchTitleItemCell else { return UICollectionViewCell() }
+                    for: indexPath) as? SearchTitleItemCell else {
+                    return collectionView.dequeueReusableCell(withReuseIdentifier: SearchTitleItemCell.reuseID, for: indexPath)
+                }
                 cell.configure(text: inputText)
                 cell.onTextChanged = { [weak self] text in
                     self?.handleSearchTextChanged(text)
@@ -1320,7 +1322,9 @@ extension SearchViewController: UICollectionViewDataSource {
             case .filter(let type):
                 guard let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SearchFilterItemCell.reuseID,
-                    for: indexPath) as? SearchFilterItemCell else { return UICollectionViewCell() }
+                    for: indexPath) as? SearchFilterItemCell else {
+                    return collectionView.dequeueReusableCell(withReuseIdentifier: SearchTitleItemCell.reuseID, for: indexPath)
+                }
                 let title = selectedTitle(for: type)
                 cell.configure(type: type,
                                title: title,
@@ -1329,7 +1333,9 @@ extension SearchViewController: UICollectionViewDataSource {
             case .actions:
                 guard let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SearchActionItemCell.reuseID,
-                    for: indexPath) as? SearchActionItemCell else { return UICollectionViewCell() }
+                    for: indexPath) as? SearchActionItemCell else {
+                    return collectionView.dequeueReusableCell(withReuseIdentifier: SearchTitleItemCell.reuseID, for: indexPath)
+                }
                 cell.configure(clearEnabled: hasAnySearchState)
                 cell.onImageTapped = { [weak self] in self?.cameraTapped() }
                 cell.onClearTapped = { [weak self] in self?.clearSearchState() }
@@ -1343,7 +1349,9 @@ extension SearchViewController: UICollectionViewDataSource {
         }
         guard let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: AnimeCollectionViewCell.reuseID,
-            for: indexPath) as? AnimeCollectionViewCell else { return UICollectionViewCell() }
+            for: indexPath) as? AnimeCollectionViewCell else {
+            return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath)
+        }
         guard let item = animeResults[safe: indexPath.item] else { return cell }
         let trace = traceMatch(for: item)
         cell.configure(with: item, trace: trace, episodeStyle: showsEpisodeCards)

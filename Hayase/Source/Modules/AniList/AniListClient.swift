@@ -420,7 +420,7 @@ public final class AniListClient: NSObject {
 
     private func userIntegerValue(_ value: Any?) -> Int {
         if let value = value as? Int { return value }
-        if let value = value as? Double { return Int(value) }
+        if let value = value as? Double { return Int(safe: value) }
         if let value = value as? NSNumber { return value.intValue }
         if let value = value as? String { return Int(value) ?? 0 }
         return 0

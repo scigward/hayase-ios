@@ -46,7 +46,8 @@ class SelectButton: UIButton {
                 animation.timingFunctions = [CAMediaTimingFunction(name: .default)]   // CSS `ease`
                 return animation
             }
-            animation.timingFunctions = (1..<animation.values!.count).map { _ in
+            let segments = max(0, (animation.values?.count ?? 0) - 1)
+            animation.timingFunctions = (0..<segments).map { _ in
                 CAMediaTimingFunction(name: .easeInEaseOut)
             }
             return animation
@@ -221,7 +222,7 @@ class SelectButton: UIButton {
             let blur = CAKeyframeAnimation(keyPath: "contents")
             let ordered = entering ? Array(frames.reversed()) : frames
             blur.values = ordered
-            blur.keyTimes = (0..<ordered.count).map { NSNumber(value: Double($0) / Double(ordered.count - 1)) }
+            blur.keyTimes = (0..<ordered.count).map { NSNumber(value: Double($0) / Double(max(1, ordered.count - 1))) }
             blur.calculationMode = .discrete
             group.animations = [opacity, scale, blur]
             group.duration = 0.3

@@ -430,7 +430,7 @@ final class TorrentDetailViewController: UIViewController {
 
         // Pieces: "{count} × {size}"
         let pieceCount = snap.pieces?.count ?? 0
-        let pieceLenBytes = UInt64(snap.pieceLength)
+        let pieceLenBytes = UInt64(clamping: snap.pieceLength)
         piecesValue.text = pieceCount > 0 && pieceLenBytes > 0
             ? "\(pieceCount) × \(Self.fastPrettyBytes(pieceLenBytes))"
             : "—"
@@ -984,7 +984,7 @@ final class TorrentDetailViewController: UIViewController {
     /// Overload: computes ETA from remaining bytes and download rate, then formats.
     static func eta(remaining: UInt64, rate: UInt64) -> String {
         guard rate > 0, remaining > 0 else { return "0s" }
-        return eta(seconds: Int(remaining / rate))
+        return eta(seconds: Int(clamping: remaining / rate))
     }
 }
 

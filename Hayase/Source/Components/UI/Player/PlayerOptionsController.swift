@@ -230,10 +230,11 @@ final class PlayerOptionsController: UIViewController {
 
     func openRootMenu(named title: String) {
         loadViewIfNeeded()
-        guard let row = navigationStack[0].items.firstIndex(where: {
-            if case .expandable(let name, _) = $0 { return name == title }
-            return false
-        }), case .expandable(_, let children) = navigationStack[0].items[row] else { return }
+        guard let rootItems = navigationStack.first?.items,
+              let row = rootItems.firstIndex(where: {
+                  if case .expandable(let name, _) = $0 { return name == title }
+                  return false
+              }), case .expandable(_, let children) = rootItems[row] else { return }
         showKeybinds = false
         openLevel(from: 0, row: row, title: title, children: children)
     }
@@ -362,7 +363,7 @@ final class PlayerOptionsController: UIViewController {
     }
 
     private func layoutTree(animated: Bool) {
-        guard !menuViews.isEmpty, view.bounds.width > 0 else { return }
+        guard !menuViews.isEmpty, menuViews.count == navigationStack.count, view.bounds.width > 0 else { return }
         if let treeAnimator {
             treeAnimator.stopAnimation(false)
             treeAnimator.finishAnimation(at: .current)
@@ -388,10 +389,10 @@ final class PlayerOptionsController: UIViewController {
         // border + p-1 adds another 5pt at the top and bottom.
         let heights = rows.map { $0.reduce(0, +) + ($0.isEmpty ? 10 : 12) }
         var offsets = Array(repeating: CGFloat(0), count: navigationStack.count)
-        for level in 1..<navigationStack.count {
+        for level in navigationStack.indices.dropFirst() {
             // The first relative wrapper starts at 5 + its collapsed 2pt margin.
             // Tree.Sub top=-5 leaves 2pt, plus each preceding row's advance.
-            offsets[level] = offsets[level - 1] + 2 + rows[level - 1].prefix(activeIndices[level - 1]).reduce(0, +)
+            offsets[level] = offsets[level - 1] + 2 + rows[level - 1].prefix(max(0, activeIndices[safe: level - 1] ?? 0)).reduce(0, +)
         }
         let extent = zip(offsets, heights).map { $0.0 + $0.1 }.max() ?? heights[0]
         // Absolutely positioned Tree.Sub panels do not change the centred root's
@@ -486,6 +487,7 @@ final class PlayerOptionsController: UIViewController {
     }
 
     private func rebuildAndReload() {
+        guard !navigationStack.isEmpty else { return }
         navigationStack[0] = (title: nil, items: buildRootMenu())
         reloadTree(animated: false)
     }
@@ -505,7 +507,7 @@ final class PlayerOptionsController: UIViewController {
     }
 
     private func formatTime(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds))
+        let total = max(0, Int(safe: seconds))
         return total >= 3600
             ? String(format: "%d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60)
             : String(format: "%d:%02d", total / 60, total % 60)
@@ -679,15 +681,17 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate, U
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let rows = items(for: tableView)
-        return rowHeight(for: rows[indexPath.row], width: menuWidth(for: rows))
+        guard let item = rows[safe: indexPath.row] else { return 0 }
+        return rowHeight(for: item, width: menuWidth(for: rows))
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let level = tableLevels[ObjectIdentifier(tableView)] ?? 0
-        let item = items(for: tableView)[indexPath.row]
+        guard let item = items(for: tableView)[safe: indexPath.row] else { return UITableViewCell() }
         let activeRow = activeIndices[safe: level]
         if case .subtitleDelay = item {
-            let cell = tableView.dequeueReusableCell(withIdentifier: PlayerSubtitleDelayCell.reuseID, for: indexPath) as! PlayerSubtitleDelayCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: PlayerSubtitleDelayCell.reuseID, for: indexPath) as? PlayerSubtitleDelayCell
+            else { return UITableViewCell() }
             cell.configure(value: subtitleDelay)
             cell.onValueChanged = { [weak self] value in
                 self?.subtitleDelay = value
@@ -695,7 +699,8 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate, U
             }
             return cell
         }
-        let cell = tableView.dequeueReusableCell(withIdentifier: PlayerOptionCell.reuseID, for: indexPath) as! PlayerOptionCell
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: PlayerOptionCell.reuseID, for: indexPath) as? PlayerOptionCell
+        else { return UITableViewCell() }
         switch item {
         case .expandable(let title, _):
             cell.configure(title: title, isActive: activeRow == indexPath.row, hasChevron: true, isBackRow: false,
@@ -719,8 +724,8 @@ extension PlayerOptionsController: UITableViewDataSource, UITableViewDelegate, U
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let level = tableLevels[ObjectIdentifier(tableView)] ?? 0
-        let item = items(for: tableView)[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: false)
+        guard let item = items(for: tableView)[safe: indexPath.row] else { return }
         switch item {
         case .expandable(let title, let children):
             if activeIndices[safe: level] == indexPath.row { collapseLevel(level) }

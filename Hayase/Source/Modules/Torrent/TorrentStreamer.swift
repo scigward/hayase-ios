@@ -511,6 +511,7 @@ final class TorrentStreamer {
             let clampedFraction = max(0, min(1, fraction))
             let startLocal = Int(clampedFraction * Double(totalFilePieces))
 
+            guard startLocal >= 0, startLocal < pieces.count else { return 0 }
             var count = 0
             for i in startLocal..<pieces.count {
                 if pieces[i].boolValue {
@@ -582,7 +583,7 @@ final class TorrentStreamer {
     private func piecesForSeconds(_ seconds: Double) -> Int {
         guard lastKnownDuration > 0, totalFilePieces > 0 else { return 0 }
         let secondsPerPiece = lastKnownDuration / Double(totalFilePieces)
-        return secondsPerPiece > 0 ? Int(ceil(seconds / secondsPerPiece)) : 0
+        return secondsPerPiece > 0 ? Int(safe: ceil(seconds / secondsPerPiece)) : 0
     }
 
     /// Sets piece priorities for a window starting at `pieceIndex`.

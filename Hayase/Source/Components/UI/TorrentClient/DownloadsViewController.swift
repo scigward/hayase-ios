@@ -445,26 +445,33 @@ class DownloadsViewController: UIViewController {
         view.addSubview(pageSubtitleLabel)
         view.addSubview(headerSeparator)
 
-        pageTitleTopConstraint = pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: TorrentClientStyle.compactPadding)
-        pageTitleLeadingConstraint = pageTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
-        pageTitleTrailingConstraint = pageTitleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
-        pageSubtitleTrailingConstraint = pageSubtitleLabel.trailingAnchor.constraint(equalTo: pageTitleLabel.trailingAnchor)
-        headerSeparatorTopConstraint = headerSeparator.topAnchor.constraint(equalTo: pageSubtitleLabel.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
-        headerSeparatorLeadingConstraint = headerSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
-        headerSeparatorTrailingConstraint = headerSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        let pageTitleTopConstraint = pageTitleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: TorrentClientStyle.compactPadding)
+        self.pageTitleTopConstraint = pageTitleTopConstraint
+        let pageTitleLeadingConstraint = pageTitleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        self.pageTitleLeadingConstraint = pageTitleLeadingConstraint
+        let pageTitleTrailingConstraint = pageTitleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        self.pageTitleTrailingConstraint = pageTitleTrailingConstraint
+        let pageSubtitleTrailingConstraint = pageSubtitleLabel.trailingAnchor.constraint(equalTo: pageTitleLabel.trailingAnchor)
+        self.pageSubtitleTrailingConstraint = pageSubtitleTrailingConstraint
+        let headerSeparatorTopConstraint = headerSeparator.topAnchor.constraint(equalTo: pageSubtitleLabel.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
+        self.headerSeparatorTopConstraint = headerSeparatorTopConstraint
+        let headerSeparatorLeadingConstraint = headerSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        self.headerSeparatorLeadingConstraint = headerSeparatorLeadingConstraint
+        let headerSeparatorTrailingConstraint = headerSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        self.headerSeparatorTrailingConstraint = headerSeparatorTrailingConstraint
 
         NSLayoutConstraint.activate([
-            pageTitleTopConstraint!,
-            pageTitleLeadingConstraint!,
-            pageTitleTrailingConstraint!,
+            pageTitleTopConstraint,
+            pageTitleLeadingConstraint,
+            pageTitleTrailingConstraint,
 
             pageSubtitleLabel.topAnchor.constraint(equalTo: pageTitleLabel.bottomAnchor, constant: 2),
             pageSubtitleLabel.leadingAnchor.constraint(equalTo: pageTitleLabel.leadingAnchor),
-            pageSubtitleTrailingConstraint!,
+            pageSubtitleTrailingConstraint,
 
-            headerSeparatorTopConstraint!,
-            headerSeparatorLeadingConstraint!,
-            headerSeparatorTrailingConstraint!,
+            headerSeparatorTopConstraint,
+            headerSeparatorLeadingConstraint,
+            headerSeparatorTrailingConstraint,
             headerSeparator.heightAnchor.constraint(equalToConstant: 1),
         ])
     }
@@ -493,19 +500,23 @@ class DownloadsViewController: UIViewController {
         tabBarWidthConstraint = tabBarContainer.widthAnchor.constraint(equalToConstant: TorrentClientStyle.sidebarWidth)
         tabBarHeightConstraint = tabBarContainer.heightAnchor.constraint(equalToConstant: 44)
         tabBarHeightConstraint?.isActive = true
-        globeWidthConstraint = globeView.widthAnchor.constraint(equalToConstant: 400)
-        bodyTopConstraint = bodyStackView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
-        bodyLeadingConstraint = bodyStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
-        bodyTrailingConstraint = bodyStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        let globeWidthConstraint = globeView.widthAnchor.constraint(equalToConstant: 400)
+        self.globeWidthConstraint = globeWidthConstraint
+        let bodyTopConstraint = bodyStackView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: TorrentClientStyle.compactSeparatorSpacing)
+        self.bodyTopConstraint = bodyTopConstraint
+        let bodyLeadingConstraint = bodyStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: TorrentClientStyle.compactPadding)
+        self.bodyLeadingConstraint = bodyLeadingConstraint
+        let bodyTrailingConstraint = bodyStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -TorrentClientStyle.compactPadding)
+        self.bodyTrailingConstraint = bodyTrailingConstraint
 
         NSLayoutConstraint.activate([
-            bodyTopConstraint!,
-            bodyLeadingConstraint!,
-            bodyTrailingConstraint!,
+            bodyTopConstraint,
+            bodyLeadingConstraint,
+            bodyTrailingConstraint,
             bodyStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
             containerView.widthAnchor.constraint(lessThanOrEqualToConstant: TorrentClientStyle.clientContentMaxWidth),
-            globeWidthConstraint!,
+            globeWidthConstraint,
             globeView.heightAnchor.constraint(equalTo: globeView.widthAnchor),
             globeView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             globeView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
@@ -989,7 +1000,7 @@ class DownloadsViewController: UIViewController {
 
         // Pieces: "{count} × {size}"
         let pieceCount = snap.pieces?.count ?? 0
-        let pieceLenBytes = UInt64(snap.pieceLength)
+        let pieceLenBytes = UInt64(clamping: snap.pieceLength)
         setPiecesValue(total: pieceCount, size: pieceLenBytes)
 
         // Speed & Transfer (Hayase: fastPrettyBits(speed.down * 8))
@@ -1520,8 +1531,9 @@ class DownloadsViewController: UIViewController {
         peersTableView.allowsSelection = false
         peersHorizontalScrollView.addSubview(peersTableView)
 
-        peersMinimumWidth = peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant:
+        let peersMinimumWidth = peersTableView.widthAnchor.constraint(greaterThanOrEqualToConstant:
             PeerTableLayout.minimumContentWidth(widths: peerColumnWidths))
+        self.peersMinimumWidth = peersMinimumWidth
         let preferredWidth = peersTableView.widthAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor)
         preferredWidth.priority = .defaultHigh
 
@@ -1542,7 +1554,7 @@ class DownloadsViewController: UIViewController {
             peersTableView.bottomAnchor.constraint(equalTo: peersHorizontalScrollView.contentLayoutGuide.bottomAnchor),
             peersTableView.heightAnchor.constraint(equalTo: peersHorizontalScrollView.frameLayoutGuide.heightAnchor),
             peersTableView.widthAnchor.constraint(greaterThanOrEqualTo: peersHorizontalScrollView.frameLayoutGuide.widthAnchor),
-            peersMinimumWidth!,
+            peersMinimumWidth,
             preferredWidth,
         ])
     }
@@ -1737,7 +1749,8 @@ class DownloadsViewController: UIViewController {
                 snapshotName(for: $0.handle).lowercased().contains(query)
             }
         }
-        let models = Dictionary(uniqueKeysWithValues: filteredLibraryEntries.map { entry in
+        // two library rows can carry the same hash; `uniqueKeysWithValues` traps on that
+        let models = Dictionary(filteredLibraryEntries.map { entry in
             let snapshot = readSnapshot(from: entry.handle, default: nil) { Optional($0) }
             let size = snapshot?.total ?? 0
             let model = WebTorrentLibraryEntry(mediaID: entry.entity?.animes?.animeAnilistId?.intValue,
@@ -1747,7 +1760,7 @@ class DownloadsViewController: UIViewController {
                                                date: nil, size: size,
                                                name: entry.entity?.torrentName ?? snapshot?.name ?? entry.hash)
             return (entry.hash, model)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         if let column = librarySortColumn {
             filteredLibraryEntries.sort {
                 guard let lhs = models[$0.hash], let rhs = models[$1.hash] else { return $0.hash < $1.hash }
@@ -1999,7 +2012,13 @@ class DownloadsViewController: UIViewController {
             return
         }
 
-        let selectedVideo = bestVideoForLibraryPlayback(videos: videos, episode: episode)
+        guard let selectedVideo = bestVideoForLibraryPlayback(videos: videos, episode: episode) else {
+            openingLibraryPlaybackHash = nil
+            pendingLibraryPlaybackService = nil
+            player.finishMetadataLoading(error: NSError(domain: "TorrentLibraryPlayback", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "No playable video files were found."]))
+            return
+        }
         let selectedIndex = selectedVideo.videoIndex?.uintValue ?? 0
         videoService.selectFileForStreaming(selectedIndex)
         let resolvedPath = videoService.UpdateFilePathForFileIndex(selectedIndex)
@@ -2089,8 +2108,8 @@ class DownloadsViewController: UIViewController {
         return true
     }
 
-    private func bestVideoForLibraryPlayback(videos: [Videos], episode: Int) -> Videos {
-        guard episode > 0 else { return videos.first! }
+    private func bestVideoForLibraryPlayback(videos: [Videos], episode: Int) -> Videos? {
+        guard episode > 0 else { return videos.first }
 
         if let exact = videos.first(where: { TorrentBatchResolver.extractEpisodeNumber(from: $0.videoName ?? "") == episode }) {
             return exact
@@ -2103,13 +2122,13 @@ class DownloadsViewController: UIViewController {
 
         if let match = parsed.first(where: { $0.episode == episode })?.video { return match }
         if let first = parsed.first, let last = parsed.last, episode >= first.episode, episode <= last.episode {
-            return parsed.min { abs($0.episode - episode) < abs($1.episode - episode) }?.video ?? videos.first!
+            return parsed.min { abs($0.episode - episode) < abs($1.episode - episode) }?.video ?? videos.first
         }
         if episode <= videos.count {
             let sorted = videos.sorted { ($0.videoName ?? "").localizedStandardCompare($1.videoName ?? "") == .orderedAscending }
-            return sorted[episode - 1]
+            return sorted[safe: episode - 1] ?? videos.first
         }
-        return videos.first!
+        return videos.first
     }
 
     private func cancelPendingLibraryPlayback(clearService: Bool = true) {

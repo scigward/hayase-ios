@@ -50,8 +50,8 @@ struct AniZipBackdrop: Codable {
 
     private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
         if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
-        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
-        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(safe: d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return nil
     }
 
@@ -104,8 +104,8 @@ struct AniZipMappings: Codable {
 
     private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
         if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
-        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
-        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(safe: d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return nil
     }
 
@@ -171,7 +171,7 @@ struct AniZipEpisodeEntry: Codable {
         } else if let n = try? c.decodeIfPresent(Int.self, forKey: .episode) {
             episode = "\(n)"
         } else if let n = try? c.decodeIfPresent(Double.self, forKey: .episode) {
-            episode = "\(Int(n))"
+            episode = "\(Int(safe: n))"
         } else {
             episode = ""
         }
@@ -190,8 +190,8 @@ struct AniZipEpisodeEntry: Codable {
 
     private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
         if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
-        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
-        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(safe: d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return nil
     }
 
@@ -263,8 +263,8 @@ struct AniZipEpisodesResponse: Codable {
 
     private static func decodeInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, forKey key: Key) -> Int? {
         if let n = try? c.decodeIfPresent(Int.self, forKey: key) { return n }
-        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
-        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(Double(s) ?? 0) }
+        if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(safe: d) }
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int(s) ?? Int(safe: Double(s) ?? 0) }
         return nil
     }
 

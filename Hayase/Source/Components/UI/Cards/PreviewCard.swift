@@ -358,7 +358,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             details.append(season)
         }
         if !shouldHideScore(for: media), let score = media.score, score > 0 {
-            details.append("\(Int(score))%")
+            details.append("\(Int(safe: Double(score)))%")
         }
         return details
     }

@@ -488,10 +488,9 @@ final class W2GViewController: UIViewController {
         // TransitionButton: the icon becomes a check for as long as the click lasts.
         inviteButton.swapIcon(to: UIImage.hayaseIcon("check", pointSize: 16), hold: 0.8)
         guard let link = client?.inviteLink else { return }
-        let ac = UIActivityViewController(
-            activityItems: ["Invite people to your Watch Together lobby", URL(string: link) as Any],
-            applicationActivities: nil
-        )
+        var items: [Any] = ["Invite people to your Watch Together lobby"]
+        if let url = URL(string: link) { items.append(url) }
+        let ac = UIActivityViewController(activityItems: items, applicationActivities: nil)
         ac.setValue("Hayase W2G", forKey: "subject")   // native.share's title
         ac.popoverPresentationController?.sourceView = inviteButton
         present(ac, animated: true)
@@ -931,7 +930,7 @@ extension W2GViewController {
             selectedPosition = 0
         }
 
-        let video = sortedVideos[selectedPosition]
+        guard let video = sortedVideos[safe: selectedPosition] else { return }
         let index = UInt(max(0, video.videoIndex?.intValue ?? selectedPosition))
         videoService.selectFileForStreaming(index)
         _ = videoService.UpdateFilePathForFileIndex(index)

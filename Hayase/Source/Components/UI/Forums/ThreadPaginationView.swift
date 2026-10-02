@@ -67,7 +67,7 @@ final class ThreadPaginationView: UIView {
                    currentPage: Int,
                    onPageSelected: @escaping (Int) -> Void) {
         self.currentPage = currentPage
-        self.totalPages = Int(ceil(Double(count) / Double(perPage)))
+        self.totalPages = Int(ceil(Double(count) / Double(max(1, perPage))))
         self.onPageSelected = onPageSelected
 
         let start = ((currentPage - 1) * perPage)

@@ -522,7 +522,7 @@ final class EpisodeCardView: SelectableCardView {
         imageTask?.cancel()
         imageTask = nil
 
-        let hasImage = episode.imageURL != nil && !episode.imageURL!.isEmpty
+        let hasImage = episode.imageURL?.isEmpty == false
         thumbnail.isHidden = !hasImage
         playOverlayView.isHidden = !hasImage
         runtimeBadge.isHidden = !hasImage || episode.runtime <= 0
@@ -636,12 +636,14 @@ final class EpisodeCell: UITableViewCell, CardOverflowRendering {
         cardView.translatesAutoresizingMaskIntoConstraints = false
         overflowViewport.addSubview(cardView)
 
-        cardLeadingConstraint = cardView.leadingAnchor.constraint(
+        let cardLeadingConstraint = cardView.leadingAnchor.constraint(
             equalTo: overflowViewport.leadingAnchor,
             constant: EpisodeCardStyle.overflowLeadingSlack + EpisodeCardStyle.cardHorizontalPadding)
-        cardTrailingConstraint = cardView.trailingAnchor.constraint(
+        self.cardLeadingConstraint = cardLeadingConstraint
+        let cardTrailingConstraint = cardView.trailingAnchor.constraint(
             equalTo: overflowViewport.trailingAnchor,
             constant: -(EpisodeCardStyle.overflowTrailingSlack + EpisodeCardStyle.cardHorizontalPadding))
+        self.cardTrailingConstraint = cardTrailingConstraint
 
         NSLayoutConstraint.activate([
             overflowViewport.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -659,8 +661,8 @@ final class EpisodeCell: UITableViewCell, CardOverflowRendering {
             cardView.bottomAnchor.constraint(
                 equalTo: overflowViewport.bottomAnchor,
                 constant: -EpisodeCardStyle.rowVerticalPadding),
-            cardLeadingConstraint!,
-            cardTrailingConstraint!,
+            cardLeadingConstraint,
+            cardTrailingConstraint,
         ])
     }
 
@@ -770,16 +772,22 @@ final class EpisodePairCell: UITableViewCell, CardOverflowRendering {
         stack.addArrangedSubview(rightContainer)
         overflowViewport.addSubview(stack)
 
-        stackLeadingConstraint = stack.leadingAnchor.constraint(
+        let stackLeadingConstraint = stack.leadingAnchor.constraint(
             equalTo: overflowViewport.leadingAnchor,
             constant: EpisodeCardStyle.overflowLeadingSlack)
-        stackTrailingConstraint = stack.trailingAnchor.constraint(
+        self.stackLeadingConstraint = stackLeadingConstraint
+        let stackTrailingConstraint = stack.trailingAnchor.constraint(
             equalTo: overflowViewport.trailingAnchor,
             constant: -EpisodeCardStyle.overflowTrailingSlack)
-        leftCardLeadingConstraint = leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12)
-        leftCardTrailingConstraint = leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12)
-        rightCardLeadingConstraint = rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12)
-        rightCardTrailingConstraint = rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12)
+        self.stackTrailingConstraint = stackTrailingConstraint
+        let leftCardLeadingConstraint = leftCard.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 12)
+        self.leftCardLeadingConstraint = leftCardLeadingConstraint
+        let leftCardTrailingConstraint = leftCard.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -12)
+        self.leftCardTrailingConstraint = leftCardTrailingConstraint
+        let rightCardLeadingConstraint = rightCard.leadingAnchor.constraint(equalTo: rightContainer.leadingAnchor, constant: 12)
+        self.rightCardLeadingConstraint = rightCardLeadingConstraint
+        let rightCardTrailingConstraint = rightCard.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor, constant: -12)
+        self.rightCardTrailingConstraint = rightCardTrailingConstraint
 
         leftCardVerticalConstraints = makeCenteredCardVerticalConstraints(card: leftCard, in: leftContainer)
         rightCardVerticalConstraints = makeCenteredCardVerticalConstraints(card: rightCard, in: rightContainer)
@@ -800,13 +808,13 @@ final class EpisodePairCell: UITableViewCell, CardOverflowRendering {
             stack.bottomAnchor.constraint(
                 equalTo: overflowViewport.bottomAnchor,
                 constant: -EpisodeCardStyle.rowVerticalPadding),
-            stackLeadingConstraint!,
-            stackTrailingConstraint!,
+            stackLeadingConstraint,
+            stackTrailingConstraint,
 
-            leftCardLeadingConstraint!,
-            leftCardTrailingConstraint!,
-            rightCardLeadingConstraint!,
-            rightCardTrailingConstraint!,
+            leftCardLeadingConstraint,
+            leftCardTrailingConstraint,
+            rightCardLeadingConstraint,
+            rightCardTrailingConstraint,
         ] + leftCardVerticalConstraints + rightCardVerticalConstraints)
     }
 
@@ -1020,23 +1028,27 @@ final class PaginationBarView: UIView {
         addSubview(controlsStack)
         addSubview(compactInfoLabel)
 
-        infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        let infoLeadingConstraint = infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        self.infoLeadingConstraint = infoLeadingConstraint
         controlsLeadingConstraint = controlsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
-        controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+        let controlsTrailingConstraint = controlsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+        self.controlsTrailingConstraint = controlsTrailingConstraint
         expandedBottom = controlsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
         compactBottom = compactInfoLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
-        compactInfoLeading = compactInfoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
-        compactInfoTrailing = compactInfoLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+        let compactInfoLeading = compactInfoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
+        self.compactInfoLeading = compactInfoLeading
+        let compactInfoTrailing = compactInfoLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+        self.compactInfoTrailing = compactInfoTrailing
 
         NSLayoutConstraint.activate([
-            infoLeadingConstraint!,
+            infoLeadingConstraint,
             infoLabel.centerYAnchor.constraint(equalTo: controlsStack.centerYAnchor),
 
-            controlsTrailingConstraint!,
+            controlsTrailingConstraint,
             controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             compactInfoLabel.topAnchor.constraint(equalTo: controlsStack.bottomAnchor, constant: 20),
-            compactInfoLeading!,
-            compactInfoTrailing!,
+            compactInfoLeading,
+            compactInfoTrailing,
         ])
         applyResponsiveModeIfNeeded(force: true)
     }

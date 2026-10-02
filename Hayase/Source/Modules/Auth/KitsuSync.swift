@@ -153,7 +153,7 @@ final class KitsuSync: ListTracker {
             listID: Int(entry["id"] as? String ?? "") ?? 0,
             status: (attributes?["reconsuming"] as? Bool == true) ? "REPEATING" : status.flatMap { Self.kitsuToALStatus[$0] },
             progress: (attributes?["progress"] as? NSNumber)?.intValue ?? 0,
-            score: Int(score),
+            score: Int(safe: score),
             repeatCount: (attributes?["reconsumeCount"] as? NSNumber)?.intValue ?? 0,
             customLists: [])
     }

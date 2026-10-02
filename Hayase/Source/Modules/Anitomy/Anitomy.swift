@@ -176,6 +176,9 @@ private func checkTokenFlags(_ token: AnitomyToken, _ flags: TokenFlag) -> Bool 
 }
 
 private func findToken(in tokens: [AnitomyToken], from start: Int, to end: Int, flags: TokenFlag) -> Int? {
+    let start = max(0, start)
+    let end = min(end, tokens.count)
+    guard start < end else { return nil }
     for i in start..<end {
         if checkTokenFlags(tokens[i], flags) { return i }
     }
@@ -236,7 +239,15 @@ private func isMostlyLatinString(_ str: String) -> Bool {
 }
 
 private func stringToInt(_ str: String) -> Int {
-    Int(str) ?? 0
+    // a number too long for an Int reads as 0, and a long one is clamped so that adding or
+    // subtracting two of them cannot overflow
+    guard let value = Int(str) else { return 0 }
+    return max(-1_000_000_000, min(1_000_000_000, value))
+}
+
+/// A pattern that cannot be compiled is a pattern that does not match, not a crash.
+private func makeRegex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression? {
+    try? NSRegularExpression(pattern: pattern, options: options)
 }
 
 private func isStringEqualTo(_ s1: String, _ s2: String) -> Bool {
@@ -433,8 +444,9 @@ final class KeywordManager {
             (.subtitles, ["Multiple Subtitle", "Multi Subs", "Multi Sub"]),
         ]
 
-        let startIdx = filename.index(filename.startIndex, offsetBy: range.offset)
-        let endIdx = filename.index(startIdx, offsetBy: range.size)
+        guard range.offset >= 0, range.size >= 0,
+              let startIdx = filename.index(filename.startIndex, offsetBy: range.offset, limitedBy: filename.endIndex),
+              let endIdx = filename.index(startIdx, offsetBy: range.size, limitedBy: filename.endIndex) else { return }
         let substring = String(filename[startIdx..<endIdx])
 
         for entry in entries {
@@ -482,8 +494,9 @@ private final class AnitomyTokenizer {
     }
 
     private func addToken(_ category: TokenCategory, enclosed: Bool, _ range: TokenRange) {
-        let start = filename.index(filename.startIndex, offsetBy: range.offset)
-        let end = filename.index(start, offsetBy: range.size)
+        guard range.offset >= 0, range.size >= 0,
+              let start = filename.index(filename.startIndex, offsetBy: range.offset, limitedBy: filename.endIndex),
+              let end = filename.index(start, offsetBy: range.size, limitedBy: filename.endIndex) else { return }
         let content = String(filename[start..<end])
         tokens.append(AnitomyToken(category: category, content: content, enclosed: enclosed))
     }
@@ -623,7 +636,9 @@ private final class AnitomyTokenizer {
         let chars = Array(filename)
         var delimiters = Set<Character>()
         let allowedSet = Set(options.allowedDelimiters)
-        for i in range.offset..<(range.offset + range.size) {
+        let end = min(range.offset + range.size, chars.count)
+        guard range.offset >= 0, range.offset < end else { return delimiters }
+        for i in range.offset..<end {
             let c = chars[i]
             if !isAlphanumericChar(c) && allowedSet.contains(c) {
                 delimiters.insert(c)
@@ -655,29 +670,30 @@ private final class AnitomyTokenizer {
             var next = findNextToken(in: tokens, after: idx, flags: .flagValid)
 
             if delimiter != " " && delimiter != "_" {
-                if isSingleCharToken(prev) {
+                if let prevIndex = prev, isSingleCharToken(prev) {
                     tokens[idx].category = .invalid
-                    tokens[prev!].content += tokens[idx].content
-                    while isUnknownToken(next) {
-                        tokens[prev!].content += tokens[next!].content
-                        tokens[next!].category = .invalid
-                        let nextNext = findNextToken(in: tokens, after: next!, flags: .flagValid)
-                        if isDelimToken(nextNext) && tokens[nextNext!].content.first == delimiter {
-                            tokens[prev!].content += tokens[nextNext!].content
-                            tokens[nextNext!].category = .invalid
-                            next = findNextToken(in: tokens, after: nextNext!, flags: .flagValid)
+                    tokens[prevIndex].content += tokens[idx].content
+                    while let nextIndex = next, isUnknownToken(next) {
+                        tokens[prevIndex].content += tokens[nextIndex].content
+                        tokens[nextIndex].category = .invalid
+                        let nextNext = findNextToken(in: tokens, after: nextIndex, flags: .flagValid)
+                        if let nextNextIndex = nextNext, isDelimToken(nextNext),
+                           tokens[nextNextIndex].content.first == delimiter {
+                            tokens[prevIndex].content += tokens[nextNextIndex].content
+                            tokens[nextNextIndex].category = .invalid
+                            next = findNextToken(in: tokens, after: nextNextIndex, flags: .flagValid)
                         } else {
                             next = nextNext
                         }
                     }
                     continue
                 }
-                if isSingleCharToken(next) {
+                if let nextIndex = next, isSingleCharToken(next) {
                     if let p = prev {
                         tokens[p].content += tokens[idx].content
                         tokens[idx].category = .invalid
-                        tokens[p].content += tokens[next!].content
-                        tokens[next!].category = .invalid
+                        tokens[p].content += tokens[nextIndex].content
+                        tokens[nextIndex].category = .invalid
                     }
                     continue
                 }
@@ -706,13 +722,13 @@ private final class AnitomyTokenizer {
 
             // Special: & and +
             if delimiter == "&" || delimiter == "+" {
-                if isUnknownToken(prev) && isUnknownToken(next) {
-                    if isNumericString(tokens[prev!].content) &&
-                       isNumericString(tokens[next!].content) {
-                        tokens[prev!].content += tokens[idx].content
+                if let prevIndex = prev, let nextIndex = next, isUnknownToken(prev) && isUnknownToken(next) {
+                    if isNumericString(tokens[prevIndex].content) &&
+                       isNumericString(tokens[nextIndex].content) {
+                        tokens[prevIndex].content += tokens[idx].content
                         tokens[idx].category = .invalid
-                        tokens[prev!].content += tokens[next!].content
-                        tokens[next!].category = .invalid
+                        tokens[prevIndex].content += tokens[nextIndex].content
+                        tokens[nextIndex].category = .invalid
                     }
                 }
             }
@@ -965,7 +981,7 @@ private final class AnitomyParser {
 
     private func matchSingleEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
         // Pattern: (\d{1,4})[vV](\d)
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,4})[vV](\d)$"#)
+        guard let regex = makeRegex(#"^(\d{1,4})[vV](\d)$"#) else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -977,8 +993,8 @@ private final class AnitomyParser {
 
     private func matchMultiEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
         // Pattern: (\d{1,4})(?:[vV](\d))?[-~&+\u2010-\u2015](\d{1,4})(?:[vV](\d))?
-        let regex = try! NSRegularExpression(
-            pattern: "^(\\d{1,4})(?:[vV](\\d))?[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,4})(?:[vV](\\d))?$")
+        guard let regex = makeRegex(
+            "^(\\d{1,4})(?:[vV](\\d))?[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,4})(?:[vV](\\d))?$") else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1003,9 +1019,9 @@ private final class AnitomyParser {
 
     private func matchSeasonAndEpisodePattern(_ word: String, _ tokenIndex: Int) -> Bool {
         // S?(\d{1,2})(?:-S?(\d{1,2}))?(?:x|[ ._-x]?E)(\d{1,4})(?:-E?(\d{1,4}))?(?:[vV](\d))?
-        let regex = try! NSRegularExpression(
-            pattern: #"^S?(\d{1,2})(?:-S?(\d{1,2}))?(?:x|[ ._\-x]?E)(\d{1,4})(?:-E?(\d{1,4}))?(?:[vV](\d))?$"#,
-            options: .caseInsensitive)
+        guard let regex = makeRegex(
+            #"^S?(\d{1,2})(?:-S?(\d{1,2}))?(?:x|[ ._\-x]?E)(\d{1,4})(?:-E?(\d{1,4}))?(?:[vV](\d))?$"#,
+            options: .caseInsensitive) else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1069,7 +1085,7 @@ private final class AnitomyParser {
 
     private func matchNumberSignPattern(_ word: String, _ tokenIndex: Int) -> Bool {
         guard word.first == "#" else { return false }
-        let regex = try! NSRegularExpression(pattern: #"^#(\d{1,4})(?:[-~&+](\d{1,4}))?(?:[vV](\d))?$"#)
+        guard let regex = makeRegex(#"^#(\d{1,4})(?:[-~&+](\d{1,4}))?(?:[vV](\d))?$"#) else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word) else { return false }
@@ -1089,7 +1105,7 @@ private final class AnitomyParser {
     private func matchJapaneseCounterPattern(_ word: String, _ tokenIndex: Int) -> Bool {
         // U+8A71 is 話 (counter for episodes)
         guard word.last == "\u{8A71}" else { return false }
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,4})\u{8A71}$"#)
+        guard let regex = makeRegex("^(\\d{1,4})\u{8A71}$") else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word) else { return false }
@@ -1116,7 +1132,7 @@ private final class AnitomyParser {
     }
 
     private func matchSingleVolumePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        let regex = try! NSRegularExpression(pattern: #"^(\d{1,2})[vV](\d)$"#)
+        guard let regex = makeRegex(#"^(\d{1,2})[vV](\d)$"#) else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1127,8 +1143,8 @@ private final class AnitomyParser {
     }
 
     private func matchMultiVolumePattern(_ word: String, _ tokenIndex: Int) -> Bool {
-        let regex = try! NSRegularExpression(
-            pattern: "^(\\d{1,2})[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,2})(?:[vV](\\d))?$")
+        guard let regex = makeRegex(
+            "^(\\d{1,2})[-~&+\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}](\\d{1,2})(?:[vV](\\d))?$") else { return false }
         let nsRange = NSRange(word.startIndex..., in: word)
         guard let result = regex.firstMatch(in: word, range: nsRange),
               let r1 = Range(result.range(at: 1), in: word),
@@ -1502,8 +1518,7 @@ private final class AnitomyParser {
     /// e.g. "第2期" → season 2.  Matches C++ develop branch parse_season.
     private func searchForJapaneseSeasonCounter() {
         guard elements.isEmpty(.animeSeason) else { return }
-        // Pattern is a compile-time constant; force-try is safe.
-        let regex = try! NSRegularExpression(pattern: "^(?:\u{7B2C})?(\\d{1,2})\u{671F}$")
+        guard let regex = makeRegex("^(?:\u{7B2C})?(\\d{1,2})\u{671F}$") else { return }
         for i in 0..<tokens.count {
             guard tokens[i].category == .unknown else { continue }
             let content = tokens[i].content
@@ -1520,7 +1535,7 @@ private final class AnitomyParser {
     /// or "S01-S02" / "S01-02" season tokens without an accompanying episode.
     private func searchForStandaloneSeasonPattern() {
         guard elements.isEmpty(.animeSeason) else { return }
-        let regex = try! NSRegularExpression(pattern: "^[Ss](\\d{1,2})$")
+        guard let regex = makeRegex("^[Ss](\\d{1,2})$") else { return }
         for i in 0..<tokens.count {
             guard tokens[i].category == .unknown else { continue }
             let content = tokens[i].content
@@ -1728,6 +1743,9 @@ private final class AnitomyParser {
 
     private func buildElement(_ category: ElementCategory, keepDelimiters: Bool, from: Int, to: Int) {
         var element = ""
+        let from = max(0, from)
+        let to = min(to, tokens.count)
+        guard from < to else { return }
         for i in from..<to {
             switch tokens[i].category {
             case .unknown:

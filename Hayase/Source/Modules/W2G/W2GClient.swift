@@ -339,10 +339,14 @@ final class W2GClient {
               let envelope = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               let msgID = envelope["id"] as? Int,
               let chunkIndex = envelope["c"] as? Int,
-              let msgSlice = envelope["msg"] as? String else { return }
+              let msgSlice = envelope["msg"] as? String,
+              // the index comes off the wire: a negative or absurd one is not a chunk of anything
+              (0..<10_000).contains(chunkIndex) else { return }
 
         // Chunk assembly (mirrors P2PT `_chunkHandler`).
         if msgChunks[msgID] == nil {
+            // a peer that never sends a last chunk must not be able to grow this without end
+            if msgChunks.count >= 256 { msgChunks.removeAll() }
             msgChunks[msgID] = [:]
         }
         msgChunks[msgID]?[chunkIndex] = msgSlice
@@ -360,7 +364,7 @@ final class W2GClient {
                 return
             }
         }
-        let fullMsg = (0..<totalChunks).map { chunks[$0]! }.joined()
+        let fullMsg = (0..<totalChunks).compactMap { chunks[$0] }.joined()
         msgChunks.removeValue(forKey: msgID)
 
         // The payload is a JSON-encoded W2GEvent (o=1 means it was an object).

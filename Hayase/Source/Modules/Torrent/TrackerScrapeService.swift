@@ -198,11 +198,15 @@ final class TrackerScrapeService {
     /// Dict keys are Data (raw bytes), values can be Int, Data, [Any], or [Data: Any].
     private static func bencodeDecode(_ data: Data) -> Any? {
         var index = data.startIndex
-        return bencodeParse(data, index: &index)
+        return bencodeParse(data, index: &index, depth: 0)
     }
 
-    private static func bencodeParse(_ data: Data, index: inout Data.Index) -> Any? {
-        guard index < data.endIndex else { return nil }
+    /// A reply nested deeper than this is not a scrape reply; parsing it recursively would only
+    /// run the stack out on a tracker that sends `llll…`.
+    private static let maxBencodeDepth = 32
+
+    private static func bencodeParse(_ data: Data, index: inout Data.Index, depth: Int) -> Any? {
+        guard index < data.endIndex, depth <= maxBencodeDepth else { return nil }
 
         let byte = data[index]
 
@@ -215,7 +219,7 @@ final class TrackerScrapeService {
             index = data.index(after: index)
             var list: [Any] = []
             while index < data.endIndex && data[index] != UInt8(ascii: "e") {
-                if let item = bencodeParse(data, index: &index) {
+                if let item = bencodeParse(data, index: &index, depth: depth + 1) {
                     list.append(item)
                 } else {
                     return nil
@@ -228,8 +232,8 @@ final class TrackerScrapeService {
             index = data.index(after: index)
             var dict: [Data: Any] = [:]
             while index < data.endIndex && data[index] != UInt8(ascii: "e") {
-                guard let key = bencodeParse(data, index: &index) as? Data,
-                      let value = bencodeParse(data, index: &index) else {
+                guard let key = bencodeParse(data, index: &index, depth: depth + 1) as? Data,
+                      let value = bencodeParse(data, index: &index, depth: depth + 1) else {
                     return nil
                 }
                 dict[key] = value
@@ -260,7 +264,7 @@ final class TrackerScrapeService {
             lenStr.append(Character(UnicodeScalar(data[index])))
             index = data.index(after: index)
         }
-        guard let length = Int(lenStr) else { return nil }
+        guard let length = Int(lenStr), length >= 0 else { return nil }
         if index < data.endIndex { index = data.index(after: index) } // skip ':'
         let end = data.index(index, offsetBy: length, limitedBy: data.endIndex) ?? data.endIndex
         let result = data[index..<end]

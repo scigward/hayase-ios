@@ -961,7 +961,9 @@ struct TorrentBatchResolver {
         guard !value.isEmpty else { return nil }
         let digits = value.prefix(while: { $0.isNumber })
         guard !digits.isEmpty else { return nil }
-        return Int(digits)
+        // a run of digits too long to be an episode number would overflow the sums made with it
+        guard let value = Int(digits), value <= 1_000_000_000 else { return nil }
+        return value
     }
 
     private static func parseEpisodeDouble(_ value: String) -> Double? {
@@ -983,7 +985,7 @@ struct TorrentBatchResolver {
 
     private static func formatEpisodeNumber(_ value: Double) -> String {
         guard value.isFinite else { return "NaN" }
-        if value.rounded(.towardZero) == value {
+        if value.rounded(.towardZero) == value, abs(value) < 1e15 {
             return String(Int(value))
         }
         return String(value)

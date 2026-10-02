@@ -81,17 +81,23 @@ final class StreamingLogger {
     /// are removed, since indexer and tracker URLs commonly carry passkeys and API keys.
     func exportText() -> String {
         let text = entries.map(\.displayString).joined(separator: "\n")
+        // a pattern that failed to compile must not turn into an export that leaks what it should remove
+        guard Self.redactions.count == Self.redactionPatterns.count else { return "" }
         return Self.redactions.reduce(text) { partial, redaction in
             redaction.pattern.stringByReplacingMatches(in: partial, range: NSRange(partial.startIndex..., in: partial),
                                                        withTemplate: redaction.template)
         }
     }
 
-    private static let redactions: [(pattern: NSRegularExpression, template: String)] = [
-        (try! NSRegularExpression(pattern: #"(magnet:\?)[^\s"'<>]*?(xt=urn:bt(?:ih|mh):[0-9A-Za-z]+)[^\s"'<>]*"#), "$1$2&…"),
-        (try! NSRegularExpression(pattern: #"(https?://)[^\s/@"'<>]+@"#), "$1"),
-        (try! NSRegularExpression(pattern: #"(https?://[^\s"'<>?#]*)\?[^\s"'<>]*"#), "$1?…"),
+    private static let redactionPatterns: [(pattern: String, template: String)] = [
+        (#"(magnet:\?)[^\s"'<>]*?(xt=urn:bt(?:ih|mh):[0-9A-Za-z]+)[^\s"'<>]*"#, "$1$2&…"),
+        (#"(https?://)[^\s/@"'<>]+@"#, "$1"),
+        (#"(https?://[^\s"'<>?#]*)\?[^\s"'<>]*"#, "$1?…"),
     ]
+
+    private static let redactions: [(pattern: NSRegularExpression, template: String)] = redactionPatterns.compactMap { entry in
+        (try? NSRegularExpression(pattern: entry.pattern)).map { (pattern: $0, template: entry.template) }
+    }
 
     // MARK: - Private
 

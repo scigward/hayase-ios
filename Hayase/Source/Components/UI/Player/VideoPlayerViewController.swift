@@ -1022,7 +1022,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
             "Ready State": isBuffering ? "Buffering" : isPaused ? "Paused" : "Playing",
             "Audio": String(tracks.filter { $0.type == "audio" }.count),
             "Video": String(tracks.filter { $0.type == "video" }.count),
-            "Health": "\(Int((info["cacheSeconds"] as? Double) ?? 0)) s",
+            "Health": "\(Int(safe: (info["cacheSeconds"] as? Double) ?? 0)) s",
         ])
     }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .none }
@@ -2549,7 +2549,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
     }
 
     private func fmtTime(_ secs: Double) -> String {
-        let s = max(0, Int(secs))
+        let s = max(0, Int(safe: secs))
         let h = s / 3600; let m = (s % 3600) / 60; let sec = s % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec)
                      : String(format: "%d:%02d", m, sec)

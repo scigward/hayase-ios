@@ -273,13 +273,17 @@ final class MPVWrapper {
         statusObservation?.invalidate()
         statusObservation = nil
         
-        queue.sync { [weak self] in
-            guard let self, let handle = self.mpv else { return }
+        // Strong on purpose: `deinit` runs this too, where a weak self is already nil and the handle
+        // would be left behind with a wakeup callback pointing at freed memory. A stop that arrives
+        // on the queue itself runs in place, since `sync` on the queue it is on traps.
+        let teardown = {
+            guard let handle = self.mpv else { return }
             mpv_set_wakeup_callback(handle, nil, nil)
             mpv_terminate_destroy(handle)
             self.mpv = nil
         }
-        
+        if isOnQueue { teardown() } else { queue.sync(execute: teardown) }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 18.0, *) {
@@ -649,7 +653,8 @@ final class MPVWrapper {
             }
         }
         return cStrings.withUnsafeMutableBufferPointer { buffer in
-            return buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { rebound in
+            guard let base = buffer.baseAddress else { return body(nil) }
+            return base.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { rebound in
                 return body(UnsafeMutablePointer(mutating: rebound))
             }
         }
@@ -726,7 +731,7 @@ final class MPVWrapper {
             var trackCount: Int64 = 0
             getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
 
-            for i in 0..<trackCount {
+            for i in 0..<max(0, trackCount) {
                 guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
                       trackType == "sub" else { continue }
 
@@ -860,7 +865,7 @@ final class MPVWrapper {
             var trackCount: Int64 = 0
             getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
 
-            for i in 0..<trackCount {
+            for i in 0..<max(0, trackCount) {
                 guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
                       trackType == "video" else { continue }
 
@@ -899,7 +904,7 @@ final class MPVWrapper {
             var trackCount: Int64 = 0
             getProperty(handle: handle, name: "track-list/count", format: MPV_FORMAT_INT64, value: &trackCount)
 
-            for i in 0..<trackCount {
+            for i in 0..<max(0, trackCount) {
                 guard let trackType = getStringProperty(handle: handle, name: "track-list/\(i)/type"),
                       trackType == "audio" else { continue }
 
@@ -982,7 +987,7 @@ final class MPVWrapper {
             getProperty(handle: handle, name: "chapter-list/count", format: MPV_FORMAT_INT64, value: &chapterCount)
             guard chapterCount > 0 else { return [] }
             var chapters: [MPVChapter] = []
-            for i in 0..<chapterCount {
+            for i in 0..<max(0, chapterCount) {
                 let title = getStringProperty(handle: handle, name: "chapter-list/\(i)/title") ?? "Chapter \(i + 1)"
                 var time: Double = 0
                 getProperty(handle: handle, name: "chapter-list/\(i)/time", format: MPV_FORMAT_DOUBLE, value: &time)

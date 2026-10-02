@@ -359,6 +359,8 @@ private final class HayaseStripeTiledLayer: CALayer {
         ctx.interpolationQuality = .none
 
         let tileSize = tile.size
+        // a tile without size would never move the loops below forward
+        guard tileSize.width > 0, tileSize.height > 0 else { ctx.restoreGState(); return }
         var y = floor(bounds.minY / tileSize.height) * tileSize.height
         while y < bounds.maxY {
             var x = floor(bounds.minX / tileSize.width) * tileSize.width

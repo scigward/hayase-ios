@@ -240,6 +240,7 @@ final class HayaseSidebarController: UIViewController {
         case .changed:
             guard let swipe = historySwipe else { return }
             let dragged = swipe.direction == .back ? translation.x : -translation.x
+            guard view.bounds.width > 0 else { return }
             swipe.update(progress: max(dragged, 0) / view.bounds.width)
         case .ended:
             finishHistorySwipe(translation: translation, velocity: gesture.velocity(in: view))
@@ -428,13 +429,15 @@ final class HayaseSidebarController: UIViewController {
         sidebarContainer.addSubview(sidebarList)
         view.addSubview(sidebarContainer)
 
-        sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
-        sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
+        let sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 56)
+        self.sidebarWidthConstraint = sidebarWidthConstraint
+        let sidebarBackdropHeightConstraint = sidebarBackdropImageView.heightAnchor.constraint(equalToConstant: 368)
+        self.sidebarBackdropHeightConstraint = sidebarBackdropHeightConstraint
         NSLayoutConstraint.activate([
             sidebarContainer.topAnchor.constraint(equalTo: onlineBar.bottomAnchor),
             sidebarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sidebarContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sidebarWidthConstraint!,
+            sidebarWidthConstraint,
             contentContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
 
             // sidebarlist.svelte renders <BannerImage class='w-14'>. The
@@ -444,7 +447,7 @@ final class HayaseSidebarController: UIViewController {
             sidebarBackdropImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
             // Updated in updateSidebarBackground(): web BannerImage is 90vh on
             // home at md+ widths and h-[23rem] on anime/detail routes.
-            sidebarBackdropHeightConstraint!,
+            sidebarBackdropHeightConstraint,
 
             sidebarBackdropGradientView.topAnchor.constraint(equalTo: sidebarBackdropImageView.topAnchor),
             sidebarBackdropGradientView.leadingAnchor.constraint(equalTo: sidebarBackdropImageView.leadingAnchor),
@@ -486,13 +489,15 @@ final class HayaseSidebarController: UIViewController {
         mobileToggleButton.onPress = { [weak self] in self?.toggleMobileMenu() }
         mobileGridContainer.addSubview(mobileToggleButton)
 
-        mobileLauncherWidthConstraint = mobileLauncher.widthAnchor.constraint(equalToConstant: 64)
-        mobileLauncherHeightConstraint = mobileLauncher.heightAnchor.constraint(equalToConstant: 64)
+        let mobileLauncherWidthConstraint = mobileLauncher.widthAnchor.constraint(equalToConstant: 64)
+        self.mobileLauncherWidthConstraint = mobileLauncherWidthConstraint
+        let mobileLauncherHeightConstraint = mobileLauncher.heightAnchor.constraint(equalToConstant: 64)
+        self.mobileLauncherHeightConstraint = mobileLauncherHeightConstraint
         NSLayoutConstraint.activate([
             mobileLauncher.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),  // left-4 = 16px
             mobileLauncher.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),  // bottom-4 = 16px
-            mobileLauncherWidthConstraint!,
-            mobileLauncherHeightConstraint!,
+            mobileLauncherWidthConstraint,
+            mobileLauncherHeightConstraint,
 
             mobileGridContainer.widthAnchor.constraint(equalToConstant: 160),
             mobileGridContainer.heightAnchor.constraint(equalToConstant: 160),
