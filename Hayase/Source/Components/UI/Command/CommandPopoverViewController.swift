@@ -137,7 +137,7 @@ class CommandPopoverViewController: UIViewController {
 
     private func focus(_ target: KeyboardFocus) {
         keyboardFocus = target
-        closeRow.isFocused = target == .close
+        closeRow.isKeyFocused = target == .close
         switch target {
         case .input:
             clearRowSelection()
@@ -181,7 +181,7 @@ class CommandPopoverViewController: UIViewController {
         guard isKeyboardNavigating else { return }
         isKeyboardNavigating = false
         keyboardFocus = .input
-        closeRow.isFocused = false
+        closeRow.isKeyFocused = false
         clearRowSelection()
     }
 
@@ -362,7 +362,7 @@ class CommandPopoverViewController: UIViewController {
             }
         }
         keyboardFocus = .input
-        closeRow.isFocused = false
+        closeRow.isKeyFocused = false
         tableView.reloadData()
         updateEmptyState()
         view.setNeedsLayout()
@@ -489,8 +489,9 @@ private final class CommandContainerView: UIView {
 /// The Close item `$inputType === 'dpad'` puts at the top of the list, with its separator.
 private final class CommandCloseRowView: UIView {
     var onTap: (() -> Void)?
-    var isFocused = false {
-        didSet { highlight.backgroundColor = isFocused ? UIColor.HayaseTheme.accent : .clear }
+    /// UIView already has a read-only `isFocused`, which is the focus engine's.
+    var isKeyFocused = false {
+        didSet { highlight.backgroundColor = isKeyFocused ? UIColor.HayaseTheme.accent : .clear }
     }
 
     private let highlight = UIView()

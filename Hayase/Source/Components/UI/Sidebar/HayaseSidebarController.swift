@@ -1341,13 +1341,13 @@ extension HayaseSidebarController: UIDropInteractionDelegate {
 
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         if session.canLoadObjects(ofClass: UIImage.self) {
-            _ = session.loadObjects(ofClass: UIImage.self) { [weak self] images in
-                guard let image = images.first else { return }
+            _ = session.loadObjects(ofClass: UIImage.self) { [weak self] (objects: [NSItemProviderReading]) in
+                guard let image = objects.first as? UIImage else { return }
                 DispatchQueue.main.async { self?.handleTransferred(image: image) }
             }
         } else if session.canLoadObjects(ofClass: NSString.self) {
-            _ = session.loadObjects(ofClass: NSString.self) { [weak self] texts in
-                guard let text = texts.first as? String else { return }
+            _ = session.loadObjects(ofClass: NSString.self) { [weak self] (objects: [NSItemProviderReading]) in
+                guard let text = objects.first as? String else { return }
                 DispatchQueue.main.async { self?.handleTransferred(text: text) }
             }
         } else {
