@@ -52,6 +52,8 @@ class SearchViewController: UIViewController {
     private var currentTitle = ""
     /// `inputText`: what the input holds. `search.name` only follows it once typing settles.
     private var inputText = ""
+    /// Whether the cards on screen are episode cards: a flip only moves cards of the same kind.
+    private var renderedEpisodeCards = false
     /// Where each page of results begins: query.svelte's `i === 0` is the first card of every page.
     private var pageStartIndexes: Set<Int> = [0]
     /// `search.ids`
@@ -286,9 +288,11 @@ class SearchViewController: UIViewController {
             return
         }
         guard state != currentRouteState() else { return }
+        // `inputText` starts empty on a page, whatever name the remembered search has: the chip shows
+        // it and the input does not
         currentTitle = state.title ?? ""
-        inputText = currentTitle
-        searchField?.text = inputText
+        inputText = ""
+        searchField?.text = ""
         // `genres.filter(…)` then `tags.filter(…)`: the order of the lists, not of the variables
         let genres = SearchValues.genres.map(\.value).filter { state.genres.contains($0) }
         let tags = SearchValues.tags.map(\.value).filter { state.tags.contains($0) }
@@ -1065,7 +1069,7 @@ class SearchViewController: UIViewController {
         if reset {
             // Snapshot current cell positions before we swap to skeletons below; once
             // isShowingSkeleton flips, visibleSearchItemFrames() can no longer see them.
-            let frames = visibleSearchItemFrames()
+            let frames = showsEpisodeCards == renderedEpisodeCards ? visibleSearchItemFrames() : [:]
             pendingFlipFrames = frames.isEmpty ? nil : frames
             // Skeleton placeholders while the query is fetching
             isShowingSkeleton = true
@@ -1156,6 +1160,15 @@ class SearchViewController: UIViewController {
                                                selector: #selector(handleTrackingDidChange(_:)),
                                                name: LocalTracking.didChange,
                                                object: nil)
+        // `{#if $viewer?.viewer?.id}`: My List comes and goes with the account
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(accountsChanged),
+                                               name: TrackerAccountManager.didChange,
+                                               object: nil)
+    }
+
+    @objc private func accountsChanged() {
+        DispatchQueue.main.async { [weak self] in self?.refreshFilterPickers() }
     }
 
     @objc private func handleTrackingDidChange(_ notification: Notification) {
@@ -1184,6 +1197,7 @@ class SearchViewController: UIViewController {
             animeResults.map(\.id) != results.map(\.id)
 
         animeResults = results
+        renderedEpisodeCards = showsEpisodeCards
         guard isViewLoaded, collectionView != nil else { return }
         collectionView.collectionViewLayout.invalidateLayout()
 

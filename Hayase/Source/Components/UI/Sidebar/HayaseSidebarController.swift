@@ -168,6 +168,8 @@ final class HayaseSidebarController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // the window's paste and the keyboard shortcuts come to the app when nothing else has the keys
+        if !isFirstResponder { becomeFirstResponder() }
         installProgressBarIfNeeded()
         hideHostedNavigationBars()
         updateSidebarBackground()
