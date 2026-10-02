@@ -57,7 +57,11 @@ enum PlayerKeyBindings {
         map[destination] = sourceBind
         UserDefaults.standard.set(map, forKey: storageKey)
     }
+    /// A key command with an empty input raises, so a code that names no key has no input.
     static func input(for code: String) -> String? {
+        rawInput(for: code).flatMap { $0.isEmpty ? nil : $0 }
+    }
+    private static func rawInput(for code: String) -> String? {
         if code.hasPrefix("Key") { return String(code.dropFirst(3)).lowercased() }
         if code.hasPrefix("Digit") { return String(code.dropFirst(5)) }
         return ["Space": " ", "ArrowLeft": UIKeyCommand.inputLeftArrow,

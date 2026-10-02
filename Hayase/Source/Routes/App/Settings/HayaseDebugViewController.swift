@@ -245,7 +245,7 @@ final class HayaseDebugViewController: UIViewController {
 
     private func shareJSON(_ object: [String: Any], name: String) {
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else {
+              let data = JSONSerialization.safeData(object, options: [.prettyPrinted, .sortedKeys]) else {
             showError("The debug data could not be encoded.")
             return
         }

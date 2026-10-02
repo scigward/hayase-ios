@@ -42,7 +42,7 @@ final class AniListAuth {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = ["query": AniListQueries.viewer]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.httpBody = JSONSerialization.safeData(body)
 
         AniListRequestExecutor.shared.perform(request, context: "AniListViewer") { result in
             guard case .success(let data) = result,
@@ -103,7 +103,7 @@ final class AniListAuth {
         var lists = viewer.customLists
         lists.append(hayaseCustomListName)
         let variables: [String: Any] = ["lists": lists]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": AniListQueries.updateUser, "variables": variables])
+        request.httpBody = JSONSerialization.safeData(["query": AniListQueries.updateUser, "variables": variables])
 
         AniListRequestExecutor.shared.perform(request, context: "AniListUpdateUser") { result in
             guard case .success(let data) = result,
@@ -186,12 +186,11 @@ final class AniListTracking {
         if let token = TrackerAccountManager.shared.token(for: .anilist) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
-        } catch {
-            completion(.failure(.encodingFailed(error)))
+        guard let data = JSONSerialization.safeData(["query": query, "variables": variables]) else {
+            completion(.failure(.encodingFailed(CocoaError(.coderInvalidValue))))
             return
         }
+        request.httpBody = data
 
         AniListRequestExecutor.shared.perform(request, context: "AniListTracking", optimistic: optimistic) { result in
             switch result {

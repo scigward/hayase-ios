@@ -11,6 +11,7 @@ extension Int {
     /// as 0 and the rest clamps to ±1e15, which leaves room to add and multiply the result.
     init(safe value: Double) {
         guard !value.isNaN else { self = 0; return }
-        self = Int(max(-1e15, min(1e15, value)))
+        // inside this extension a bare `max`/`min` means `Int.max`/`Int.min`
+        self = Int(Swift.max(-1e15, Swift.min(1e15, value)))
     }
 }

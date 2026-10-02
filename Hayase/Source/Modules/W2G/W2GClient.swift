@@ -320,7 +320,7 @@ final class W2GClient {
                 envelope["last"] = true
             }
 
-            if let json = try? JSONSerialization.data(withJSONObject: envelope),
+            if let json = JSONSerialization.safeData(envelope),
                let jsonStr = String(data: json, encoding: .utf8) {
                 peer.sendString(String(Self.jsonMessageIdentifier) + jsonStr)
             }
@@ -379,7 +379,7 @@ final class W2GClient {
         switch event.type {
         case .`init`:
             // Decode ChatUser from payload.
-            if let userData = try? JSONSerialization.data(withJSONObject: event.payload.value),
+            if let userData = JSONSerialization.safeData(event.payload.value),
                let user = try? JSONDecoder().decode(W2GChatUser.self, from: userData) {
                 setPeer(PeerEntry(user: user, peer: peer), id: peer.id)
                 DispatchQueue.main.async { [weak self] in
@@ -390,7 +390,7 @@ final class W2GClient {
 
         case .media:
             guard let dict = event.payload.value as? [String: Any],
-                  let data = try? JSONSerialization.data(withJSONObject: dict),
+                  let data = JSONSerialization.safeData(dict),
                   let mediaState = try? JSONDecoder().decode(W2GMediaState.self, from: data) else { return }
             if mediaState.torrent != self.media?.torrent {
                 self.isHost = false
@@ -413,7 +413,7 @@ final class W2GClient {
 
         case .player:
             guard let dict = event.payload.value as? [String: Any],
-                  let data = try? JSONSerialization.data(withJSONObject: dict),
+                  let data = JSONSerialization.safeData(dict),
                   let state = try? JSONDecoder().decode(W2GPlayerState.self, from: data) else { return }
             if remotePlayerStateDidChange(state) {
                 DispatchQueue.main.async { [weak self] in

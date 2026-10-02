@@ -79,7 +79,7 @@ final class SimklSync: ListTracker {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(SimklAuth.clientID, forHTTPHeaderField: "simkl-api-key")
         if let auth { request.setValue("Bearer \(auth.accessToken)", forHTTPHeaderField: "Authorization") }
-        if let body { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+        if let body { request.httpBody = JSONSerialization.safeData(body) }
         return await send(request)
     }
 
@@ -89,7 +89,7 @@ final class SimklSync: ListTracker {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.httpBody = JSONSerialization.safeData(body)
         return await send(request)
     }
 

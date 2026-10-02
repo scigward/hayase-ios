@@ -407,8 +407,8 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
         guard webView != nil else { throw WorkerError.notLoaded }
 
         let callId = UUID().uuidString
-        guard let queryData   = try? JSONSerialization.data(withJSONObject: query),
-              let optionsData = try? JSONSerialization.data(withJSONObject: options),
+        guard let queryData   = JSONSerialization.safeData(query),
+              let optionsData = JSONSerialization.safeData(options),
               let queryJSON   = String(data: queryData, encoding: .utf8),
               let optionsJSON = String(data: optionsData, encoding: .utf8) else {
             throw WorkerError.jsonSerialisation
@@ -460,7 +460,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
 
     /// Rejects a pending proxied fetch. The message goes through JSON so it cannot break out of the script.
     private static func rejectFetch(_ id: Int, _ message: String, in webView: WKWebView?) {
-        guard let data = try? JSONSerialization.data(withJSONObject: [message]),
+        guard let data = JSONSerialization.safeData([message]),
               let array = String(data: data, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("window.__fetchReject(\(id),\(array)[0]);", completionHandler: nil)
     }
@@ -545,7 +545,7 @@ final class ExtensionWorker: NSObject, WKNavigationDelegate {
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 200
                     let bodyBase64 = data.base64EncodedString()
                     // JSON-encode base64 so it is safe to embed in the JS call.
-                    guard let td  = try? JSONSerialization.data(withJSONObject: [bodyBase64]),
+                    guard let td  = JSONSerialization.safeData([bodyBase64]),
                           let raw = String(data: td, encoding: .utf8) else {
                         wv?.evaluateJavaScript(
                             "window.__fetchReject(\(fetchId),'Serialization failed');",

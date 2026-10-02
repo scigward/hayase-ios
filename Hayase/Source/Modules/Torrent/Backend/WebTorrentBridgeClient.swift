@@ -250,16 +250,15 @@ final class WebTorrentBridgeClient {
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ])
-        } catch {
-            completion(.failure(error))
+        guard let data = JSONSerialization.safeData([
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]) else {
+            completion(.failure(CocoaError(.coderInvalidValue)))
             return nil
         }
+        request.httpBody = data
 
         let task = session.dataTask(with: request) { data, _, error in
             if let error {

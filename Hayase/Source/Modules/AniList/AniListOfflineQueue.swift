@@ -32,8 +32,11 @@ final class AniListOfflineQueue {
     }
 
     func enqueue(query: String, variables: [String: Any]) {
+        let entry: [String: Any] = ["query": query, "variables": variables]
+        // `UserDefaults.set` raises on a value that is not a property list (an NSNull, an enum)
+        guard PropertyListSerialization.propertyList(entry, isValidFor: .binary) else { return }
         lock.lock()
-        queue.append(["query": query, "variables": variables])
+        queue.append(entry)
         UserDefaults.standard.set(queue, forKey: defaultsKey)
         lock.unlock()
     }
@@ -68,7 +71,7 @@ final class AniListOfflineQueue {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+        request.httpBody = JSONSerialization.safeData(["query": query, "variables": variables])
 
         AniListRequestExecutor.shared.perform(request, context: "AniListOfflineQueue", optimistic: true) { [weak self] result in
             guard let self else { return }

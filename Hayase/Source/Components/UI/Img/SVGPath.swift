@@ -24,7 +24,7 @@ enum SVGPath {
             let base = relative ? current : .zero
             var cubicControl: CGPoint?
 
-            switch Character(command.uppercased()) {
+            switch command.uppercased().first ?? " " {
             case "M":
                 guard let x = reader.number(), let y = reader.number() else { return path }
                 current = CGPoint(x: base.x + x, y: base.y + y)
@@ -114,7 +114,7 @@ enum SVGPath {
         if !sweep && delta > 0 { delta -= 2 * .pi }
         if sweep && delta < 0 { delta += 2 * .pi }
 
-        let segments = max(1, Int((abs(delta) / (.pi / 2)).rounded(.up)))
+        let segments = max(1, min(16, Int(safe: Double((abs(delta) / (.pi / 2)).rounded(.up)))))
         let step = delta / CGFloat(segments)
         let handle = 4 / 3 * tan(step / 4)
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {

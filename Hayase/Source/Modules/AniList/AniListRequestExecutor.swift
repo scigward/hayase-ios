@@ -499,13 +499,12 @@ final class AniListRequestExecutor {
 
         var body: [String: Any] = ["query": query]
         if let variables { body["variables"] = variables }
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            return request
-        } catch {
-            NSLog("[AniListRequestExecutor] encode error: %@", error.localizedDescription)
+        guard let data = JSONSerialization.safeData(body) else {
+            NSLog("[AniListRequestExecutor] encode error: the request is not valid JSON")
             return nil
         }
+        request.httpBody = data
+        return request
     }
 
     /// urql-client.ts `tap`: `this.error.set(error)` for every result the network gives back.
@@ -708,7 +707,8 @@ final class AniListRequestExecutor {
     /// `parseInt(headers.get('retry-after'))`
     private func retryAfter(from response: HTTPURLResponse) -> TimeInterval? {
         guard let header = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
-        return Int(header.trimmingCharacters(in: .whitespaces).prefix(while: { $0.isNumber })).map { TimeInterval($0) }
+        // a day is as long as a wait can sensibly be; a header of 19 digits would overflow the timer
+        return Int(header.trimmingCharacters(in: .whitespaces).prefix(while: { $0.isNumber })).map { TimeInterval(min($0, 86_400)) }
     }
 
     private func finish(key: String, result: Result<AniListGraphQLResult, AniListRequestError>) {
@@ -735,7 +735,7 @@ final class AniListRequestExecutor {
     }
 
     private func makeDedupeKey(query: String, variables: [String: Any]?, authorized: Bool) -> String {
-        let variableData = (try? JSONSerialization.data(withJSONObject: variables ?? [:], options: [.sortedKeys])) ?? Data()
+        let variableData = (JSONSerialization.safeData(variables ?? [:], options: [.sortedKeys])) ?? Data()
         let variablesString = String(data: variableData, encoding: .utf8) ?? "{}"
         let authKey: String
         if authorized, let token = TrackerAccountManager.shared.token(for: .anilist) {

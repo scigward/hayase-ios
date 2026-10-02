@@ -119,7 +119,7 @@ final class W2GTrackerClient: NSObject {
     // MARK: - Send
 
     private func send(_ dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+        guard let data = JSONSerialization.safeData(dict),
               let string = String(data: data, encoding: .utf8) else { return }
         socket?.write(string: string)
     }

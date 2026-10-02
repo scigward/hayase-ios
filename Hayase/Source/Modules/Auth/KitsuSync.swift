@@ -68,7 +68,7 @@ final class KitsuSync: ListTracker {
         request.httpMethod = method
         request.setValue("application/vnd.api+json", forHTTPHeaderField: "Content-Type")
         request.setValue(auth.map { "Bearer \($0.accessToken)" } ?? "", forHTTPHeaderField: "Authorization")
-        if let body { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+        if let body { request.httpBody = JSONSerialization.safeData(body) }
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
             if method == "DELETE" { return Answer(json: nil, isError: false) }

@@ -70,7 +70,7 @@ public final class AniListClient: NSObject {
     }
 
     private func cacheKey(prefix: String, variables: [String: Any]) -> String {
-        let data = (try? JSONSerialization.data(withJSONObject: variables, options: [.sortedKeys])) ?? Data()
+        let data = (JSONSerialization.safeData(variables, options: [.sortedKeys])) ?? Data()
         let variablesString = String(data: data, encoding: .utf8) ?? "{}"
         return "\(prefix)|\(aniListCacheScope)|\(variablesString)"
     }
@@ -1194,7 +1194,7 @@ public final class AniListClient: NSObject {
 
     private func decodeAniListMedia(from object: [String: Any]) -> AniListMedia? {
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+              let data = JSONSerialization.safeData(object) else { return nil }
         return try? JSONDecoder().decode(AniListMedia.self, from: data)
     }
 

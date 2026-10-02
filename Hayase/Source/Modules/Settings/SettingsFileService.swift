@@ -72,7 +72,10 @@ enum SettingsFileService {
         }
         values["androidStorageType"] = defaults.string(forKey: "pref_torrentLocation") == "documents" ? "internal" : "cache"
         values["torrentPath"] = TorrentBackendSettings().path
-        return try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys])
+        guard let data = JSONSerialization.safeData(values, options: [.prettyPrinted, .sortedKeys]) else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        return data
     }
 
     static func importData(_ data: Data) throws {
