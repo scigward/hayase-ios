@@ -359,6 +359,12 @@ struct AniListThread {
     }
 }
 
+/// A page of the threads of a media, with the total `pageInfo` counts.
+struct AniListThreadsPage {
+    let threads: [AniListThread]
+    let total: Int
+}
+
 // MARK: - Codable response types (internal to AniList module)
 
 struct AniListResponse: Codable {

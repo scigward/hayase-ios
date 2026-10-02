@@ -86,6 +86,9 @@ private final class AnimeDetailBannerBackdropView: UIView {
     }()
     private let gradientView = GradientView()
     private var currentURLString: String?
+    /// The address the page asked for, which is not the one loading while a thumbnail is retried.
+    private var requestedURLString: String?
+    private var thumbnailAttempt = 0
     private var imageTask: URLSessionDataTask?
     private var heightConstraint: NSLayoutConstraint?
     private var displayedAlpha: CGFloat = 1
@@ -163,18 +166,34 @@ private final class AnimeDetailBannerBackdropView: UIView {
     func setImage(urlString: String?) {
         guard let urlString else {
             currentURLString = nil
+            requestedURLString = nil
             imageTask?.cancel()
             imageTask = nil
             imageView.image = nil
             return
         }
 
-        guard currentURLString != urlString else { return }
+        guard requestedURLString != urlString else { return }
+        requestedURLString = urlString
+        thumbnailAttempt = 0
+        load(urlString, requested: urlString)
+    }
+
+    /// The sizes YouTube is asked for, one after the other, when a thumbnail is not there:
+    /// `verifyThumbnail` of `img/banner.svelte`.
+    private static let thumbnailSizes = ["sddefault", "hqdefault", "mqdefault", "default"]
+
+    private func load(_ urlString: String, requested: String) {
         currentURLString = urlString
         imageTask?.cancel()
         imageTask = nil
 
-        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
+        // a thumbnail that YouTube does not have comes back as a 120 by 90 picture
+        let isThumbnail = urlString.hasPrefix("https://i.ytimg.com/vi/")
+        let placeholder = CGSize(width: 120, height: 90)
+
+        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString),
+           !(isThumbnail && cached.size == placeholder) {
             imageView.image = cached
             return
         }
@@ -186,13 +205,25 @@ private final class AnimeDetailBannerBackdropView: UIView {
 
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
             DispatchQueue.main.async {
-                guard self?.currentURLString == urlString else { return }
-                UIView.transition(with: self?.imageView ?? UIImageView(),
+                guard let self, self.currentURLString == urlString else { return }
+
+                if isThumbnail, image.size == placeholder {
+                    let parts = urlString.components(separatedBy: "/")
+                    if parts.count > 4, self.thumbnailAttempt < Self.thumbnailSizes.count {
+                        let next = "https://i.ytimg.com/vi/\(parts[4])/\(Self.thumbnailSizes[self.thumbnailAttempt]).jpg"
+                        self.thumbnailAttempt += 1
+                        self.load(next, requested: requested)
+                        return
+                    }
+                }
+
+                SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
+                SharedImageCache.shared.setObject(image, forKey: requested as NSString)
+                UIView.transition(with: self.imageView,
                                   duration: 0.3,
                                   options: .transitionCrossDissolve,
-                                  animations: { self?.imageView.image = image })
+                                  animations: { self.imageView.image = image })
             }
         }
         imageTask?.resume()
@@ -271,6 +302,8 @@ final class ChipRowScrollView: UIScrollView {
 // MARK: - AnimeTagChipButton
 
 final class AnimeTagChipButton: UIButton {
+    /// A tag, whose chip is dashed, and not a genre.
+    var isTagChip = false
     var dashedBorder = false {
         didSet { setNeedsLayout() }
     }
@@ -505,7 +538,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     var onPlayTrailer: (() -> Void)?
     var onWatch: (() -> Void)?
     var onEntryEditor: (() -> Void)?
-    var onGenreTapped: ((String) -> Void)?
+    /// A genre or a tag, whose name and whether it is a tag.
+    var onGenreTapped: ((String, Bool) -> Void)?
     var onBadgeTapped: ((_ filterType: String, _ value: String) -> Void)?
     var onOpenAniList: (() -> Void)?
     var onOpenMAL: (() -> Void)?
@@ -752,6 +786,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     private var trailerMinutes = 0
     private var trailerMinutesLoader: TrailerMinutes?
     private var mappedEpisodeCount = 0
+    /// Whether the anizip answer for the page is in, which is `eps` not being `null`.
+    private var episodesMappingsKnown = false
     private var trailerTooltip: TrailerTooltipView?
     private var trailerTooltipConstraints: [NSLayoutConstraint] = []
     private var trailerTooltipMedium: Bool?
@@ -913,13 +949,23 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Adaptive layout
 
+    /// What the media queries of the interface (`md`, `xl`, `min-[380px]`) are asked: the window, whatever
+    /// the size class of the screen is. A phone turned sideways is wider than `md`.
+    private var viewportWidth: CGFloat {
+        window?.bounds.width ?? UIScreen.main.bounds.width
+    }
+
+    private var isMedium: Bool { viewportWidth >= 768 }
+
     private func applyLayoutForSizeClass() {
-        let isRegular = traitCollection.horizontalSizeClass == .regular
-        lastAppliedSizeClass = traitCollection.horizontalSizeClass
+        let isRegular = isMedium
+        lastAppliedMedium = isRegular
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
 
         contentTopConstraint?.constant = isRegular ? 128 : 48
+        // `gap-4 md:gap-6` between the parts of the header
+        contentStack.spacing = isRegular ? 24 : 16
 
         updateHeaderRowInsets(isRegular: isRegular)
         updateGenresScrollInset(isRegular: isRegular)
@@ -929,8 +975,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             coverAndTextColumn.spacing = 20
             coverAndTextColumn.alignment = .bottom
         } else {
+            // `flex-col md:flex-row ... gap-5`
             coverAndTextColumn.axis = .vertical
-            coverAndTextColumn.spacing = 16
+            coverAndTextColumn.spacing = 20
             coverAndTextColumn.alignment = .center
         }
 
@@ -978,38 +1025,39 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         updateActionVisibilityForCurrentWidth()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        let currentSC = traitCollection.horizontalSizeClass
-        if previousTraitCollection?.horizontalSizeClass != currentSC {
-            lastAppliedSizeClass = currentSC
-            applyLayoutForSizeClass()
-            setNeedsLayout()
-            invalidateIntrinsicContentSize()
-        }
+    private var lastAppliedMedium: Bool?
+
+    /// The layout changes where the window crosses `md`, which a turned phone or a resized iPad window
+    /// does without its size class changing.
+    private func applyLayoutIfViewportChanged() {
+        guard lastAppliedMedium != isMedium else { return }
+        let first = lastAppliedMedium == nil
+        applyLayoutForSizeClass()
+        setNeedsLayout()
+        invalidateIntrinsicContentSize()
+        // the banner is another image on either side of `md`
+        if !first { publishBannerSource() }
     }
 
-    private var lastAppliedSizeClass: UIUserInterfaceSizeClass?
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyLayoutIfViewportChanged()
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
-            let currentSC = traitCollection.horizontalSizeClass
-            if lastAppliedSizeClass != currentSC {
-                lastAppliedSizeClass = currentSC
-                applyLayoutForSizeClass()
-                setNeedsLayout()
-                invalidateIntrinsicContentSize()
-            }
+            applyLayoutIfViewportChanged()
         }
         updateTrailerTooltip()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        applyLayoutIfViewportChanged()
         updateActionVisibilityForCurrentWidth()
         positionTrailerTooltip()
-        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let isRegular = isMedium
         let measuredWidth = measuredContentWidth()
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         contentStack.layoutMargins = UIEdgeInsets(top: isRegular ? 48 : 16, left: hPad, bottom: 0, right: hPad)
@@ -1031,7 +1079,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     func updateLabelWidths(forContainerWidth width: CGFloat) {
         guard width > 1 else { return }
-        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let isRegular = isMedium
         let measuredWidth = measuredContentWidth(fallbackWidth: width)
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
@@ -1053,12 +1101,13 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updateActionVisibilityForCurrentWidth() {
-        let isRegular = traitCollection.horizontalSizeClass == .regular
+        let isRegular = isMedium
         let measuredWidth = measuredContentWidth()
         let effectiveWidth = isRegular ? min(measuredWidth, 1600) : measuredWidth
         let hPad = interfaceHorizontalPadding(for: measuredWidth)
         let contentWidth = max(0, effectiveWidth - 2 * hPad)
-        let isNarrow = contentWidth < 380
+        // `min-[380px]` is a media query: it is about the window, not about the row
+        let isNarrow = viewportWidth < 380
         let targetMode: ActionLayoutMode = isRegular ? .regular : (isNarrow ? .compactNarrow : .compactWide)
         applyActionLayoutMode(targetMode)
 
@@ -1139,8 +1188,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func interfaceHorizontalPadding(for measuredWidth: CGFloat) -> CGFloat {
-        // +layout.svelte: 2xs:px-3 xl:px-14. iPads use 12pt; 56pt starts at xl.
-        measuredWidth >= 1280 ? 56 : 12
+        // +layout.svelte: 2xs:px-3 xl:px-14, which are media queries too
+        AnimeDetailViewController.interfacePageSideInset(for: viewportWidth)
     }
 
     private func updateGenresScrollInset(isRegular: Bool) {
@@ -1304,6 +1353,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     func updatePlayButtonTitle(listStatus: String?) {
         updateScoreSpoiler(listStatus: listStatus)
+        // the entry holds the progress that `of(media, eps)` counts
+        updateEpisodesBadge()
         let text: String
         switch listStatus {
         case "CURRENT", "REPEATING", "PAUSED": text = "Continue"
@@ -1347,38 +1398,35 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             $0.selectedTint = accent
         }
 
-        let seasonStr = AniListUtil.seasonText(for: item)?.capitalized
-
-        rebuildBadges(score:    item.score,
-                      status:   item.status,
-                      episodes: item.episodes,
-                      nextEp:   nil,
-                      format:   item.format,
-                      season:   seasonStr,
-                      duration: item.duration,
-                      progress: item.listEntry?.progress,
-                      accent:   accent,
-                      contrastColor: contrast)
-
-        updateScoreSpoiler(listStatus: item.listEntry?.status)
+        refreshBadges(for: item, accent: accent, contrast: contrast)
         setGenres(item.genres.map { String($0) }, tags: item.tags)
 
         setDescriptionText(item.description)
 
         updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
 
-        let bannerFallback = item.bannerURL ?? item.coverURL
-        AniListClient.fetchFanartURL(anilistID: item.id) { [weak self] fanartURL in
-            guard let self else { return }
-            let urlStr = fanartURL ?? bannerFallback
-            self.displayedBannerURL = urlStr
-            self.postSidebarBackdrop(urlString: urlStr,
-                                     scrollOffset: 0,
-                                     alpha: self.bannerHidden ? 0.05 : 1.0)
-        }
+        publishBannerSource()
         displayedCoverURL = item.coverURL
         setCoverSelected(false, animated: false)
         loadImage(from: displayedCoverURL, into: coverImageView, task: &coverImageTask)
+    }
+
+    /// The badges under the title: what the media says, with the colors of its cover.
+    private func refreshBadges(for item: AnimeItem, accent: UIColor, contrast: UIColor) {
+        let seasonStr = AniListUtil.seasonText(for: item)?.capitalized
+
+        // `search: { season: media.season, seasonYear: media.seasonYear }`, whatever the badge says
+        let seasonFilter = "\(item.season ?? "")|\(item.year.map(String.init) ?? "")"
+
+        rebuildBadges(score:    item.score,
+                      status:   item.status,
+                      format:   item.format,
+                      season:   seasonStr,
+                      seasonFilter: seasonFilter,
+                      accent:   accent,
+                      contrastColor: contrast)
+
+        updateScoreSpoiler(listStatus: item.listEntry?.status)
     }
 
     func refreshDisplayPreferences(for item: AnimeItem) {
@@ -1387,6 +1435,27 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         romajiLabel.isHidden = romajiLabel.text == nil
         setGenres(item.genres.map { String($0) }, tags: item.tags)
         updateScoreSpoiler(listStatus: item.listEntry?.status)
+    }
+
+    /// `img/banner.svelte`: where the window is narrower than `md` the cover is the banner. From `md` on
+    /// it is the backdrop of anizip, or its poster, and without them `banner(media)`: the banner of the
+    /// media, the thumbnail of its trailer, the cover.
+    private func publishBannerSource() {
+        guard let media = trailerMedia else { return }
+        let thumbnail = media.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
+        guard isMedium else {
+            // `cover(media)`: the cover, and `banner(media)` without one
+            if let url = media.coverURL ?? media.bannerURL ?? thumbnail { updateBanner(from: url) }
+            return
+        }
+        let id = media.id
+        AniListClient.fetchFanartURL(anilistID: id) { [weak self] fanartURL in
+            // the window may have been made narrower, or the page may be another media's, meanwhile
+            guard let self, self.trailerMedia?.id == id, self.isMedium else { return }
+            let url = fanartURL ?? media.bannerURL ?? thumbnail ?? media.coverURL
+            guard let url else { return }
+            self.updateBanner(from: url)
+        }
     }
 
     func updateBanner(from urlString: String) {
@@ -1399,6 +1468,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     // MARK: - Badges
 
     private var scoreBadge: BadgeButton?
+    private var episodesBadge: PaddedLabel?
     private var displayedScore: Float?
 
     private func updateScoreSpoiler(listStatus: String?) {
@@ -1416,28 +1486,35 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         badge.setSpoiler(hidden)
     }
 
-    private func rebuildBadges(score: Float?, status: String?, episodes: Int?,
-                                nextEp: Int?, format: String?, season: String?,
-                                duration: Int? = nil, progress: Int? = nil,
+    /// `{$ofStore ?? duration(media) ?? 'N/A'}`: the episodes, with what has been watched of them, or the
+    /// duration. An airing show without a count has the one its schedule and the mappings know.
+    private func episodesBadgeText() -> String {
+        guard let media = trailerMedia else { return "N/A" }
+        // without the mappings of anizip the progress stands in for the count they know
+        if let text = AniListUtil.episodesText(for: media, mappings: episodesMappingsKnown ? mappedEpisodeCount : nil) {
+            return text
+        }
+        if let duration = media.duration, duration != 0 {
+            return "\(duration) Minute\(duration > 1 ? "s" : "")"
+        }
+        return "N/A"
+    }
+
+    private func updateEpisodesBadge() {
+        episodesBadge?.text = episodesBadgeText()
+    }
+
+    private func rebuildBadges(score: Float?, status: String?, format: String?, season: String?,
+                                seasonFilter: String,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
         badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         scoreBadge = nil
         displayedScore = score
 
-        let badge1Text: String
-        if let eps = episodes, eps > 1 {
-            if let progress, progress > 0, progress != eps {
-                badge1Text = "\(progress) / \(eps) Episodes"
-            } else {
-                badge1Text = "\(eps) Episodes"
-            }
-        } else if let dur = duration, dur > 0 {
-            badge1Text = "\(dur) Minute\(dur > 1 ? "s" : "")"
-        } else {
-            badge1Text = "N/A"
-        }
-        badgesStack.addArrangedSubview(makeBadge(text: badge1Text, accent: accent, contrast: contrastColor))
+        let episodes = makeBadge(text: episodesBadgeText(), accent: accent, contrast: contrastColor)
+        episodesBadge = episodes as? PaddedLabel
+        badgesStack.addArrangedSubview(episodes)
 
         do {
             let display: String
@@ -1481,7 +1558,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
         if let szn = season, !szn.isEmpty {
             badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor,
-                                                      filterType: "season", filterValue: szn))
+                                                      filterType: "season", filterValue: seasonFilter))
         }
 
         if let sc = score, sc > 0 {
@@ -1610,23 +1687,10 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         applyDescriptionAttributedText(interfaceDescription(from: raw))
     }
 
+    /// `desc(media)`: the description has been through `AniListUtil.stripHTML` when the media was read,
+    /// which is `desc()` of the interface; what has none says so.
     private func interfaceDescription(from raw: String?) -> String {
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "No description available."
-        }
-        let text = raw
-            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\n+", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "\n?\\(?Source: [^)]+\\)?\n?", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\n?Notes?:[ |\n][^\n]+\n?", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#039;", with: "'")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? "No description available." : text
+        raw ?? "No description available."
     }
 
     private func applyDescriptionAttributedText(_ text: String) {
@@ -1670,6 +1734,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         titleLabel.text = AniListUtil.title(for: item)
         romajiLabel.text = AniListUtil.alternateTitle(for: item)
         romajiLabel.isHidden = romajiLabel.text == nil
+        // `media = $info.data?.Media ?? $anime.Media`: everything the header shows is of the newest media
+        let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) ?? .white
+        refreshBadges(for: item, accent: accent, contrast: ExtensionSearchViewController.luminanceContrastColor(for: accent))
         setDescriptionText(item.description)
         setGenres(item.genres, tags: item.tags)
         updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
@@ -1693,9 +1760,12 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         updateActionVisibilityForCurrentWidth()
     }
 
-    /// `eps?.episodeCount`, what `episodes(media, eps)` counts besides the media itself.
-    func setMappedEpisodeCount(_ count: Int?) {
+    /// `eps?.episodeCount`, what `episodes(media, eps)` counts besides the media itself. `known` is
+    /// whether there is an `eps` at all.
+    func setMappedEpisodeCount(_ count: Int?, known: Bool = true) {
         mappedEpisodeCount = count ?? 0
+        episodesMappingsKnown = known
+        updateEpisodesBadge()
         updateTrailerTooltip()
     }
 
@@ -1835,6 +1905,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             btn.layer.shadowRadius = 1
         }
         btn.dashedBorder = isTag
+        btn.isTagChip = isTag
         btn.isSpoilerChip = isSpoiler
         btn.addTarget(self, action: #selector(genreChipTapped(_:)), for: .touchUpInside)
         return btn
@@ -1842,7 +1913,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     @objc private func genreChipTapped(_ sender: UIButton) {
         guard let genre = sender.title(for: .normal) else { return }
-        onGenreTapped?(genre)
+        // `search: { genre: [genre] }` and `search: { tag: [tag.name] }`
+        onGenreTapped?(genre, (sender as? AnimeTagChipButton)?.isTagChip ?? false)
     }
 
     // MARK: - Image loading
@@ -1944,14 +2016,21 @@ class AnimeDetailViewController: UIViewController {
         return bar
     }()
 
+    /// The threads of the page that is on show, `Threads.svelte`'s `$threads`.
     var threads: [AniListThread] = []
+    /// `currentPage` of `Threads.svelte`, which is 1 whenever the tab is opened.
+    var threadsPage = 1
+    /// The pages of threads that were answered, with their totals: `cache-first`, a page that was seen
+    /// is not asked for again.
+    var threadPages: [Int: (threads: [AniListThread], total: Int)] = [:]
+    /// The request of a page after the first, which the page of the media itself brings with it.
+    var threadsPageLoading = false
+    var threadsPageError: String?
     var themes: [AnimeThemesTheme] = []
     var recommendations: [AnimeItem] = []
     var followingEntriesByEpisode: [Int: [AniListUserSummary]] = [:]
-    var threadTotalCount: Int = 0
     var activeThemeVideoURL: String?
     var recommendationsLoading = false
-    var threadsLoading = false
     var themesLoading = false
     var animePageRequestID = UUID()
     var animePageErrorDescription: String?
@@ -1976,6 +2055,7 @@ class AnimeDetailViewController: UIViewController {
     }()
 
     var tabBarScrollView: UIScrollView?
+    private var tabBarTopConstraint: NSLayoutConstraint?
 
     lazy var tabBarContainer: UIView = {
         let v = UIView()
@@ -1990,8 +2070,12 @@ class AnimeDetailViewController: UIViewController {
         v.addSubview(scrollView)
         scrollView.addSubview(tabBar)
 
+        // `gap-4 md:gap-6` between the genres and the tabs
+        let top = scrollView.topAnchor.constraint(equalTo: v.topAnchor, constant: isMediumViewport ? 24 : 16)
+        tabBarTopConstraint = top
+
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: v.topAnchor, constant: 24),
+            top,
             scrollView.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8),
@@ -2008,32 +2092,41 @@ class AnimeDetailViewController: UIViewController {
 
     func applyTabBarLayoutForSizeClass() {
         tabBar.isVertical = false
-        let sideInset = Self.interfacePageSideInset(for: view.bounds.width)
+        tabBarTopConstraint?.constant = isMediumViewport ? 24 : 16
+        let sideInset = Self.interfacePageSideInset(for: viewportWidth)
         tabBarScrollView?.contentInset = UIEdgeInsets(top: 0, left: sideInset, bottom: 0, right: sideInset)
         tabBarScrollView?.scrollIndicatorInsets = tabBarScrollView?.contentInset ?? .zero
     }
 
     enum Section: Int, CaseIterable {
-        case header = 0, episodes, episodePagination, relations, threads, themes, recommendations
+        case header = 0, episodes, episodePagination, relations, threads, threadPagination, themes, recommendations
     }
 
     static let gridMinColWidth: CGFloat = 500
     static let episodeGap: CGFloat = 16
     static let threadGap: CGFloat = 40
 
+    /// Interface inner wrapper: `2xs:px-3 xl:px-14`, media queries of the window (360 and 1280).
     static func interfacePageSideInset(for width: CGFloat) -> CGFloat {
-        // Interface inner wrapper: 2xs:px-3 xl:px-14.
-        width >= 1280 ? 56 : 12
+        width >= 1280 ? 56 : (width >= 360 ? 12 : 0)
+    }
+
+    /// The window, which is what the media queries of the interface (`md`, `xl`) are asked.
+    var viewportWidth: CGFloat {
+        view.window?.bounds.width ?? UIScreen.main.bounds.width
+    }
+
+    /// `md`
+    var isMediumViewport: Bool { viewportWidth >= 768 }
+
+    /// The width of the grids of the page: the page without its padding.
+    var pageGridWidth: CGFloat {
+        tableView.frame.width - 2 * Self.interfacePageSideInset(for: viewportWidth)
     }
 
     var episodeColumnCount: Int {
-        let sideInset = Self.interfacePageSideInset(for: tableView.frame.width)
-        let gridWidth = tableView.frame.width - 2 * sideInset
-        if traitCollection.horizontalSizeClass == .regular
-            && gridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap {
-            return 2
-        }
-        return 1
+        // `grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(500px,1fr))]`
+        pageGridWidth >= 2 * Self.gridMinColWidth + Self.episodeGap ? 2 : 1
     }
 
     /// Threads.svelte uses the episode grid's repeat(auto-fit,minmax(500px,1fr)),
@@ -2043,21 +2136,13 @@ class AnimeDetailViewController: UIViewController {
     }
 
     var threadColumnCount: Int {
-        let sideInset = Self.interfacePageSideInset(for: tableView.frame.width)
-        let gridWidth = tableView.frame.width - 2 * sideInset
-        if traitCollection.horizontalSizeClass == .regular
-            && gridWidth >= 2 * Self.gridMinColWidth + Self.threadGap {
-            return 2
-        }
-        return 1
+        pageGridWidth >= 2 * Self.gridMinColWidth + Self.threadGap ? 2 : 1
     }
 
     // MARK: - Search navigation helpers
 
-    func navigateToSearchTab(genre: String) {
-        let state = Route.SearchState(
-            genres: SearchValues.genreSet.contains(genre) ? [genre] : [],
-            tags: SearchValues.genreSet.contains(genre) ? [] : [genre])
+    func navigateToSearchTab(name: String, isTag: Bool) {
+        let state = Route.SearchState(genres: isTag ? [] : [name], tags: isTag ? [name] : [])
         Router.shared.navigate(.search(state), hostTabIndex: hayaseTabIndex)
     }
 
@@ -2069,13 +2154,10 @@ class AnimeDetailViewController: UIViewController {
         case "status":
             state.statuses = [value]
         case "season":
-            let parts = value.components(separatedBy: " ")
-            if parts.count == 2, let year = Int(parts[1]) {
-                state.season = parts[0].uppercased()
-                state.year = String(year)
-            } else {
-                state.season = value.uppercased()
-            }
+            // "SEASON|YEAR" of the media, either of them empty when it has none
+            let parts = value.components(separatedBy: "|")
+            if let season = parts.first, !season.isEmpty { state.season = season }
+            if parts.count > 1, !parts[1].isEmpty { state.year = parts[1] }
         case "score":
             state.sort = value
         default:
@@ -2136,6 +2218,10 @@ class AnimeDetailViewController: UIViewController {
         super.viewDidAppear(animated)
         markInitialAnimeLayoutCompleteIfReady()
         startInitialAnimeLoadsIfReady()
+        // `liveAnimeProgress` is a store: what was played meanwhile is on the bar of its episode
+        if activeSection == .episodes, !episodes.isEmpty, embeddedThreadID == nil {
+            refreshEpisodeCardsInPlace()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -2168,6 +2254,11 @@ class AnimeDetailViewController: UIViewController {
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self else { return }
             self.configureAnimeBackdropForCurrentSize(width: size.width)
+            self.tableView.reloadData()
+        }, completion: { [weak self] _ in
+            // the window has its new size now, and the page asks it where it crosses `md` and `xl`
+            guard let self else { return }
+            self.applyTabBarLayoutForSizeClass()
             self.tableView.reloadData()
         })
     }
@@ -2463,7 +2554,7 @@ class AnimeDetailViewController: UIViewController {
         headerView.onShare = { [weak self] in
             guard let self = self, let item = self.animeItem else { return }
             // `native.share({ title: 'Watch on Hayase - …romaji', text: desc(media), url })`
-            var items: [Any] = [item.description.flatMap { $0.isEmpty ? nil : $0 } ?? "No description available."]
+            var items: [Any] = [item.description ?? "No description available."]
             if let url = URL(string: "https://hayase.watch/anime/\(item.id)") {
                 items.append(url)
             }
@@ -2503,8 +2594,8 @@ class AnimeDetailViewController: UIViewController {
             self?.presentCoverDialog(urlString: urlString, image: image)
         }
 
-        headerView.onGenreTapped = { [weak self] genre in
-            self?.navigateToSearchTab(genre: genre)
+        headerView.onGenreTapped = { [weak self] name, isTag in
+            self?.navigateToSearchTab(name: name, isTag: isTag)
         }
 
         headerView.onBadgeTapped = { [weak self] filterType, value in
@@ -2755,9 +2846,13 @@ class AnimeDetailViewController: UIViewController {
             // +page.svelte conditionally destroys/recreates Recommendation on every tab re-entry.
             recommendationComponentMountGeneration &+= 1
         }
+        if sec == .threads, activeSection != .threads {
+            // `{#if value === 'threads'}` makes Threads again, which starts on its first page
+            threadsPage = 1
+            applyThreadsPage()
+        }
         activeSection = sec
         reloadSectionsWithoutAnimation(Section.allCases.filter { $0.rawValue >= Section.episodes.rawValue })
-        if sec == .threads && threads.isEmpty && !threadsLoading { fetchThreads() }
         if sec == .themes  && themes.isEmpty  && !themesLoading  { fetchThemes()  }
     }
 

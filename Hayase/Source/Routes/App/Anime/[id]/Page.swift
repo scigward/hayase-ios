@@ -157,9 +157,12 @@ extension AnimeDetailViewController: UITableViewDataSource {
             return hasRelationsContent ? 1 : 0
         case .threads:
             if activeSection != .threads { return 0 }
-            if threadsLoading || threads.isEmpty { return 1 }
+            if threadsFetching || threadsErrorMessage != nil || threads.isEmpty { return 1 }
             let cols = threadGridColumnCount
             return (threads.count + cols - 1) / cols
+        case .threadPagination:
+            // the footer of `Threads.svelte` is there while the threads are loading, and without any
+            return activeSection == .threads ? 1 : 0
         case .themes:
             if activeSection != .themes { return 0 }
             return themesLoading ? 1 : max(themes.count, 1)
@@ -253,6 +256,9 @@ extension AnimeDetailViewController: UITableViewDataSource {
         case .threads:
             return makeThreadCell(for: indexPath)
 
+        case .threadPagination:
+            return makeThreadPaginationCell(for: indexPath)
+
         case .themes:
             return makeThemeCell(for: indexPath)
 
@@ -343,6 +349,9 @@ extension AnimeDetailViewController: UICollectionViewDataSource {
             else { return collectionView.dequeueReusableCell(withReuseIdentifier: SkeletonCardCell.reuseID, for: indexPath) }
             guard let item = recommendations[safe: indexPath.item] else { return cell }
             cell.configure(with: item)
+            // On purpose unlike the interface, whose `<SmallCard hover={false}>` has no preview card on the
+            // recommendations: the hover is a problem there, specific to the interface. It is not one in
+            // the app, so these cards open their preview like every other card does.
             Hover.shared.bind(to: cell,
                               host: self,
                               mediaProvider: { item },
@@ -363,6 +372,7 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         switch collectionView.tag {
         case 400:
+            // The preview card of the recommendations is on purpose, see `cellForItemAt`.
             guard let item = recommendations[safe: indexPath.item] else { return }
             if let cell = collectionView.cellForItem(at: indexPath) as? AnimeCollectionViewCell,
                Hover.shared.handleTouchSelection(source: cell,
@@ -381,7 +391,8 @@ extension AnimeDetailViewController: UICollectionViewDelegate {
 // MARK: - Empty state helper
 
 extension AnimeDetailViewController {
-    func makeEmptyStateCell(text: String, loading: Bool) -> UITableViewCell {
+    /// The "Ooops!" of the tabs. `detail` is the third line of an error: its message.
+    func makeEmptyStateCell(text: String, loading: Bool, detail: String? = nil) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.backgroundColor = .clear
         cell.selectionStyle = .none
@@ -396,10 +407,23 @@ extension AnimeDetailViewController {
         messageLabel.font = .nunito(ofSize: 18)
         messageLabel.textAlignment = .center
         messageLabel.numberOfLines = 0
-        let arrangedSubviews: [UIView] = loading ? [messageLabel] : [titleLabel, messageLabel]
+        var arrangedSubviews: [UIView] = loading ? [messageLabel] : [titleLabel, messageLabel]
+        var detailLabel: UILabel?
+        if let detail, !loading {
+            let label = UILabel()
+            label.text = detail
+            label.textColor = UIColor.HayaseTheme.mutedForeground
+            label.font = .nunito(ofSize: 18)
+            label.textAlignment = .center
+            label.numberOfLines = 0
+            arrangedSubviews.append(label)
+            detailLabel = label
+        }
         let stack = UIStackView(arrangedSubviews: arrangedSubviews)
         stack.axis = .vertical
+        // `mb-1` under the title, and nothing between the lines under it
         stack.spacing = 4
+        if detailLabel != nil { stack.setCustomSpacing(0, after: messageLabel) }
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(stack)

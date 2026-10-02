@@ -224,7 +224,7 @@ final class ThreadCardView: SelectableCardView {
 
         badgeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let contrastColor = ExtensionSearchViewController.luminanceContrastColor(for: accentColor)
-        for cat in thread.categories.prefix(3) {
+        for cat in thread.categories {
             let badge = ThreadBadgeLabel()
             badge.text = cat
             badge.font = .nunito(ofSize: 9.6, weight: .bold)
@@ -343,10 +343,7 @@ final class ThreadPairCell: UITableViewCell, CardOverflowRendering {
         ])
     }
 
-    func applyPaddingForSizeClass(isRegular: Bool, availableWidth: CGFloat, isFirstRow: Bool) {
-        let sidePad = isRegular
-            ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
-            : CGFloat(16)
+    func applyPageSideInset(_ sidePad: CGFloat, isFirstRow: Bool) {
         stackTopConstraint?.constant = isFirstRow ? 12 : 14  // pt-3 = 12px; later rows split gap-y-7 = 28px
         stackLeadingConstraint?.constant = sidePad
         stackTrailingConstraint?.constant = -sidePad
@@ -393,23 +390,67 @@ final class ThreadPairCell: UITableViewCell, CardOverflowRendering {
 
 extension AnimeDetailViewController {
 
-    func fetchThreads() {
-        guard let id = routeAnimeID else { return }
-        threadsLoading = true
-        reloadSectionsWithoutAnimation([.threads])
+    /// `$threads.fetching`: the page of the media itself is still on its way, or the page asked for is.
+    var threadsFetching: Bool {
+        threadsPage == 1 ? recommendationsLoading : threadsPageLoading
+    }
 
-        AniListClient.shared.threadsResult(mediaID: id) { [weak self] result in
+    /// `$threads.error?.message`
+    var threadsErrorMessage: String? {
+        threadsPage == 1 ? animePageErrorDescription : threadsPageError
+    }
+
+    /// `count = total === 5000 ? 17 : total`, of the page that is on show: it is 0 until the page is there.
+    var threadCount: Int {
+        let total = threadPages[threadsPage]?.total ?? 0
+        return total == 5000 ? 17 : total
+    }
+
+    /// `$threads` of the page on show: its threads, once they are there.
+    func applyThreadsPage() {
+        threads = threadPages[threadsPage]?.threads ?? []
+    }
+
+    /// `setPage` of the `Pagination`: it keeps the page between 1 and the last.
+    func setThreadsPage(_ page: Int) {
+        let lastPage = Int(ceil(Double(threadCount) / Double(Self.threadsPerPage)))
+        let clamped = min(max(1, page), max(1, lastPage))
+        guard clamped != threadsPage else { return }
+        threadsPage = clamped
+        threadsPageError = nil
+        threadsPageLoading = false
+        applyThreadsPage()
+        if clamped > 1, threadPages[clamped] == nil {
+            fetchThreadsPage(clamped)
+        } else {
+            reloadSectionsWithoutAnimation([.threads, .threadPagination])
+        }
+    }
+
+    static let threadsPerPage = 16
+
+    /// `client.threads(media.id, currentPage)`, for the pages after the first.
+    func fetchThreadsPage(_ page: Int) {
+        guard let id = routeAnimeID else { return }
+        threadsPageLoading = true
+        threadsPageError = nil
+        reloadSectionsWithoutAnimation([.threads, .threadPagination])
+
+        AniListClient.shared.threadsResult(mediaID: id, page: page, perPage: Self.threadsPerPage) { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success(let parsed):
-                self.threads = parsed
+            case .success(let answer):
+                self.threadPages[page] = (answer.threads, answer.total)
             case .failure(let error):
                 NSLog("[AnimeDetail] Threads failed: %@", error.description)
-                self.threads = []
+                if self.threadsPage == page { self.threadsPageError = error.description }
             }
-            self.threadsLoading = false
+            // the page may have been turned meanwhile, and the answer is for the one that was asked
+            guard self.threadsPage == page else { return }
+            self.threadsPageLoading = false
+            self.applyThreadsPage()
             if self.activeSection == .threads {
-                self.reloadSectionsWithoutAnimation([.threads])
+                self.reloadSectionsWithoutAnimation([.threads, .threadPagination])
             }
         }
     }
@@ -467,13 +508,11 @@ extension AnimeDetailViewController {
         threadVC.view.translatesAutoresizingMaskIntoConstraints = false
         cell.contentView.addSubview(threadVC.view)
 
-        let sidePad = traitCollection.horizontalSizeClass == .regular
-            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
-            : CGFloat(16)
+        let sidePad = Self.interfacePageSideInset(for: viewportWidth)
         // +layout.svelte's outer column is gap-4 / md:gap-6. The genres and
         // tags row is the item immediately before <slot />, so preserve that
         // exact gap before the embedded thread route begins.
-        let topGap: CGFloat = traitCollection.horizontalSizeClass == .regular ? 24 : 16
+        let topGap: CGFloat = isMediumViewport ? 24 : 16
         NSLayoutConstraint.activate([
             threadVC.view.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: topGap),
             threadVC.view.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -32),
@@ -498,13 +537,16 @@ extension AnimeDetailViewController {
         if embeddedThreadID != nil {
             return makeEmbeddedThreadCell()
         }
-        if threadsLoading {
+        if threadsFetching {
             return makeThreadsSkeletonCell()
+        }
+        if let message = threadsErrorMessage {
+            return makeEmptyStateCell(text: "Looks like something went wrong!", loading: false, detail: message)
         }
 
         if threads.isEmpty {
             return makeEmptyStateCell(
-                text: animePageErrorDescription ?? "Looks like there's nothing here yet!",
+                text: "Looks like there's nothing here yet!",
                 loading: false)
         }
         guard let cell = tableView.dequeueReusableCell(
@@ -518,12 +560,33 @@ extension AnimeDetailViewController {
         let accentColor = animeItem.flatMap { item in
             ExtensionSearchViewController.uiColor(fromHex: item.coverColor ?? "") } ?? UIColor(white: 0.15, alpha: 1)
         cell.configure(left: leftThread, right: rightThread, singleTrack: cols == 1, accentColor: accentColor)
-        cell.applyPaddingForSizeClass(
-            isRegular: traitCollection.horizontalSizeClass == .regular,
-            availableWidth: tableView.frame.width,
-            isFirstRow: indexPath.row == 0)
+        cell.applyPageSideInset(Self.interfacePageSideInset(for: viewportWidth), isFirstRow: indexPath.row == 0)
         cell.onTapThread = { [weak self] threadID in
             self?.openThread(id: threadID)
+        }
+        return cell
+    }
+
+    /// The footer of `Threads.svelte`: the range, and the buttons of the pages.
+    func makeThreadPaginationCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.backgroundColor = .clear
+        cell.contentView.backgroundColor = .clear
+        cell.selectionStyle = .none
+
+        let footer = ThreadPaginationView()
+        footer.noun = "threads"
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(footer)
+        let sidePad = Self.interfacePageSideInset(for: viewportWidth)
+        NSLayoutConstraint.activate([
+            footer.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+            footer.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+            footer.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: sidePad),
+            footer.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -sidePad),
+        ])
+        footer.configure(count: threadCount, perPage: Self.threadsPerPage, currentPage: threadsPage) { [weak self] page in
+            self?.setThreadsPage(page)
         }
         return cell
     }
@@ -575,9 +638,7 @@ extension AnimeDetailViewController {
             }
         }
 
-        let sidePad = traitCollection.horizontalSizeClass == .regular
-            ? AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
-            : CGFloat(16)
+        let sidePad = Self.interfacePageSideInset(for: viewportWidth)
 
         NSLayoutConstraint.activate([
             outerStack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),  // pt-3 = 12px

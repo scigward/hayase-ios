@@ -57,6 +57,15 @@ final class WatchProgressService {
             .first
     }
 
+    /// `liveAnimeProgress(mediaId)`: the interface keeps one entry for a media, the episode that was
+    /// played last, and the episode list shows a bar on that episode only.
+    func latestProgress(anilistID: Int) -> WatchProgress? {
+        guard anilistID > 0 else { return nil }
+        return allProgress().values
+            .filter { $0.anilistID == anilistID }
+            .max { $0.updatedAt < $1.updatedAt }
+    }
+
     // MARK: Write
 
     func setProgress(videoPath: String,

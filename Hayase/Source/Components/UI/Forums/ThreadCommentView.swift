@@ -168,7 +168,7 @@ final class ThreadCommentView: UIView {
         dateLabel.text = comment.sinceString
 
         let viewerID = Int(TrackerAccountManager.shared.viewer(for: .anilist)?.id ?? "")
-        let canInteract = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+        let canInteract = !isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
         let isOwner = viewerID == comment.user?.id
         likeButton.setFilled(comment.isLiked ?? false)
         likeButton.isEnabled = canInteract
@@ -237,7 +237,7 @@ final class ThreadCommentView: UIView {
     @discardableResult
     func finishLikeAttempt(commentID: Int) -> Bool {
         if comment.id == commentID {
-            likeButton.isEnabled = !isLocked && !comment.isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
+            likeButton.isEnabled = !isLocked && TrackerAccountManager.shared.isLoggedIn(.anilist)
             return true
         }
         return childViews.contains { $0.finishLikeAttempt(commentID: commentID) }

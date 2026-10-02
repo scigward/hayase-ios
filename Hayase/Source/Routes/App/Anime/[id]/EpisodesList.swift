@@ -470,7 +470,9 @@ final class EpisodeCardView: SelectableCardView {
             savedProgressFraction = 1.0
             setNeedsLayout()
         } else if anilistID > 0,
-                  let saved = WatchProgressService.shared.getProgress(anilistID: anilistID, episode: episode.number) {
+                  // `$watchProgress?.episode === episode`: the interface keeps the episode played last, only
+                  let saved = WatchProgressService.shared.latestProgress(anilistID: anilistID),
+                  saved.episodeNumber == episode.number {
             progressBar.backgroundColor = EpisodeCardStyle.trackBackground
             progressBar.isHidden = false
             let progressPercent = ceil(saved.fraction * 100) / 100
@@ -1054,7 +1056,9 @@ final class PaginationBarView: UIView {
     }
 
     func applyPaddingForSizeClass(isRegular: Bool) {
-        let width = superview?.bounds.width ?? bounds.width
+        // the padding of the page is a media query: it is about the window
+        // (the player's episode sheet has a width of its own)
+        let width = responsiveWidthOverride ?? window?.bounds.width ?? superview?.bounds.width ?? bounds.width
         let sidePad = AnimeDetailViewController.interfacePageSideInset(for: width)
         infoLeadingConstraint?.constant = sidePad
         controlsLeadingConstraint?.constant = sidePad
@@ -1249,7 +1253,7 @@ extension AnimeDetailViewController {
 
     func makeEpisodeCell(for indexPath: IndexPath) -> UITableViewCell {
         let cols = usesSingleEpisodeGridTrack ? 1 : episodeColumnCount
-        let pageSideInset = AnimeDetailViewController.interfacePageSideInset(for: tableView.frame.width)
+        let pageSideInset = AnimeDetailViewController.interfacePageSideInset(for: viewportWidth)
         let currentAnilistID = animeItem?.id ?? 0
         let isCompleted = currentListStatus == "COMPLETED"
         let isRepeating = currentListStatus == "REPEATING"
@@ -1335,16 +1339,16 @@ extension AnimeDetailViewController {
                 self.resolveParentID(format: self.animeItem?.format ?? "") { [weak self] parentID in
                     guard let self = self else { return }
                     guard let parentID = parentID else {
-                        self.processEpisodeResponse(response, anilistId: id)
+                        self.processEpisodeResponse(response, anilistId: id, known: anizipResponse != nil)
                         return
                     }
                     AniZipService.shared.episodes(anilistID: parentID) { [weak self] parentResponse in
-                        self?.processEpisodeResponse(parentResponse ?? empty, anilistId: id)
+                        self?.processEpisodeResponse(parentResponse ?? empty, anilistId: id, known: parentResponse != nil)
                     }
                 }
                 return
             }
-            self.processEpisodeResponse(response, anilistId: id)
+            self.processEpisodeResponse(response, anilistId: id, known: anizipResponse != nil)
         }
     }
 
@@ -1400,19 +1404,6 @@ extension AnimeDetailViewController {
             let rhs = Int($1.entry.episode) ?? Int($1.key) ?? 0
             return abs(lhs - episode) < abs(rhs - episode)
         })
-    }
-
-    private static func sanitizedEpisodeNotes(_ text: String) -> String {
-        var result = text
-        result = result.replacingOccurrences(
-            of: #"\n?\(?Source: [^)]+\)?\n?"#,
-            with: "",
-            options: .regularExpression)
-        result = result.replacingOccurrences(
-            of: #"\n?Notes?:[ |\n][^\n]+\n?"#,
-            with: "",
-            options: .regularExpression)
-        return result
     }
 
     /// Maps an AniZip `/episodes` payload into the `AniZipEpisode` list rendered by
@@ -1492,7 +1483,7 @@ extension AnimeDetailViewController {
 
             let ep = resolvedEntry?.entry
             let title = ep?.title?["en"] ?? "Episode \(episode)"
-            let overview = sanitizedEpisodeNotes(ep?.summary ?? ep?.overview ?? "")
+            let overview = AniListUtil.notes(ep?.summary ?? ep?.overview ?? "")
             let imageURL = ep?.image
             let airDateRaw = ep?.airdate
             let airDate: Date? = {
@@ -1520,9 +1511,10 @@ extension AnimeDetailViewController {
         return parsed
     }
 
-    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistId: Int) {
+    /// `known` is whether anizip answered: `eps` is `null` when it did not.
+    private func processEpisodeResponse(_ response: AniZipEpisodesResponse, anilistId: Int, known: Bool) {
         DispatchQueue.main.async { [weak self] in
-            self?.headerView?.setMappedEpisodeCount(response.episodeCount)
+            self?.headerView?.setMappedEpisodeCount(response.episodeCount, known: known)
         }
         let parsed = AnimeDetailViewController.buildEpisodeList(
             from: response,

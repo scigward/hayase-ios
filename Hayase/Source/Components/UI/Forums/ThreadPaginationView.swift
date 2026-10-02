@@ -17,6 +17,9 @@ final class ThreadPaginationView: UIView {
     private var currentPage = 1
     private var totalPages = 1
 
+    /// What the footer counts: "comments" of a thread, "threads" of a media.
+    var noun = "comments"
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -76,7 +79,8 @@ final class ThreadPaginationView: UIView {
         rangeLabel.attributedText = text
         mobileRangeLabel.attributedText = text
 
-        let isWide = UIScreen.main.bounds.width >= 768
+        // `$breakpoints.md` is about the window
+        let isWide = (window?.bounds.width ?? UIScreen.main.bounds.width) >= 768
         rangeLabel.isHidden = !isWide
         spacerView.isHidden = !isWide
 
@@ -110,21 +114,25 @@ final class ThreadPaginationView: UIView {
         buttonsRow.addArrangedSubview(nextButton)
     }
 
+    /// `Showing <b>start</b> to <b>end</b> of <b>count</b> nouns`
     private func rangeText(start: Int, end: Int, count: Int) -> NSAttributedString {
-        let text = "Showing \(start) to \(end) of \(count) comments"
-        let attributed = NSMutableAttributedString(
-            string: text,
-            attributes: [
-                .font: UIFont.nunito(ofSize: 13),
-                .foregroundColor: UIColor.HayaseTheme.mutedForeground,
-            ])
-        for value in ["\(start)", "\(end)", "\(count)"] {
-            let range = (text as NSString).range(of: value)
-            if range.location != NSNotFound {
-                attributed.addAttribute(.font, value: UIFont.nunito(ofSize: 13, weight: .bold), range: range)
-            }
-        }
-        return attributed
+        let normal: [NSAttributedString.Key: Any] = [
+            .font: UIFont.nunito(ofSize: 13),
+            .foregroundColor: UIColor.HayaseTheme.mutedForeground,
+        ]
+        let bold: [NSAttributedString.Key: Any] = [
+            .font: UIFont.nunito(ofSize: 13, weight: .bold),
+            .foregroundColor: UIColor.HayaseTheme.mutedForeground,
+        ]
+        let text = NSMutableAttributedString()
+        text.append(NSAttributedString(string: "Showing ", attributes: normal))
+        text.append(NSAttributedString(string: "\(start)", attributes: bold))
+        text.append(NSAttributedString(string: " to ", attributes: normal))
+        text.append(NSAttributedString(string: "\(end)", attributes: bold))
+        text.append(NSAttributedString(string: " of ", attributes: normal))
+        text.append(NSAttributedString(string: "\(count)", attributes: bold))
+        text.append(NSAttributedString(string: " \(noun)", attributes: normal))
+        return text
     }
 
     private func pageIconButton(iconName: String, enabled: Bool) -> UIButton {

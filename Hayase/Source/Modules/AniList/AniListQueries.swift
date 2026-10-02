@@ -246,7 +246,9 @@ enum AniListQueries {
 
     /// The interface asks for `EdgeMedia` per recommendation, because its recommendation cards have
     /// `hover={false}`. Here the cards open the hover card, which needs the description, score,
-    /// banner and trailer, so a recommendation is asked for with `recommendationFields`.
+    /// banner and trailer, so a recommendation is asked for with `recommendationFields`. This is on
+    /// purpose: the interface turns the hover off there because it is a problem for the interface
+    /// specifically, and it is not one for the app.
     static let animePage = """
     query AnimePage($id: Int!) {
       Media(id: $id, type: ANIME) {

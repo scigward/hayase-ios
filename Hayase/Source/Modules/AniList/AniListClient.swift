@@ -1402,16 +1402,18 @@ public final class AniListClient: NSObject {
 
     // MARK: - Forum threads (matches client.ts threads())
 
+    @discardableResult
     func threadsResult(mediaID: Int,
                        page: Int = 1,
                        perPage: Int = 16,
-                       completion: @escaping (Result<[AniListThread], AniListRequestError>) -> Void) -> AniListRequestToken? {
+                       completion: @escaping (Result<AniListThreadsPage, AniListRequestError>) -> Void) -> AniListRequestToken? {
         let variables: [String: Any] = ["id": mediaID, "page": page, "perPage": perPage]
+        // `client.threads` is a `queryStore` with the default request policy, which is `cache-first`
         return requestExecutor.execute(query: AniListQueries.threads,
                                        variables: variables,
                                        authorized: true,
                                        dedupeKey: cacheKey(prefix: "threads", variables: variables),
-                                       cacheAndNetwork: true) { result in
+                                       cacheFirstMaxAge: 6 * 60 * 60) { result in
             switch result {
             case .success(let graphQLResult):
                 guard let data = graphQLResult.json["data"] as? [String: Any],
@@ -1421,7 +1423,9 @@ public final class AniListClient: NSObject {
                     return
                 }
                 let parsed = rawThreads.compactMap { AniListThread(dict: $0) }
-                DispatchQueue.main.async { completion(.success(parsed)) }
+                // `$threads.data?.threads?.pageInfo?.total ?? 0`
+                let total = self.intValue((threadPage["pageInfo"] as? [String: Any])?["total"]) ?? 0
+                DispatchQueue.main.async { completion(.success(AniListThreadsPage(threads: parsed, total: total))) }
             case .failure(let error):
                 DispatchQueue.main.async { completion(.failure(error)) }
             }

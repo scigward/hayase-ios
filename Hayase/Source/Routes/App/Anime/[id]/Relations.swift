@@ -351,9 +351,11 @@ final class RelationGraphCell: UITableViewCell {
         animator.startAnimation()
     }
 
-    func applyWindowInset(for viewportWidth: CGFloat) {
+    /// `contentWidth` is the width of the page, `viewportWidth` the one of the window, which is what the
+    /// padding of the page (`2xs:px-3 xl:px-14`) is asked.
+    func applyWindowInset(for contentWidth: CGFloat, viewportWidth: CGFloat) {
         let pageMaxWidth: CGFloat = 1600
-        let outerInset = max((viewportWidth - pageMaxWidth) / 2, 0)
+        let outerInset = max((contentWidth - pageMaxWidth) / 2, 0)
         let innerInset = AnimeDetailViewController.interfacePageSideInset(for: viewportWidth)
         let inset = outerInset + innerInset
         graphLeadingConstraint?.constant = inset
@@ -624,7 +626,7 @@ extension AnimeDetailViewController {
             withIdentifier: RelationGraphCell.reuseID,
             for: indexPath) as? RelationGraphCell {
             if relationGraph == nil { relationGraph = graph }
-            cell.applyWindowInset(for: tableView.frame.width)
+            cell.applyWindowInset(for: tableView.frame.width, viewportWidth: viewportWidth)
             cell.configure(graph: graph,
                            currentID: routeAnimeID,
                            accentColor: currentAnimeAccent,

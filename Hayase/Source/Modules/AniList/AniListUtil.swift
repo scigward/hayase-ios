@@ -28,23 +28,26 @@ enum AniListUtil {
         Calendar.current.component(.year, from: Date())
     }
 
-    /// Strip HTML tags and decode common HTML entities from AniList description text.
-    /// Matches web interface's desc() + notes() pipeline.
+    /// util.ts `desc(media)` of a description: the tags are cut out, `<br>` included, which is why a
+    /// paragraph break is only as long as the line feeds AniList puts after it, runs of line feeds
+    /// become one, and the entities stay as they are, the interface does not decode them.
     static func stripHTML(_ html: String) -> String {
         var s = html
-        s = s.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: "&amp;", with: "&")
-        s = s.replacingOccurrences(of: "&lt;", with: "<")
-        s = s.replacingOccurrences(of: "&gt;", with: ">")
-        s = s.replacingOccurrences(of: "&#039;", with: "'")
-        s = s.replacingOccurrences(of: "&apos;", with: "'")
-        s = s.replacingOccurrences(of: "&quot;", with: "\"")
-        s = s.replacingOccurrences(of: "&nbsp;", with: " ")
         s = s.replacingOccurrences(of: #"\n+"#, with: "\n", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\n?\(?Source: [^)]+\)?\n?"#, with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\n?Notes?:[ |\n][^\n]+\n?"#, with: "", options: .regularExpression)
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return notes(s).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// util.ts `notes(string)`. The regular expressions of the interface are not global: the first
+    /// source and the first note are cut out, and no more.
+    static func notes(_ string: String) -> String {
+        var result = string
+        for pattern in [#"\n?\(?Source: [^)]+\)?\n?"#, #"\n?Notes?:[ |\n][^\n]+\n?"#] {
+            if let range = result.range(of: pattern, options: .regularExpression) {
+                result.removeSubrange(range)
+            }
+        }
+        return result
     }
 
     /// util.ts `episodes(media, eps)`
@@ -232,7 +235,8 @@ enum AniListUtil {
         ]
 
         for range in ranges where range.seconds < abs(secondsElapsed) {
-            let value = Int((secondsElapsed / range.seconds).rounded())
+            // `Math.round` rounds a half up and `rounded()` rounds it away from zero: -1.5 is -1 in the interface
+            let value = Int(safe: (secondsElapsed / range.seconds + 0.5).rounded(.down))
             return relativeTime(value: value, unit: range.unit)
         }
         return "now"

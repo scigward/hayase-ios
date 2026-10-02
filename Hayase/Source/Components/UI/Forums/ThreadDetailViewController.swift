@@ -388,7 +388,7 @@ final class ThreadDetailViewController: UIViewController {
     }
 
     private func toggleCommentLike(_ comment: AniListThreadComment) {
-        guard !(currentThread?.isLocked ?? false), !comment.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        guard !(currentThread?.isLocked ?? false), TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
         let wasLiked = comment.isLiked ?? false
         let count = comment.likeCount
         updateVisibleCommentLike(id: comment.id, isLiked: !wasLiked, count: count + (wasLiked ? -1 : 1))
@@ -446,7 +446,7 @@ final class ThreadDetailViewController: UIViewController {
     }
 
     private func deleteComment(_ comment: AniListThreadComment) {
-        guard !(currentThread?.isLocked ?? false), !comment.isLocked, TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
+        guard !(currentThread?.isLocked ?? false), TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
         AniListForumClient.shared.deleteCommentResult(id: comment.id, rootCommentID: threadID) { [weak self] result in
             switch result {
             case .success:

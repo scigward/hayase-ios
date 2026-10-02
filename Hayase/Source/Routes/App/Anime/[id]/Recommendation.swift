@@ -20,8 +20,8 @@ final class RecommendationGridCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
-        layout.minimumInteritemSpacing = 16
-        layout.minimumLineSpacing = 16
+        layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 0
         layout.itemSize = CGSize(width: AnimeCollectionViewCell.outerWidth,
                                  height: AnimeCollectionViewCell.outerHeight)
         collectionView = AnimeCardCollectionView(frame: .zero, collectionViewLayout: layout)
@@ -65,31 +65,28 @@ final class RecommendationGridCell: UITableViewCell {
         ])
     }
 
+    /// `grid justify-center grid-cols-[repeat(auto-fill,minmax(184px,max-content))]`: columns of the width
+    /// of a card with nothing between them, as many as fit in the page, in the middle of it.
     func configure(itemCount: Int,
                    availableWidth: CGFloat,
-                   isRegular: Bool,
+                   sidePad: CGFloat,
                    componentMountGeneration: UInt) {
         collectionView.setComponentMountGeneration(componentMountGeneration)
-        let sidePad = isRegular
-            ? AnimeDetailViewController.interfacePageSideInset(for: availableWidth)
-            : CGFloat(16)
-        let topPad: CGFloat = 12
-        let bottomPad: CGFloat = 16
-        let gap: CGFloat = 16
         let itemWidth = AnimeCollectionViewCell.outerWidth
         let itemHeight = AnimeCollectionViewCell.outerHeight
         let usableWidth = max(0, availableWidth - sidePad * 2)
-        let columns = max(1, Int((usableWidth + gap) / (itemWidth + gap)))
+        let columns = max(1, Int(safe: Double(usableWidth / itemWidth)))
+        let leftover = max(0, usableWidth - CGFloat(columns) * itemWidth)
+        let scale = max(1, UIScreen.main.scale)
+        let inset = sidePad + (leftover / 2 * scale).rounded(.down) / scale
         let rows = itemCount == 0 ? 0 : Int(ceil(Double(itemCount) / Double(columns)))
-        let contentHeight = rows == 0
-            ? 88
-            : topPad + bottomPad + CGFloat(rows) * itemHeight + CGFloat(max(rows - 1, 0)) * gap
+        let contentHeight = rows == 0 ? 88 : CGFloat(rows) * itemHeight
 
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             layout.itemSize = CGSize(width: itemWidth, height: itemHeight)
-            layout.minimumInteritemSpacing = gap
-            layout.minimumLineSpacing = gap
-            layout.sectionInset = UIEdgeInsets(top: topPad, left: sidePad, bottom: bottomPad, right: sidePad)
+            layout.minimumInteritemSpacing = 0
+            layout.minimumLineSpacing = 0
+            layout.sectionInset = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
             layout.invalidateLayout()
         }
         heightConstraint?.constant = contentHeight
@@ -142,8 +139,9 @@ extension AnimeDetailViewController {
                 }
 
                 self.recommendations = payload.recommendations
-                self.threads = payload.threads
-                self.threadTotalCount = payload.threadTotal
+                // the first page of the threads comes with the page of the media
+                self.threadPages[1] = (payload.threads, payload.threadTotal)
+                self.applyThreadsPage()
                 self.followingEntriesByEpisode = Dictionary(grouping: payload.followingEntries, by: \.progress)
                     .mapValues { entries in entries.map(\.user) }
                 self.headerView?.updateFollowingAvatars(users: payload.followingEntries.map(\.user))
@@ -153,8 +151,8 @@ extension AnimeDetailViewController {
                 NSLog("[AnimeDetail] AnimePage failed: %@", error.description)
                 self.animePageErrorDescription = error.description
                 self.recommendations = []
-                self.threads = []
-                self.threadTotalCount = 0
+                self.threadPages[1] = nil
+                self.applyThreadsPage()
                 self.followingEntriesByEpisode.removeAll()
                 self.headerView?.clearFollowingAvatars()
                 self.reloadAnimePagePayloadSections()
@@ -169,7 +167,7 @@ extension AnimeDetailViewController {
             pendingAnimePagePayloadReloadIncludesHeader = pendingAnimePagePayloadReloadIncludesHeader || includeHeader
             return
         }
-        var sections: [Section] = [.relations, .threads, .recommendations]
+        var sections: [Section] = [.relations, .threads, .threadPagination, .recommendations]
         if includeHeader {
             sections.insert(.header, at: 0)
         }
@@ -189,13 +187,16 @@ extension AnimeDetailViewController {
             cell.collectionView.delegate = self
             cell.configure(itemCount: RecommendationGridCell.skeletonItemCount,
                            availableWidth: tableView.bounds.width,
-                           isRegular: traitCollection.horizontalSizeClass == .regular,
+                           sidePad: Self.interfacePageSideInset(for: viewportWidth),
                            componentMountGeneration: recommendationComponentMountGeneration)
             return cell
         }
 
+        if let message = animePageErrorDescription {
+            return makeEmptyStateCell(text: "Looks like something went wrong!", loading: false, detail: message)
+        }
         guard !recommendations.isEmpty else {
-            return makeEmptyStateCell(text: animePageErrorDescription ?? "Looks like there's nothing here yet!", loading: false)
+            return makeEmptyStateCell(text: "Looks like there's nothing here.", loading: false)
         }
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: RecommendationGridCell.reuseID,
@@ -207,7 +208,7 @@ extension AnimeDetailViewController {
         cell.collectionView.delegate = self
         cell.configure(itemCount: recommendations.count,
                        availableWidth: tableView.bounds.width,
-                       isRegular: traitCollection.horizontalSizeClass == .regular,
+                       sidePad: Self.interfacePageSideInset(for: viewportWidth),
                        componentMountGeneration: recommendationComponentMountGeneration)
         return cell
     }

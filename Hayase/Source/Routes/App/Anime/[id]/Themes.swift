@@ -117,9 +117,14 @@ extension AnimeDetailViewController {
         }
 
         if themes.isEmpty {
-            return makeEmptyStateCell(
-                text: "No themes found.",
-                loading: false)
+            // `{#if themes?.anime?.[0]?.animethemes?.length}`: with none there is nothing, only the `pt-3`
+            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+            cell.backgroundColor = .clear
+            cell.selectionStyle = .none
+            let height = cell.contentView.heightAnchor.constraint(equalToConstant: 12)
+            height.priority = UILayoutPriority(999)
+            height.isActive = true
+            return cell
         }
         guard let theme = themes[safe: indexPath.row] else { return UITableViewCell() }
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
@@ -143,24 +148,22 @@ extension AnimeDetailViewController {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
         let typeLabel = UILabel()
-        typeLabel.text = theme.type ?? theme.slug ?? ""
+        typeLabel.text = theme.type ?? ""
         typeLabel.font = .nunito(ofSize: 12, weight: .bold)
         typeLabel.textColor = UIColor(white: 0.7, alpha: 1)
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addSubview(typeLabel)
 
         let songTitle = NSMutableAttributedString(
-            string: theme.song?.title ?? "Unknown",
+            string: (theme.song?.title ?? "") + " ",
             attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white])
         let artistNames = theme.song?.artists?.compactMap { $0.name }.joined(separator: ", ") ?? ""
-        if !artistNames.isEmpty {
-            songTitle.append(NSAttributedString(
-                string: " by ",
-                attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
-            songTitle.append(NSAttributedString(
-                string: artistNames,
-                attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))
-        }
+        songTitle.append(NSAttributedString(
+            string: "by",
+            attributes: [.font: UIFont.nunito(ofSize: 12, weight: .medium), .foregroundColor: UIColor(white: 0.5, alpha: 1)]))
+        songTitle.append(NSAttributedString(
+            string: " " + artistNames,
+            attributes: [.font: UIFont.nunito(ofSize: 16, weight: .bold), .foregroundColor: UIColor.white]))
         let songLabel = UILabel()
         songLabel.attributedText = songTitle
         songLabel.numberOfLines = 1
@@ -192,8 +195,7 @@ extension AnimeDetailViewController {
             row.addSubview(verLabel)
 
             let epLabel = UILabel()
-            let eps = entry.episodes ?? ""
-            epLabel.text = eps.isEmpty ? "" : "Episodes \(eps)"
+            epLabel.text = "Episodes \(entry.episodes ?? "")"
             epLabel.font = .nunito(ofSize: 12)
             epLabel.textColor = UIColor(white: 0.5, alpha: 1)
             epLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -245,10 +247,11 @@ extension AnimeDetailViewController {
             }
         }
 
-        let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+        let themeSidePad = Self.interfacePageSideInset(for: viewportWidth)
 
         NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 4),
+            // `pt-3` over the first card, `gap-2` between the others
+            card.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: indexPath.row == 0 ? 12 : 4),
             card.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
             card.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: themeSidePad),
             card.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -themeSidePad),
@@ -275,7 +278,7 @@ extension AnimeDetailViewController {
             stack.addArrangedSubview(makeThemeSkeletonCard())
         }
 
-        let themeSidePad: CGFloat = traitCollection.horizontalSizeClass == .regular ? 56 : 16
+        let themeSidePad = Self.interfacePageSideInset(for: viewportWidth)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
             stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -4),
