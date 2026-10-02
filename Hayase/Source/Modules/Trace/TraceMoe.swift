@@ -47,8 +47,17 @@ struct TraceAnime: Decodable {
 }
 
 enum TraceMoe {
+    /// A match that cannot be read is left out instead of failing the whole answer.
+    private struct Match: Decodable {
+        let value: TraceAnime?
+
+        init(from decoder: Decoder) throws {
+            value = try? TraceAnime(from: decoder)
+        }
+    }
+
     private struct Response: Decodable {
-        let result: [TraceAnime]
+        let result: [Match]
     }
 
     struct LookupError: Error {}
@@ -94,8 +103,8 @@ enum TraceMoe {
             if let error {
                 result = .failure(error)
             } else if let data, let response = try? JSONDecoder().decode(Response.self, from: data),
-                      !response.result.isEmpty {
-                result = .success(response.result)
+                      case let matches = response.result.compactMap({ $0.value }), !matches.isEmpty {
+                result = .success(matches)
             } else {
                 result = .failure(LookupError())
             }

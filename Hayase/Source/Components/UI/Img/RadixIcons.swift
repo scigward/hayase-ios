@@ -26,14 +26,21 @@ enum RadixIcons {
                size: size)
     }
 
+    private static let cache = NSCache<NSString, UIImage>()
+
     /// `fill-rule: evenodd` on a 15x15 view box, as a template image of `size` points.
     private static func render(_ data: String, size: CGFloat) -> UIImage {
-        UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { renderer in
+        let side = max(size, 1)
+        let key = "\(data.hashValue)@\(side)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { renderer in
             let context = renderer.cgContext
-            context.scaleBy(x: size / 15, y: size / 15)
+            context.scaleBy(x: side / 15, y: side / 15)
             context.addPath(SVGPath.path(data))
             UIColor.black.setFill()
             context.fillPath(using: .evenOdd)
         }.withRenderingMode(.alwaysTemplate)
+        cache.setObject(image, forKey: key)
+        return image
     }
 }

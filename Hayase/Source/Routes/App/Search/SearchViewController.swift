@@ -702,12 +702,13 @@ class SearchViewController: UIViewController {
                 let taken = line.reduce(CGFloat(0)) { $0 + (frozen.contains($1) ? sizes[$1]! : specs[$1].base) }
                 let free = usable - taken
                 let totalGrow = flexible.reduce(CGFloat(0)) { $0 + specs[$1].grow }
-                let targets = Dictionary(uniqueKeysWithValues: flexible.map {
-                    ($0, specs[$0].base + free * specs[$0].grow / totalGrow)
-                })
-                let violators = flexible.filter { targets[$0]! < specs[$0].min }
+                var targets: [Int: CGFloat] = [:]
+                for index in flexible {
+                    targets[index] = specs[index].base + free * specs[index].grow / totalGrow
+                }
+                let violators = flexible.filter { (targets[$0] ?? 0) < specs[$0].min }
                 if violators.isEmpty {
-                    for index in flexible { sizes[index] = targets[index]! }
+                    for index in flexible { sizes[index] = targets[index] }
                     break
                 }
                 for index in violators {
@@ -848,9 +849,10 @@ class SearchViewController: UIViewController {
             let raw = selectedOnList ? "true" : "false"
             onList = [entry(SearchValues.label(for: raw, in: .onList), .onList, raw)]
         }
-        activeChipEntries = chipsFollowRestoredState
-            ? ids + name + onList + genres + years + seasons + formats + statuses + sorts
-            : name + genres + years + seasons + formats + statuses + sorts + ids + onList
+        let groups: [[Entry]] = chipsFollowRestoredState
+            ? [ids, name, onList, genres, years, seasons, formats, statuses, sorts]
+            : [name, genres, years, seasons, formats, statuses, sorts, ids, onList]
+        activeChipEntries = groups.flatMap { $0 }
     }
 
     // MARK: - Active chips (wrapping frame layout)
@@ -1026,9 +1028,11 @@ class SearchViewController: UIViewController {
         let columns = gridColumns(for: width)
         let start = index / columns * columns
         let end = min(start + columns, animeResults.count)
-        let height = (start..<max(start + 1, end)).map { row -> CGFloat in
-            animeResults[safe: row].map(episodeCardHeight(for:)) ?? 216
-        }.max() ?? 216
+        let heights: [CGFloat] = (start..<max(start + 1, end)).map { row in
+            guard let item = self.animeResults[safe: row] else { return 216 }
+            return self.episodeCardHeight(for: item)
+        }
+        let height = heights.max() ?? 216
         return CGSize(width: AnimeCollectionViewCell.traceOuterWidth, height: height)
     }
 

@@ -340,7 +340,8 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         traceInfoColumn.isHidden = trace == nil   // the match goes beside the title only when there is one
         if let trace {
             traceEpisodeLabel.text = "Episode \(trace.episode)"
-            traceSimilarityLabel.text = "\(Int((trace.similarity * 100).rounded()))%"
+            let percent = (trace.similarity * 100).rounded()
+            traceSimilarityLabel.text = "\(Int(exactly: percent) ?? 0)%"
         }
         titleLabel.text = AniListUtil.title(for: item)
         // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'

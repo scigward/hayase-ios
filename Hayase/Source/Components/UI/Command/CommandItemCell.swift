@@ -78,7 +78,7 @@ final class CommandItemCell: UITableViewCell {
             checkView.widthAnchor.constraint(equalToConstant: 12),
             checkView.heightAnchor.constraint(equalToConstant: 12),
         ]
-        NSLayoutConstraint.activate(checkSizeConstraints + [
+        let fixedConstraints: [NSLayoutConstraint] = [
             checkContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             checkContainer.widthAnchor.constraint(equalToConstant: 16),
             checkContainer.heightAnchor.constraint(equalToConstant: 16),
@@ -87,7 +87,9 @@ final class CommandItemCell: UITableViewCell {
             checkView.centerYAnchor.constraint(equalTo: checkContainer.centerYAnchor),
 
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(fixedConstraints)
+        NSLayoutConstraint.activate(checkSizeConstraints)
     }
 
     func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {
