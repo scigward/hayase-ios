@@ -87,6 +87,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }()
 
     private var media: AnimeItem?
+    /// The frame a trace.moe lookup matched: its picture and clip stand in for the banner and trailer.
+    private var trace: TraceAnime?
     private var actions: PreviewCardActions?
     private var imageTask: URLSessionDataTask?
     private var currentImageURL: String?
@@ -196,12 +198,13 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             self?.setBackdropBlurHidden(!hidden)
         }
         videoframe.onHide = { [weak self] hidden in
-            self?.setBackdropBlurHidden(!hidden)
+            // no blurred copy of the clip here, so the picture's glow stays behind it
+            self?.setBackdropBlurHidden(!hidden, keepsGlow: true)
         }
     }
 
-    private func setBackdropBlurHidden(_ hidden: Bool) {
-        bannerGlow.isHidden = !effectsEnabled || hidden
+    private func setBackdropBlurHidden(_ hidden: Bool, keepsGlow: Bool = false) {
+        bannerGlow.isHidden = !effectsEnabled || (hidden && !keepsGlow)
         // Reveal the already-playing foreground beneath the banner, rather than
         // hiding the image abruptly or fading both layers through the page below.
         // Interface keeps its banner mounted underneath the fading trailer.
@@ -250,8 +253,9 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         return true
     }
 
-    func configure(media: AnimeItem, actions: PreviewCardActions) {
+    func configure(media: AnimeItem, actions: PreviewCardActions, trace: TraceAnime? = nil) {
         isDismissed = false
+        self.trace = trace
         // Native counterpart of SUPPORTS.isUnderPowered, with Low Power Mode
         // respected as well. Neither blurred images nor dual trailer decoders run.
         effectsEnabled = !ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -270,7 +274,14 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
         videoframe.reset()
         videoframe.isHidden = true
-        if !effectsEnabled {
+        if let trace {
+            // preview.svelte: `{#if trace}` the picture and `<Videoframe src={trace.video}>` instead
+            // of the banner and the trailer
+            youtubeIframe.reset()
+            youtubeIframe.isHidden = true
+            videoframe.isHidden = false
+            videoframe.configure(src: trace.video)
+        } else if !effectsEnabled {
             youtubeIframe.reset()
             youtubeIframe.isHidden = true
         } else {
@@ -410,6 +421,10 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         bannerGlow.reset()
         bannerImageView.backgroundColor = UIColor.HayaseTheme.background
 
+        if let trace {
+            loadResolvedBannerURL(trace.image, media: media, token: token)
+            return
+        }
         let fallbackURL = resolvedFallbackBannerURL(for: media)
         guard usesWideBannerSource else {
             loadResolvedBannerURL(fallbackURL, media: media, token: token)

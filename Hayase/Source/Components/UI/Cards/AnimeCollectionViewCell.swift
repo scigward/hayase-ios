@@ -51,6 +51,9 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     static let contentPadding: CGFloat = 16
     static let coverWidth: CGFloat = 152
     static let coverHeight: CGFloat = 216
+    // episode.svelte: `w-[16rem]` item with `p-4`, and a `h-[9rem]` picture
+    static let traceOuterWidth: CGFloat = 288
+    static let traceCoverHeight: CGFloat = 144
 
     // MARK: Views
 
@@ -91,6 +94,40 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         l.textColor = UIColor(white: 0.45, alpha: 1)
         return l
     }()
+
+    // episode.svelte, on a trace result: `Episode N` over the match, `text-xs font-medium text-right`
+    private let traceEpisodeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12, weight: .medium)
+        l.textColor = UIColor.HayaseTheme.foreground
+        l.textAlignment = .right
+        return l
+    }()
+
+    private let traceSimilarityLabel: UILabel = {
+        let l = UILabel()
+        l.font = .nunito(ofSize: 12, weight: .medium)
+        l.textColor = UIColor.HayaseTheme.mutedForeground
+        l.textAlignment = .right
+        return l
+    }()
+
+    private lazy var traceInfoColumn: UIStackView = {
+        let column = UIStackView(arrangedSubviews: [traceEpisodeLabel, traceSimilarityLabel])
+        column.axis = .vertical
+        column.alignment = .trailing
+        column.spacing = 2   // mt-0.5
+        column.isLayoutMarginsRelativeArrangement = true
+        column.layoutMargins = UIEdgeInsets(top: 1, left: 0, bottom: 0, right: 0)   // pt-[1px]
+        column.isHidden = true
+        column.setContentHuggingPriority(.required, for: .horizontal)
+        column.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return column
+    }()
+
+    /// The cover is a 152x216 poster, or the 9rem tall picture of a trace result.
+    private var posterCoverHeight: NSLayoutConstraint?
+    private var traceCoverHeightConstraint: NSLayoutConstraint?
 
     // Status dot — inline circle before the title text, matching interface StatusDot.svelte.
     // size-[0.55rem] ≈ 8.8pt; no border; hidden when user has no AniList list entry.
@@ -179,10 +216,11 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         // Matches small.svelte: StatusDot is an inline <span> placed before the title text
         // inside the same pt-3 / font-black / line-clamp-2 div.
         // spacing = me-1 (4pt) from StatusDot.svelte.
-        let titleRow = UIStackView(arrangedSubviews: [statusDotView, titleLabel])
+        let titleRow = UIStackView(arrangedSubviews: [statusDotView, titleLabel, traceInfoColumn])
         titleRow.axis = .horizontal
         titleRow.spacing = 4   // me-1 = 4pt
         titleRow.alignment = .top
+        titleRow.setCustomSpacing(8, after: titleLabel)   // gap-2 before the trace column
 
         // Full card stack: [cover  titleRow  flexible spacer  metaRow]
         // Web small.svelte uses an outer w-[11.5rem] h-[323px] item with p-4.
@@ -200,7 +238,14 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         itemView.addSubview(cardStack)
 
+        let posterHeight = coverImageView.heightAnchor.constraint(equalTo: coverImageView.widthAnchor,
+                                                                  multiplier: Self.coverHeight / Self.coverWidth)
+        let pictureHeight = coverImageView.heightAnchor.constraint(equalToConstant: Self.traceCoverHeight)
+        posterCoverHeight = posterHeight
+        traceCoverHeightConstraint = pictureHeight
+        pictureHeight.isActive = false
         NSLayoutConstraint.activate([
+            posterHeight,
             cardStack.topAnchor.constraint(equalTo: itemView.topAnchor, constant: Self.contentPadding),
             cardStack.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding),
             cardStack.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -Self.contentPadding),
@@ -208,7 +253,6 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
             // h-[13.5rem] over w-[9.5rem].  Tie it to the inner card width so the same
             // cell still scales correctly if reused in grids with different item widths.
-            coverImageView.heightAnchor.constraint(equalTo: coverImageView.widthAnchor, multiplier: Self.coverHeight / Self.coverWidth),
 
             calIcon.widthAnchor.constraint(equalToConstant: 12),
             calIcon.heightAnchor.constraint(equalToConstant: 12),
@@ -286,17 +330,29 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     // MARK: - Configuration
 
-    func configure(with item: AnimeItem) {
+    /// `episodeStyle` is episode.svelte's card: the wide one the trace page draws, with or without a
+    /// frame matched to it.
+    func configure(with item: AnimeItem, trace: TraceAnime? = nil, episodeStyle: Bool = false) {
         configuredAnimeItem = item
+        let isTrace = episodeStyle
+        posterCoverHeight?.isActive = !isTrace
+        traceCoverHeightConstraint?.isActive = isTrace
+        traceInfoColumn.isHidden = trace == nil   // the match goes beside the title only when there is one
+        if let trace {
+            traceEpisodeLabel.text = "Episode \(trace.episode)"
+            traceSimilarityLabel.text = "\(Int((trace.similarity * 100).rounded()))%"
+        }
         titleLabel.text = AniListUtil.title(for: item)
         // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'
-        let displayYear = item.year ?? item.startYear
+        // episode.svelte has no `startDate` fallback: `media.seasonYear ?? 'TBA'`
+        let displayYear = isTrace ? item.year : (item.year ?? item.startYear)
         yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
         formatLabel.text = formatString(item.format)
         // Set cover color placeholder matching web's load.svelte: style:background={color ?? '#1890ff'}
         coverImageView.backgroundColor = UIColor(hexString: item.coverColor) ?? UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1)
         // small.svelte: `coverMedium(media)`, which falls back to `banner(media)`
-        loadCover(urlString: item.coverMediumURL ?? item.bannerURL
+        // small.svelte `coverMedium(media)`; episode.svelte `trace?.image ?? coverMedium(media)`
+        loadCover(urlString: trace?.image ?? item.coverMediumURL ?? item.bannerURL
                   ?? item.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
                   ?? item.coverURL ?? "")
         // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
@@ -364,6 +420,11 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         formatLabel.text = nil
         statusDotView.isHidden = true
         statusDotView.backgroundColor = nil
+        traceInfoColumn.isHidden = true
+        traceEpisodeLabel.text = nil
+        traceSimilarityLabel.text = nil
+        posterCoverHeight?.isActive = true
+        traceCoverHeightConstraint?.isActive = false
         configuredAnimeItem = nil
         hoverProvider = nil
         unhoverProvider = nil

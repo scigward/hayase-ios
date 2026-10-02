@@ -49,10 +49,11 @@ final class Hover: NSObject {
     func bind(to cell: AnimeCollectionViewCell,
               host: UIViewController,
               mediaProvider: @escaping () -> AnimeItem?,
-              actions: PreviewCardActions) {
+              actions: PreviewCardActions,
+              trace: TraceAnime? = nil) {
         cell.hoverProvider = { [weak host, weak cell] in
             guard let host, let cell, let media = mediaProvider() else { return }
-            Hover.shared.hoverElement(source: cell, host: host, media: media, actions: actions)
+            Hover.shared.hoverElement(source: cell, host: host, media: media, actions: actions, trace: trace)
         }
         cell.unhoverProvider = { [weak cell] in
             guard let cell else { return }
@@ -63,19 +64,21 @@ final class Hover: NSObject {
     func handleTouchSelection(source: UIView,
                               host: UIViewController,
                               media: AnimeItem,
-                              actions: PreviewCardActions) -> Bool {
+                              actions: PreviewCardActions,
+                              trace: TraceAnime? = nil) -> Bool {
         if activeMediaID == media.id, activeSource === source {
             unhoverLastElement()
             return false
         }
-        hoverElement(source: source, host: host, media: media, actions: actions)
+        hoverElement(source: source, host: host, media: media, actions: actions, trace: trace)
         return true
     }
 
     func hoverElement(source: UIView,
                       host: UIViewController,
                       media: AnimeItem,
-                      actions: PreviewCardActions) {
+                      actions: PreviewCardActions,
+                      trace: TraceAnime? = nil) {
         if activeMediaID == media.id, activeSource === source { return }
         guard let window = host.view.window ?? source.window else { return }
         unhoverLastElement()
@@ -86,7 +89,7 @@ final class Hover: NSObject {
         let card = PreviewCard()
         card.translatesAutoresizingMaskIntoConstraints = false
         window.addSubview(card)
-        card.configure(media: media, actions: actions)
+        card.configure(media: media, actions: actions, trace: trace)
 
         let sourceFrame = source.convert(source.bounds, to: window)
         let centerX = min(max(sourceFrame.midX, PreviewCard.size.width / 2),

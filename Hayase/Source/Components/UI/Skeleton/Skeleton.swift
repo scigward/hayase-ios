@@ -141,3 +141,55 @@ final class SkeletonCardCell: UICollectionViewCell {
         pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
     }
 }
+
+
+/// skeletontrace.svelte: a 16rem item with a 9rem picture and two bars, in `p-4`.
+final class SkeletonTraceCardCell: UICollectionViewCell {
+    static let reuseID = "SkeletonTraceCardCell"
+
+    private let picturePulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
+    private let titlePulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
+    private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
+    private lazy var pulseViews = [picturePulse, titlePulse, metaPulse]
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        let stack = UIStackView(arrangedSubviews: [picturePulse, titlePulse, metaPulse])
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        stack.setCustomSpacing(16, after: picturePulse)   // mt-4
+        stack.setCustomSpacing(8, after: titlePulse)      // mt-2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding),
+
+            picturePulse.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            picturePulse.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.traceCoverHeight),
+            titlePulse.widthAnchor.constraint(equalToConstant: 112),
+            titlePulse.heightAnchor.constraint(equalToConstant: 8),
+            metaPulse.widthAnchor.constraint(equalToConstant: 80),
+            metaPulse.heightAnchor.constraint(equalToConstant: 8),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+    }
+}
