@@ -370,13 +370,14 @@ public final class AniListClient: NSObject {
     }
 
     private func parseFollowingMany(json: [String: Any], viewerID: Int) -> Result<[Int: [AniListUserSummary]], AniListRequestError> {
-        if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
-            let messages = errors.compactMap { $0["message"] as? String }
-            return .failure(.graphQLErrors(messages.isEmpty ? ["Unknown GraphQL error"] : messages))
-        }
+        // urql hands over whatever data came with the errors: only an answer with nothing in it fails
         guard let dataObject = json["data"] as? [String: Any],
               let page = dataObject["Page"] as? [String: Any],
               let mediaList = page["mediaList"] as? [Any] else {
+            if let errors = json["errors"] as? [[String: Any]], !errors.isEmpty {
+                let messages = errors.compactMap { $0["message"] as? String }
+                return .failure(.graphQLErrors(messages.isEmpty ? ["Unknown GraphQL error"] : messages))
+            }
             return .failure(.emptyData)
         }
 
@@ -455,127 +456,6 @@ public final class AniListClient: NSObject {
 
     private func cachedAnimeItems(for key: String) -> [AnimeItem]? {
         cachedSearchPage(for: key)?.items
-    }
-
-    @discardableResult
-    private func fetchSectionItemsResult(variables: [String: Any],
-                                         policy: AniListRequestPolicy,
-                                         completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        let vars = applyNsfwFilter(to: variables)
-        let key = cacheKey(prefix: "search", variables: vars)
-
-        let cachedItems = queryCacheQueue.sync(execute: { homeSectionItemCache[key] })
-        if policy != .networkOnly, let cached = cachedItems {
-            completion(.success(cached))
-            if policy == .cacheFirst { return nil }
-        }
-        if policy != .networkOnly, cachedItems == nil, let cached = cachedAnimeItems(for: key) {
-            queryCacheQueue.async { self.homeSectionItemCache[key] = cached }
-            completion(.success(cached))
-            if policy == .cacheFirst { return nil }
-        }
-        guard policy != .pausedUntilVisible else { return nil }
-
-        return requestExecutor.execute(query: AniListQueries.search,
-                                       variables: vars,
-                                       authorized: true,
-                                       dedupeKey: key) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
-                    guard let mediaList = response.data?.Page?.media else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-                    let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
-                    self.queryCacheQueue.async { self.homeSectionItemCache[key] = items }
-                    DispatchQueue.main.async { completion(.success(items)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-    }
-
-    // MARK: - Fetch by IDs
-
-    @discardableResult
-    func fetchSectionByIDsResult(_ ids: [Int],
-                                 completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        guard !ids.isEmpty else {
-            DispatchQueue.main.async { completion(.success([])) }
-            return nil
-        }
-        let variables = applyNsfwFilter(to: ["idIn": ids])
-        return requestExecutor.execute(query: AniListQueries.idIn,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "search", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
-                    guard let mediaList = response.data?.Page?.media else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-                    var itemMap: [Int: AnimeItem] = [:]
-                    for media in mediaList {
-                        if let item = AniListUtil.animeItem(from: media) {
-                            itemMap[item.id] = item
-                        }
-                    }
-                    let ordered = ids.compactMap { itemMap[$0] }
-                    DispatchQueue.main.async { completion(.success(ordered)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-    }
-
-    @discardableResult
-    func fetchSectionByIDsFilteredResult(_ ids: [Int],
-                                         status: [String]? = nil,
-                                         onList: Bool? = nil,
-                                         sort: [String]? = nil,
-                                         completion: @escaping (Result<[AnimeItem], AniListRequestError>) -> Void) -> AniListRequestToken? {
-        guard !ids.isEmpty else {
-            DispatchQueue.main.async { completion(.success([])) }
-            return nil
-        }
-        var variables: [String: Any] = ["idIn": ids]
-        if let status { variables["status"] = status }
-        if let onList { variables["onList"] = onList }
-        if let sort { variables["sort"] = sort }
-        variables = applyNsfwFilter(to: variables)
-        return requestExecutor.execute(query: AniListQueries.idInFiltered,
-                                       variables: variables,
-                                       authorized: true,
-                                       dedupeKey: cacheKey(prefix: "search", variables: variables)) { result in
-            switch result {
-            case .success(let graphQLResult):
-                do {
-                    let response = try JSONDecoder().decode(AniListResponse.self, from: graphQLResult.data)
-                    guard let mediaList = response.data?.Page?.media else {
-                        DispatchQueue.main.async { completion(.failure(.emptyData)) }
-                        return
-                    }
-                    let items = mediaList.compactMap { AniListUtil.animeItem(from: $0) }
-                    DispatchQueue.main.async { completion(.success(items)) }
-                } catch {
-                    DispatchQueue.main.async { completion(.failure(.invalidJSON)) }
-                }
-            case .failure(let error):
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
     }
 
     // MARK: - Search (matches client.ts search())
@@ -836,10 +716,13 @@ public final class AniListClient: NSObject {
     }
 
     private func fetchResolverMediaByIdFromNetwork(_ id: Int, cacheKey storageKey: String) {
+        // `client.single(id)` is `cache-first`: what the last visit left is the answer for a few hours,
+        // the anime page asks again for the rest of what it shows
         requestExecutor.execute(query: AniListQueries.resolverMediaById,
                                 variables: ["id": id],
                                 authorized: true,
-                                dedupeKey: cacheKey(prefix: "resolverMedia", variables: ["id": id])) { [weak self] result in
+                                dedupeKey: cacheKey(prefix: "resolverMedia", variables: ["id": id]),
+                                cacheFirstMaxAge: 6 * 60 * 60) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let graphQLResult):
@@ -1255,6 +1138,15 @@ public final class AniListClient: NSObject {
         item.airedSchedule = parseAiringSchedule(from: object["aired"] as? [String: Any])
         item.notYetAiredSchedule = parseAiringSchedule(from: object["notaired"] as? [String: Any])
 
+        // An extension is handed the interface's `FullMedia`, the way AniList answered it: not the
+        // few fields a card keeps of it (no next airing episode, no airing schedule, a start date
+        // of a year). Only a media asked for in full carries one; a relation or a recommendation does not.
+        if object["aired"] != nil, object["notaired"] != nil, object["relations"] != nil {
+            var media = object
+            media["mediaListEntry"] = nil   // not part of the interface's FullMedia
+            item.extensionMediaJSON = media
+        }
+
         return item
     }
 
@@ -1580,8 +1472,18 @@ public final class AniListClient: NSObject {
                     return
                 }
                 self.logGraphQLErrors(graphQLResult.graphQLErrors, context: "Schedule")
-                let entries = self.parseScheduleEntries(from: dataObject)
-                DispatchQueue.main.async { completion(.success(entries)) }
+                let deliver = {
+                    let entries = self.parseScheduleEntries(from: dataObject)
+                    DispatchQueue.main.async { completion(.success(entries)) }
+                }
+                deliver()
+                // `$entries`: what the viewer's lists say of a media filters the page as they come in,
+                // the page does not wait for them
+                if TrackerAccountManager.shared.isLoggedIn(.anilist), !AniListViewerState.shared.areListsLoaded {
+                    AniListTracking.shared.fetchUserLists { lists in
+                        if lists != nil { deliver() }
+                    }
+                }
             case .failure(let error):
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
@@ -1616,7 +1518,8 @@ public final class AniListClient: NSObject {
                   let mediaObjects = page["media"] as? [[String: Any]] else { continue }
             for mediaObject in mediaObjects {
                 guard let mediaID = intValue(mediaObject["id"]), seenMediaIDs.insert(mediaID).inserted else { continue }
-                if ((mediaObject["mediaListEntry"] as? [String: Any])?["status"] as? String) == "DROPPED" { continue }
+                // `$entries.get(v.id)?.status !== 'DROPPED'`: what the viewer's lists say of it
+                if scheduleListEntry(for: mediaID)?.status == "DROPPED" { continue }
                 guard let item = parseScheduleMediaItem(from: mediaObject) else { continue }
 
                 var seenEpisodes = Set<Int>()
@@ -1658,14 +1561,17 @@ public final class AniListClient: NSObject {
             genres: [],
             description: nil,
             coverColor: cover?["color"] as? String)
-        if let entry = object["mediaListEntry"] as? [String: Any] {
-            item.mediaListEntry = AnimeItem.MediaListEntry(listID: intValue(entry["id"]) ?? 0,
-                status: entry["status"] as? String, progress: intValue(entry["progress"]) ?? 0,
-                score: 0, repeatCount: 0, customLists: [])
-        } else if !TrackerAccountManager.shared.isLoggedIn(.anilist) {
-            item.mediaListEntry = TrackerAggregator.listEntry(for: id)
-        }
+        item.mediaListEntry = scheduleListEntry(for: id)
         return item
+    }
+
+    /// auth/client.ts `medialists`: AniList's lists when it is the tracker that answers, otherwise
+    /// those of the first other tracker that is signed in.
+    private func scheduleListEntry(for mediaID: Int) -> AnimeItem.MediaListEntry? {
+        if TrackerAccountManager.shared.isLoggedIn(.anilist) {
+            return AniListViewerState.shared.entry(for: mediaID, fallback: nil)
+        }
+        return TrackerAggregator.listEntry(for: mediaID)
     }
 
     // MARK: - ani.zip image cache (Fanart + Clearlogo)

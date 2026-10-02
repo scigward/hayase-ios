@@ -1006,7 +1006,7 @@ class SearchViewController: UIViewController {
     private func episodeCardHeight(for item: AnimeItem) -> CGFloat {
         let font = UIFont.nunito(ofSize: 13, weight: .black)
         var titleWidth = AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding
-        if (item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id)) != nil { titleWidth -= 12.8 }
+        if item.listEntry != nil { titleWidth -= 12.8 }
         var infoHeight: CGFloat = 0
         if let trace = traceMatch(for: item) {
             let small = UIFont.nunito(ofSize: 12, weight: .medium)

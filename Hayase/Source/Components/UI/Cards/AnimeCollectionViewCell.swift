@@ -150,6 +150,7 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     var hoverProvider: (() -> Void)?
     var unhoverProvider: (() -> Void)?
     private var hoverGesture: UIHoverGestureRecognizer?
+    private var viewerStateObservers: [NSObjectProtocol] = []
 
     override var isHighlighted: Bool {
         didSet { updateInterfacePressedState() }
@@ -160,11 +161,27 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
+        observeViewerState()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setup()
+        observeViewerState()
+    }
+
+    deinit {
+        viewerStateObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    /// AniList's lists and every other tracker's: the dot follows whichever answers for the media.
+    private func observeViewerState() {
+        for name in [AniListViewerState.didChange, LocalTracking.didChange] {
+            viewerStateObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil,
+                                                                               queue: .main) { [weak self] _ in
+                self?.updateStatusDot()
+            })
+        }
     }
 
     // MARK: Layout
@@ -356,8 +373,14 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         loadCover(urlString: trace?.image ?? item.coverMediumURL ?? item.bannerURL
                   ?? item.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
                   ?? item.coverURL ?? "")
-        // Status dot — show user's AniList list status when logged in (matches small.svelte: {#if status} <StatusDot>)
-        if let status = (item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id))?.status {
+        updateStatusDot()
+    }
+
+    /// small.svelte `{#if status} <StatusDot>`: the viewer's list status, drawn again whenever the
+    /// lists change, as the interface's store tells every card at once.
+    private func updateStatusDot() {
+        guard let item = configuredAnimeItem else { return }
+        if let status = item.listEntry?.status {
             statusDotView.backgroundColor = statusDotColor(for: status)
             statusDotView.isHidden = false
         } else {

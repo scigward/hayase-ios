@@ -319,7 +319,7 @@ final class PlayerEpisodeListViewController: UIViewController {
 
     private func applyMediaState(_ item: AnimeItem?) {
         guard let item else { return }
-        let entry = item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id)
+        let entry = item.listEntry
         anilistProgress = entry?.progress ?? 0
         listStatus = entry?.status
         if let accent = ExtensionSearchViewController.uiColor(fromHex: item.coverColor) {

@@ -211,7 +211,7 @@ extension UIViewController {
             play: { [weak self] media in
                 guard let self else { return }
                 // play.svelte: `$status === 'COMPLETED' ? 1 : ($progressStore ?? 0) + 1`
-                let entry = media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id)
+                let entry = media.listEntry
                 let episode = entry?.status == "COMPLETED" ? 1 : (entry?.progress ?? 0) + 1
                 self.presentHayasePreviewExtensionSearch(media: media, episode: episode)
             },
@@ -229,17 +229,7 @@ extension UIViewController {
                     DispatchQueue.main.async { completion(false) }
                     return
                 }
-                AniListTracking.shared.fetchMediaWithEntry(anilistID: media.id) { entry, _, _, _, _ in
-                    if let listID = entry?.listID {
-                        AniListTracking.shared.deleteEntry(listID: listID, mediaID: media.id) { success in
-                            DispatchQueue.main.async { completion(success) }
-                        }
-                    } else {
-                        AniListTracking.shared.entry(mediaID: media.id, status: "PLANNING") { entry in
-                            DispatchQueue.main.async { completion(entry != nil) }
-                        }
-                    }
-                }
+                AniListTracking.shared.toggleBookmark(media: media, completion: completion)
             })
     }
 

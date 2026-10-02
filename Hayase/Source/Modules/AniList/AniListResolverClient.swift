@@ -9,34 +9,23 @@
 import Foundation
 
 extension AniListClient {
-    func searchCompoundResult(flattenedTitles: [(key: String, title: String, year: String?, isAdult: Bool)],
-                              completion: @escaping (Result<[String: Int], AniListRequestError>) -> Void) {
-        searchResolverAnimeIDsResult(flattenedTitles: flattenedTitles, completion: completion)
-    }
-
-    func malIdsCompoundResult(_ malIDs: [Int],
-                              completion: @escaping (Result<[Int: Int], AniListRequestError>) -> Void) {
+    /// `client.malIdsCompound`: MAL id to AniList id. `res.data ?? {}`: a chunk that fails adds
+    /// nothing, and what the chunks that did answer hold is still the answer.
+    func malIdsCompound(_ malIDs: [Int], completion: @escaping ([Int: Int]) -> Void) {
         let ids = Array(Set(malIDs)).sorted()
         guard !ids.isEmpty else {
-            DispatchQueue.main.async { completion(.success([:])) }
+            DispatchQueue.main.async { completion([:]) }
             return
         }
 
         var result: [Int: Int] = [:]
-        var firstError: AniListRequestError?
         let chunks = stride(from: 0, to: ids.count, by: 3500).map {
             Array(ids[$0..<min($0 + 3500, ids.count)])
         }
 
         func run(_ index: Int) {
             guard index < chunks.count else {
-                DispatchQueue.main.async {
-                    if let firstError {
-                        completion(.failure(firstError))
-                    } else {
-                        completion(.success(result))
-                    }
-                }
+                DispatchQueue.main.async { completion(result) }
                 return
             }
 
@@ -72,8 +61,8 @@ extension AniListClient {
                               let malID = item["idMal"] as? Int else { continue }
                         result[malID] = anilistID
                     }
-                case .failure(let error):
-                    if firstError == nil { firstError = error }
+                case .failure:
+                    break
                 }
                 run(index + 1)
             }
@@ -93,10 +82,12 @@ extension AniListClient {
 
     func singleTitleResult(id: Int,
                            completion: @escaping (Result<AniListSingleTitle?, AniListRequestError>) -> Void) {
+        // `client.singleTitle(id)` is `cache-first` too: a title is as good as the last time it was asked for
         AniListRequestExecutor.shared.execute(query: AniListQueries.idTitle,
                                               variables: ["id": id],
                                               authorized: true,
-                                              dedupeKey: "singleTitle|\(id)") { result in
+                                              dedupeKey: "singleTitle|\(id)",
+                                              cacheFirstMaxAge: 7 * 24 * 60 * 60) { result in
             switch result {
             case .success(let graphQLResult):
                 let media = (graphQLResult.json["data"] as? [String: Any])?["Media"] as? [String: Any]

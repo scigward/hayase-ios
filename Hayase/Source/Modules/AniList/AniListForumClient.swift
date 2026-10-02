@@ -106,7 +106,7 @@ final class AniListForumClient {
                                 variables: ["id": id, "type": type],
                                 authorized: true,
                                 dedupeKey: "toggleLike|\(type)|\(id)|\(wasLiked)",
-                                optimistic: true) { result in
+                                optimistic: true) { [weak self] result in
             switch result {
             case .success(let graphQLResult):
                 guard let payload = (graphQLResult.json["data"] as? [String: Any])?["ToggleLikeV2"] as? [String: Any] else {
@@ -115,11 +115,13 @@ final class AniListForumClient {
                 }
                 let isLiked = payload["isLiked"] as? Bool ?? !wasLiked
                 let likeCount = payload["likeCount"] as? Int ?? 0
+                self?.invalidateComments()
                 DispatchQueue.main.async { completion(.success((isLiked, likeCount))) }
             case .failure(let error):
                 if AniListOfflineQueue.isOfflineError(error) {
                     // urql-client.ts `optimistic.ToggleLikeV2`, kept until the device is online
                     AniListOfflineQueue.shared.enqueue(query: AniListQueries.toggleLike, variables: ["id": id, "type": type])
+                    self?.invalidateComments()
                     let state = (isLiked: !wasLiked, likeCount: current + (wasLiked ? -1 : 1))
                     DispatchQueue.main.async { completion(.success(state)) }
                     return
@@ -140,10 +142,10 @@ final class AniListForumClient {
         if let threadID { variables["threadId"] = threadID }
         if let parentCommentID { variables["parentCommentId"] = parentCommentID }
 
+        // no key of its own: the variables, the text among them, are what two saves have in common
         requestExecutor.execute(query: AniListQueries.saveThreadComment,
                                 variables: variables,
-                                authorized: true,
-                                dedupeKey: "saveComment|\(id ?? 0)|\(threadID ?? 0)|\(parentCommentID ?? 0)") { [weak self] result in
+                                authorized: true) { [weak self] result in
             switch result {
             case .success(let graphQLResult):
                 guard let payload = (graphQLResult.json["data"] as? [String: Any])?["SaveThreadComment"] as? [String: Any],
@@ -177,10 +179,14 @@ final class AniListForumClient {
         }
     }
 
-    private func invalidateComments(_ rootID: Int?) {
-        guard let rootID else { return }
+    /// urql-client.ts `cache.invalidate`: the pages of the comment's root, or every page when there is none.
+    private func invalidateComments(_ rootID: Int? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
+            guard let rootID else {
+                self.commentPageCache.removeAll()
+                return
+            }
             self.commentPageCache = self.commentPageCache.filter {
                 !$0.key.hasPrefix("comments|\(rootID)|")
             }

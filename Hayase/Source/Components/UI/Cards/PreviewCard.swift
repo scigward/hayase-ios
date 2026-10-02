@@ -266,8 +266,10 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         descriptionLabel.text = descriptionText(for: media)
         updateDetails(for: media)
         updatePlayTitle(for: media)
-        isFavorite = false
-        isBookmarked = media.mediaListEntry != nil
+        // preview.svelte's buttons read the viewer's lists and the media's `isFavourite`, as the
+        // banner's do; the card does not ask AniList about the media it is shown for
+        isFavorite = media.isFavouriteForViewer
+        isBookmarked = media.listEntry != nil
         refreshActionIcons()
         setBackdropBlurHidden(false)
         loadBanner(for: media)
@@ -289,26 +291,6 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             youtubeIframe.configure(id: media.trailerYouTubeID)
         }
 
-        AniListTracking.shared.checkIsFavourite(mediaID: media.id) { [weak self] favorite in
-            DispatchQueue.main.async {
-                guard self?.media?.id == media.id else { return }
-                self?.isFavorite = favorite
-                self?.refreshActionIcons()
-            }
-        }
-        AniListTracking.shared.fetchMediaWithEntry(anilistID: media.id) { [weak self] entry, _, _, _, _ in
-            DispatchQueue.main.async {
-                guard self?.media?.id == media.id else { return }
-                self?.isBookmarked = entry != nil
-                self?.refreshActionIcons()
-                if var updated = self?.media {
-                    updated.mediaListEntry = entry
-                    self?.media = updated
-                    self?.updateDetails(for: updated)
-                    self?.updatePlayTitle(for: updated)
-                }
-            }
-        }
     }
 
     func animateIn() {
@@ -377,7 +359,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
 
     private func shouldHideScore(for media: AnimeItem) -> Bool {
         guard Settings.hideSpoilers else { return false }
-        let status = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.status
+        let status = media.listEntry?.status
         return status == "CURRENT" || status == "PLANNING"
     }
 
@@ -387,7 +369,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updatePlayTitle(for media: AnimeItem) {
-        let status = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.status
+        let status = media.listEntry?.status
         let title: String
         if status == "COMPLETED" {
             title = "  Rewatch"

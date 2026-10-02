@@ -204,11 +204,20 @@ final class LocalTracking {
         }
     }
 
+    /// What was last decoded, and the bytes it was decoded from: every card asks for its entry, and
+    /// decoding the whole list for each of them is what the interface's `Map` never does. Whatever
+    /// else changes the bytes (a settings import) is seen by comparing them. Used under `entriesLock`.
+    private var decodedData: Data?
+    private var decodedEntries: [Int: LocalMediaTrackingEntry] = [:]
+
     private func allEntries() -> [Int: LocalMediaTrackingEntry] {
-        guard let data = UserDefaults.standard.data(forKey: udKey),
-              let decoded = try? JSONDecoder().decode([Int: LocalMediaTrackingEntry].self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: udKey) else { return [:] }
+        if let decodedData, decodedData == data { return decodedEntries }
+        guard let decoded = try? JSONDecoder().decode([Int: LocalMediaTrackingEntry].self, from: data) else {
             return [:]
         }
+        decodedData = data
+        decodedEntries = decoded
         return decoded
     }
 
@@ -216,6 +225,8 @@ final class LocalTracking {
         for id in entries.keys.sorted() where !order.contains(id) { order.append(id) }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: udKey)
+        decodedData = data
+        decodedEntries = entries
     }
 
     private func notify() {

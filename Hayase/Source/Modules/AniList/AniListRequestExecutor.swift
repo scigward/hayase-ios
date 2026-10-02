@@ -6,6 +6,7 @@
 //  Mirrors the interface urql stack's auth + retry exchange behavior.
 //
 
+import CryptoKit
 import Foundation
 
 final class AniListRequestToken {
@@ -185,6 +186,9 @@ final class AniListRequestExecutor {
     private let session: URLSession
     private let lockQueue = DispatchQueue(label: "com.hayase.anilist.requestExecutor")
     private let retryQueue = DispatchQueue(label: "com.hayase.anilist.retryDelay")
+    /// Where answers are handed over. Reading a megabyte of media into models takes a while, and
+    /// `lockQueue` is where every request is registered, cancelled and looked up.
+    private let callbackQueue = DispatchQueue(label: "com.hayase.anilist.callbacks")
 
     private var inFlight: [String: [CompletionBox]] = [:]
     /// Queries whose callers were served from the cache while the network kept failing.
@@ -201,6 +205,8 @@ final class AniListRequestExecutor {
         var optimistic = false
         /// the authorization has been run again for this request once
         var reauthenticated = false
+        /// every retry so far, a rate limit's included, for what is only tried a few times
+        var attempts = 0
     }
 
     private struct CompletionBox {
@@ -222,6 +228,11 @@ final class AniListRequestExecutor {
         }
     }
 
+    /// - Parameters:
+    ///   - cacheAndNetwork: `requestPolicy: 'cache-and-network'`: what the cache has comes first, the
+    ///     answer of the network follows.
+    ///   - cacheFirstMaxAge: `requestPolicy: 'cache-first'`: an answer the cache has, if it is not
+    ///     older than this, is all there is; the network is asked only for what it does not have.
     @discardableResult
     func execute(query: String,
                  variables: [String: Any]? = nil,
@@ -229,23 +240,35 @@ final class AniListRequestExecutor {
                  dedupeKey: String? = nil,
                  optimistic: Bool = false,
                  cacheAndNetwork: Bool = false,
+                 cacheFirstMaxAge: TimeInterval? = nil,
                  completion: @escaping (Result<AniListGraphQLResult, AniListRequestError>) -> Void) -> AniListRequestToken {
         let token = AniListRequestToken()
         let key = dedupeKey ?? makeDedupeKey(query: query, variables: variables, authorized: authorized)
 
-        lockQueue.async { [weak self] in
+        let start = { [weak self] in
             guard let self else { return }
-            // `requestPolicy: 'cache-and-network'`: what the cache has comes first, then the answer
-            if cacheAndNetwork, !token.isCancelled, let cached = self.cachedGraphQLResult(for: key) {
-                completion(.success(cached))
+            self.lockQueue.async {
+                if self.inFlight[key] != nil {
+                    self.inFlight[key, default: []].append(CompletionBox(token: token, callback: completion))
+                    return
+                }
+                self.inFlight[key] = [CompletionBox(token: token, callback: completion)]
+                self.perform(query: query, variables: variables, authorized: authorized, key: key,
+                             retry: RetryState(optimistic: optimistic))
             }
-            if self.inFlight[key] != nil {
-                self.inFlight[key, default: []].append(CompletionBox(token: token, callback: completion))
-                return
+        }
+
+        if cacheAndNetwork || cacheFirstMaxAge != nil {
+            callbackQueue.async { [weak self] in
+                guard let self else { return }
+                if !token.isCancelled, let cached = self.cachedGraphQLResult(for: key, maxAge: cacheFirstMaxAge) {
+                    completion(.success(cached))
+                    if cacheFirstMaxAge != nil { return }
+                }
+                start()
             }
-            self.inFlight[key] = [CompletionBox(token: token, callback: completion)]
-            self.perform(query: query, variables: variables, authorized: authorized, key: key,
-                         retry: RetryState(optimistic: optimistic))
+        } else {
+            start()
         }
 
         return token
@@ -323,7 +346,7 @@ final class AniListRequestExecutor {
             }
 
             if case .failure(let requestError) = result,
-               self.shouldRetry(requestError) {
+               self.shouldRetry(requestError, after: retry) {
                 self.scheduleRetry(request: request, key: key, retry: retry, error: requestError)
                 return
             }
@@ -392,7 +415,7 @@ final class AniListRequestExecutor {
                let cached = self.cachedGraphQLResult(for: key) {
                 self.finish(key: key, result: .success(cached))
                 // cache-and-network: the callers have their data, the request keeps retrying
-                if self.shouldRetry(requestError) {
+                if self.shouldRetry(requestError, after: retry) {
                     self.keepRefreshing(query: query, variables: variables, authorized: authorized,
                                         key: key, retry: retry, error: requestError)
                 }
@@ -400,7 +423,7 @@ final class AniListRequestExecutor {
             }
 
             if case .failure(let requestError) = result,
-               self.shouldRetry(requestError) {
+               self.shouldRetry(requestError, after: retry) {
                 self.scheduleRetry(query: query,
                                    variables: variables,
                                    authorized: authorized,
@@ -463,7 +486,7 @@ final class AniListRequestExecutor {
                     AniListOperationCache.shared.purgeStaleEntries()
                     self.lockQueue.async { self.refreshing.remove(key) }
                 case .failure(let requestError):
-                    guard self.shouldRetry(requestError) else {
+                    guard self.shouldRetry(requestError, after: retry) else {
                         self.lockQueue.async { self.refreshing.remove(key) }
                         return
                     }
@@ -480,8 +503,8 @@ final class AniListRequestExecutor {
         return trimmed.hasPrefix("query") || trimmed.hasPrefix("{")
     }
 
-    private func cachedGraphQLResult(for key: String) -> AniListGraphQLResult? {
-        guard let data = AniListOperationCache.shared.cachedData(for: key),
+    private func cachedGraphQLResult(for key: String, maxAge: TimeInterval? = nil) -> AniListGraphQLResult? {
+        guard let data = AniListOperationCache.shared.cachedData(for: key, maxAge: maxAge),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
@@ -609,13 +632,22 @@ final class AniListRequestExecutor {
     }
 
     /// urql-client.ts `retryIf`: everything but a `validation` error is retried, forever. What
-    /// cannot be retried at all (nothing was sent, or the token is bad) is not an urql result.
-    private func shouldRetry(_ error: AniListRequestError) -> Bool {
+    /// cannot be retried at all (nothing was sent, or the token is bad) is not an urql result. The
+    /// interface asks again after a `Not Found.` too, and keeps asking: every ask counts against the
+    /// minute's limit and the answer cannot change, so the answers that say the request itself is
+    /// wrong (a 4xx that is no timeout and no rate limit) are final here.
+    private func shouldRetry(_ error: AniListRequestError, after retry: RetryState) -> Bool {
+        if error.isInvalidToken || error.isValidation { return false }
         switch error {
         case .cancelled, .encodingFailed, .invalidEndpoint, .unauthenticated:
             return false
+        case .graphQLHTTP(_, let status, _):
+            return status == 408 || status == 425 || status == 429 || status >= 500
+        case .graphQLErrors:
+            // a 200 that holds nothing but errors: a few chances, not endless ones
+            return retry.attempts < 3
         default:
-            return !error.isInvalidToken && !error.isValidation
+            return true
         }
     }
 
@@ -683,9 +715,11 @@ final class AniListRequestExecutor {
             limited.count = 0
             limited.delay = delay
             limited.isRateLimit = true
+            limited.attempts += 1
             return (delay, limited)
         }
         var next = state
+        next.attempts += 1
         next.count += 1
         var delay = next.delay ?? 0.1
         if !next.isRateLimit { delay = min(Double(next.count) * 0.1, 60) }
@@ -714,10 +748,10 @@ final class AniListRequestExecutor {
     private func finish(key: String, result: Result<AniListGraphQLResult, AniListRequestError>) {
         lockQueue.async { [weak self] in
             guard let self else { return }
-            let callbacks = self.inFlight.removeValue(forKey: key) ?? []
-            callbacks
-                .filter { !$0.token.isCancelled }
-                .forEach { $0.callback(result) }
+            let callbacks = (self.inFlight.removeValue(forKey: key) ?? []).filter { !$0.token.isCancelled }
+            self.callbackQueue.async {
+                callbacks.forEach { $0.callback(result) }
+            }
         }
     }
 
@@ -739,10 +773,15 @@ final class AniListRequestExecutor {
         let variablesString = String(data: variableData, encoding: .utf8) ?? "{}"
         let authKey: String
         if authorized, let token = TrackerAccountManager.shared.token(for: .anilist) {
-            authKey = "token:\(token.hashValue)"
+            authKey = "token:\(Self.stableHash(token))"
         } else {
             authKey = "public"
         }
-        return "\(authKey)|\(query.hashValue)|\(variablesString)"
+        return "\(authKey)|\(Self.stableHash(query))|\(variablesString)"
+    }
+
+    /// `hashValue` is seeded anew by every launch: a key that names a file has to be the same the next time.
+    private static func stableHash(_ string: String) -> String {
+        SHA256.hash(data: Data(string.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }

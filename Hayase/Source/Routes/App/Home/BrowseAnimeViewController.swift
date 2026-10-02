@@ -520,6 +520,9 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
     }
 
     private func setup() {
+        for name in [AniListViewerState.didChange, LocalTracking.didChange] {
+            NotificationCenter.default.addObserver(self, selector: #selector(viewerStateChanged), name: name, object: nil)
+        }
         // Don't clip — interface BannerImage lives behind the route and extends
         // past the 80vh hero into the first row fade area.
         clipsToBounds = false
@@ -885,6 +888,27 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
         displayItem(fadeIn: true)
     }
 
+    /// Reflect saved state: the icon is filled if already favourited/bookmarked, as FavoriteButton and
+    /// BookmarkButton do with `fill='currentColor'`, and play.svelte's label follows the status of the
+    /// media's list entry. They read stores, so they follow the viewer's lists and the media's own
+    /// `isFavourite` whenever those change; none of them asks AniList.
+    private func updateViewerButtons(for item: AnimeItem) {
+        let cfg16 = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let entry = item.listEntry
+        favoriteButton.setImage(item.isFavouriteForViewer
+            ? UIImage.hayaseFilledIcon("heart", pointSize: 16)
+            : UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
+        bookmarkButton.setImage(entry != nil
+            ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16)
+            : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
+        playButton.setTitle(Self.playButtonTitle(status: entry?.status), for: .normal)
+    }
+
+    @objc private func viewerStateChanged() {
+        guard let item = currentItem else { return }
+        updateViewerButtons(for: item)
+    }
+
     private func displayItem(fadeIn: Bool) {
         guard currentIndex < items.count else { return }
         artworkGeneration += 1
@@ -916,35 +940,7 @@ private final class FeaturedBannerCell: UICollectionViewCell, CAAnimationDelegat
             // The icon buttons are currentColor, filled or not, and only turn custom while selected.
             self.favoriteButton.selectedTint = customColor
             self.bookmarkButton.selectedTint = customColor
-            let cfg16 = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            self.favoriteButton.setImage(UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
-            self.bookmarkButton.setImage(UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
-            // Reflect saved state: the icon is filled if already favourited/bookmarked, as
-            // FavoriteButton/BookmarkButton do with `fill='currentColor'`.
-            let itemIDForState = item.id
-            AniListTracking.shared.checkIsFavouriteResult(mediaID: itemIDForState) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self,
-                          self.currentIndex < self.items.count,
-                          self.items[self.currentIndex].id == itemIDForState else { return }
-                    guard case .success(let isFav) = result else { return }
-                    self.favoriteButton.setImage(isFav ? UIImage.hayaseFilledIcon("heart", pointSize: 16) : UIImage.hayaseIcon("heart")?.withConfiguration(cfg16), for: .normal)
-                }
-            }
-            AniListTracking.shared.fetchMediaWithEntryResult(anilistID: itemIDForState) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self,
-                          self.currentIndex < self.items.count,
-                          self.items[self.currentIndex].id == itemIDForState else { return }
-                    guard case .success(let payload) = result else { return }
-                    let isOnList = payload.entry != nil
-                    self.playButton.setTitle(Self.playButtonTitle(status: payload.entry?.status), for: .normal)
-                    self.bookmarkButton.setImage(isOnList ? UIImage.hayaseFilledIcon("bookmark", pointSize: 16) : UIImage.hayaseIcon("bookmark")?.withConfiguration(cfg16), for: .normal)
-                }
-            }
-            // play.svelte: the label follows the status of the media's list entry
-            let status = item.mediaListEntry?.status ?? TrackerAggregator.externalEntry(for: item.id)?.status
-            self.playButton.setTitle(Self.playButtonTitle(status: status), for: .normal)
+            self.updateViewerButtons(for: item)
         }
         block()
         if fadeIn && !UIAccessibility.isReduceMotionEnabled {
@@ -2649,13 +2645,7 @@ extension BrowseAnimeViewController: UICollectionViewDataSource {
                 AniListTracking.shared.toggleFavourite(mediaID: item.id)
             }
             cell.onBookmark = { item in
-                AniListTracking.shared.fetchMediaWithEntry(anilistID: item.id) { entry, _, _, _, _ in
-                    if let listID = entry?.listID {
-                        AniListTracking.shared.deleteEntry(listID: listID, mediaID: item.id)
-                    } else {
-                        AniListTracking.shared.entry(mediaID: item.id, status: "PLANNING")
-                    }
-                }
+                AniListTracking.shared.toggleBookmark(media: item)
             }
             // Wire badge taps → navigate to Search tab with the appropriate filter
             cell.onBadgeTapped = { [weak self] filterType, value, value2 in

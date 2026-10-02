@@ -80,6 +80,36 @@ enum AniListQueries {
           }
     """
 
+    /// What a recommendation card and its hover card show: the media without its relations, tags,
+    /// studios and the two airing schedules. The interface asks `EdgeMedia` for these cards; the hover
+    /// card needs more than that (description, score, banner, trailer), but each airing schedule is a
+    /// query of its own on AniList's side, and asked for on all 24 recommendations they took the
+    /// page from one second to eleven for a long running show.
+    static let recommendationFields = """
+          id
+          idMal
+          title { romaji english native userPreferred }
+          description(asHtml: false)
+          season
+          seasonYear
+          format
+          status
+          episodes
+          duration
+          averageScore
+          genres
+          isFavourite
+          coverImage { extraLarge medium color }
+          countryOfOrigin
+          isAdult
+          bannerImage
+          synonyms
+          type
+          nextAiringEpisode { id timeUntilAiring episode }
+          startDate { year month day }
+          trailer { id site }
+    """
+
     static let userFields = """
           id
           bannerImage
@@ -142,7 +172,6 @@ enum AniListQueries {
           id
           coverImage { extraLarge color }
           title { userPreferred }
-          mediaListEntry { status progress id }
           aired: airingSchedule(page: 1, perPage: 50, notYetAired: false) {
             n: nodes { a: airingAt e: episode }
           }
@@ -199,28 +228,6 @@ enum AniListQueries {
     }
     """
 
-    // MARK: - ID-based fetch
-
-    static let idIn = """
-    query ($idIn: [Int], $nsfw: [String]) {
-      Page(page: 1, perPage: 50) {
-        media(type: ANIME, format_not: MUSIC, id_in: $idIn, genre_not_in: $nsfw) {
-          \(fullMediaFields)
-        }
-      }
-    }
-    """
-
-    static let idInFiltered = """
-    query ($idIn: [Int], $status: [MediaStatus], $onList: Boolean, $sort: [MediaSort], $nsfw: [String]) {
-      Page(page: 1, perPage: 50) {
-        media(type: ANIME, format_not: MUSIC, id_in: $idIn, status_in: $status, onList: $onList, sort: $sort, genre_not_in: $nsfw) {
-          \(fullMediaFields)
-        }
-      }
-    }
-    """
-
     // MARK: - Detail (relations)
 
 
@@ -239,7 +246,7 @@ enum AniListQueries {
 
     /// The interface asks for `EdgeMedia` per recommendation, because its recommendation cards have
     /// `hover={false}`. Here the cards open the hover card, which needs the description, score,
-    /// banner, trailer and the rest of the media, so a recommendation is asked for in full.
+    /// banner and trailer, so a recommendation is asked for with `recommendationFields`.
     static let animePage = """
     query AnimePage($id: Int!) {
       Media(id: $id, type: ANIME) {
@@ -249,7 +256,7 @@ enum AniListQueries {
             id
             rating
             mediaRecommendation {
-              \(fullMediaFields)
+              \(recommendationFields)
             }
           }
         }
@@ -416,6 +423,9 @@ enum AniListQueries {
     }
     """
 
+    /// Interface `UserLists`: each entry says its own status, progress, score and lists
+    /// (`FullMediaList`), and its media only what `UserListMedia` needs. AniList answers `null` for a
+    /// `mediaListEntry` asked for inside the media of a list, so the entry is never read from there.
     static let userLists = """
     query UserLists($id: Int) {
       MediaListCollection(userId: $id, type: ANIME, forceSingleCompletedList: true, sort: UPDATED_TIME_DESC) {
@@ -424,19 +434,16 @@ enum AniListQueries {
           status
           entries {
             id
+            mediaId
+            status
+            progress
+            repeat
+            score(format: POINT_10)
+            customLists(asArray: true)
             media {
               title { userPreferred }
               id
               status
-              episodes
-              mediaListEntry {
-                id
-                status
-                progress
-                score(format: POINT_10)
-                repeat
-                customLists(asArray: true)
-              }
               nextAiringEpisode { episode }
               relations {
                 edges {
@@ -502,14 +509,6 @@ enum AniListQueries {
     mutation ToggleFavourite($id: Int!) {
       ToggleFavourite(animeId: $id) {
         anime { nodes { id } }
-      }
-    }
-    """
-
-    static let isFavourite = """
-    query IsFavourite($id: Int) {
-      Media(id: $id) {
-        isFavourite
       }
     }
     """

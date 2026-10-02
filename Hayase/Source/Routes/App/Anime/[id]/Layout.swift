@@ -1356,11 +1356,11 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
                       format:   item.format,
                       season:   seasonStr,
                       duration: item.duration,
-                      progress: item.mediaListEntry?.progress,
+                      progress: item.listEntry?.progress,
                       accent:   accent,
                       contrastColor: contrast)
 
-        updateScoreSpoiler(listStatus: item.mediaListEntry?.status)
+        updateScoreSpoiler(listStatus: item.listEntry?.status)
         setGenres(item.genres.map { String($0) }, tags: item.tags)
 
         setDescriptionText(item.description)
@@ -1386,7 +1386,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         romajiLabel.text = AniListUtil.alternateTitle(for: item)
         romajiLabel.isHidden = romajiLabel.text == nil
         setGenres(item.genres.map { String($0) }, tags: item.tags)
-        updateScoreSpoiler(listStatus: item.mediaListEntry?.status)
+        updateScoreSpoiler(listStatus: item.listEntry?.status)
     }
 
     func updateBanner(from urlString: String) {
@@ -2098,6 +2098,12 @@ class AnimeDetailViewController: UIViewController {
         observeAnimeBackdrop()
         NotificationCenter.default.addObserver(self, selector: #selector(refocusAnimePage),
                                                name: AniListRefocus.didRefocus, object: nil)
+        // `$mediaListEntry` is a store: an entry saved elsewhere, the lists loading again and another
+        // tracker's answer all show on the page that is open
+        NotificationCenter.default.addObserver(self, selector: #selector(viewerListsChanged),
+                                               name: AniListViewerState.didChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(viewerListsChanged),
+                                               name: LocalTracking.didChange, object: nil)
         headerView?.clearFollowingAvatars()
         applyTabBarLayoutForSizeClass()
         applyViewerStateFromRouteMedia()
@@ -2427,7 +2433,7 @@ class AnimeDetailViewController: UIViewController {
         headerView.onBookmark = { [weak self] in
             guard let self, let item = self.animeItem else { return }
             if self.isOnList {
-                guard let listID = item.mediaListEntry?.listID else { return }
+                guard let listID = item.listEntry?.listID else { return }
                 AniListTracking.shared.deleteEntry(listID: listID, mediaID: item.id) { [weak self] deleted in
                     guard deleted else { return }
                     DispatchQueue.main.async {
@@ -2619,7 +2625,7 @@ class AnimeDetailViewController: UIViewController {
 
     func showEntryEditor() {
         guard let item = animeItem else { return }
-        presentEntryEditorSheet(mediaID: item.id, currentEntry: item.mediaListEntry, totalEpisodes: item.episodes)
+        presentEntryEditorSheet(mediaID: item.id, currentEntry: item.listEntry, totalEpisodes: item.episodes)
     }
 
     private func presentEntryEditorSheet(mediaID: Int, currentEntry: AnimeItem.MediaListEntry?, totalEpisodes: Int?) {
@@ -2657,12 +2663,14 @@ class AnimeDetailViewController: UIViewController {
     func applyViewerState(from item: AnimeItem) {
         // auth/client.ts `isFavourite`: AniList's own, else Kitsu's, else the local list's
         if TrackerAccountManager.shared.isLoggedIn(.anilist) {
-            if let favourite = item.isFavourite { isFavorite = favourite }
+            if let favourite = AniListViewerState.shared.isFavourite(for: item.id, fallback: item.isFavourite) {
+                isFavorite = favourite
+            }
         } else {
             isFavorite = TrackerAggregator.isFavourite(mediaID: item.id)
         }
         // `mediaListEntry`: AniList's entry first, then kitsu, mal, simkl and the local one
-        if let entry = item.mediaListEntry ?? TrackerAggregator.externalEntry(for: item.id) {
+        if let entry = item.listEntry {
             isOnList = true
             currentListStatus = entry.status
             anilistProgress = entry.progress
@@ -2676,19 +2684,26 @@ class AnimeDetailViewController: UIViewController {
         headerView?.updatePlayButtonTitle(listStatus: currentListStatus)
     }
 
+    /// Nothing is drawn again when the entry is the one the page already shows.
+    @objc private func viewerListsChanged() {
+        guard isViewLoaded, let item = animeItem, item.id > 0 else { return }
+        let entry = item.listEntry
+        guard (entry != nil) != isOnList
+            || entry?.status != currentListStatus
+            || (entry?.progress ?? 0) != anilistProgress else { return }
+        refreshViewerStateAfterMutation()
+    }
+
+    /// What the entry editor saved is already in the viewer's lists, which is what the page reads.
     private func refreshViewerStateAfterMutation() {
-        guard let id = animeItem?.id, id > 0 else { return }
-        AniListTracking.shared.fetchMediaWithEntry(anilistID: id) { [weak self] entry, _, _, _, _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.updateAnimeItemListEntry(entry)
-                self.isOnList = entry != nil
-                self.syncEpisodePageToInterfaceProgress()
-                self.tableView.reloadData()
-                self.headerView?.updateButtonStates(isFavorite: self.isFavorite, isOnList: self.isOnList)
-                self.headerView?.updatePlayButtonTitle(listStatus: entry?.status)
-            }
-        }
+        guard let item = animeItem, item.id > 0 else { return }
+        let entry = item.listEntry
+        updateAnimeItemListEntry(entry)
+        isOnList = entry != nil
+        syncEpisodePageToInterfaceProgress()
+        tableView.reloadData()
+        headerView?.updateButtonStates(isFavorite: isFavorite, isOnList: isOnList)
+        headerView?.updatePlayButtonTitle(listStatus: entry?.status)
     }
 
     private func updateAnimeItemListEntry(_ entry: AnimeItem.MediaListEntry?, fallbackProgress: Int? = nil) {

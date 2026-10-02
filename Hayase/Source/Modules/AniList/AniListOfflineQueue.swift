@@ -31,6 +31,13 @@ final class AniListOfflineQueue {
         return false
     }
 
+    /// Mutations that have not gone out yet: the interface keeps showing their optimistic results.
+    var hasPending: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !queue.isEmpty
+    }
+
     func enqueue(query: String, variables: [String: Any]) {
         let entry: [String: Any] = ["query": query, "variables": variables]
         // `UserDefaults.set` raises on a value that is not a property list (an NSNull, an enum)

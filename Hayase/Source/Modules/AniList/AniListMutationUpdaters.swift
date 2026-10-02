@@ -10,10 +10,12 @@ import Foundation
 
 enum AniListMutationUpdaters {
     static func applyFavourite(mediaID: Int, isFavourite: Bool) {
+        AniListViewerState.shared.applyFavourite(isFavourite, for: mediaID)
         AniListClient.shared.updateFavouriteState(mediaID: mediaID, isFavourite: isFavourite)
     }
 
     static func applyMediaListEntry(mediaID: Int, entry: AnimeItem.MediaListEntry?) {
+        AniListViewerState.shared.applyEntry(entry, for: mediaID)
         AniListClient.shared.updateMediaListEntry(mediaID: mediaID, entry: entry)
     }
 

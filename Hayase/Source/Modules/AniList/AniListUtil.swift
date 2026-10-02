@@ -56,7 +56,7 @@ enum AniListUtil {
     /// auth/util.ts `of(media, eps)`: "12 Episodes", "3 / 12 Episodes", or nothing for a single episode or
     /// an unknown count. Without `eps`, the progress stands in for the count the mappings know.
     static func episodesText(for media: AnimeItem, mappings: Int? = nil) -> String? {
-        let progress = (media.mediaListEntry ?? TrackerAggregator.externalEntry(for: media.id))?.progress ?? 0
+        let progress = media.listEntry?.progress ?? 0
         let count = episodes(for: media, mappings: mappings ?? progress)
         guard count != 1, count != 0 else { return nil }
         return progress == 0 || progress == count ? "\(count) Episodes" : "\(progress) / \(count) Episodes"

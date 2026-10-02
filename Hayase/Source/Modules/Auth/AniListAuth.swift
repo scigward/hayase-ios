@@ -148,6 +148,21 @@ final class AniListTracking {
             guard TrackerAccountManager.shared.isLoggedIn(.anilist) else { return }
             self?.fetchUserLists(forceRefresh: true) { _ in self?.notifyTrackingDidChange() }
         }
+        // ...and the one that is opened for whoever signs in
+        NotificationCenter.default.addObserver(forName: TrackerAccountManager.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.loadViewerListsIfNeeded()
+        }
+    }
+
+    /// `userlists = derived(viewerID, …)`: the viewer's lists load once there is a viewer, wherever the
+    /// app starts, and are what every card, button and the schedule read an entry from.
+    func start() {
+        loadViewerListsIfNeeded()
+    }
+
+    private func loadViewerListsIfNeeded() {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist), !AniListViewerState.shared.areListsLoaded else { return }
+        fetchUserLists { _ in }
     }
 
     private let endpoint = "https://graphql.anilist.co"
@@ -229,18 +244,6 @@ final class AniListTracking {
     }
 
     // MARK: - Fetch current list entry
-
-    func fetchMediaWithEntry(anilistID: Int, completion: @escaping (AnimeItem.MediaListEntry?, String?, Int?, String?, Int?) -> Void) {
-        fetchMediaWithEntryResult(anilistID: anilistID) { result in
-            switch result {
-            case .success(let payload):
-                completion(payload.entry, payload.mediaStatus, payload.episodes, payload.format, payload.duration)
-            case .failure(let error):
-                NSLog("[AniListTracking] fetchMediaWithEntry failed: %@", error.description)
-                completion(TrackerAggregator.externalEntry(for: anilistID), nil, nil, nil, nil)
-            }
-        }
-    }
 
     func fetchMediaWithEntryResult(anilistID: Int,
                                    completion: @escaping (Result<(entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?, scheduleEpisodes: Int), AniListRequestError>) -> Void) {
@@ -518,68 +521,125 @@ final class AniListTracking {
 
     // MARK: - watch()
 
-    func watch(anilistID: Int, episodeProgress: Int) {
+    /// The few facts about a media that `watch` and `setInitialState` decide on.
+    private struct TrackedMedia {
+        let status: String?
+        let episodes: Int?
+        let scheduleEpisodes: Int
+    }
+
+    /// auth/client.ts `client.single(…)`, `?? outdated`: the media as AniList has it, and the one
+    /// already known when AniList cannot be asked.
+    private func trackedMedia(from payload: (entry: AnimeItem.MediaListEntry?, mediaStatus: String?, episodes: Int?, format: String?, duration: Int?, scheduleEpisodes: Int)?,
+                              anilistID: Int,
+                              episodesHint: Int?) -> TrackedMedia? {
+        if let payload, payload.mediaStatus != nil {
+            return TrackedMedia(status: payload.mediaStatus, episodes: payload.episodes, scheduleEpisodes: payload.scheduleEpisodes)
+        }
+        if let known = Router.shared.cachedAnimeItem(for: anilistID) {
+            let scheduled = max(known.airedSchedule.last?.episode ?? 0, known.notYetAiredSchedule.last?.episode ?? 0)
+            return TrackedMedia(status: known.status, episodes: known.episodes, scheduleEpisodes: scheduled)
+        }
+        if let episodesHint, episodesHint > 0 {
+            return TrackedMedia(status: nil, episodes: episodesHint, scheduleEpisodes: 0)
+        }
+        return nil
+    }
+
+    /// `get(this.mediaListEntry(id))`: the viewer's lists, then the other trackers'.
+    private func listedEntry(for mediaID: Int, fetched: AnimeItem.MediaListEntry?) -> AnimeItem.MediaListEntry? {
+        fetched
+            ?? AniListViewerState.shared.entry(for: mediaID, fallback: nil)
+            ?? TrackerAggregator.externalEntry(for: mediaID)
+    }
+
+    func watch(anilistID: Int, episodeProgress: Int, episodesHint: Int? = nil) {
         // auth/client.ts `watch`: `!isFinite(progress) || progress < 0`
         guard episodeProgress >= 0 else { return }
         fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
-            guard let self else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let payload = try? result.get()
+                // without a media there is nothing to say whether this was the last episode
+                guard let media = self.trackedMedia(from: payload, anilistID: anilistID, episodesHint: episodesHint) else { return }
+                let currentEntry = self.listedEntry(for: anilistID, fetched: payload?.entry)
 
-            guard case .success(let payload) = result, payload.mediaStatus != nil else {
-                NSLog("[AniListTracking] watch: fetchMediaWithEntry returned nil — attempting direct entry update for ep %d", episodeProgress)
-                self.entry(mediaID: anilistID, status: "CURRENT", progress: episodeProgress)
-                return
+                // `episodes(media) || 1`: episodes or movie which is single episode
+                let counted = (media.episodes ?? 0) != 0 ? (media.episodes ?? 0) : media.scheduleEpisodes
+                let total = counted == 0 ? 1 : counted
+                // woah, bad data from resolver?!
+                if total < episodeProgress { return }
+
+                let currentProgress = currentEntry?.progress ?? 0
+                if currentProgress >= episodeProgress { return }
+
+                // an airing show without an expected end has no episode count: do not complete it
+                let canBeCompleted = media.status == "FINISHED" || media.episodes != nil
+
+                let status: String
+                if total == episodeProgress && canBeCompleted {
+                    status = "COMPLETED"
+                } else if currentEntry?.status == "REPEATING" {
+                    status = "REPEATING"
+                } else {
+                    status = "CURRENT"
+                }
+
+                self.entry(mediaID: anilistID, status: status, progress: episodeProgress,
+                          lists: currentEntry?.customLists ?? [])
             }
-            let currentEntry = payload.entry
-            let mediaStatus = payload.mediaStatus
-            let totalEps = payload.episodes
-
-            // `episodes(media) || 1`: episodes or movie which is single episode
-            let counted = (totalEps ?? 0) != 0 ? (totalEps ?? 0) : payload.scheduleEpisodes
-            let total = counted == 0 ? 1 : counted
-            if total < episodeProgress { return }
-
-            let currentProgress = currentEntry?.progress ?? 0
-            if currentProgress >= episodeProgress { return }
-
-            let canBeCompleted = mediaStatus == "FINISHED" || totalEps != nil
-
-            let status: String
-            if total == episodeProgress && canBeCompleted {
-                status = "COMPLETED"
-            } else if currentEntry?.status == "REPEATING" {
-                status = "REPEATING"
-            } else {
-                status = "CURRENT"
-            }
-
-            self.entry(mediaID: anilistID, status: status, progress: episodeProgress,
-                      lists: currentEntry?.customLists ?? [])
         }
     }
 
     // MARK: - setInitialState()
 
+    /// `get(this.mediaListEntry(id))` for a viewer whose lists may not be in yet: AniList is asked about
+    /// the one media when they are not. A nil entry that is not `known` is not "not on a list" but "cannot tell".
+    private func entryForInitialState(anilistID: Int,
+                                      completion: @escaping (_ entry: AnimeItem.MediaListEntry?, _ known: Bool) -> Void) {
+        guard TrackerAccountManager.shared.isLoggedIn(.anilist), !AniListViewerState.shared.areListsLoaded else {
+            completion(listedEntry(for: anilistID, fetched: nil), true)
+            return
+        }
+        fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let payload): completion(self.listedEntry(for: anilistID, fetched: payload.entry), true)
+                case .failure: completion(nil, false)
+                }
+            }
+        }
+    }
+
     func setInitialState(anilistID: Int, episode: Int) {
         guard episode == 1 else { return }
 
-        fetchMediaWithEntryResult(anilistID: anilistID) { [weak self] result in
-            guard let self else { return }
+        // `client.single(media.id, 'cache-first')`, for `episodes(media)` below
+        AniListClient.shared.fetchResolverMediaByIdResult(anilistID) { [weak self] mediaResult in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let media = (try? mediaResult.get()) ?? Router.shared.cachedAnimeItem(for: anilistID)
+                self.entryForInitialState(anilistID: anilistID) { [weak self] currentEntry, known in
+                    guard let self, known else { return }
+                    guard let currentEntry else {
+                        self.entry(mediaID: anilistID, status: "CURRENT", progress: 0)
+                        return
+                    }
+                    let counted = media.map { AniListUtil.episodes(for: $0) } ?? 0
 
-            let payload = try? result.get()
-            guard let currentEntry = payload?.entry else {
-                self.entry(mediaID: anilistID, status: "CURRENT", progress: 0)
-                return
+                    // for single episode media don't set to REPEATING, as restarting the app over and over
+                    // again will keep setting it to REPEATING, then COMPLETED
+                    if counted == 1 && currentEntry.status == "COMPLETED" { return }
+
+                    let transitionStatuses = ["COMPLETED", "PLANNING", "PAUSED"]
+                    guard transitionStatuses.contains(currentEntry.status ?? "") else { return }
+
+                    let newStatus = currentEntry.status == "COMPLETED" ? "REPEATING" : "CURRENT"
+                    self.entry(mediaID: anilistID, status: newStatus, progress: 0,
+                              lists: currentEntry.customLists)
+                }
             }
-            let counted = (payload?.episodes ?? 0) != 0 ? (payload?.episodes ?? 0) : (payload?.scheduleEpisodes ?? 0)
-
-            if counted == 1 && currentEntry.status == "COMPLETED" { return }
-
-            let transitionStatuses = ["COMPLETED", "PLANNING", "PAUSED"]
-            guard transitionStatuses.contains(currentEntry.status ?? "") else { return }
-
-            let newStatus = currentEntry.status == "COMPLETED" ? "REPEATING" : "CURRENT"
-            self.entry(mediaID: anilistID, status: newStatus, progress: 0,
-                      lists: currentEntry.customLists)
         }
     }
 
@@ -596,7 +656,9 @@ final class AniListTracking {
     private var cachedUserListViewerID: Int?
     private var cachedUserListIDs: UserListIDs?
     private var cachedUserListFetchedAt: Date?
-    private var userListFetchCompletions: [((UserListIDs?) -> Void)] = []
+    /// Who is waiting for the answer of which account: an answer for the account that was signed in
+    /// before is not one for the account that is signed in now.
+    private var userListFetchCompletions: [(viewerID: Int, completion: (UserListIDs?) -> Void)] = []
 
     func cachedUserLists() -> UserListIDs? {
         guard TrackerAccountManager.shared.isLoggedIn(.anilist),
@@ -629,101 +691,125 @@ final class AniListTracking {
                 return
             }
 
-            let alreadyFetching = !self.userListFetchCompletions.isEmpty
-            self.userListFetchCompletions.append(completion)
+            let alreadyFetching = self.userListFetchCompletions.contains { $0.viewerID == viewerID }
+            self.userListFetchCompletions.append((viewerID, completion))
             if alreadyFetching { return }
 
             self.authRequestResult(query: AniListQueries.userLists, variables: ["id": viewerID]) { [weak self] result in
                 guard let self else { return }
-                let parsed: UserListIDs?
+                let parsedLists: (ids: UserListIDs, entries: [Int: AnimeItem.MediaListEntry])?
                 switch result {
                 case .success(let data):
-                    parsed = self.parseUserListIDs(from: data)
+                    parsedLists = self.parseUserLists(from: data)
                 case .failure(let error):
                     NSLog("[AniListTracking] User lists failed: %@", error.description)
-                    parsed = nil
+                    parsedLists = nil
                 }
+                let parsed = parsedLists?.ids
                 self.userListCacheQueue.async {
-                    let completions = self.userListFetchCompletions
-                    self.userListFetchCompletions = []
-                    if let parsed {
+                    let completions = self.userListFetchCompletions.filter { $0.viewerID == viewerID }
+                    self.userListFetchCompletions.removeAll { $0.viewerID == viewerID }
+                    if let parsedLists {
                         self.cachedUserListViewerID = viewerID
-                        self.cachedUserListIDs = parsed
+                        self.cachedUserListIDs = parsedLists.ids
                         self.cachedUserListFetchedAt = Date()
+                        // `medialists`: in before anything that reads an entry is told the lists are here;
+                        // the lists of an account that has been replaced since are of no use to the new one
+                        if TrackerAccountManager.shared.viewer(for: .anilist)?.id == viewerStr {
+                            AniListViewerState.shared.replaceEntries(parsedLists.entries, viewerID: viewerID,
+                                                                     keepingChanges: AniListOfflineQueue.shared.hasPending)
+                        }
                     }
                     DispatchQueue.main.async {
-                        completions.forEach { $0(parsed) }
+                        completions.forEach { $0.completion(parsed) }
                     }
                 }
             }
         }
     }
 
-    private func parseUserListIDs(from data: [String: Any]?) -> UserListIDs? {
+    private func jsonOptionalInt(_ value: Any?) -> Int? {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        return nil
+    }
+
+    /// client.ts `medialists`, `continueIDs`, `planningIDs` and `sequelIDs`, all of them derived from
+    /// the one `UserLists` answer. The entries speak for themselves: AniList answers `null` for the
+    /// `mediaListEntry` of a media inside a list, so nothing is read from there.
+    private func parseUserLists(from data: [String: Any]?) -> (ids: UserListIDs, entries: [Int: AnimeItem.MediaListEntry])? {
         guard let collection = data?["MediaListCollection"] as? [String: Any],
               let lists = collection["lists"] as? [[String: Any]] else {
             return nil
+        }
+
+        func entries(of list: [String: Any]) -> [[String: Any]] {
+            list["entries"] as? [[String: Any]] ?? []
+        }
+
+        // `medialists`: `if (entry?.mediaId) map.set(entry.mediaId, entry)`, over every list
+        var byMedia: [Int: AnimeItem.MediaListEntry] = [:]
+        for list in lists {
+            for entry in entries(of: list) {
+                guard let mediaID = jsonOptionalInt(entry["mediaId"]), mediaID != 0 else { continue }
+                var enabledLists: [String] = []
+                for customList in entry["customLists"] as? [[String: Any]] ?? [] {
+                    if customList["enabled"] as? Bool == true, let name = customList["name"] as? String {
+                        enabledLists.append(name)
+                    }
+                }
+                byMedia[mediaID] = AnimeItem.MediaListEntry(
+                    listID: jsonOptionalInt(entry["id"]) ?? 0,
+                    status: entry["status"] as? String,
+                    progress: jsonOptionalInt(entry["progress"]) ?? 0,
+                    score: jsonOptionalInt(entry["score"]) ?? 0,
+                    repeatCount: jsonOptionalInt(entry["repeat"]) ?? 0,
+                    customLists: enabledLists)
+            }
         }
 
         var continueIDs: [Int] = []
         var planningIDs: [Int] = []
         var sequelIDs: [Int] = []
 
-        for list in lists {
-            let status = list["status"] as? String
-            let entries = list["entries"] as? [[String: Any]] ?? []
+        // `continueIDs`: the entries of the lists that are CURRENT or REPEATING
+        for list in lists where ["CURRENT", "REPEATING"].contains(list["status"] as? String ?? "") {
+            for entry in entries(of: list) {
+                guard let mediaID = jsonOptionalInt(entry["mediaId"]), mediaID != 0 else { continue }
+                let media = entry["media"] as? [String: Any]
+                if media?["status"] as? String == "FINISHED" {
+                    continueIDs.append(mediaID)
+                    continue
+                }
+                let progress = jsonOptionalInt(entry["progress"]) ?? 0
+                // +2 is for series that don't have the next airing episode scheduled, but are still some-how
+                // airing; -1 is because the latest aired episode counts, not the next one
+                let nextEpisode = jsonOptionalInt((media?["nextAiringEpisode"] as? [String: Any])?["episode"]) ?? (progress + 2)
+                if progress < nextEpisode - 1 { continueIDs.append(mediaID) }
+            }
+        }
 
-            if status == "CURRENT" || status == "REPEATING" {
-                for entry in entries {
-                    guard let media = entry["media"] as? [String: Any],
-                          let mediaID = media["id"] as? Int else { continue }
-                    let mediaStatus = media["status"] as? String
-                    if mediaStatus == "FINISHED" {
-                        continueIDs.append(mediaID)
-                    } else {
-                        let progress: Int
-                        if let mle = media["mediaListEntry"] as? [String: Any] {
-                            progress = (mle["progress"] as? Int) ?? 0
-                        } else {
-                            progress = 0
-                        }
-                        let nextEp: Int
-                        if let nae = media["nextAiringEpisode"] as? [String: Any] {
-                            nextEp = (nae["episode"] as? Int) ?? (progress + 2)
-                        } else {
-                            nextEp = progress + 2
-                        }
-                        if progress < nextEp - 1 {
-                            continueIDs.append(mediaID)
-                        }
-                    }
-                }
-            } else if status == "PLANNING" {
-                for entry in entries {
-                    guard let media = entry["media"] as? [String: Any],
-                          let mediaID = media["id"] as? Int else { continue }
-                    planningIDs.append(mediaID)
-                }
-            } else if status == "COMPLETED" {
-                for entry in entries {
-                    guard let media = entry["media"] as? [String: Any],
-                          let relations = media["relations"] as? [String: Any],
-                          let edges = relations["edges"] as? [[String: Any]] else { continue }
-                    for edge in edges {
-                        if edge["relationType"] as? String == "SEQUEL",
-                           let node = edge["node"] as? [String: Any],
-                           let nodeID = node["id"] as? Int {
-                            sequelIDs.append(nodeID)
-                        }
-                    }
+        // `planningIDs`: the PLANNING list's media
+        if let planning = lists.first(where: { $0["status"] as? String == "PLANNING" }) {
+            for entry in entries(of: planning) {
+                if let mediaID = jsonOptionalInt(entry["mediaId"]), mediaID != 0 { planningIDs.append(mediaID) }
+            }
+        }
+
+        // `sequelIDs`: the sequels of what is COMPLETED
+        if let completed = lists.first(where: { $0["status"] as? String == "COMPLETED" }) {
+            for entry in entries(of: completed) {
+                let edges = ((entry["media"] as? [String: Any])?["relations"] as? [String: Any])?["edges"] as? [[String: Any]] ?? []
+                for edge in edges where edge["relationType"] as? String == "SEQUEL" {
+                    if let nodeID = jsonOptionalInt((edge["node"] as? [String: Any])?["id"]) { sequelIDs.append(nodeID) }
                 }
             }
         }
 
-        return UserListIDs(
-            continueIDs: continueIDs,
-            planningIDs: planningIDs,
-            sequelIDs: orderedUnique(sequelIDs))
+        return (UserListIDs(continueIDs: continueIDs,
+                            planningIDs: planningIDs,
+                            sequelIDs: orderedUnique(sequelIDs)),
+                byMedia)
     }
 
     private func orderedUnique(_ ids: [Int]) -> [Int] {
@@ -779,18 +865,6 @@ final class AniListTracking {
             self?.cachedUserListIDs = nil
             self?.cachedUserListFetchedAt = nil
             self?.userListFetchCompletions.removeAll()
-        }
-    }
-
-    // MARK: - Fetch progress
-
-    func fetchProgress(anilistID: Int, completion: @escaping (Int?) -> Void) {
-        let localProgress = LocalTracking.shared.progress(for: anilistID)
-        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
-            completion(localProgress); return
-        }
-        fetchMediaWithEntry(anilistID: anilistID) { entry, _, _, _, _ in
-            completion(entry?.progress)
         }
     }
 
@@ -856,35 +930,19 @@ final class AniListTracking {
         }
     }
 
-    func checkIsFavourite(mediaID: Int, completion: @escaping (Bool) -> Void) {
-        checkIsFavouriteResult(mediaID: mediaID) { result in
-            switch result {
-            case .success(let isFavourite):
-                completion(isFavourite)
-            case .failure(let error):
-                NSLog("[AniListTracking] checkIsFavourite failed: %@", error.description)
-                completion(false)
-            }
-        }
-    }
+    // MARK: - Bookmark
 
-    func checkIsFavouriteResult(mediaID: Int,
-                                completion: @escaping (Result<Bool, AniListRequestError>) -> Void) {
-        guard TrackerAccountManager.shared.isLoggedIn(.anilist) else {
-            completion(.success(TrackerAggregator.isFavourite(mediaID: mediaID)))
-            return
-        }
-        authRequestResult(query: AniListQueries.isFavourite, variables: ["id": mediaID]) { result in
-            switch result {
-            case .success(let data):
-                guard let media = data["Media"] as? [String: Any],
-                      let isFavourite = media["isFavourite"] as? Bool else {
-                    completion(.failure(.emptyData))
-                    return
-                }
-                completion(.success(isFavourite))
-            case .failure(let error):
-                completion(.failure(error))
+    /// bookmark.svelte: a media that is on the list comes off it, any other goes on as PLANNING.
+    /// What the lists say of the media decides, as it does for the icon that was pressed.
+    func toggleBookmark(media: AnimeItem, completion: ((Bool) -> Void)? = nil) {
+        let mediaID = media.id
+        if let current = media.listEntry {
+            deleteEntry(listID: current.listID, mediaID: mediaID) { deleted in
+                DispatchQueue.main.async { completion?(deleted) }
+            }
+        } else {
+            entry(mediaID: mediaID, status: "PLANNING") { entry in
+                DispatchQueue.main.async { completion?(entry != nil) }
             }
         }
     }

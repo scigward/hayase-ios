@@ -89,6 +89,7 @@ extension AnimeItem {
         if merged.isFavourite == nil { merged.isFavourite = isFavourite }
         if merged.trailerYouTubeID == nil { merged.trailerYouTubeID = trailerYouTubeID }
         if merged.malId == nil { merged.malId = malId }
+        if merged.extensionMediaJSON == nil { merged.extensionMediaJSON = extensionMediaJSON }
 
         return merged
     }

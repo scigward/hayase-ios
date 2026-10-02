@@ -21,6 +21,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         AniListRefocus.shared.start()
         TrackerAggregator.start()
         AniListConnectionStatus.shared.start()
+        AniListTracking.shared.start()
         _ = AniListOfflineQueue.shared   // the failed mutations of last time go out
         installSidebarShellIfNeeded()
 

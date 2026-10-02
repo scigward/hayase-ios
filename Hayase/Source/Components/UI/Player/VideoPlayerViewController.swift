@@ -2405,7 +2405,7 @@ final class VideoPlayerViewController: UIViewController, UIDocumentPickerDelegat
         if duration - fromEnd < currentTime {
             trackingCompleted = true
             if persistProgress { saveProgress() }
-            AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber)
+            AniListTracking.shared.watch(anilistID: anilistID, episodeProgress: episodeNumber, episodesHint: totalEpisodes)
         }
     }
 

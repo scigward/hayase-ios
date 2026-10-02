@@ -175,9 +175,7 @@ final class MALSync: ListTracker {
         var cached = malToAL
         let unknown = ids.filter { cached[$0] == nil }
         let resolved: [Int: Int] = await withCheckedContinuation { continuation in
-            AniListClient.shared.malIdsCompoundResult(unknown) { result in
-                continuation.resume(returning: (try? result.get()) ?? [:])
-            }
+            AniListClient.shared.malIdsCompound(unknown) { continuation.resume(returning: $0) }
         }
 
         var entries: [(Int, AnimeItem.MediaListEntry)] = []
