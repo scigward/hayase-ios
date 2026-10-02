@@ -52,6 +52,8 @@ class SearchViewController: UIViewController {
     private var currentTitle = ""
     /// `inputText`: what the input holds. `search.name` only follows it once typing settles.
     private var inputText = ""
+    /// Where each page of results begins: query.svelte's `i === 0` is the first card of every page.
+    private var pageStartIndexes: Set<Int> = [0]
     /// `search.ids`
     private var traceIds: [Int]?
     /// `trace`: the frames trace.moe matched. Set by a lookup, and kept when only the IDs chip goes.
@@ -133,6 +135,8 @@ class SearchViewController: UIViewController {
 
     // Pending route state from Router.navigate(.search(...)) before the view is loaded.
     private var pendingRouteState: Route.SearchState?
+    /// `$page.state.image` for a page that is not on screen yet.
+    private var pendingTrace: TraceMoe.Source?
 
     // MARK: - Init
 
@@ -199,6 +203,20 @@ class SearchViewController: UIViewController {
         if let state = pendingRouteState {
             pendingRouteState = nil
             applySearchRouteState(state)
+        }
+        if let source = pendingTrace {
+            pendingTrace = nil
+            traceReq(source)
+        }
+    }
+
+    /// `$: if ($page.state.image) traceReq($page.state.image)`: a picture, or the address of one,
+    /// that was dropped or pasted into the app.
+    func trace(_ source: TraceMoe.Source) {
+        if isViewLoaded, view.window != nil {
+            traceReq(source)
+        } else {
+            pendingTrace = source
         }
     }
 
@@ -529,12 +547,12 @@ class SearchViewController: UIViewController {
         updateClearButton()
     }
 
-    /// `search.name = inputText.trim()`
+    /// `search.name = inputText.trim()`. Assigning invalidates `search` whether the name changed or
+    /// not, so leaving the field asks for the results again even when it is as it was.
     private func updateName() {
         debounceTimer?.invalidate()
         debounceTimer = nil
         let name = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard name != currentTitle else { return }
         currentTitle = name
         // the inputs stay as they are: reloading the row would take the focus from the one typed in
         rebuildActiveChipEntries()
@@ -1010,6 +1028,11 @@ class SearchViewController: UIViewController {
         return CGSize(width: AnimeCollectionViewCell.traceOuterWidth, height: height)
     }
 
+    /// `<SmallCard first={i === 0}>`; episode cards have no such flag.
+    private func startsAPage(_ index: Int) -> Bool {
+        !showsEpisodeCards && pageStartIndexes.contains(index)
+    }
+
     // MARK: - Overlays
 
     private func setupOverlays() {
@@ -1034,6 +1057,7 @@ class SearchViewController: UIViewController {
             searchTask?.cancel()
             searchTask = nil
             isFetching = false
+            pageStartIndexes = [0]
             rememberRouteState()
         }
         guard !isFetching, hasNextPage else { return }
@@ -1084,6 +1108,7 @@ class SearchViewController: UIViewController {
                         updatedResults = page.items + Array(self.animeResults.dropFirst(tailStart))
                     }
                 } else if page.isCacheResult {
+                    self.pageStartIndexes.insert(self.animeResults.count)
                     updatedResults = self.animeResults + page.items
                 } else if self.animeResults.count > previousResults.count {
                     let prefix = Array(self.animeResults.prefix(previousResults.count))
@@ -1091,6 +1116,7 @@ class SearchViewController: UIViewController {
                     let tail = Array(self.animeResults.dropFirst(tailStart))
                     updatedResults = prefix + page.items + tail
                 } else {
+                    self.pageStartIndexes.insert(self.animeResults.count)
                     updatedResults = self.animeResults + page.items
                 }
                 self.hasNextPage = page.hasNextPage
@@ -1212,10 +1238,10 @@ class SearchViewController: UIViewController {
     // toast.promise. On success: clear() all filters, set search.ids = unique anilist IDs, show results.
 
     /// `traceReq`
-    private func traceReq(imageData: Data, mimeType: String) {
+    private func traceReq(_ source: TraceMoe.Source) {
         let toast = AppErrorToast.startPromise(title: "Looking up anime for image...",
                                                description: "You can also paste an URL to an image.")
-        TraceMoe.lookup(image: imageData, mimeType: mimeType) { [weak self] result in
+        TraceMoe.lookup(source) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let matches):
@@ -1307,7 +1333,8 @@ extension SearchViewController: UICollectionViewDataSource {
                           host: self,
                           mediaProvider: { item },
                           actions: hayasePreviewCardActions(),
-                          trace: trace)
+                          trace: trace,
+                          alignsToCardStart: startsAPage(indexPath.item))
         return cell
     }
 }
@@ -1329,7 +1356,8 @@ extension SearchViewController: UICollectionViewDelegate, UICollectionViewDelega
                                              host: self,
                                              media: item,
                                              actions: hayasePreviewCardActions(),
-                                             trace: traceMatch(for: item)) {
+                                             trace: traceMatch(for: item),
+                                             alignsToCardStart: startsAPage(indexPath.item)) {
             return
         }
         Router.shared.navigateToAnime(item, hostTabIndex: hayaseTabIndex)
@@ -1383,7 +1411,7 @@ extension SearchViewController: PHPickerViewControllerDelegate {
             guard let data = data else { return }
             // Photos are often HEIC, which trace.moe does not read: send a JPEG
             let jpegData = UIImage(data: data)?.jpegData(compressionQuality: 0.8) ?? data
-            DispatchQueue.main.async { self?.traceReq(imageData: jpegData, mimeType: "image/jpeg") }
+            DispatchQueue.main.async { self?.traceReq(.image(jpegData, mimeType: "image/jpeg")) }
         }
     }
 }

@@ -25,7 +25,7 @@ class CommandPopoverViewController: UIViewController {
     private let dismissControl = UIControl()
     /// `Dialog.Overlay`, behind the card where the width is below `md`.
     private let dialogBackdrop = HayaseStripedBackdropView()
-    private let containerView = UIView()
+    private let containerView = CommandContainerView()
     private let searchField = Input(placeholder: "Any", iconName: "search")
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyLabel = UILabel()
@@ -35,6 +35,26 @@ class CommandPopoverViewController: UIViewController {
     private static let headingHeight: CGFloat = 28
     /// Below `md` the combobox is a dialog, not a popover.
     private static let popoverMinimumWidth: CGFloat = 768
+    /// The Close group (`p-1` around a 32pt item) and the 1pt separator under it.
+    private static let closeRowHeight: CGFloat = 41
+
+    /// What DOM focus is on while the arrow keys move it: the search input, the Close item, or a row.
+    private enum KeyboardFocus: Equatable {
+        case input
+        case close
+        case row(IndexPath)
+    }
+
+    private var keyboardFocus: KeyboardFocus = .input
+    /// `inputType === 'dpad'`: the arrow keys were used, and no touch or pointer since. The list then
+    /// starts with a Close item.
+    private var isKeyboardNavigating = false {
+        didSet {
+            guard isKeyboardNavigating != oldValue else { return }
+            updateCloseRow()
+        }
+    }
+    private let closeRow = CommandCloseRowView()
 
     init(title: String,
          placeholder: String = "Any",
@@ -69,6 +89,113 @@ class CommandPopoverViewController: UIViewController {
         layoutContainer()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        becomeFirstResponder()   // so the arrow keys reach the list without the input being focused
+    }
+
+    // MARK: - Keyboard (`navigate` of navigate.ts on the Command root)
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        func key(_ input: String, _ action: Selector) -> UIKeyCommand {
+            let command = UIKeyCommand(input: input, modifierFlags: [], action: action)
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+        return [
+            key(UIKeyCommand.inputUpArrow, #selector(moveFocusUp)),
+            key(UIKeyCommand.inputDownArrow, #selector(moveFocusDown)),
+            key("\r", #selector(activateFocus)),
+            key(UIKeyCommand.inputEscape, #selector(dismissSelf)),
+        ]
+    }
+
+    @objc private func moveFocusUp() { moveKeyboardFocus(by: -1) }
+    @objc private func moveFocusDown() { moveKeyboardFocus(by: 1) }
+
+    /// The elements the arrow keys go through, top to bottom.
+    private func keyboardOrder() -> [KeyboardFocus] {
+        var order: [KeyboardFocus] = [.input]
+        if isKeyboardNavigating { order.append(.close) }
+        for (section, group) in filteredGroups.enumerated() {
+            for row in group.options.indices {
+                order.append(.row(IndexPath(row: row, section: section)))
+            }
+        }
+        return order
+    }
+
+    private func moveKeyboardFocus(by delta: Int) {
+        let order = keyboardOrder()
+        let current = order.firstIndex(of: keyboardFocus) ?? 0
+        let target = order[min(max(current + delta, 0), order.count - 1)]
+        isKeyboardNavigating = true   // the Close item comes in above the list
+        focus(target)
+    }
+
+    private func focus(_ target: KeyboardFocus) {
+        keyboardFocus = target
+        closeRow.isFocused = target == .close
+        switch target {
+        case .input:
+            clearRowSelection()
+            searchField.becomeFirstResponder()
+        case .close:
+            clearRowSelection()
+            takeKeysFromInput()
+        case .row(let indexPath):
+            takeKeysFromInput()
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+            tableView.scrollToRow(at: indexPath, at: .none, animated: false)
+        }
+    }
+
+    private func clearRowSelection() {
+        if let selected = tableView.indexPathForSelectedRow {
+            tableView.deselectRow(at: selected, animated: false)
+        }
+    }
+
+    private func takeKeysFromInput() {
+        searchField.resignFirstResponder()
+        becomeFirstResponder()
+    }
+
+    /// Enter on the focused item clicks it; in the input it takes the item cmdk has selected, the first.
+    @objc private func activateFocus() {
+        switch keyboardFocus {
+        case .close:
+            closeAndRestoreFocus()
+        case .row(let indexPath):
+            choose(at: indexPath)
+        case .input:
+            guard filteredGroups.first?.options.isEmpty == false else { return }
+            choose(at: IndexPath(row: 0, section: 0))
+        }
+    }
+
+    /// A touch or the pointer is `inputType` 'touch' or 'mouse' again.
+    private func endKeyboardNavigation() {
+        guard isKeyboardNavigating else { return }
+        isKeyboardNavigating = false
+        keyboardFocus = .input
+        closeRow.isFocused = false
+        clearRowSelection()
+    }
+
+    private func updateCloseRow() {
+        if isKeyboardNavigating {
+            closeRow.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: Self.closeRowHeight)
+            closeRow.onTap = { [weak self] in self?.closeAndRestoreFocus() }
+            tableView.tableHeaderView = closeRow
+        } else {
+            tableView.tableHeaderView = nil
+        }
+        view.setNeedsLayout()
+    }
+
     private func setupViews() {
         view.backgroundColor = .clear
 
@@ -93,6 +220,9 @@ class CommandPopoverViewController: UIViewController {
             dismissControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dismissControl.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        // a touch or the pointer ends `inputType === 'dpad'`
+        containerView.onInteraction = { [weak self] in self?.endKeyboardNavigation() }
 
         containerView.backgroundColor = showsSearch ? UIColor.HayaseTheme.muted : UIColor.HayaseTheme.popover
         containerView.layer.borderWidth = showsSearch ? 0 : 1
@@ -176,10 +306,11 @@ class CommandPopoverViewController: UIViewController {
         let searchHeight: CGFloat = showsSearch ? 37 : 0
         let rows = filteredGroups.reduce(0) { $0 + $1.options.count }
         let headings = filteredGroups.filter { $0.title?.isEmpty == false }.count
-        let naturalList = rows == 0
+        let naturalList = (rows == 0
             ? CGFloat(68)   // Command.Empty: py-6 around a 20pt line
             : CGFloat(rows) * 32 + CGFloat(headings) * Self.headingHeight
-                + CGFloat(filteredGroups.count) * Self.groupPadding * 2
+                + CGFloat(filteredGroups.count) * Self.groupPadding * 2)
+            + (isKeyboardNavigating ? Self.closeRowHeight : 0)
 
         if dialog {
             // top-[10%] w-full max-w-[clamp(0px,95dvw,30rem)] max-h-[80dvh], centred
@@ -230,6 +361,8 @@ class CommandPopoverViewController: UIViewController {
                 return options.isEmpty ? nil : CommandGroup(title: group.title, options: options)
             }
         }
+        keyboardFocus = .input
+        closeRow.isFocused = false
         tableView.reloadData()
         updateEmptyState()
         view.setNeedsLayout()
@@ -318,6 +451,11 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        choose(at: indexPath)
+    }
+
+    /// `handleSelect`: a single list takes the item and closes, a multiple one toggles it.
+    func choose(at indexPath: IndexPath) {
         guard let option = filteredGroups[safe: indexPath.section]?.options[safe: indexPath.row] else { return }
         if allowsMultiple {
             if selectedValues.contains(option.value) {
@@ -327,10 +465,67 @@ extension CommandPopoverViewController: UITableViewDataSource, UITableViewDelega
             }
             onSelectionChanged?(selectedValues)
             tableView.reloadRows(at: [indexPath], with: .none)
+            if keyboardFocus == .row(indexPath) {
+                tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+            }
         } else {
             selectedValues = [option.value]
             onSelectionChanged?(selectedValues)
             closeAndRestoreFocus()
         }
+    }
+}
+
+/// The card of the list, which hears every touch and pointer move over it.
+private final class CommandContainerView: UIView {
+    var onInteraction: (() -> Void)?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let event, event.type == .touches || event.type == .hover { onInteraction?() }
+        return super.hitTest(point, with: event)
+    }
+}
+
+/// The Close item `$inputType === 'dpad'` puts at the top of the list, with its separator.
+private final class CommandCloseRowView: UIView {
+    var onTap: (() -> Void)?
+    var isFocused = false {
+        didSet { highlight.backgroundColor = isFocused ? UIColor.HayaseTheme.accent : .clear }
+    }
+
+    private let highlight = UIView()
+    private let icon = UIImageView(image: UIImage.hayaseIcon("x", pointSize: 16))
+    private let label = UILabel()
+    private let separator = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        highlight.layer.cornerRadius = 4   // rounded-sm
+        icon.tintColor = UIColor.HayaseTheme.foreground
+        icon.contentMode = .scaleAspectFit
+        label.text = "Close"
+        label.font = .nunito(ofSize: 14, weight: .regular)
+        label.textColor = UIColor.HayaseTheme.foreground
+        separator.backgroundColor = UIColor.HayaseTheme.border
+        [highlight, icon, label, separator].forEach(addSubview)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // p-1 around an item of px-2 py-1.5, `<X class='mr-2 h-4 w-4'/>` then the text
+        highlight.frame = CGRect(x: 4, y: 4, width: bounds.width - 8, height: 32)
+        icon.frame = CGRect(x: 12, y: 12, width: 16, height: 16)
+        label.frame = CGRect(x: 36, y: 4, width: bounds.width - 48, height: 32)
+        separator.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
+    }
+
+    @objc private func tapped() {
+        onTap?()
     }
 }

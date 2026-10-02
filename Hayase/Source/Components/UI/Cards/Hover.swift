@@ -50,10 +50,12 @@ final class Hover: NSObject {
               host: UIViewController,
               mediaProvider: @escaping () -> AnimeItem?,
               actions: PreviewCardActions,
-              trace: TraceAnime? = nil) {
+              trace: TraceAnime? = nil,
+              alignsToCardStart: Bool = false) {
         cell.hoverProvider = { [weak host, weak cell] in
             guard let host, let cell, let media = mediaProvider() else { return }
-            Hover.shared.hoverElement(source: cell, host: host, media: media, actions: actions, trace: trace)
+            Hover.shared.hoverElement(source: cell, host: host, media: media, actions: actions, trace: trace,
+                                      alignsToCardStart: alignsToCardStart)
         }
         cell.unhoverProvider = { [weak cell] in
             guard let cell else { return }
@@ -65,12 +67,14 @@ final class Hover: NSObject {
                               host: UIViewController,
                               media: AnimeItem,
                               actions: PreviewCardActions,
-                              trace: TraceAnime? = nil) -> Bool {
+                              trace: TraceAnime? = nil,
+                              alignsToCardStart: Bool = false) -> Bool {
         if activeMediaID == media.id, activeSource === source {
             unhoverLastElement()
             return false
         }
-        hoverElement(source: source, host: host, media: media, actions: actions, trace: trace)
+        hoverElement(source: source, host: host, media: media, actions: actions, trace: trace,
+                     alignsToCardStart: alignsToCardStart)
         return true
     }
 
@@ -78,7 +82,8 @@ final class Hover: NSObject {
                       host: UIViewController,
                       media: AnimeItem,
                       actions: PreviewCardActions,
-                      trace: TraceAnime? = nil) {
+                      trace: TraceAnime? = nil,
+                      alignsToCardStart: Bool = false) {
         if activeMediaID == media.id, activeSource === source { return }
         guard let window = host.view.window ?? source.window else { return }
         unhoverLastElement()
@@ -92,7 +97,12 @@ final class Hover: NSObject {
         card.configure(media: media, actions: actions, trace: trace)
 
         let sourceFrame = source.convert(source.bounds, to: window)
-        let centerX = min(max(sourceFrame.midX, PreviewCard.size.width / 2),
+        // query.svelte gives the first card of a page `left-36 md:left-1/2`: below `md` its preview
+        // starts 4pt in from the card instead of being centred on it
+        let anchorX = alignsToCardStart && window.bounds.width < 768
+            ? sourceFrame.minX + 144
+            : sourceFrame.midX
+        let centerX = min(max(anchorX, PreviewCard.size.width / 2),
                           window.bounds.width - PreviewCard.size.width / 2)
         let top = min(max(sourceFrame.minY, 8),
                       window.bounds.height - PreviewCard.size.height - 8)

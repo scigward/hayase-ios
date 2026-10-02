@@ -53,6 +53,26 @@ enum TraceMoe {
 
     struct LookupError: Error {}
 
+    /// What a lookup is for: a picture, or the address of one.
+    enum Source {
+        case image(Data, mimeType: String)
+        case url(String)
+    }
+
+    static func lookup(_ source: Source, completion: @escaping (Result<[TraceAnime], Error>) -> Void) {
+        switch source {
+        case .image(let data, let mimeType):
+            lookup(image: data, mimeType: mimeType, completion: completion)
+        case .url(let address):
+            // `search?cutBorders&url=${image}`: the address goes in as it was given
+            guard let url = URL(string: "https://api.trace.moe/search?cutBorders&url=\(address)") else {
+                completion(.failure(LookupError()))
+                return
+            }
+            send(URLRequest(url: url), completion: completion)
+        }
+    }
+
     /// `traceAnime(file)`: the image is the body of the request, as its own type, and trace.moe is
     /// asked to cut away black borders. No match is an error. `completion` runs on a background queue.
     static func lookup(image data: Data, mimeType: String,
@@ -65,6 +85,10 @@ enum TraceMoe {
         request.httpMethod = "POST"
         request.setValue(mimeType, forHTTPHeaderField: "Content-type")
         request.httpBody = data
+        send(request, completion: completion)
+    }
+
+    private static func send(_ request: URLRequest, completion: @escaping (Result<[TraceAnime], Error>) -> Void) {
         URLSession.shared.dataTask(with: request) { data, _, error in
             let result: Result<[TraceAnime], Error>
             if let error {
