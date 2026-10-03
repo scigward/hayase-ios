@@ -43,7 +43,7 @@ packages:
     from: "2.13.6"
   Xyflow:
     url: https://github.com/scigward/Xyflow-Swift.git
-    exactVersion: 1.0.1
+    exactVersion: 1.0.2
 
 targets:
   Hayase:
