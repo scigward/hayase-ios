@@ -154,7 +154,7 @@ private final class AnimeDetailBannerBackdropView: UIView {
             BannerImage.fade([self], to: clamped) { completion?(true) }
         } else {
             layer.removeAllAnimations()
-            alpha = clamped
+            self.alpha = clamped
             completion?(true)
         }
     }
