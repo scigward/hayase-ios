@@ -43,7 +43,8 @@ packages:
     from: "2.13.6"
   Xyflow:
     url: https://github.com/scigward/Xyflow-Swift.git
-    exactVersion: 1.0.0
+    # Keep resolution deterministic; this revision fixes label stacking and pinch on non-draggable nodes.
+    revision: d8cac949d272a5654b8bbe66e3c17ab9345a1799
 
 targets:
   Hayase:
