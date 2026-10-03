@@ -20,6 +20,8 @@ final class CommandItemCell: UITableViewCell {
     private var titleTrailingToCheckConstraint: NSLayoutConstraint?
     private var titleTrailingToContentConstraint: NSLayoutConstraint?
     private var checkSizeConstraints: [NSLayoutConstraint] = []
+    private var checkContainerSizeConstraints: [NSLayoutConstraint] = []
+    private var titleTrailingToSelectConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -74,14 +76,19 @@ final class CommandItemCell: UITableViewCell {
         titleTrailingToCheckConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkContainer.leadingAnchor, constant: -8)
         titleTrailingToContentConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8)
 
+        // `pr-8` of a select item, where the text ends
+        titleTrailingToSelectConstraint = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -32)
+
         checkSizeConstraints = [
             checkView.widthAnchor.constraint(equalToConstant: 12),
             checkView.heightAnchor.constraint(equalToConstant: 12),
         ]
-        let fixedConstraints: [NSLayoutConstraint] = [
-            checkContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        checkContainerSizeConstraints = [
             checkContainer.widthAnchor.constraint(equalToConstant: 16),
             checkContainer.heightAnchor.constraint(equalToConstant: 16),
+        ]
+        let fixedConstraints: [NSLayoutConstraint] = [
+            checkContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             checkView.centerXAnchor.constraint(equalTo: checkContainer.centerXAnchor),
             checkView.centerYAnchor.constraint(equalTo: checkContainer.centerYAnchor),
@@ -90,6 +97,7 @@ final class CommandItemCell: UITableViewCell {
         ]
         NSLayoutConstraint.activate(fixedConstraints)
         NSLayoutConstraint.activate(checkSizeConstraints)
+        NSLayoutConstraint.activate(checkContainerSizeConstraints)
     }
 
     func configure(option: CommandOption, selected: Bool, multiple: Bool, selectStyle: Bool = false) {
@@ -101,18 +109,20 @@ final class CommandItemCell: UITableViewCell {
         checkContainer.backgroundColor = selected && !selectStyle ? UIColor.HayaseTheme.primary : .clear
         checkView.tintColor = selectStyle ? UIColor.HayaseTheme.foreground : UIColor.HayaseTheme.primaryForeground
         checkView.isHidden = !selected
-        // `<Check className=…>` never reaches the svg, which keeps svelte-radix's default 24
-        let checkSize: CGFloat = selectStyle ? 12 : 24
-        checkView.image = selectStyle
-            ? UIImage.hayaseIcon("check")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
-            : RadixIcons.check(size: checkSize)
+        // `<Check className=…>` never reaches the svg, which keeps svelte-radix's default 24; the
+        // select item's `<Check class='h-4 w-4'>` does, in a `h-3.5 w-3.5` span at `right-2`
+        let checkSize: CGFloat = selectStyle ? 16 : 24
+        checkView.image = RadixIcons.check(size: checkSize)
         checkSizeConstraints.forEach { $0.constant = checkSize }
+        checkContainerSizeConstraints.forEach { $0.constant = selectStyle ? 14 : 16 }
 
         checkLeadingConstraint?.isActive = multiple
         checkTrailingConstraint?.isActive = !multiple
         titleLeadingToCheckConstraint?.isActive = multiple
         titleLeadingToContentConstraint?.isActive = !multiple
-        titleTrailingToCheckConstraint?.isActive = !multiple
+        // a select item keeps its `pr-8` whether or not it is the chosen one
+        titleTrailingToCheckConstraint?.isActive = !multiple && !selectStyle
+        titleTrailingToSelectConstraint?.isActive = selectStyle
         titleTrailingToContentConstraint?.isActive = multiple
     }
 }

@@ -2737,8 +2737,10 @@ class AnimeDetailViewController: UIViewController {
         editorVC.totalEpisodes = totalEpisodes
         editorVC.currentEntry = currentEntry
         editorVC.animeTitle = animeItem.map { AniListUtil.title(for: $0) } ?? "Unknown"
-        editorVC.coverURL = animeItem?.coverURL
-        editorVC.bannerURL = animeItem?.bannerURL
+        // `cover(media)` from `sm` on and `banner(media)` below it, on the color of the cover
+        editorVC.coverURL = animeItem.flatMap { AniListUtil.cover(for: $0) }
+        editorVC.bannerURL = animeItem.flatMap { AniListUtil.banner(for: $0) }
+        editorVC.coverColor = animeItem?.coverColor
 
         editorVC.onSave = { [weak self] in
             self?.refreshViewerStateAfterMutation()

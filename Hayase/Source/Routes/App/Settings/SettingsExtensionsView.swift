@@ -197,22 +197,26 @@ final class SettingsExtensionsView: UIView, SettingsResponsiveView {
                 }, for: .valueChanged)
                 control = toggle
             case "select":
-                let combo = ComboBox(frame: .zero)
-                combo.configure(text: current.stringValue, placeholder: false)
-                combo.addAction(UIAction { [weak dialog, weak combo] _ in
-                    guard let combo else { return }
-                    let picker = CommandPopoverViewController(title: option.description, placeholder: "Search...",
+                // `<Select.Root>`: a trigger and a list without a search, not the combobox
+                let select = SelectTriggerView()
+                // `<Select.Value placeholder={options.default}>`: the default is shown, muted, until one is chosen
+                let chosen = ExtensionService.shared.options[config.id]?.options[key]
+                select.configure(text: (chosen ?? option.default).stringValue, placeholder: chosen == nil)
+                select.addAction(UIAction { [weak dialog, weak select] _ in
+                    guard let select else { return }
+                    let selected = ExtensionService.shared.options[config.id]?.options[key]?.stringValue
+                    let picker = CommandPopoverViewController(title: option.description,
                         groups: [CommandGroup(options: (option.values ?? []).map { CommandOption(value: $0, label: $0) })],
-                        selectedValues: [ExtensionService.shared.options[config.id]?.options[key]?.stringValue ?? option.default.stringValue],
-                        allowsMultiple: false, sourceView: combo)
-                    picker.onSelectionChanged = { [weak combo] values in
+                        selectedValues: selected.map { [$0] } ?? [],
+                        allowsMultiple: false, sourceView: select, showsSearch: false)
+                    picker.onSelectionChanged = { [weak select] values in
                         guard let value = values.first else { return }
                         ExtensionService.shared.setOption(.string(value), key: key, for: config.id)
-                        combo?.configure(text: value, placeholder: false)
+                        select?.configure(text: value, placeholder: false)
                     }
                     dialog?.present(picker, animated: false)
                 }, for: .touchUpInside)
-                control = combo
+                control = select
             default:
                 let field = SettingsInputControl(value: current.stringValue, placeholder: option.default.stringValue,
                     width: 400, numeric: option.type == "number")

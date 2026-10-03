@@ -168,6 +168,20 @@ enum AniListUtil {
         return title
     }
 
+    /// util.ts `banner()`: the banner image, else the thumbnail of the trailer, else the cover.
+    static func banner(for item: AnimeItem) -> String? {
+        if let banner = item.bannerURL, !banner.isEmpty { return banner }
+        if let trailer = item.trailerYouTubeID, !trailer.isEmpty {
+            return "https://i.ytimg.com/vi/\(trailer)/maxresdefault.jpg"
+        }
+        return item.coverURL
+    }
+
+    /// util.ts `cover()`: the cover, else `banner()`.
+    static func cover(for item: AnimeItem) -> String? {
+        item.coverURL ?? banner(for: item)
+    }
+
     /// Matches interface `title(media)`: AniList/default uses `userPreferred` only.
     static func title(for item: AnimeItem) -> String {
         let defaultTitle = cleanTitle(item.titleUserPreferred) ?? "TBA"

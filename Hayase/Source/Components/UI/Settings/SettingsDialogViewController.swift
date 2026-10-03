@@ -1,7 +1,7 @@
 // Mirrors: src/lib/components/ui/dialog/{dialog-content,dialog-overlay}.svelte
 import UIKit
 
-class SettingsDialogViewController: UIViewController {
+class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegate {
     let content = UIStackView()
     var onClose: (() -> Void)?
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
@@ -18,6 +18,9 @@ class SettingsDialogViewController: UIViewController {
     private let heightFraction: CGFloat
     private var closing = false
     private var panelAnimator: UIViewPropertyAnimator?
+    private let scrollView = UIScrollView()
+    /// The text input that has the focus, which is brought into view above the keyboard.
+    private weak var activeInput: UIView?
 
     init(title: String, maximumWidth: CGFloat = 512, contentInset: CGFloat = 24, heightFraction: CGFloat = 0.95) {
         heading = title
@@ -45,7 +48,7 @@ class SettingsDialogViewController: UIViewController {
         panel.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         panel.accessibilityViewIsModal = true
         view.addSubview(panel)
-        let scroll = UIScrollView()
+        let scroll = scrollView
         scroll.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(scroll)
         content.axis = .vertical
@@ -76,6 +79,56 @@ class SettingsDialogViewController: UIViewController {
             closeButton.widthAnchor.constraint(equalToConstant: 16),
             closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
+
+        // what a page does with an input: a click anywhere else takes the focus off it, and the input
+        // that has the focus is scrolled into view
+        let blur = UITapGestureRecognizer(target: self, action: #selector(blurInput))
+        blur.cancelsTouchesInView = false
+        blur.delegate = self
+        panel.addGestureRecognizer(blur)
+        let notifications = NotificationCenter.default
+        notifications.addObserver(self, selector: #selector(editingBegan(_:)),
+                                  name: UITextField.textDidBeginEditingNotification, object: nil)
+        notifications.addObserver(self, selector: #selector(editingBegan(_:)),
+                                  name: UITextView.textDidBeginEditingNotification, object: nil)
+        notifications.addObserver(self, selector: #selector(keyboardShown),
+                                  name: UIResponder.keyboardDidShowNotification, object: nil)
+    }
+
+    @objc private func blurInput() {
+        view.endEditing(true)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // a touch on an input is the one that gives it the focus, and one on a web view (the trailer) is its own
+        var current = touch.view
+        while let touched = current, touched !== panel {
+            if touched is UITextField || touched is UITextView { return false }
+            if touched is UIScrollView && touched !== scrollView { return false }
+            current = touched.superview
+        }
+        return true
+    }
+
+    @objc private func editingBegan(_ notification: Notification) {
+        guard let input = notification.object as? UIView, input.isDescendant(of: scrollView) else { return }
+        activeInput = input
+        revealActiveInput()
+    }
+
+    @objc private func keyboardShown() {
+        revealActiveInput()
+    }
+
+    /// The keyboard makes the panel smaller, so the input is scrolled into view once that is laid out.
+    private func revealActiveInput() {
+        guard let input = activeInput, input.isFirstResponder else { return }
+        DispatchQueue.main.async { [weak self, weak input] in
+            guard let self, let input, input.isFirstResponder, input.isDescendant(of: self.scrollView) else { return }
+            self.view.layoutIfNeeded()
+            let rect = self.scrollView.convert(input.bounds, from: input).insetBy(dx: 0, dy: -12)
+            self.scrollView.scrollRectToVisible(rect, animated: true)
+        }
     }
 
     override func viewDidLayoutSubviews() {

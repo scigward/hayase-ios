@@ -114,6 +114,28 @@ class SelectButton: UIButton {
         applyShadowSm()
     }
 
+    /// `variant='default'`: bg-primary text-primary-foreground select:bg-primary/60 shadow.
+    func applyPrimaryVariant() {
+        restingBackground = UIColor.HayaseTheme.primary
+        selectedBackground = UIColor.HayaseTheme.primary.withAlphaComponent(0.6)
+        restingTint = UIColor.HayaseTheme.primaryForeground
+        selectedTint = UIColor.HayaseTheme.primaryForeground
+        // shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.1
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        layer.shadowRadius = 1.5
+    }
+
+    /// `variant='destructive'`: bg-destructive text-destructive-foreground select:bg-destructive/90 shadow-sm.
+    func applyDestructiveVariant() {
+        restingBackground = UIColor.HayaseTheme.destructive
+        selectedBackground = UIColor.HayaseTheme.destructive.withAlphaComponent(0.9)
+        restingTint = UIColor.HayaseTheme.destructiveForeground
+        selectedTint = UIColor.HayaseTheme.destructiveForeground
+        applyShadowSm()
+    }
+
     /// `variant='outline'` (with `border-0`): bg-muted select:bg-accent select:text-accent-foreground
     /// shadow-sm. The search Toggle uses bg-background instead.
     func applyOutlineVariant(background: UIColor = UIColor.HayaseTheme.muted) {

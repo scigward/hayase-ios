@@ -21,6 +21,10 @@ class CommandPopoverViewController: UIViewController {
     private var selectedValues: Set<String>
     private var filteredGroups: [CommandGroup]
     private weak var sourceView: UIView?
+    private var isClosing = false
+
+    /// Without a search the list is `select-content.svelte`: `Select.Content` of the entry editor.
+    private var isSelect: Bool { !showsSearch }
 
     private let dismissControl = UIControl()
     /// `Dialog.Overlay`, behind the card where the width is below `md`.
@@ -92,6 +96,38 @@ class CommandPopoverViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()   // so the arrow keys reach the list without the input being focused
+        if isSelect {
+            highlightSelectedItem()
+            animateSelectIn()
+        }
+    }
+
+    /// The item of a select that is chosen is the one that has the focus when it opens, which draws it
+    /// with `data-[highlighted]:bg-accent`; the arrow keys go on from there.
+    private func highlightSelectedItem() {
+        for (section, group) in filteredGroups.enumerated() {
+            guard let row = group.options.firstIndex(where: { selectedValues.contains($0.value) }) else { continue }
+            let indexPath = IndexPath(row: row, section: section)
+            keyboardFocus = .row(indexPath)
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+            tableView.scrollToRow(at: indexPath, at: .none, animated: false)
+            return
+        }
+    }
+
+    /// `inTransition = flyAndScale`: from 8pt above and 95% in 150ms with `cubicOut`.
+    private func animateSelectIn() {
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        containerView.alpha = 0
+        containerView.transform = CGAffineTransform(translationX: 0, y: -8).scaledBy(x: 0.95, y: 0.95)
+        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 1),
+                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 1))
+        let animator = UIViewPropertyAnimator(duration: 0.15, timingParameters: timing)
+        animator.addAnimations {
+            self.containerView.alpha = 1
+            self.containerView.transform = .identity
+        }
+        animator.startAnimation()
     }
 
     // MARK: - Keyboard (`navigate` of navigate.ts on the Command root)
@@ -117,7 +153,7 @@ class CommandPopoverViewController: UIViewController {
 
     /// The elements the arrow keys go through, top to bottom.
     private func keyboardOrder() -> [KeyboardFocus] {
-        var order: [KeyboardFocus] = [.input]
+        var order: [KeyboardFocus] = isSelect ? [] : [.input]
         if isKeyboardNavigating { order.append(.close) }
         for (section, group) in filteredGroups.enumerated() {
             for row in group.options.indices {
@@ -129,9 +165,11 @@ class CommandPopoverViewController: UIViewController {
 
     private func moveKeyboardFocus(by delta: Int) {
         let order = keyboardOrder()
-        let current = order.firstIndex(of: keyboardFocus) ?? 0
+        guard !order.isEmpty else { return }
+        // a select nothing is chosen in has no focus yet: the arrow goes to its first or last item
+        let current = order.firstIndex(of: keyboardFocus) ?? (delta > 0 ? -1 : order.count)
         let target = order[min(max(current + delta, 0), order.count - 1)]
-        isKeyboardNavigating = true   // the Close item comes in above the list
+        if !isSelect { isKeyboardNavigating = true }   // the Close item comes in above the list
         focus(target)
     }
 
@@ -171,7 +209,7 @@ class CommandPopoverViewController: UIViewController {
         case .row(let indexPath):
             choose(at: indexPath)
         case .input:
-            guard filteredGroups.first?.options.isEmpty == false else { return }
+            guard !isSelect, filteredGroups.first?.options.isEmpty == false else { return }
             choose(at: IndexPath(row: 0, section: 0))
         }
     }
@@ -286,11 +324,18 @@ class CommandPopoverViewController: UIViewController {
             separator.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: showsSearch ? 1 : 0),
 
-            tableView.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            // `border` of the select content is outside of its `p-1`
+            tableView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: isSelect ? 1 : 0),
+            tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: isSelect ? 1 : 0),
+            tableView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: isSelect ? -1 : 0),
+            tableView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: isSelect ? -1 : 0),
         ])
+    }
+
+    /// The card is placed by its bounds and center, which stay right while it is transformed.
+    private func place(_ rect: CGRect) {
+        containerView.bounds = CGRect(origin: .zero, size: rect.size)
+        containerView.center = CGPoint(x: rect.midX, y: rect.midY)
     }
 
     /// Whether the combobox is the centred dialog (`ComboboxShell` below `md`).
@@ -316,9 +361,9 @@ class CommandPopoverViewController: UIViewController {
             // top-[10%] w-full max-w-[clamp(0px,95dvw,30rem)] max-h-[80dvh], centred
             let width = min(view.bounds.width * 0.95, 480)
             let height = min(searchHeight + naturalList, view.bounds.height * 0.8)
-            containerView.frame = CGRect(x: (view.bounds.width - width) / 2,
-                                         y: view.bounds.height * 0.1,
-                                         width: width, height: height)
+            place(CGRect(x: (view.bounds.width - width) / 2,
+                         y: view.bounds.height * 0.1,
+                         width: width, height: height))
             return
         }
 
@@ -331,8 +376,12 @@ class CommandPopoverViewController: UIViewController {
             let maxHeight = min(CGFloat(320), view.bounds.height * 0.6)
             height = min(maxHeight, searchHeight + min(300, naturalList))
         } else {
-            let maxContentHeight = min(CGFloat(320), bounds.height * 0.6)
-            height = min(maxContentHeight, max(32, naturalList))
+            // select-content.svelte has no height of its own: every item is there, as far as there is
+            // room above or below the trigger, and the border is outside of the items
+            let natural = naturalList + 2
+            let below = bounds.maxY - 12 - (sourceRect.maxY + 4)
+            let above = sourceRect.minY - 4 - (bounds.minY + 12)
+            height = min(natural, max(32, below >= natural ? below : max(below, above)))
         }
         let width = min(sourceRect.width, bounds.width - 24)
 
@@ -343,7 +392,7 @@ class CommandPopoverViewController: UIViewController {
         if y + height > bounds.maxY - 12 {
             y = max(bounds.minY + 12, sourceRect.minY - height - 4)
         }
-        containerView.frame = CGRect(x: x, y: y, width: width, height: height)
+        place(CGRect(x: x, y: y, width: width, height: height))
     }
 
     @objc private func searchChanged() {
@@ -391,9 +440,26 @@ class CommandPopoverViewController: UIViewController {
 
     private func closeAndRestoreFocus() {
         let sourceView = sourceView
-        dismiss(animated: true) {
-            sourceView?.becomeFirstResponder()
+        guard isSelect else {
+            dismiss(animated: true) {
+                sourceView?.becomeFirstResponder()
+            }
+            return
         }
+
+        // `outTransition = scale` from 95% to nothing in 50ms
+        guard !isClosing else { return }
+        isClosing = true
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            dismiss(animated: false) { sourceView?.becomeFirstResponder() }
+            return
+        }
+        UIView.animate(withDuration: 0.05, delay: 0, options: .curveLinear, animations: {
+            self.containerView.alpha = 0
+            self.containerView.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }, completion: { [weak self] _ in
+            self?.dismiss(animated: false) { sourceView?.becomeFirstResponder() }
+        })
     }
 }
 
