@@ -26,7 +26,7 @@ final class SetupStoragePage: SetupStepView {
     private static let locationKey = "pref_torrentLocation"
     private static let locations: [(key: String, label: String)] = [("cache", "Cache"), ("documents", "Internal Storage")]
 
-    private let pathInput = SettingsInputControl(value: TorrentBackendSettings().path,
+    private let pathField = SetupReadOnlyField(text: TorrentBackendSettings().path,
                                                  placeholder: "/tmp/webtorrent", width: 240)
     private let combo = ComboBox(frame: .zero)
     private var shownPath = TorrentBackendSettings().path
@@ -34,10 +34,6 @@ final class SetupStoragePage: SetupStepView {
     init() {
         super.init(step: 0, topPadding: 20, bottomPadding: 0)   // pt-5
 
-        // <Input … readonly class='sm:w-60 rounded-r-none pointer-events-none' />
-        pathInput.input.isUserInteractionEnabled = false
-        showPath(shownPath)
-        pathInput.input.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         // <SingleCombo class='w-32 shrink-0 border-input border rounded-l-none' />
         let stored = UserDefaults.standard.string(forKey: Self.locationKey) ?? "cache"
         combo.configure(text: Self.locations.first(where: { $0.key == stored })?.label ?? stored, placeholder: false)
@@ -50,7 +46,7 @@ final class SetupStoragePage: SetupStepView {
         combo.setContentHuggingPriority(.required, for: .horizontal)
         combo.addAction(UIAction { [weak self] _ in self?.showLocationPicker() }, for: .touchUpInside)
 
-        let location = UIStackView(arrangedSubviews: [pathInput, combo])
+        let location = UIStackView(arrangedSubviews: [pathField, combo])
         location.axis = .horizontal
         location.spacing = 0
         let locationCard = SettingsCardView(
@@ -102,21 +98,10 @@ final class SetupStoragePage: SetupStepView {
     /// `$settings.torrentPath` changed: the field shows it and the space is checked again.
     private func pathChanged() {
         let path = TorrentBackendSettings().path
-        showPath(path)
+        pathField.text = path
         guard path != shownPath else { return }
         shownPath = path
         footer.setChecks([checkSpaceRequirements()])
-    }
-
-    /// An input does not put an ellipsis where its text ends: the part that does not fit is clipped.
-    private func showPath(_ path: String) {
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byClipping
-        pathInput.input.attributedText = NSAttributedString(string: path, attributes: [
-            .font: UIFont.nunito(ofSize: 14, weight: .regular),
-            .foregroundColor: UIColor.HayaseTheme.foreground,
-            .paragraphStyle: style,
-        ])
     }
 
     // MARK: Checks
@@ -161,5 +146,66 @@ final class SetupStoragePage: SetupStepView {
             throw CocoaError(.fileReadUnknown)
         }
         return capacity
+    }
+}
+
+/// `<Input type='url' readonly … class='sm:w-60 rounded-r-none pointer-events-none' />`: a field of the
+/// look of an input that takes no touch and shows a text. What does not fit between its paddings (`px-3`, inside
+/// the 1pt border) is cut off there, with no ellipsis, as an input does.
+private final class SetupReadOnlyField: UIView {
+    private let label = UILabel()
+    private let placeholder: String
+
+    var text: String {
+        didSet { render() }
+    }
+
+    init(text: String, placeholder: String, width: CGFloat) {
+        self.text = text
+        self.placeholder = placeholder
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        isUserInteractionEnabled = false              // pointer-events-none
+        backgroundColor = UIColor.HayaseTheme.muted   // bg-muted
+        layer.cornerRadius = 6
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]   // rounded-r-none
+        layer.borderWidth = 1                                                // border-input
+        layer.borderColor = UIColor.HayaseTheme.input.cgColor
+        // shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05)
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.05
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        layer.shadowRadius = 1
+
+        label.font = .nunito(ofSize: 14, weight: .regular)   // text-sm
+        label.numberOfLines = 1
+        label.lineBreakMode = .byClipping
+        label.clipsToBounds = true
+        addSubview(label)
+        render()
+
+        isAccessibilityElement = true
+        NSLayoutConstraint.activate([heightAnchor.constraint(equalToConstant: 36)])   // h-9
+        let preferred = widthAnchor.constraint(equalToConstant: width)
+        preferred.priority = .defaultHigh
+        preferred.isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    private func render() {
+        let empty = text.isEmpty
+        label.text = empty ? placeholder : text
+        label.textColor = empty ? UIColor.HayaseTheme.mutedForeground : UIColor.HayaseTheme.foreground
+        accessibilityValue = text
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // px-3 inside the 1pt border, on both sides
+        label.frame = CGRect(x: 13, y: 0, width: max(0, bounds.width - 26), height: bounds.height)
     }
 }

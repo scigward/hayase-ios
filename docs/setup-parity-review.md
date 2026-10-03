@@ -40,7 +40,7 @@ Settings → Reset Everything clears that with the rest, so it comes back after 
 - Transfer Speed Limit's box is `self-baseline`, so from `md` it sits at the top of its card's row, not the middle.
   Its box has a border of its own (130px across).
 - Every `input` scales to 98% while it is pressed (`app.css`); the speed field is `no-scale` in a `scale-parent`,
-  so it is its box that scales. The read-only download path is clipped where it ends, with no ellipsis.
+  so it is its box that scales. The read-only download path is a field of its own that cuts the text off between its paddings, with no ellipsis (a text field with a clipping line break drew the rest of the path over its neighbours).
 - The checkbox is placed by the page, so it has no constraints of its own (a constrained view with no position sat
   in the top corner of the page).
 - The welcome column is `justify-center`: a window too short for it loses the top, which cannot be scrolled to.
