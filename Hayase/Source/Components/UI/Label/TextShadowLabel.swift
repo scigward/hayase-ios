@@ -38,6 +38,19 @@ final class TextShadowLabel: UILabel {
         didSet { applyStyle() }
     }
 
+    /// `text-balance` (`text-wrap: balance`): the lines of a text of up to six lines are made as
+    /// even as they can be, by wrapping at the narrowest width that keeps the line count. The
+    /// owner says how wide the label may be, since its own width follows the wrapping.
+    var balancesText = false {
+        didSet { updateBalancedWidth() }
+    }
+
+    var balanceMaxWidth: CGFloat = 0 {
+        didSet {
+            if abs(balanceMaxWidth - oldValue) > 0.25 { updateBalancedWidth() }
+        }
+    }
+
     override var font: UIFont! {
         didSet { applyStyle() }
     }
@@ -80,6 +93,49 @@ final class TextShadowLabel: UILabel {
             attributes[.underlineColor] = textColor ?? UIColor.label
         }
         attributedText = NSAttributedString(string: content, attributes: attributes)
+        updateBalancedWidth()
+    }
+
+    // MARK: - Text balance
+
+    private func updateBalancedWidth() {
+        guard balancesText, balanceMaxWidth > 0, lineHeight > 0,
+              let text = attributedText, text.length > 0 else {
+            if preferredMaxLayoutWidth != 0 {
+                preferredMaxLayoutWidth = 0
+                invalidateIntrinsicContentSize()
+            }
+            return
+        }
+        let width = Self.balancedWidth(of: text, lineHeight: lineHeight, maxWidth: balanceMaxWidth)
+        guard abs(preferredMaxLayoutWidth - width) > 0.25 else { return }
+        preferredMaxLayoutWidth = width
+        invalidateIntrinsicContentSize()
+    }
+
+    private static func lineCount(of text: NSAttributedString, lineHeight: CGFloat, width: CGFloat) -> Int {
+        let bounds = text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                       options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                       context: nil)
+        return max(1, Int((bounds.height / lineHeight).rounded()))
+    }
+
+    /// The narrowest width at which `text` still takes as many lines as it does in `maxWidth`.
+    /// Browsers balance blocks of at most six lines and leave longer ones alone.
+    private static func balancedWidth(of text: NSAttributedString, lineHeight: CGFloat, maxWidth: CGFloat) -> CGFloat {
+        let lines = lineCount(of: text, lineHeight: lineHeight, width: maxWidth)
+        guard lines > 1, lines <= 6 else { return maxWidth }
+        var low: CGFloat = 0
+        var high = maxWidth
+        for _ in 0..<14 {
+            let middle = (low + high) / 2
+            if lineCount(of: text, lineHeight: lineHeight, width: middle) == lines {
+                high = middle
+            } else {
+                low = middle
+            }
+        }
+        return ceil(high)
     }
 
     // MARK: - Shadow drawing

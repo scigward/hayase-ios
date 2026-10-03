@@ -55,36 +55,38 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     private let youtubeIframe = YoutubeIframe()
     private let videoframe = Videoframe()
 
+    // `text-lg font-bold truncate inline-block w-full text-foreground pt-2`: 18pt on a line of 28pt
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 18, weight: .bold)
-        l.textColor = UIColor.HayaseTheme.foreground
         l.numberOfLines = 1
         l.lineBreakMode = .byTruncatingTail
         return l
     }()
 
-    private let playButton = UIButton(type: .system)
-    private let favoriteButton = UIButton(type: .system)
-    private let bookmarkButton = UIButton(type: .system)
+    // PlayButton (size xs: h-[1.6rem] rounded-sm px-2 text-xs) and, ghost, size icon-sm
+    // (size-[1.6rem] rounded-sm), the FavoriteButton and the BookmarkButton
+    private let playButton = SelectButton()
+    private let favoriteButton = SelectButton()
+    private let bookmarkButton = SelectButton()
 
+    // `details text-foreground capitalize pt-3 pb-2 flex text-[11px] overflow-clip text-nowrap`: no ellipsis
     private let detailsLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 11)
-        l.textColor = UIColor.HayaseTheme.foreground
         l.numberOfLines = 1
-        l.lineBreakMode = .byTruncatingTail
+        l.lineBreakMode = .byClipping
         return l
     }()
 
+    // `text-[.7rem] text-muted-foreground line-clamp-4`
     private let descriptionLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 11.2)
-        l.textColor = UIColor.HayaseTheme.mutedForeground
         l.numberOfLines = 4
         l.lineBreakMode = .byTruncatingTail
         return l
     }()
+
+    /// `h-[1.6rem]` and `size-[1.6rem]`
+    private static let buttonSize: CGFloat = 25.6
 
     private var media: AnimeItem?
     /// The frame a trace.moe lookup matched: its picture and clip stand in for the banner and trailer.
@@ -143,9 +145,8 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         let contentStack = UIStackView(arrangedSubviews: [titleLabel, buttonRow, detailsLabel, descriptionLabel])
         contentStack.axis = .vertical
         contentStack.spacing = 0
-        contentStack.setCustomSpacing(8, after: titleLabel)
-        contentStack.setCustomSpacing(12, after: buttonRow)
-        contentStack.setCustomSpacing(8, after: detailsLabel)
+        contentStack.setCustomSpacing(12, after: buttonRow)    // pt-3 of the details
+        contentStack.setCustomSpacing(8, after: detailsLabel)  // pb-2
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentStack)
 
@@ -167,16 +168,15 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             bodyBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
             bodyBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            contentStack.topAnchor.constraint(equalTo: bannerContainer.bottomAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            contentStack.topAnchor.constraint(equalTo: bannerContainer.bottomAnchor, constant: 8),   // pt-2 of the title
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),              // px-4
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
-            playButton.heightAnchor.constraint(equalToConstant: 26),
-            favoriteButton.widthAnchor.constraint(equalToConstant: 26),
-            favoriteButton.heightAnchor.constraint(equalToConstant: 26),
-            bookmarkButton.widthAnchor.constraint(equalToConstant: 26),
-            bookmarkButton.heightAnchor.constraint(equalToConstant: 26),
+            playButton.heightAnchor.constraint(equalToConstant: Self.buttonSize),
+            favoriteButton.widthAnchor.constraint(equalToConstant: Self.buttonSize),
+            favoriteButton.heightAnchor.constraint(equalToConstant: Self.buttonSize),
+            bookmarkButton.widthAnchor.constraint(equalToConstant: Self.buttonSize),
+            bookmarkButton.heightAnchor.constraint(equalToConstant: Self.buttonSize),
         ])
 
         [bannerGlow, youtubeIframe.ambientView, bannerImageView, videoframe, youtubeIframe, bannerGradient].forEach {
@@ -220,19 +220,23 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func configureButtons() {
-        playButton.backgroundColor = UIColor.HayaseTheme.primary
-        playButton.tintColor = UIColor.HayaseTheme.primaryForeground
-        playButton.setTitleColor(UIColor.HayaseTheme.primaryForeground, for: .normal)
-        playButton.titleLabel?.font = .nunito(ofSize: 12, weight: .bold)
-        playButton.layer.cornerRadius = 2
+        // default variant: bg-primary text-primary-foreground select:bg-primary/60 shadow
+        playButton.applyPrimaryVariant()
+        playButton.layer.cornerRadius = 2   // rounded-sm
+        playButton.titleLabel?.font = .nunito(ofSize: 12, weight: .bold)   // text-xs font-bold
+        // Play fill='currentColor' class='mr-2' size={iconSizes.xs}: 0.6rem and 8pt before the text
         playButton.setImage(UIImage.hayaseFilledIcon("play", pointSize: 9.6), for: .normal)
+        playButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        playButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
 
+        // ghost: select:bg-secondary-foreground/20 select:text-accent-foreground, and the animated icon
         [favoriteButton, bookmarkButton].forEach {
-            $0.backgroundColor = .clear
-            $0.tintColor = UIColor.HayaseTheme.foreground
-            $0.layer.cornerRadius = 2
+            $0.applyGhostVariant()
+            $0.layer.cornerRadius = 2   // rounded-sm
         }
+        favoriteButton.iconAnimation = .heartBeat
+        bookmarkButton.iconAnimation = .wobble
         favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
         bookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
     }
@@ -262,8 +266,10 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
             && ProcessInfo.processInfo.physicalMemory >= 4 * 1_024 * 1_024 * 1_024
         self.media = media
         self.actions = actions
-        titleLabel.text = AniListUtil.title(for: media)
-        descriptionLabel.text = descriptionText(for: media)
+        titleLabel.attributedText = CSSText.string(AniListUtil.title(for: media),
+                                                   font: .nunito(ofSize: 18, weight: .bold),
+                                                   color: UIColor.HayaseTheme.foreground, lineHeight: 28)
+        descriptionLabel.attributedText = descriptionText(for: media)
         updateDetails(for: media)
         updatePlayTitle(for: media)
         // preview.svelte's buttons read the viewer's lists and the media's `isFavourite`, as the
@@ -310,22 +316,30 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         detailsLabel.attributedText = detailsAttributedText(for: media)
     }
 
+    /// `.details span+span::before { content: '•'; padding: 0 .3rem; font-size: .4rem; align-self: center;
+    /// color: #737373 }`: a small bullet between the details, 4.8pt of room on each side, in the middle
+    /// of the line whatever the text is doing.
     private func detailsAttributedText(for media: AnimeItem) -> NSAttributedString {
-        let details = detailParts(for: media)
-        let result = NSMutableAttributedString()
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .font: detailsLabel.font as Any,
-            .foregroundColor: UIColor.HayaseTheme.foreground,
-        ]
-        let bulletAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.nunito(ofSize: 6, weight: .regular),
-            .foregroundColor: UIColor(white: 0.45, alpha: 1),
-            .baselineOffset: 1,
-        ]
+        let lineHeight: CGFloat = 16.5   // text-[11px] on the page's line-height of 1.5
+        let textFont = UIFont.nunito(ofSize: 11)
+        let bulletFont = UIFont.nunito(ofSize: 6.4)
+        let textAttributes = CSSText.attributes(font: textFont, color: UIColor.HayaseTheme.foreground,
+                                                lineHeight: lineHeight, lineBreak: .byClipping)
+        // The bullet's own line box is 1.5 times its font size, and sits in the middle of the span.
+        let textBaseline = (lineHeight - textFont.lineHeight) / 2 + textFont.ascender
+        let bulletBaseline = (lineHeight - bulletFont.pointSize * 1.5) / 2
+            + (bulletFont.pointSize * 1.5 - bulletFont.lineHeight) / 2 + bulletFont.ascender
+        var bulletAttributes = textAttributes
+        bulletAttributes[.font] = bulletFont
+        bulletAttributes[.foregroundColor] = UIColor(red: 115 / 255, green: 115 / 255, blue: 115 / 255, alpha: 1)   // #737373
+        bulletAttributes[.baselineOffset] = (lineHeight - textFont.lineHeight) / 2 + (textBaseline - bulletBaseline)
+        bulletAttributes[.kern] = 4.8
 
-        for (index, detail) in details.enumerated() {
+        let result = NSMutableAttributedString()
+        for (index, detail) in detailParts(for: media).enumerated() {
             if index > 0 {
-                result.append(NSAttributedString(string: "  •  ", attributes: bulletAttributes))
+                result.addAttribute(.kern, value: 4.8, range: NSRange(location: result.length - 1, length: 1))
+                result.append(NSAttributedString(string: "•", attributes: bulletAttributes))
             }
             result.append(NSAttributedString(string: detail, attributes: textAttributes))
         }
@@ -333,7 +347,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
     }
 
     private func detailParts(for media: AnimeItem) -> [String] {
-        var details: [String] = [formatString(media.format)]
+        var details: [String] = [AniListUtil.format(media.format)]
         details.append(progressOrDurationText(for: media) ?? "N/A")
 
         if let season = seasonText(for: media), !season.isEmpty {
@@ -363,22 +377,15 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         return status == "CURRENT" || status == "PLANNING"
     }
 
-    private func descriptionText(for media: AnimeItem) -> String {
-        let text = AniListUtil.stripHTML(media.description ?? "No description available.")
-        return text.isEmpty ? "No description available." : text
+    /// util.ts `desc(media)`, set in an element that collapses white space.
+    private func descriptionText(for media: AnimeItem) -> NSAttributedString {
+        let text = media.description.map(CSSText.collapsingWhitespace) ?? "No description available."
+        return CSSText.string(text, font: .nunito(ofSize: 11.2), color: UIColor.HayaseTheme.mutedForeground,
+                              lineHeight: 16.8)   // text-[.7rem] on 1.5
     }
 
     private func updatePlayTitle(for media: AnimeItem) {
-        let status = media.listEntry?.status
-        let title: String
-        if status == "COMPLETED" {
-            title = "  Rewatch"
-        } else if status == "CURRENT" || status == "REPEATING" || status == "PAUSED" {
-            title = "  Continue"
-        } else {
-            title = "  Watch Now"
-        }
-        playButton.setTitle(title, for: .normal)
+        playButton.setTitle(FullBannerCell.playButtonTitle(status: media.listEntry?.status), for: .normal)
     }
 
     private func refreshActionIcons() {
@@ -514,22 +521,7 @@ final class PreviewCard: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    private func formatString(_ raw: String?) -> String {
-        guard let raw else { return "N/A" }
-        switch raw {
-        case "TV": return "TV Series"
-        case "TV_SHORT": return "TV Short"
-        case "OVA": return "OVA"
-        case "ONA": return "ONA"
-        case "MOVIE": return "Movie"
-        case "SPECIAL": return "Special"
-        case "MUSIC": return "Music"
-        case "MANGA": return "Manga"
-        case "NOVEL": return "Novel"
-        case "ONE_SHOT": return "One Shot"
-        default: return raw.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
+
 
     @objc private func cardTapped() {
         guard let media else { return }

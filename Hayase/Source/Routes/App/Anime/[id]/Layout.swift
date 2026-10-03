@@ -149,16 +149,12 @@ private final class AnimeDetailBannerBackdropView: UIView {
         }
 
         displayedAlpha = clamped
-        let changes = { self.alpha = clamped }
         if animated {
-            UIView.animate(withDuration: 0.3,
-                           delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState],
-                           animations: changes,
-                           completion: completion)
+            // banner-image.svelte: `transition-opacity duration-500`
+            BannerImage.fade([self], to: clamped) { completion?(true) }
         } else {
             layer.removeAllAnimations()
-            changes()
+            alpha = clamped
             completion?(true)
         }
     }
@@ -2494,26 +2490,17 @@ class AnimeDetailViewController: UIViewController {
         animeBackdropCoverTransitionID += 1
         let transitionID = animeBackdropCoverTransitionID
         isAnimeBackdropCovered = hidden
-        animeBackdropCoverView.layer.removeAllAnimations()
 
+        // banner-image.svelte: `transition-opacity duration-500`
         if hidden {
             animeBackdropView.applyAlpha(1.0, animated: false)
-            UIView.animate(withDuration: 0.3,
-                           delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState],
-                           animations: {
-                self.animeBackdropCoverView.alpha = 1
-            }, completion: { [weak self] _ in
+            BannerImage.fade([animeBackdropCoverView], to: 1) { [weak self] in
                 guard let self, self.animeBackdropCoverTransitionID == transitionID else { return }
-                self.animeBackdropView.applyAlpha(0.05, animated: false)
-            })
+                self.animeBackdropView.applyAlpha(BannerImage.hiddenAlpha, animated: false)
+            }
         } else {
             animeBackdropView.applyAlpha(1.0, animated: false)
-            UIView.animate(withDuration: 0.3,
-                           delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState]) {
-                self.animeBackdropCoverView.alpha = 0
-            }
+            BannerImage.fade([animeBackdropCoverView], to: 0)
         }
     }
 

@@ -45,7 +45,7 @@
         <!--Browse Anime-->
         <scene sceneID="brw-sc-001">
             <objects>
-                <viewController id="brw-vc-001" customClass="BrowseAnimeViewController" customModule="Hayase" customModuleProvider="target" sceneMemberID="viewController">
+                <viewController id="brw-vc-001" customClass="HomeViewController" customModule="Hayase" customModuleProvider="target" sceneMemberID="viewController">
                     <view key="view" id="brw-vw-001">
                         <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>

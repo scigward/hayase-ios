@@ -1004,9 +1004,7 @@ class SearchViewController: UIViewController {
     /// The height of an `episode.svelte` card: `p-4` around a 9rem picture, `pt-3` and the title
     /// (at most two lines, beside the episode and the match), `pt-2` and the year and format line.
     private func episodeCardHeight(for item: AnimeItem) -> CGFloat {
-        let font = UIFont.nunito(ofSize: 13, weight: .black)
         var titleWidth = AnimeCollectionViewCell.traceOuterWidth - 2 * AnimeCollectionViewCell.contentPadding
-        if item.listEntry != nil { titleWidth -= 12.8 }
         var infoHeight: CGFloat = 0
         if let trace = traceMatch(for: item) {
             let small = UIFont.nunito(ofSize: 12, weight: .medium)
@@ -1015,9 +1013,13 @@ class SearchViewController: UIViewController {
             titleWidth -= ceil(info) + 8   // gap-2
             infoHeight = 35                // pt-[1px], two 16pt lines and mt-0.5
         }
-        let text = AniListUtil.title(for: item) as NSString
-        let lines = min(2, max(1, Int(ceil(text.size(withAttributes: [.font: font]).width / max(titleWidth, 1)))))
-        let titleHeight = max(CGFloat(lines) * 19.2, infoHeight)
+        // the title as the card sets it: the status dot is inline, and the second line starts under it
+        let title = AnimeCollectionViewCell.titleText(AniListUtil.title(for: item), status: item.listEntry?.status)
+        let measured = title.boundingRect(with: CGSize(width: max(titleWidth, 1), height: .greatestFiniteMagnitude),
+                                          options: [.usesLineFragmentOrigin], context: nil).height
+        let lineHeight = AnimeCollectionViewCell.titleLineHeight
+        let lines = min(2, max(1, Int((measured / lineHeight).rounded())))
+        let titleHeight = max(CGFloat(lines) * lineHeight, infoHeight)
         return AnimeCollectionViewCell.contentPadding * 2 + AnimeCollectionViewCell.traceCoverHeight
             + 12 + titleHeight + 8 + 16
     }

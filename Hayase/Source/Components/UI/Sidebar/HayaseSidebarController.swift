@@ -617,29 +617,20 @@ final class HayaseSidebarController: UIViewController {
         let transitionID = sidebarBackdropCoverTransitionID
         sidebarBackdropImageView.layer.removeAllAnimations()
         sidebarBackdropGradientView.layer.removeAllAnimations()
-        sidebarBackdropCoverView.layer.removeAllAnimations()
 
-        if alpha <= 0.05 {
+        // banner-image.svelte: `transition-opacity duration-500`
+        if alpha <= BannerImage.hiddenAlpha {
             sidebarBackdropImageView.alpha = 1
             sidebarBackdropGradientView.alpha = 1
-            UIView.animate(withDuration: 0.3,
-                           delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState],
-                           animations: {
-                self.sidebarBackdropCoverView.alpha = 1
-            }, completion: { [weak self] _ in
+            BannerImage.fade([sidebarBackdropCoverView], to: 1) { [weak self] in
                 guard let self, self.sidebarBackdropCoverTransitionID == transitionID else { return }
                 self.sidebarBackdropImageView.alpha = alpha
                 self.sidebarBackdropGradientView.alpha = alpha
-            })
+            }
         } else {
             sidebarBackdropImageView.alpha = alpha
             sidebarBackdropGradientView.alpha = alpha
-            UIView.animate(withDuration: 0.3,
-                           delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState]) {
-                self.sidebarBackdropCoverView.alpha = 0
-            }
+            BannerImage.fade([sidebarBackdropCoverView], to: 0)
         }
     }
 
@@ -1149,7 +1140,7 @@ final class HayaseSidebarController: UIViewController {
 
     private func visibleBannerBackdropRoute() -> String? {
         let topController = topVisibleHostedController()
-        if topController is BrowseAnimeViewController { return Self.homeBannerBackdropHomeRoute }
+        if topController is HomeViewController { return Self.homeBannerBackdropHomeRoute }
         if topController is AnimeDetailViewController { return Self.homeBannerBackdropAnimeRoute }
         return nil
     }

@@ -99,13 +99,13 @@ final class Hover: NSObject {
         let sourceFrame = source.convert(source.bounds, to: window)
         // query.svelte gives the first card of a page `left-36 md:left-1/2`: below `md` its preview
         // starts 4pt in from the card instead of being centred on it
-        let anchorX = alignsToCardStart && window.bounds.width < 768
+        let centerX = alignsToCardStart && window.bounds.width < 768
             ? sourceFrame.minX + 144
             : sourceFrame.midX
-        let centerX = min(max(anchorX, PreviewCard.size.width / 2),
-                          window.bounds.width - PreviewCard.size.width / 2)
-        let top = min(max(sourceFrame.minY, 8),
-                      window.bounds.height - PreviewCard.size.height - 8)
+        // `top-0 bottom-0 m-auto h-80`: centred on the card, which is a few points taller. Like
+        // the interface's, it goes where it goes: a card at the edge of the screen shows a
+        // preview that the edge cuts.
+        let top = sourceFrame.minY + (sourceFrame.height - PreviewCard.size.height) / 2
 
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: window.leadingAnchor, constant: centerX),
@@ -130,13 +130,9 @@ final class Hover: NSObject {
         activeSourceFrameInWindow = .null
         guard let card = previewCard else { return }
         previewCard = nil
+        // `{#if !hidden && hoverable}`: the preview is gone the moment it is not hovered
         card.prepareForDismissal()
-        UIView.animate(withDuration: 0.18, animations: {
-            card.alpha = 0
-            card.transform = CGAffineTransform(translationX: 0, y: 10).scaledBy(x: 0.98, y: 0.98)
-        }, completion: { _ in
-            card.removeFromSuperview()
-        })
+        card.removeFromSuperview()
     }
 
     func scrollDidOccur() {

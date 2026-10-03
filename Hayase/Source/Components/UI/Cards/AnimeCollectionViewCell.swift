@@ -2,39 +2,20 @@
 //  AnimeCollectionViewCell.swift
 //  Hayase
 //
-//  Mirrors: src/lib/components/ui/cards/small.svelte and src/app.css (@keyframes load-in, global :active scale)
+//  Mirrors: src/lib/components/ui/cards/small.svelte and episode.svelte, and src/app.css
+//  (@keyframes load-in, global :active scale)
 //
-//  Matches Hayase's small.svelte exactly:
-//    • Outer item w-[11.5rem] h-[323px] with p-4, matching small.svelte
-//    • Inner cover area w-[9.5rem] h-[13.5rem] = 152×216pt
-//    • Below cover: pt-3 (12pt) gap → title row [statusDot? + title, line-clamp-2] → mt-auto/pt-2 → meta row
-//    • StatusDot: size-[0.55rem] ≈ 8.8pt circle, inline before title, hidden when no list entry
-//      Colors from StatusDot.svelte: CURRENT=rgb(61,180,242), PLANNING=rgb(247,154,99),
-//      COMPLETED=rgb(123,213,85), PAUSED=rgb(250,122,122), REPEATING=#3baeea, DROPPED=rgb(200,80,80)
-//    • Meta row: year left (calendar icon) + format right (tv icon), text-neutral-500
-//    •   pushed to the bottom by mt-auto, just like small.svelte
+//  small.svelte, laid out as the browser does:
+//    • outer item w-[11.5rem] h-[323px] with p-4, so the cover is 152×216pt at (16, 16)
+//    • below the cover `pt-3`, then the title (font-black text-[.8rem], line-height 1.5, line-clamp-2)
+//      with the status dot inline before it, on the baseline
+//    • the year and format row is `mt-auto pt-2`: text-xs font-medium text-muted-foreground, with
+//      16×16 icons that stick out 2pt past the padding (`-ml-0.5`, `-mr-0.5`)
 //
 
 import UIKit
 
-// MARK: - Interface card mount animation
-
-// small.svelte: .item { animation: 0.3s ease 0s 1 load-in; }
-// app.css load-in: translate3d(0, 1.2rem, 0) scale(0.95) -> none.
-private enum InterfaceAnimeCardLoadAnimation {
-    static let animationKey = "interfaceLoadIn"
-    static let duration: TimeInterval = 0.3
-    static let offsetY: CGFloat = 19.2  // 1.2rem = 19.2px at the 16px root size
-    static let scale: CGFloat = 0.95
-    static let controlPoint1 = CGPoint(x: 0.25, y: 0.1)  // CSS ease
-    static let controlPoint2 = CGPoint(x: 0.25, y: 1)
-
-    static var initialTransform: CGAffineTransform {
-        CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: offsetY)
-    }
-}
-
-// MARK: - Shared Image Cache (internal so BrowseAnimeViewController can use it)
+// MARK: - Shared Image Cache (internal so the pages that show banners can use it)
 
 enum SharedImageCache {
     static let shared = NSCache<NSString, UIImage>()
@@ -42,7 +23,7 @@ enum SharedImageCache {
 
 // MARK: - AnimeCollectionViewCell
 
-class AnimeCollectionViewCell: UICollectionViewCell {
+class AnimeCollectionViewCell: UICollectionViewCell, InterfaceMountAnimating {
     static let reuseID = "AnimeCell"
 
     // small.svelte: outer item w-[11.5rem] h-[323px] p-4, inner cover w-[9.5rem] h-[13.5rem].
@@ -55,45 +36,89 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     static let traceOuterWidth: CGFloat = 288
     static let traceCoverHeight: CGFloat = 144
 
+    /// `text-[.8rem] font-black`, on a line of `1.5` (Tailwind's preflight sets `line-height: 1.5`)
+    static let titleFont = UIFont.nunito(ofSize: 12.8, weight: .black)
+    static let titleLineHeight: CGFloat = 19.2
+
+    /// StatusDot.svelte: `inline-flex size-[0.55rem] me-1 rounded-full`
+    private static let statusDotSize: CGFloat = 8.8
+
+    /// The title of a card, with the viewer's list status as the dot in front of it. The dot is
+    /// inline, so it sits on the baseline of the first line only, and the text wraps beneath it.
+    /// Svelte keeps the space between `{/if}` and the title, so there is one after `me-1`.
+    static func titleText(_ title: String, status: String?) -> NSAttributedString {
+        let attributes = CSSText.attributes(font: titleFont, color: UIColor.HayaseTheme.foreground,
+                                            lineHeight: titleLineHeight)
+        let result = NSMutableAttributedString()
+        if let status {
+            let dot = NSTextAttachment()
+            dot.image = statusDotImage(for: status)
+            dot.bounds = CGRect(x: 0, y: 0, width: statusDotSize, height: statusDotSize)
+            let attachment = NSMutableAttributedString(attachment: dot)
+            var dotAttributes = attributes
+            dotAttributes[.kern] = 4   // me-1
+            attachment.addAttributes(dotAttributes, range: NSRange(location: 0, length: attachment.length))
+            result.append(attachment)
+            result.append(NSAttributedString(string: " ", attributes: attributes))
+        }
+        result.append(NSAttributedString(string: title, attributes: attributes))
+        return result
+    }
+
+    private static var statusDotImages: [String: UIImage] = [:]
+
+    private static func statusDotImage(for status: String) -> UIImage {
+        if let image = statusDotImages[status] { return image }
+        let size = CGSize(width: statusDotSize, height: statusDotSize)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            ScheduleStatusColor.color(for: status).setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+        }
+        statusDotImages[status] = image
+        return image
+    }
+
     // MARK: Views
 
     /// small.svelte `.item`: mount animation lives here so the outer press transform can compose with it.
     private let itemView = UIView()
 
-    /// Cover image — fills top 74.5% of cell (matches h-[13.5rem] on a 152:290 card)
+    private static let placeholderCoverColor = UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1)   // web default: #1890ff
+
     private let coverImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.backgroundColor = UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1) // web default: #1890ff
+        iv.backgroundColor = AnimeCollectionViewCell.placeholderCoverColor
         iv.layer.cornerRadius = 4
         return iv
     }()
 
-    // Title — font-black text-[.8rem] (12.8pt), white, 2 lines, pt-3 top spacing
+    // `pt-3 font-black text-[.8rem] line-clamp-2`, in `text-foreground`
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .nunito(ofSize: 13, weight: .black)  // text-[.8rem] = 12.8pt ≈ 13pt, font-black = 900
-        l.textColor = .white
         l.numberOfLines = 2
+        l.lineBreakMode = .byTruncatingTail
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return l
     }()
 
-    // Year label (left side of meta row) — text-xs font-medium, text-neutral-500
-    private let yearLabel: UILabel = {
-        let l = UILabel()
-        l.font = .nunito(ofSize: 12, weight: .medium)  // text-xs = 0.75rem = 12pt
-        l.textColor = UIColor(white: 0.45, alpha: 1) // neutral-500
-        return l
-    }()
+    // `text-xs font-medium` in `text-muted-foreground`: line-height 1rem
+    private let yearLabel = AnimeCollectionViewCell.makeMetaLabel()
+    private let formatLabel = AnimeCollectionViewCell.makeMetaLabel()
 
-    // Format label (right side of meta row) — same style as yearLabel
-    private let formatLabel: UILabel = {
+    private static func makeMetaLabel() -> UILabel {
         let l = UILabel()
-        l.font = .nunito(ofSize: 12, weight: .medium)  // text-xs = 12pt
-        l.textColor = UIColor(white: 0.45, alpha: 1)
+        l.numberOfLines = 1
+        l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
         return l
-    }()
+    }
+
+    private static func metaText(_ text: String) -> NSAttributedString {
+        CSSText.string(text, font: .nunito(ofSize: 12, weight: .medium),
+                       color: UIColor.HayaseTheme.mutedForeground, lineHeight: 16)
+    }
 
     // episode.svelte, on a trace result: `Episode N` over the match, `text-xs font-medium text-right`
     private let traceEpisodeLabel: UILabel = {
@@ -129,22 +154,11 @@ class AnimeCollectionViewCell: UICollectionViewCell {
     private var posterCoverHeight: NSLayoutConstraint?
     private var traceCoverHeightConstraint: NSLayoutConstraint?
 
-    // Status dot — inline circle before the title text, matching interface StatusDot.svelte.
-    // size-[0.55rem] ≈ 8.8pt; no border; hidden when user has no AniList list entry.
-    // Colors from StatusDot.svelte (not system colors):
-    //   CURRENT=rgb(61,180,242)  PLANNING=rgb(247,154,99)  COMPLETED=rgb(123,213,85)
-    //   PAUSED=rgb(250,122,122)  REPEATING=#3baeea  DROPPED=rgb(200,80,80)
-    private let statusDotView: UIView = {
-        let v = UIView()
-        v.layer.cornerRadius = 4.4   // half of 8.8pt → perfect circle
-        v.isHidden = true
-        return v
-    }()
-
     // MARK: State
 
     private var currentURLString: String?
     private var imageTask: URLSessionDataTask?
+    private var coverConfiguredAt: CFTimeInterval = 0
     private var pressAnimator: UIViewPropertyAnimator?
     private(set) var configuredAnimeItem: AnimeItem?
     var hoverProvider: (() -> Void)?
@@ -211,49 +225,31 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             hoverGesture = hover
         }
 
-        // Calendar icon for year
-        let calIcon = UIImageView(image: UIImage.hayaseIcon("calendar-days"))
-        calIcon.tintColor = UIColor(white: 0.45, alpha: 1)
-        calIcon.contentMode = .scaleAspectFit
-        calIcon.translatesAutoresizingMaskIntoConstraints = false
+        // `CalendarDays` / `Tv`: `w-[1rem] h-[1rem]`, in the colour of the text
+        let calIcon = Self.makeMetaIcon("calendar-days")
+        let tvIcon = Self.makeMetaIcon("tv")
 
-        // TV icon for format
-        let tvIcon = UIImageView(image: UIImage.hayaseIcon("tv"))
-        tvIcon.tintColor = UIColor(white: 0.45, alpha: 1)
-        tvIcon.contentMode = .scaleAspectFit
-        tvIcon.translatesAutoresizingMaskIntoConstraints = false
-
-        // Meta row: [calIcon  yearLabel  SPACER  formatLabel  tvIcon]
-        let metaRow = UIStackView(arrangedSubviews: [calIcon, yearLabel, UIView(), formatLabel, tvIcon])
+        // `flex text-muted-foreground mt-auto pt-2 justify-between`: [calendar year] ... [format tv]
+        // `mr-1 -ml-0.5` and `ml-1 -mr-0.5`: the icons stick out 2pt past the card's padding.
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let metaRow = UIStackView(arrangedSubviews: [calIcon, yearLabel, spacer, formatLabel, tvIcon])
         metaRow.axis = .horizontal
         metaRow.spacing = 4
-        metaRow.alignment = .center
+        metaRow.alignment = .fill
+        metaRow.translatesAutoresizingMaskIntoConstraints = false
 
-        // Title row: [statusDotView  titleLabel]
-        // Matches small.svelte: StatusDot is an inline <span> placed before the title text
-        // inside the same pt-3 / font-black / line-clamp-2 div.
-        // spacing = me-1 (4pt) from StatusDot.svelte.
-        let titleRow = UIStackView(arrangedSubviews: [statusDotView, titleLabel, traceInfoColumn])
+        // `flex justify-between pt-3 gap-2`: the title, and beside it the match of a trace result
+        let titleRow = UIStackView(arrangedSubviews: [titleLabel, traceInfoColumn])
         titleRow.axis = .horizontal
-        titleRow.spacing = 4   // me-1 = 4pt
+        titleRow.spacing = 8   // gap-2
         titleRow.alignment = .top
-        titleRow.setCustomSpacing(8, after: titleLabel)   // gap-2 before the trace column
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
 
-        // Full card stack: [cover  titleRow  flexible spacer  metaRow]
-        // Web small.svelte uses an outer w-[11.5rem] h-[323px] item with p-4.
-        // The row itself has no top padding; this 16pt card padding is what places
-        // the visible cover below the section title.
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
-        spacer.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-
-        let cardStack = UIStackView(arrangedSubviews: [coverImageView, titleRow, spacer, metaRow])
-        cardStack.axis = .vertical
-        cardStack.spacing = 0
-        cardStack.setCustomSpacing(12, after: coverImageView) // pt-3 = 12pt
-        cardStack.setCustomSpacing(8, after: titleRow)        // meta pt-2 = 8pt minimum
-        cardStack.translatesAutoresizingMaskIntoConstraints = false
-        itemView.addSubview(cardStack)
+        coverImageView.translatesAutoresizingMaskIntoConstraints = false
+        itemView.addSubview(coverImageView)
+        itemView.addSubview(titleRow)
+        itemView.addSubview(metaRow)
 
         let posterHeight = coverImageView.heightAnchor.constraint(equalTo: coverImageView.widthAnchor,
                                                                   multiplier: Self.coverHeight / Self.coverWidth)
@@ -262,26 +258,34 @@ class AnimeCollectionViewCell: UICollectionViewCell {
         traceCoverHeightConstraint = pictureHeight
         pictureHeight.isActive = false
         NSLayoutConstraint.activate([
+            coverImageView.topAnchor.constraint(equalTo: itemView.topAnchor, constant: Self.contentPadding),
+            coverImageView.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding),
+            coverImageView.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -Self.contentPadding),
             posterHeight,
-            cardStack.topAnchor.constraint(equalTo: itemView.topAnchor, constant: Self.contentPadding),
-            cardStack.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding),
-            cardStack.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -Self.contentPadding),
-            cardStack.bottomAnchor.constraint(equalTo: itemView.bottomAnchor, constant: -Self.contentPadding),
 
-            // h-[13.5rem] over w-[9.5rem].  Tie it to the inner card width so the same
-            // cell still scales correctly if reused in grids with different item widths.
+            titleRow.topAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: 12),   // pt-3
+            titleRow.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding),
+            titleRow.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -Self.contentPadding),
 
-            calIcon.widthAnchor.constraint(equalToConstant: 12),
-            calIcon.heightAnchor.constraint(equalToConstant: 12),
-            tvIcon.widthAnchor.constraint(equalToConstant: 12),
-            tvIcon.heightAnchor.constraint(equalToConstant: 12),
+            metaRow.leadingAnchor.constraint(equalTo: itemView.leadingAnchor, constant: Self.contentPadding - 2),
+            metaRow.trailingAnchor.constraint(equalTo: itemView.trailingAnchor, constant: -(Self.contentPadding - 2)),
+            metaRow.bottomAnchor.constraint(equalTo: itemView.bottomAnchor, constant: -Self.contentPadding),
+            metaRow.heightAnchor.constraint(equalToConstant: 16),
+            titleRow.bottomAnchor.constraint(lessThanOrEqualTo: metaRow.topAnchor, constant: -8),   // pt-2
 
-            // Status dot: size-[0.55rem] = 8.8pt circle, aligned to first line of title
-            statusDotView.widthAnchor.constraint(equalToConstant: 8.8),
-            statusDotView.heightAnchor.constraint(equalToConstant: 8.8),
+            calIcon.widthAnchor.constraint(equalToConstant: 16),
+            tvIcon.widthAnchor.constraint(equalToConstant: 16),
         ])
     }
 
+    private static func makeMetaIcon(_ name: String) -> UIImageView {
+        let icon = UIImageView(image: UIImage.hayaseIcon(name, pointSize: 16))
+        icon.tintColor = UIColor.HayaseTheme.mutedForeground
+        icon.contentMode = .center
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        icon.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return icon
+    }
 
     // MARK: - Interface mount animation
 
@@ -293,35 +297,12 @@ class AnimeCollectionViewCell: UICollectionViewCell {
 
     func requestInterfaceMountAnimation() {
         guard let mediaID = configuredAnimeItem?.id,
-              let collectionView = enclosingAnimeCardCollectionView() else { return }
+              let collectionView = CardLoadIn.enclosingCollectionView(of: self) else { return }
         collectionView.requestMountAnimation(for: self, mediaID: mediaID)
     }
 
     func playInterfaceLoadInAnimation(startedAt: CFTimeInterval) {
-        itemView.layer.removeAnimation(forKey: InterfaceAnimeCardLoadAnimation.animationKey)
-        itemView.transform = .identity
-
-        let animation = CABasicAnimation(keyPath: "transform")
-        animation.fromValue = CATransform3DMakeAffineTransform(InterfaceAnimeCardLoadAnimation.initialTransform)
-        animation.toValue = CATransform3DIdentity
-        animation.duration = InterfaceAnimeCardLoadAnimation.duration
-        animation.timingFunction = CAMediaTimingFunction(
-            controlPoints: Float(InterfaceAnimeCardLoadAnimation.controlPoint1.x),
-            Float(InterfaceAnimeCardLoadAnimation.controlPoint1.y),
-            Float(InterfaceAnimeCardLoadAnimation.controlPoint2.x),
-            Float(InterfaceAnimeCardLoadAnimation.controlPoint2.y)
-        )
-        animation.beginTime = itemView.layer.convertTime(startedAt, from: nil)
-        itemView.layer.add(animation, forKey: InterfaceAnimeCardLoadAnimation.animationKey)
-    }
-
-    private func enclosingAnimeCardCollectionView() -> AnimeCardCollectionView? {
-        var candidate = superview
-        while let view = candidate {
-            if let collectionView = view as? AnimeCardCollectionView { return collectionView }
-            candidate = view.superview
-        }
-        return nil
+        CardLoadIn.play(on: itemView, startedAt: startedAt)
     }
 
     // app.css: :active { transition: all 0.1s ease-in-out; transform: scale(0.98); }
@@ -360,53 +341,36 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             let percent = (trace.similarity * 100).rounded()
             traceSimilarityLabel.text = "\(Int(exactly: percent) ?? 0)%"
         }
-        titleLabel.text = AniListUtil.title(for: item)
         // Matches small.svelte: media.seasonYear ?? media.startDate?.year ?? 'TBA'
         // episode.svelte has no `startDate` fallback: `media.seasonYear ?? 'TBA'`
         let displayYear = isTrace ? item.year : (item.year ?? item.startYear)
-        yearLabel.text = displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA"
-        formatLabel.text = formatString(item.format)
+        yearLabel.attributedText = Self.metaText(displayYear.flatMap { $0 > 0 ? "\($0)" : nil } ?? "TBA")
+        formatLabel.attributedText = Self.metaText(AniListUtil.format(item.format))
         // Set cover color placeholder matching web's load.svelte: style:background={color ?? '#1890ff'}
-        coverImageView.backgroundColor = UIColor(hexString: item.coverColor) ?? UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1)
+        coverImageView.backgroundColor = UIColor(hexString: item.coverColor) ?? Self.placeholderCoverColor
         // small.svelte: `coverMedium(media)`, which falls back to `banner(media)`
         // small.svelte `coverMedium(media)`; episode.svelte `trace?.image ?? coverMedium(media)`
         loadCover(urlString: trace?.image ?? item.coverMediumURL ?? item.bannerURL
                   ?? item.trailerYouTubeID.map { "https://i.ytimg.com/vi/\($0)/maxresdefault.jpg" }
                   ?? item.coverURL ?? "")
-        updateStatusDot()
+        updateTitle()
     }
 
     /// small.svelte `{#if status} <StatusDot>`: the viewer's list status, drawn again whenever the
     /// lists change, as the interface's store tells every card at once.
     private func updateStatusDot() {
+        updateTitle()
+    }
+
+    private func updateTitle() {
         guard let item = configuredAnimeItem else { return }
-        if let status = item.listEntry?.status {
-            statusDotView.backgroundColor = statusDotColor(for: status)
-            statusDotView.isHidden = false
-        } else {
-            statusDotView.isHidden = true
-        }
-    }
-
-    /// Returns the dot fill color matching StatusDot.svelte's exact RGB values.
-    private func statusDotColor(for status: String) -> UIColor {
-        switch status {
-        case "CURRENT":   return UIColor(red: 61/255,  green: 180/255, blue: 242/255, alpha: 1) // rgb(61,180,242)
-        case "PLANNING":  return UIColor(red: 247/255, green: 154/255, blue: 99/255,  alpha: 1) // rgb(247,154,99)
-        case "COMPLETED": return UIColor(red: 123/255, green: 213/255, blue: 85/255,  alpha: 1) // rgb(123,213,85)
-        case "PAUSED":    return UIColor(red: 250/255, green: 122/255, blue: 122/255, alpha: 1) // rgb(250,122,122)
-        case "REPEATING": return UIColor(red: 59/255,  green: 174/255, blue: 234/255, alpha: 1) // #3baeea
-        default:          return UIColor(red: 200/255, green: 80/255,  blue: 80/255,  alpha: 1) // rgb(200,80,80) DROPPED
-        }
-    }
-
-    private func formatString(_ raw: String?) -> String {
-        AniListUtil.format(raw)
+        titleLabel.attributedText = Self.titleText(AniListUtil.title(for: item), status: item.listEntry?.status)
     }
 
     private func loadCover(urlString: String) {
         currentURLString = urlString
-        coverImageView.image = nil
+        coverConfiguredAt = CACurrentMediaTime()
+        resetCoverImage()
         imageTask?.cancel()
         guard !urlString.isEmpty, let url = URL(string: urlString) else { return }
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
@@ -418,47 +382,68 @@ class AnimeCollectionViewCell: UICollectionViewCell {
             guard let data = data, let image = UIImage(data: data) else { return }
             SharedImageCache.shared.setObject(image, forKey: captured as NSString)
             DispatchQueue.main.async {
-                guard self?.currentURLString == captured else { return }
-                UIView.transition(with: self?.coverImageView ?? UIImageView(),
-                                  duration: 0.25, options: .transitionCrossDissolve,
-                                  animations: { self?.coverImageView.image = image })
+                guard let self, self.currentURLString == captured else { return }
+                // load.svelte: the image fades in over 300ms, and blurred if it came in right away
+                LoadIn.show(image, in: self.coverImageView,
+                            blurred: CACurrentMediaTime() - self.coverConfiguredAt < LoadIn.blurWindow)
             }
         }
         imageTask?.resume()
     }
 
+    private func resetCoverImage() {
+        coverImageView.layer.removeAllAnimations()
+        coverImageView.subviews.forEach { $0.removeFromSuperview() }
+        coverImageView.image = nil
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
-        itemView.layer.removeAnimation(forKey: InterfaceAnimeCardLoadAnimation.animationKey)
+        CardLoadIn.cancel(on: itemView)
         pressAnimator?.stopAnimation(true)
         pressAnimator = nil
-        itemView.transform = .identity
         contentView.transform = .identity
         imageTask?.cancel()
         imageTask = nil
         currentURLString = nil
-        coverImageView.image = nil
-        coverImageView.backgroundColor = UIColor(red: 24/255, green: 144/255, blue: 255/255, alpha: 1) // default #1890ff
-        titleLabel.text = nil
-        yearLabel.text = nil
-        formatLabel.text = nil
-        statusDotView.isHidden = true
-        statusDotView.backgroundColor = nil
+        resetCoverImage()
+        coverImageView.backgroundColor = Self.placeholderCoverColor
+        titleLabel.attributedText = nil
+        yearLabel.attributedText = nil
+        formatLabel.attributedText = nil
         traceInfoColumn.isHidden = true
         traceEpisodeLabel.text = nil
         traceSimilarityLabel.text = nil
         posterCoverHeight?.isActive = true
         traceCoverHeightConstraint?.isActive = false
         configuredAnimeItem = nil
+        hoverTimer?.invalidate()
+        hoverTimer = nil
         hoverProvider = nil
         unhoverProvider = nil
     }
 
+    /// navigate.ts `hover`: a pointer has to rest on the card for `HOVER_TIME` (30ms) before the
+    /// preview opens, and moving restarts the wait.
+    private var hoverTimer: Timer?
+
+    private func scheduleHover() {
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: false) { [weak self] _ in
+            self?.hoverTimer = nil
+            self?.hoverProvider?()
+        }
+    }
+
     @objc private func handleHover(_ gesture: UIHoverGestureRecognizer) {
         switch gesture.state {
-        case .began, .changed:
-            hoverProvider?()
+        case .began:
+            scheduleHover()
+        case .changed:
+            if hoverTimer != nil { scheduleHover() }
         case .ended, .cancelled, .failed:
+            hoverTimer?.invalidate()
+            hoverTimer = nil
             unhoverProvider?()
         default:
             break
@@ -482,4 +467,3 @@ private extension UIColor {
         )
     }
 }
-

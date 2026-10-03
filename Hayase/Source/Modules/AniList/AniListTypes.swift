@@ -215,6 +215,18 @@ enum HomeSectionContentState {
             return nil
         }
     }
+
+    /// query.svelte: the lines under "Ooops!". A failure says so, and then what the error was.
+    var messageLines: [String] {
+        switch self {
+        case .empty:
+            return ["Looks like there's nothing here."]
+        case .failed(let message):
+            return ["Looks like something went wrong!", message]
+        case .idle, .paused, .fetching, .loaded:
+            return []
+        }
+    }
 }
 
 struct HomeSectionData {

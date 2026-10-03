@@ -97,7 +97,9 @@ final class AnimeCardCollectionView: UICollectionView {
         super.insertSections(sections)
     }
 
-    func requestMountAnimation(for cell: AnimeCollectionViewCell, mediaID: Int) {
+    /// `mediaID` is the key of the card within its section: the media of a `SmallCard`, or any number
+    /// that is not shared by two cards of the section (a skeleton uses its position, below zero).
+    func requestMountAnimation(for cell: InterfaceMountAnimating, mediaID: Int) {
         guard window != nil,
               let indexPath = indexPath(for: cell) else { return }
 
@@ -158,7 +160,7 @@ final class AnimeCardCollectionView: UICollectionView {
     private func requestMountForVisibleCardsOnNextRunLoop() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            for case let cell as AnimeCollectionViewCell in self.visibleCells {
+            for case let cell as InterfaceMountAnimating in self.visibleCells {
                 cell.requestInterfaceMountAnimation()
             }
         }

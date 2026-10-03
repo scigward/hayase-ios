@@ -42,8 +42,15 @@ enum HayaseSkeleton {
     }
 }
 
-final class SkeletonCardCell: UICollectionViewCell {
+/// skeleton.svelte: a `w-[9.5rem]` item in `p-4`, `aspect-ratio: 152/290`, with a cover and two bars.
+/// Its bars pulse unless the card says `animate={false}`, which QueryCard does until its query has
+/// started. Like every card, it runs `load-in` when it mounts.
+final class SkeletonCardCell: UICollectionViewCell, InterfaceMountAnimating {
     static let reuseID = "SkeletonCardCell"
+
+    /// `p-4` around the 290pt that the aspect ratio makes of a 152pt wide item: one point less
+    /// than a card, which is 323pt.
+    static let height: CGFloat = 322
 
     private let coverPlaceholder: UIView = {
         let view = UIView()
@@ -74,37 +81,44 @@ final class SkeletonCardCell: UICollectionViewCell {
     private let metaPulse = HayaseSkeleton.makeBlock(cornerRadius: 4)
     private lazy var pulseViews = [coverPulse, titlePulse, metaPulse]
 
+    /// `.item`, which carries the mount animation.
+    private let itemStack = UIStackView()
+    private var animates = true
+    /// The position of the card in its row, below zero, which keys its mount in the collection view.
+    private var mountKey = -1
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         contentView.backgroundColor = .clear
+        contentView.clipsToBounds = false
 
         coverPlaceholder.addSubview(coverPulse)
         titlePlaceholder.addSubview(titlePulse)
         metaPlaceholder.addSubview(metaPulse)
 
-        let stack = UIStackView(arrangedSubviews: [coverPlaceholder, titlePlaceholder, metaPlaceholder])
-        stack.axis = .vertical
-        stack.alignment = .leading
-        stack.spacing = 0
-        stack.setCustomSpacing(16, after: coverPlaceholder)
-        stack.setCustomSpacing(8, after: titlePlaceholder)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
+        [coverPlaceholder, titlePlaceholder, metaPlaceholder].forEach { itemStack.addArrangedSubview($0) }
+        itemStack.axis = .vertical
+        itemStack.alignment = .leading
+        itemStack.spacing = 0
+        itemStack.setCustomSpacing(16, after: coverPlaceholder)   // mt-4
+        itemStack.setCustomSpacing(8, after: titlePlaceholder)    // mt-2
+        itemStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(itemStack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
-            stack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
+            itemStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            itemStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: AnimeCollectionViewCell.contentPadding),
+            itemStack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -AnimeCollectionViewCell.contentPadding),
+            itemStack.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
 
             coverPlaceholder.widthAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverWidth),
             coverPlaceholder.heightAnchor.constraint(equalToConstant: AnimeCollectionViewCell.coverHeight),
 
-            titlePlaceholder.widthAnchor.constraint(equalToConstant: 112),
-            titlePlaceholder.heightAnchor.constraint(equalToConstant: 8),
+            titlePlaceholder.widthAnchor.constraint(equalToConstant: 112),   // w-28
+            titlePlaceholder.heightAnchor.constraint(equalToConstant: 8),    // h-2
 
-            metaPlaceholder.widthAnchor.constraint(equalToConstant: 80),
+            metaPlaceholder.widthAnchor.constraint(equalToConstant: 80),     // w-20
             metaPlaceholder.heightAnchor.constraint(equalToConstant: 8),
 
             coverPulse.topAnchor.constraint(equalTo: coverPlaceholder.topAnchor),
@@ -126,19 +140,44 @@ final class SkeletonCardCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// `animate`: whether the bars pulse. `index` is the card's place in its row.
+    func configure(animated: Bool, index: Int) {
+        animates = animated
+        mountKey = -(index + 1)
+        applyPulse()
+        requestInterfaceMountAnimation()
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
-        restartPulse()
+        applyPulse()
+        requestInterfaceMountAnimation()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        restartPulse()
+        CardLoadIn.cancel(on: itemStack)
+        applyPulse()
     }
 
-    private func restartPulse() {
-        pulseViews.forEach { HayaseSkeleton.startPulse(on: $0) }
+    private func applyPulse() {
+        for view in pulseViews {
+            if animates {
+                HayaseSkeleton.startPulse(on: view)
+            } else {
+                HayaseSkeleton.stopPulse(on: view)
+            }
+        }
+    }
+
+    func requestInterfaceMountAnimation() {
+        guard window != nil, let collectionView = CardLoadIn.enclosingCollectionView(of: self) else { return }
+        collectionView.requestMountAnimation(for: self, mediaID: mountKey)
+    }
+
+    func playInterfaceLoadInAnimation(startedAt: CFTimeInterval) {
+        CardLoadIn.play(on: itemStack, startedAt: startedAt)
     }
 }
 
