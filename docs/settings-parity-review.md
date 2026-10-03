@@ -4,7 +4,7 @@
 
 Baseline: 703717a. Sources: interface static/logo_white_fit.svg, app.html (black startup background), src/lib/components/icons/Simkl.svelte, ui/extensions/ExtensionCard.svelte, SearchModal.svelte, app.css, and routes/app/settings/+layout.svelte.
 
-- Native launch screen: LaunchScreen.storyboard now uses the source white vector logo on black instead of system-font text. An 80-point centered mark is a native launch-screen choice, not a claimed upstream animated splash specification; no forced delay was added. HayaseLaunchLogo.imageset contains the source vector.
+- Native launch screen: LaunchScreen.storyboard is plain black. The interface shows no logo before its animated splash page (see splash-parity-review.md), and no forced delay was added.
 - Badges: SettingsExtensionCardView fixes the action column at its content width so the text/badge column can grow. Shared BadgeFlowView in ExtensionsViewController resists height compression and invalidates its measured height on width changes. Source uses wrapping rows and 8-point gaps; wrapping itself is intentional.
 - Images: settings icons retain the source's explicit accent background and use the image element's fill sizing. Search-result icons in ExtensionSearchViewController have no background or corner rounding, matching SearchModal.svelte. Embedded backgrounds in downloaded images are not altered.
 - Simkl: TrackerIcons.swift now uses SimklLogo.imageset, copied from the actual source SVG, instead of a letter placeholder.

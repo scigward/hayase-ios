@@ -1,22 +1,16 @@
 # Splash parity review
 
-The interface has two splashes, one after the other: the launch screen of the mobile wrapper, and the
-animated page the interface opens on.
+The interface's splash is the animated page it opens on. The launch screen before it is plain black.
 
-## 1. The launch screen (`capacitor`)
+## 1. The launch screen: black, with no logo
 
-- `capacitor/capacitor.config.js`: `SplashScreen: { launchShowDuration: 0 }`. On iOS the plugin's `showOnLaunch()` returns at
-  once for a duration of 0: there is no overlay of the plugin and no fade, only the launch screen until the app draws.
-- `capacitor/package.json`, `build:assets`: `capacitor-assets generate --iconBackgroundColor #e5204c
-  --iconBackgroundColorDark #e5204c --splashBackgroundColor #e5204c --splashBackgroundColorDark #e5204c --android`, from
-  `resources/logo.png` and `resources/logo_dark.png`, which are the same file: 512x512, a white mark on transparent, the
-  mark 318 wide (x 97 to 414) and 272 high, centred.
-- `@capacitor/assets` puts the logo on a canvas of the background colour, resized to `logoSplashScale` (0.2) of the canvas width, in the
-  middle. The png is what is resized, with its margins, so the mark is `0.2 × 318 / 512 = 0.1242` of the width of the screen. The
-  Android splashes it makes are one per orientation, each as wide as its screen.
+The interface shows nothing before its splash page: the document is `bg-black`, and the page's first frame is already the
+logo at five times its size (see 2). The mobile wrapper (`capacitor`) has a splash of its own, `#e5204c` with the white mark
+(`capacitor.config.js` `SplashScreen: { launchShowDuration: 0 }`, and `build:assets` with `--splashBackgroundColor #e5204c`),
+but the interface itself does not show a red logo first, so it was taken out.
 
-`Base.lproj/LaunchScreen.storyboard`: `#e5204c` (`UIColor.HayaseTheme.theme`) and `HayaseLaunchLogo` (the mark, `#fff`), square, centred, `0.124219 ×` the width of the view.
-It was a black screen with an 80pt mark. iOS caches launch screens, so it shows after the app has been deleted and installed again.
+`Base.lproj/LaunchScreen.storyboard` is a black screen. (It was a black screen with an 80pt mark, then, for a while, the red one.)
+iOS keeps launch screens cached, so a change shows after the app has been deleted and installed again.
 
 ## 2. The page the app opens on (`src/routes/+page.svelte`)
 
