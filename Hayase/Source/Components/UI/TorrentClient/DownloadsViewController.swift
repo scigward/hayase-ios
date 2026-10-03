@@ -100,7 +100,6 @@ class DownloadsViewController: UIViewController {
     private lazy var overviewScrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsVerticalScrollIndicator = true
-        sv.alwaysBounceVertical = true
         return sv
     }()
 
@@ -549,8 +548,6 @@ class DownloadsViewController: UIViewController {
         tabStackView.axis = (wide || !medium) ? .vertical : .horizontal
         tabStackView.alignment = (wide || !medium) ? .fill : .center
         tabStackView.spacing = (wide || !medium) ? 4 : 8  // gap-y-1 / gap-x-2
-        tabScrollView.alwaysBounceHorizontal = medium && !wide
-        tabScrollView.alwaysBounceVertical = wide || !medium
 
         tabBarWidthConstraint?.isActive = wide
         // Compact index has only the menu: let its scroll viewport fill the

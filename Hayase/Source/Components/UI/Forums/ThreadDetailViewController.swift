@@ -92,7 +92,6 @@ final class ThreadDetailViewController: UIViewController {
             ])
         } else {
             scrollView.backgroundColor = .clear
-            scrollView.alwaysBounceVertical = true
             scrollView.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(scrollView)
             scrollView.addSubview(contentStack)

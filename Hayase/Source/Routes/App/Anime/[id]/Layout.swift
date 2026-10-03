@@ -681,6 +681,7 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     private let badgesScrollView: BadgeRowScrollView = {
         let sv = BadgeRowScrollView()
+        sv.isScrollEnabled = false   // overflow-x-clip: the badges are cut off, not scrolled
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.isHidden = true
@@ -2131,7 +2132,6 @@ class AnimeDetailViewController: UIViewController {
         let scrollView = UIScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         tabBarScrollView = scrollView
         tabBar.translatesAutoresizingMaskIntoConstraints = false

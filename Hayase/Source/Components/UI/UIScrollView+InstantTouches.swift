@@ -7,6 +7,12 @@
 //  Turning that delay off for every scroll view in the app gives all of them the immediate press
 //  state; a UIButton must then still let a scroll that starts on it take over.
 //
+//  The page is `html, body { overscroll-behavior: none }` and nothing in it is a rubber band: a
+//  container whose content fits does not move under a finger, and one that scrolls stops at its
+//  ends. UIKit lets every scroll view be dragged past its ends, and a table view even when its
+//  content fits, which drags along whatever is pinned to it (the sticky navigation of Settings
+//  and the client, the tab row, the chips, the user lists). So each one is anchored the same way.
+//
 
 import UIKit
 import ObjectiveC
@@ -29,7 +35,13 @@ extension UIScrollView {
 
     @objc fileprivate func hayase_didMoveToWindow() {
         hayase_didMoveToWindow()
-        if window != nil { delaysContentTouches = false }
+        guard let window else { return }
+        delaysContentTouches = false
+        // The keyboard and the system's menus are windows of their own, with scroll views of their own.
+        guard type(of: window) == UIWindow.self else { return }
+        bounces = false
+        alwaysBounceVertical = false
+        alwaysBounceHorizontal = false
     }
 
     @objc fileprivate func hayase_touchesShouldCancel(in view: UIView) -> Bool {
