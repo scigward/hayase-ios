@@ -261,6 +261,38 @@ final class PaddedLabel: UILabel {
     }
 }
 
+// MARK: - BadgeRowScrollView
+
+/// `flex-wrap gap-2`: the badges under the title in one row. Like the chips below, each badge is placed
+/// by frame from its own size, so the row is right whenever its badges are swapped. A stack view in a
+/// scroll view drew them on top of each other when the page had its media a second after it was
+/// laid out, until something else (a tab change) made it lay out again.
+final class BadgeRowScrollView: UIScrollView {
+    private let gap: CGFloat = 8
+    private let badgeHeight: CGFloat = 24
+    private var badges: [UIView] = []
+
+    func setBadges(_ newBadges: [UIView]) {
+        badges.forEach { $0.removeFromSuperview() }
+        badges = newBadges
+        badges.forEach { addSubview($0) }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        var x: CGFloat = 0
+        let y = (bounds.height - badgeHeight) / 2
+        for badge in badges {
+            let width = ceil(badge.intrinsicContentSize.width)
+            badge.frame = CGRect(x: x, y: y, width: width, height: badgeHeight)
+            x += width + gap
+        }
+        let size = CGSize(width: max(0, x - gap), height: bounds.height)
+        if contentSize != size { contentSize = size }
+    }
+}
+
 // MARK: - ChipRowScrollView
 
 /// `flex gap-2 items-center overflow-x-auto`: the genre and tag buttons in one scrolling row.
@@ -640,15 +672,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Badges
 
-    private let badgesStack: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.spacing = 8
-        sv.alignment = .center
-        return sv
-    }()
-    private let badgesScrollView: UIScrollView = {
-        let sv = UIScrollView()
+    private let badgesScrollView: BadgeRowScrollView = {
+        let sv = BadgeRowScrollView()
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.isHidden = true
@@ -814,15 +839,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         genresScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         badgesScrollView.translatesAutoresizingMaskIntoConstraints = false
-        badgesStack.translatesAutoresizingMaskIntoConstraints = false
-        badgesScrollView.addSubview(badgesStack)
-        NSLayoutConstraint.activate([
-            badgesStack.topAnchor.constraint(equalTo: badgesScrollView.topAnchor),
-            badgesStack.bottomAnchor.constraint(equalTo: badgesScrollView.bottomAnchor),
-            badgesStack.leadingAnchor.constraint(equalTo: badgesScrollView.leadingAnchor),
-            badgesStack.trailingAnchor.constraint(equalTo: badgesScrollView.trailingAnchor),
-            badgesStack.heightAnchor.constraint(equalTo: badgesScrollView.heightAnchor),
-        ])
 
         textColumn = UIStackView(arrangedSubviews: [romajiLabel, titleLabel, badgesScrollView, descriptionLabel])
         textColumn.axis = .vertical
@@ -1502,19 +1518,21 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     private func updateEpisodesBadge() {
         episodesBadge?.text = episodesBadgeText()
+        // the badge is as wide as its text, and the ones after it follow
+        badgesScrollView.setNeedsLayout()
     }
 
     private func rebuildBadges(score: Float?, status: String?, format: String?, season: String?,
                                 seasonFilter: String,
                                 accent: UIColor = .white,
                                 contrastColor: UIColor = UIColor(white: 0.07, alpha: 1)) {
-        badgesStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        var badges: [UIView] = []
         scoreBadge = nil
         displayedScore = score
 
         let episodes = makeBadge(text: episodesBadgeText(), accent: accent, contrast: contrastColor)
         episodesBadge = episodes as? PaddedLabel
-        badgesStack.addArrangedSubview(episodes)
+        badges.append(episodes)
 
         do {
             let display: String
@@ -1532,9 +1550,9 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             } else {
                 display = "N/A"
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
-                                                         filterType: format != nil ? "format" : nil,
-                                                         filterValue: format))
+            badges.append(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                    filterType: format != nil ? "format" : nil,
+                                    filterValue: format))
         }
 
         do {
@@ -1551,14 +1569,14 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             } else {
                 display = "N/A"
             }
-            badgesStack.addArrangedSubview(makeBadge(text: display, accent: accent, contrast: contrastColor,
-                                                      filterType: status != nil ? "status" : nil,
-                                                      filterValue: status))
+            badges.append(makeBadge(text: display, accent: accent, contrast: contrastColor,
+                                    filterType: status != nil ? "status" : nil,
+                                    filterValue: status))
         }
 
         if let szn = season, !szn.isEmpty {
-            badgesStack.addArrangedSubview(makeBadge(text: szn, accent: accent, contrast: contrastColor,
-                                                      filterType: "season", filterValue: seasonFilter))
+            badges.append(makeBadge(text: szn, accent: accent, contrast: contrastColor,
+                                    filterType: "season", filterValue: seasonFilter))
         }
 
         if let sc = score, sc > 0 {
@@ -1577,8 +1595,10 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
                                                       filterType: "score",
                                                       filterValue: "SCORE_DESC")
             scoreBadge = badge as? BadgeButton
-            badgesStack.addArrangedSubview(badge)
+            badges.append(badge)
         }
+
+        badgesScrollView.setBadges(badges)
     }
 
     private func makeBadge(text: String,
@@ -1597,10 +1617,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
             btn.layer.cornerRadius = 4
             btn.clipsToBounds = true
-            btn.translatesAutoresizingMaskIntoConstraints = false
-            btn.heightAnchor.constraint(equalToConstant: 24).isActive = true
-            btn.setContentHuggingPriority(.required, for: .horizontal)
-            btn.setContentCompressionResistancePriority(.required, for: .horizontal)
             btn.filterType = filterType
             btn.filterValue = filterValue
             btn.addTarget(self, action: #selector(detailBadgeTapped(_:)), for: .touchUpInside)
@@ -1615,10 +1631,6 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             l.layer.cornerRadius = 4
             l.clipsToBounds = true
             l.textAlignment = .center
-            l.setContentHuggingPriority(.required, for: .horizontal)
-            l.setContentCompressionResistancePriority(.required, for: .horizontal)
-            l.translatesAutoresizingMaskIntoConstraints = false
-            l.heightAnchor.constraint(equalToConstant: 24).isActive = true
             return l
         }
     }
