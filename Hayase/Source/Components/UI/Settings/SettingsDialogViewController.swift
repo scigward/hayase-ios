@@ -7,6 +7,8 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
     /// Only content with `!w-auto` (such as the torrent-library confirmation)
     /// opts into shrink-to-fit. Existing settings dialogs remain full-width.
     var preferredPanelWidth: CGFloat?
+    /// `max-h-[80%]` and the like. A dialog without one is as tall as its content, whatever the window is.
+    var limitsHeight = true
     /// `bg-popover`, or `bg-background` for the dialogs that ask for it
     var panelColor = UIColor.HayaseTheme.popover
     let panel = UIView()
@@ -153,18 +155,16 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         let size = content.systemLayoutSizeFitting(CGSize(width: max(0, width - inset * 2), height: 0),
             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         // `Dialog.Portal` is `fixed inset-0` and the dialog is `top-[50%]` with `max-h-[80%]` of it: the middle
-        // of the window and a share of its height, not of what the safe areas leave. The panel stays out of
-        // the safe areas and above the keyboard, which a page has no need to care about.
+        // of the window and a share of its height, whatever the safe areas are. Only while the keyboard is up
+        // is the window what is above it, which is what the window of a phone becomes with a keyboard.
         let safe = view.safeAreaLayoutGuide.layoutFrame
         // the keyboard guide ends at the safe area while there is no keyboard
         let keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
-        let visibleBottom = keyboardTop < safe.maxY - 1 ? keyboardTop : view.bounds.maxY
-        let safeBottom = min(safe.maxY, keyboardTop)
-        let available = max(0, safeBottom - safe.minY)
-        let height = min(size.height + inset * 2, min(view.bounds.height * heightFraction, available))
+        let windowBottom = keyboardTop < safe.maxY - 1 ? keyboardTop : view.bounds.maxY
+        let limit = limitsHeight ? windowBottom * heightFraction : CGFloat.greatestFiniteMagnitude
+        let height = min(size.height + inset * 2, limit)
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
-        panel.center = CGPoint(x: view.bounds.midX,
-                               y: min(max(visibleBottom / 2, safe.minY + height / 2), safeBottom - height / 2))
+        panel.center = CGPoint(x: view.bounds.midX, y: windowBottom / 2)
         let radius: CGFloat = viewport >= 640 ? 8 : 0   // sm:rounded-lg
         panel.layer.cornerRadius = radius
         // content that reaches the corners (`p-0`) is clipped to the inside of the border

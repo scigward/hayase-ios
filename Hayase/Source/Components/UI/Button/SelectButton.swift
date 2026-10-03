@@ -172,7 +172,34 @@ class SelectButton: UIButton {
     }
 
     override var isHighlighted: Bool {
-        didSet { updateSelectState() }
+        didSet {
+            updateSelectState()
+            updatePressScale()
+        }
+    }
+
+    private var isPressScaled = false
+    private var pressAnimator: UIViewPropertyAnimator?
+
+    /// app.css, for every button: `&:active:not([disabled]) { transition: all 0.1s ease-in-out; transform: scale(0.98) }`.
+    /// A button only has `transition-colors`, so out of `:active` it is back at once.
+    private func updatePressScale() {
+        let pressed = isEnabled && isHighlighted
+        guard pressed != isPressScaled else { return }
+        isPressScaled = pressed
+        pressAnimator?.stopAnimation(true)
+        pressAnimator = nil
+        if pressed {
+            let animator = UIViewPropertyAnimator(duration: 0.1,
+                                                  controlPoint1: CGPoint(x: 0.42, y: 0),
+                                                  controlPoint2: CGPoint(x: 0.58, y: 1)) {
+                self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+            }
+            pressAnimator = animator
+            animator.startAnimation()
+        } else {
+            UIView.performWithoutAnimation { self.transform = .identity }
+        }
     }
 
     @objc private func hoverChanged(_ recognizer: UIHoverGestureRecognizer) {

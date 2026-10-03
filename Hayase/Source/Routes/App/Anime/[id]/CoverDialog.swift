@@ -14,8 +14,7 @@ import UIKit
 /// overlay, its close button and how they come and go are `SettingsDialogViewController`'s, which is
 /// `dialog-content.svelte` and `dialog-overlay.svelte`.
 ///
-/// Unlike the interface, which has no `max-h` and so lets a cover that is taller than the window run off its
-/// edges, the dialog is no taller than the window and the cover scrolls in it.
+/// There is no `max-h`, so a cover that is taller than the window runs off its edges, as it does there.
 final class CoverDialogViewController: SettingsDialogViewController {
     /// `Load`'s `div`: `style:background={color ?? '#1890ff'}`
     private let host = UIView()
@@ -36,6 +35,7 @@ final class CoverDialogViewController: SettingsDialogViewController {
         self.imageTitle = title
         // no padding, and no limit of the height but the window
         super.init(title: "", maximumWidth: 512, contentInset: 0, heightFraction: 1)
+        limitsHeight = false
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
