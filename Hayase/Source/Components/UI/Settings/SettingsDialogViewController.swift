@@ -16,6 +16,9 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
     private let maximumWidth: CGFloat
     private let contentInset: CGFloat
     private let heightFraction: CGFloat
+    /// The space between the edge of the panel and the content: its padding (`p-6`, or `p-0`) and the 1pt
+    /// `border` of `Dialog.Content`, which is outside of the padding.
+    private var inset: CGFloat { contentInset + 1 }
     private var closing = false
     private var panelAnimator: UIViewPropertyAnimator?
     private let scrollView = UIScrollView()
@@ -44,12 +47,19 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         view.addSubview(backdrop)
         panel.backgroundColor = panelColor
         panel.layer.borderWidth = 1
-        panel.clipsToBounds = true
+        // The corners are clipped where the content reaches them (the scroll view, below), so the panel
+        // itself can have its own `shadow-lg`: `0 10px 15px -3px rgb(0 0 0 / 0.1)`.
+        panel.clipsToBounds = false
+        panel.layer.shadowColor = UIColor.black.cgColor
+        panel.layer.shadowOpacity = 0.1
+        panel.layer.shadowOffset = CGSize(width: 0, height: 10)
+        panel.layer.shadowRadius = 7.5
         panel.layer.borderColor = UIColor.HayaseTheme.border.cgColor
         panel.accessibilityViewIsModal = true
         view.addSubview(panel)
         let scroll = scrollView
         scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.clipsToBounds = true
         panel.addSubview(scroll)
         content.axis = .vertical
         content.spacing = 16
@@ -59,10 +69,10 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         }
         scroll.addSubview(content)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: panel.topAnchor, constant: contentInset),
-            scroll.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: contentInset),
-            scroll.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -contentInset),
-            scroll.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -contentInset),
+            scroll.topAnchor.constraint(equalTo: panel.topAnchor, constant: inset),
+            scroll.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: inset),
+            scroll.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -inset),
+            scroll.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -inset),
             content.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             content.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
@@ -74,8 +84,9 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(closeButton)
         NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: panel.topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16),
+            // `absolute right-4 top-4` is measured from the padding edge, inside the 1pt border
+            closeButton.topAnchor.constraint(equalTo: panel.topAnchor, constant: 17),
+            closeButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -17),
             closeButton.widthAnchor.constraint(equalToConstant: 16),
             closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
@@ -139,27 +150,51 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
         let viewport = view.window?.rootViewController?.view.bounds.width ?? view.bounds.width
         content.arrangedSubviews.compactMap { $0 as? SettingsResponsiveView }
             .forEach { $0.updateLayout(viewportWidth: viewport) }
-        let size = content.systemLayoutSizeFitting(CGSize(width: max(0, width - contentInset * 2), height: 0),
+        let size = content.systemLayoutSizeFitting(CGSize(width: max(0, width - inset * 2), height: 0),
             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+        // `Dialog.Portal` is `fixed inset-0` and the dialog is `top-[50%]` with `max-h-[80%]` of it: the middle
+        // of the window and a share of its height, not of what the safe areas leave. The panel stays out of
+        // the safe areas and above the keyboard, which a page has no need to care about.
         let safe = view.safeAreaLayoutGuide.layoutFrame
-        let visibleBottom = min(safe.maxY, view.keyboardLayoutGuide.layoutFrame.minY)
-        let visibleHeight = max(0, visibleBottom - safe.minY)
-        let height = min(size.height + contentInset * 2, visibleHeight * heightFraction)
+        // the keyboard guide ends at the safe area while there is no keyboard
+        let keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let visibleBottom = keyboardTop < safe.maxY - 1 ? keyboardTop : view.bounds.maxY
+        let safeBottom = min(safe.maxY, keyboardTop)
+        let available = max(0, safeBottom - safe.minY)
+        let height = min(size.height + inset * 2, min(view.bounds.height * heightFraction, available))
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
-        panel.center = CGPoint(x: view.bounds.midX, y: safe.minY + visibleHeight / 2)
-        panel.layer.cornerRadius = viewport >= 640 ? 8 : 0
+        panel.center = CGPoint(x: view.bounds.midX,
+                               y: min(max(visibleBottom / 2, safe.minY + height / 2), safeBottom - height / 2))
+        let radius: CGFloat = viewport >= 640 ? 8 : 0   // sm:rounded-lg
+        panel.layer.cornerRadius = radius
+        // content that reaches the corners (`p-0`) is clipped to the inside of the border
+        scrollView.layer.cornerRadius = contentInset == 0 ? max(0, radius - 1) : 0
+        // `-3px` of spread
+        panel.layer.shadowPath = UIBezierPath(roundedRect: panel.bounds.insetBy(dx: 3, dy: 3),
+                                              cornerRadius: max(0, radius - 3)).cgPath
+    }
+
+    /// `flyAndScale` of `Dialog.Content` in and out: from 5pt below and 95%, over 200ms with `cubicOut`;
+    /// out is the same curve on the way back, since a transition out plays its easing forwards too.
+    private static let panelTiming = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 1),
+                                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 1))
+    private static let panelHidden = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // from the first frame, not one frame after it
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        panel.alpha = 0
+        panel.transform = Self.panelHidden
+        backdrop.alpha = 0
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         guard !UIAccessibility.isReduceMotionEnabled else { return }
-        panel.alpha = 0
-        panel.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
-        backdrop.alpha = 0
-        UIView.animate(withDuration: 0.15) { self.backdrop.alpha = 1 }
-        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 1),
-                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 1))
-        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: timing)
+        // `Dialog.Overlay`: `transition:fade={{ duration: 150 }}`, which is linear
+        UIView.animate(withDuration: 0.15, delay: 0, options: .curveLinear) { self.backdrop.alpha = 1 }
+        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: Self.panelTiming)
         animator.addAnimations { self.panel.alpha = 1; self.panel.transform = .identity }
         panelAnimator = animator
         animator.startAnimation()
@@ -175,12 +210,10 @@ class SettingsDialogViewController: UIViewController, UIGestureRecognizerDelegat
             return
         }
         UIView.animate(withDuration: 0.15, delay: 0, options: .curveLinear) { self.backdrop.alpha = 0 }
-        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 1.0 / 3, y: 0),
-                                             controlPoint2: CGPoint(x: 2.0 / 3, y: 0))
-        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: timing)
+        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: Self.panelTiming)
         animator.addAnimations {
             self.panel.alpha = 0
-            self.panel.transform = CGAffineTransform(translationX: 0, y: 5).scaledBy(x: 0.95, y: 0.95)
+            self.panel.transform = Self.panelHidden
         }
         animator.addCompletion { [weak self] _ in
             guard let self else { return }

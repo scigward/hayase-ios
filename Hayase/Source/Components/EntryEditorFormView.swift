@@ -160,9 +160,9 @@ final class EntryEditorFormView: UIView, SettingsResponsiveView, UITextFieldDele
 
     func updateLayout(viewportWidth: CGFloat) {
         let nextWide = viewportWidth >= 640   // `sm`
-        // a title of two lines is as wide as the dialog, which is the window below `sm`, less its `px-5`:
-        // the dialog is sized from the height of the label before it is laid out
-        heading.preferredMaxLayoutWidth = nextWide ? 0 : max(0, viewportWidth - 40)
+        // a title of two lines is as wide as the dialog, which is the window below `sm`, less its 1pt border
+        // and its `px-5`: the dialog is sized from the height of the label before it is laid out
+        heading.preferredMaxLayoutWidth = nextWide ? 0 : max(0, viewportWidth - 42)
         guard nextWide != wide else { return }
         wide = nextWide
 

@@ -614,13 +614,24 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Cover
 
+    /// `Load`'s `div`: `style:background={color ?? '#1890ff'}`, with the picture in it
     private let coverImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.isUserInteractionEnabled = true
         iv.layer.cornerRadius = 4   // interface Dialog.Trigger: rounded = Tailwind 0.25rem = 4pt
-        iv.backgroundColor = UIColor(white: 0.16, alpha: 1)
+        iv.backgroundColor = AnimeInfoHeaderView.coverBackground(nil)
+        return iv
+    }()
+
+    /// `Load`'s `img`: it fades in on the color of the `div`, which stays where it is
+    private let coverPicture: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.isUserInteractionEnabled = false
+        iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
 
@@ -800,9 +811,12 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     private let genresContainer = UIView()
 
     private var coverImageTask: URLSessionDataTask?
+    private var loadedCoverURL: String?
     private var displayedCoverURL: String?
     private var coverScaleAnimator: UIViewPropertyAnimator?
     private var coverOverlayAnimator: UIViewPropertyAnimator?
+    private var isCoverPressed = false
+    private var isCoverHovered = false
     private var bannerHidden = false
     private var hasTrailer = false
     // "Also available on YouTube!": +layout.svelte's `trailerIsMedia`
@@ -854,10 +868,16 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         coverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         coverOverlayIcon.translatesAutoresizingMaskIntoConstraints = false
         coverButton.translatesAutoresizingMaskIntoConstraints = false
+        // the picture is under the overlay, which is `absolute` above it
+        coverImageView.addSubview(coverPicture)
         coverImageView.addSubview(coverOverlayView)
         coverOverlayView.addSubview(coverOverlayIcon)
         coverImageView.addSubview(coverButton)
         NSLayoutConstraint.activate([
+            coverPicture.topAnchor.constraint(equalTo: coverImageView.topAnchor),
+            coverPicture.leadingAnchor.constraint(equalTo: coverImageView.leadingAnchor),
+            coverPicture.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor),
+            coverPicture.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor),
             coverOverlayView.topAnchor.constraint(equalTo: coverImageView.topAnchor),
             coverOverlayView.leadingAnchor.constraint(equalTo: coverImageView.leadingAnchor),
             coverOverlayView.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor),
@@ -876,6 +896,8 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         coverPress.cancelsTouchesInView = false
         coverPress.delegate = self
         coverButton.addGestureRecognizer(coverPress)
+        // the pointer of an iPad is `:hover`
+        coverButton.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(coverHoverChanged(_:))))
         coverButton.addTarget(self, action: #selector(coverTapped), for: .touchUpInside)
 
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
@@ -1289,18 +1311,27 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
     @objc private func anilistTapped()     { onOpenAniList?() }
     @objc private func malTapped()         { onOpenMAL?() }
     @objc private func coverTapped() {
-        onOpenCover?(displayedCoverURL, coverImageView.image)
+        onOpenCover?(displayedCoverURL, coverPicture.image)
     }
 
     @objc private func coverPressChanged(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            setCoverSelected(true, animated: true)
+            isCoverPressed = true
+            applyCoverState(animated: true)
         case .ended, .cancelled, .failed:
-            setCoverSelected(false, animated: true)
+            isCoverPressed = false
+            applyCoverState(animated: true)
         default:
             break
         }
+    }
+
+    @objc private func coverHoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+        let hovered = recognizer.state == .began || recognizer.state == .changed
+        guard hovered != isCoverHovered else { return }
+        isCoverHovered = hovered
+        applyCoverState(animated: true)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -1308,15 +1339,18 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         true
     }
 
-    private func setCoverSelected(_ selected: Bool, animated: Bool) {
+    /// The trigger is `select:scale-[1.02]` (hover, focus-visible, active), and the overlay with its icon is
+    /// `group-select`: all of it is there while the pointer is over the cover or a finger is on it. app.css
+    /// scales every button that is `:active` to 0.98, which wins over the 1.02 for as long as it is pressed.
+    private func applyCoverState(animated: Bool) {
         stopCoverAnimator(coverScaleAnimator)
         stopCoverAnimator(coverOverlayAnimator)
 
+        let selected = isCoverPressed || isCoverHovered
+        let scale: CGFloat = isCoverPressed ? 0.98 : (isCoverHovered ? 1.02 : 1)
         let applyScale: () -> Void = { [weak self] in
             guard let self else { return }
-            self.coverImageView.transform = selected
-                ? CGAffineTransform(scaleX: 1.02, y: 1.02)
-                : .identity
+            self.coverImageView.transform = CGAffineTransform(scaleX: scale, y: scale)
         }
         let applyOverlay = { [weak self] in
             guard let self else { return }
@@ -1333,13 +1367,19 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
             return
         }
 
-        // transition-transform duration-200: Tailwind's default cubic-bezier(0.4, 0, 0.2, 1).
-        let scaleAnimator = UIViewPropertyAnimator(
-            duration: 0.2,
-            controlPoint1: CGPoint(x: 0.4, y: 0),
-            controlPoint2: CGPoint(x: 0.2, y: 1),
-            animations: applyScale
-        )
+        // Into `:active` it is app.css's `transition: all 0.1s ease-in-out`; into the other states it is the
+        // trigger's own `transition-transform duration-200`: Tailwind's default cubic-bezier(0.4, 0, 0.2, 1).
+        let scaleAnimator = isCoverPressed
+            ? UIViewPropertyAnimator(
+                duration: 0.1,
+                controlPoint1: CGPoint(x: 0.42, y: 0),
+                controlPoint2: CGPoint(x: 0.58, y: 1),
+                animations: applyScale)
+            : UIViewPropertyAnimator(
+                duration: 0.2,
+                controlPoint1: CGPoint(x: 0.4, y: 0),
+                controlPoint2: CGPoint(x: 0.2, y: 1),
+                animations: applyScale)
         coverScaleAnimator = scaleAnimator
         scaleAnimator.startAnimation()
 
@@ -1422,9 +1462,12 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
         updateTrailerButton(trailerYouTubeID: item.trailerYouTubeID)
 
         publishBannerSource()
-        displayedCoverURL = item.coverURL
-        setCoverSelected(false, animated: false)
-        loadImage(from: displayedCoverURL, into: coverImageView, task: &coverImageTask)
+        // `cover(media)`
+        displayedCoverURL = AniListUtil.cover(for: item)
+        isCoverPressed = false
+        isCoverHovered = false
+        applyCoverState(animated: false)
+        loadCover(displayedCoverURL, color: item.coverColor)
     }
 
     /// The badges under the title: what the media says, with the colors of its cover.
@@ -1931,28 +1974,46 @@ final class AnimeInfoHeaderView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: - Image loading
 
-    private func loadImage(from urlString: String?,
-                           into imageView: UIImageView,
-                           task: inout URLSessionDataTask?) {
-        task?.cancel()
-        task = nil
-        imageView.image = nil
-        guard let urlString = urlString, !urlString.isEmpty, let url = URL(string: urlString) else { return }
+    /// img/load.svelte: `style:background={color ?? '#1890ff'}`
+    static func coverBackground(_ hex: String?) -> UIColor {
+        ExtensionSearchViewController.uiColor(fromHex: hex) ?? UIColor(red: 24 / 255, green: 144 / 255, blue: 255 / 255, alpha: 1)
+    }
+
+    /// `<Load src={cover(media)} color={media.coverImage?.color}>`: the picture fades in on the color of the
+    /// cover, from 6pt blurred when it is there at once, when the page is made. Another `src` is swapped in
+    /// where the old one was, without the fade: `load-in` has run by then.
+    private func loadCover(_ urlString: String?, color: String?) {
+        coverImageView.backgroundColor = Self.coverBackground(color)
+        // the same cover is not loaded again
+        guard urlString != loadedCoverURL || coverPicture.image == nil else { return }
+
+        coverImageTask?.cancel()
+        coverImageTask = nil
+        guard let urlString, !urlString.isEmpty, let url = URL(string: urlString) else { return }
+        loadedCoverURL = urlString
+        let announcedAt = CACurrentMediaTime()
+
         if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
-            imageView.image = cached
+            showCover(cached, blurred: true)
             return
         }
-        let captured = urlString
-        task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data, let img = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(img, forKey: captured as NSString)
+        coverImageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
             DispatchQueue.main.async {
-                UIView.transition(with: imageView, duration: 0.3,
-                                  options: .transitionCrossDissolve,
-                                  animations: { imageView.image = img })
+                guard let self, self.loadedCoverURL == urlString else { return }
+                self.showCover(image, blurred: CACurrentMediaTime() - announcedAt < LoadIn.blurWindow)
             }
         }
-        task?.resume()
+        coverImageTask?.resume()
+    }
+
+    private func showCover(_ image: UIImage, blurred: Bool) {
+        if coverPicture.image == nil {
+            LoadIn.show(image, in: coverPicture, blurred: blurred)
+        } else {
+            coverPicture.image = image
+        }
     }
 }
 
@@ -1980,7 +2041,6 @@ class AnimeDetailViewController: UIViewController {
     private var animeBackdropLeadingConstraint: NSLayoutConstraint?
     private var animeBackdropTrailingConstraint: NSLayoutConstraint?
     var headerView: AnimeInfoHeaderView!
-    private var coverDialogImageTask: URLSessionDataTask?
     var isFavorite = false
     var isOnList = false
     var episodes: [AniZipEpisode] = []
@@ -2615,108 +2675,12 @@ class AnimeDetailViewController: UIViewController {
         }
     }
 
+    /// `<Dialog.Root>` of the cover: the picture the trigger shows, at the size of the dialog.
     private func presentCoverDialog(urlString: String?, image: UIImage?) {
         guard image != nil || urlString != nil else { return }
-        coverDialogImageTask?.cancel()
-
-        let dialog = UIViewController()
-        dialog.modalPresentationStyle = .overFullScreen
-        dialog.modalTransitionStyle = .crossDissolve
-        dialog.view.backgroundColor = .clear
-
-        let backdropView = HayaseStripedBackdropView()
-        backdropView.translatesAutoresizingMaskIntoConstraints = false
-        dialog.view.addSubview(backdropView)
-
-        let imageContainer = UIView()
-        imageContainer.backgroundColor = UIColor.HayaseTheme.muted
-        imageContainer.layer.cornerRadius = 8
-        imageContainer.layer.masksToBounds = true
-        imageContainer.translatesAutoresizingMaskIntoConstraints = false
-        dialog.view.addSubview(imageContainer)
-
-        // interface Dialog.Content for cover: `flex justify-center p-0 overflow-clip`
-        // + default dialog-content sm:rounded-lg = 8pt corner radius
-        let imageView = UIImageView(image: image)
-        imageView.contentMode = .scaleAspectFill
-        imageView.clipsToBounds = true
-        imageView.backgroundColor = UIColor.HayaseTheme.muted
-        imageView.layer.cornerRadius = 8  // sm:rounded-lg
-        imageView.layer.masksToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageContainer.addSubview(imageView)
-
-        let closeButton = HayaseCloseButton()
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.addTarget(self, action: #selector(dismissPresentedCoverDialog), for: .touchUpInside)
-        dialog.view.addSubview(closeButton)
-
-        let imageSize = image?.size ?? CGSize(width: 180, height: 256)
-        let aspect = imageSize.width / max(imageSize.height, 1)
-        let widthLimit = imageContainer.widthAnchor.constraint(lessThanOrEqualTo: dialog.view.widthAnchor, multiplier: 0.92)
-        let heightLimit = imageContainer.heightAnchor.constraint(lessThanOrEqualTo: dialog.view.heightAnchor, multiplier: 0.84)
-        let preferredHeight = imageContainer.heightAnchor.constraint(equalTo: dialog.view.heightAnchor, multiplier: 0.84)
-        widthLimit.priority = .required
-        heightLimit.priority = .required
-        preferredHeight.priority = .defaultHigh
-
-        NSLayoutConstraint.activate([
-            backdropView.topAnchor.constraint(equalTo: dialog.view.topAnchor),
-            backdropView.leadingAnchor.constraint(equalTo: dialog.view.leadingAnchor),
-            backdropView.trailingAnchor.constraint(equalTo: dialog.view.trailingAnchor),
-            backdropView.bottomAnchor.constraint(equalTo: dialog.view.bottomAnchor),
-
-            imageContainer.centerXAnchor.constraint(equalTo: dialog.view.centerXAnchor),
-            imageContainer.centerYAnchor.constraint(equalTo: dialog.view.centerYAnchor),
-            widthLimit,
-            heightLimit,
-            preferredHeight,
-            imageContainer.widthAnchor.constraint(equalTo: imageContainer.heightAnchor, multiplier: aspect),
-
-            imageView.topAnchor.constraint(equalTo: imageContainer.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: imageContainer.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: imageContainer.bottomAnchor),
-
-            closeButton.topAnchor.constraint(equalTo: imageContainer.topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor, constant: -16),
-            closeButton.widthAnchor.constraint(equalToConstant: 16),
-            closeButton.heightAnchor.constraint(equalToConstant: 16),
-        ])
-
-        // Tap outside image to dismiss
-        let closeTap = UITapGestureRecognizer(target: self, action: #selector(dismissPresentedCoverDialog))
-        backdropView.addGestureRecognizer(closeTap)
-        loadCoverDialogImageIfNeeded(urlString: urlString, imageView: imageView)
-        present(dialog, animated: true)
-    }
-
-    @objc private func dismissPresentedCoverDialog() {
-        coverDialogImageTask?.cancel()
-        coverDialogImageTask = nil
-        presentedViewController?.dismiss(animated: true)
-    }
-
-    private func loadCoverDialogImageIfNeeded(urlString: String?, imageView: UIImageView) {
-        guard imageView.image == nil,
-              let urlString,
-              let url = URL(string: urlString) else { return }
-        if let cached = SharedImageCache.shared.object(forKey: urlString as NSString) {
-            imageView.image = cached
-            return
-        }
-
-        coverDialogImageTask = URLSession.shared.dataTask(with: url) { [weak imageView] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            SharedImageCache.shared.setObject(image, forKey: urlString as NSString)
-            DispatchQueue.main.async {
-                UIView.transition(with: imageView ?? UIImageView(),
-                                  duration: 0.2,
-                                  options: .transitionCrossDissolve,
-                                  animations: { imageView?.image = image })
-            }
-        }
-        coverDialogImageTask?.resume()
+        present(CoverDialogViewController(urlString: urlString, image: image, color: animeItem?.coverColor,
+                                          title: animeItem.map { AniListUtil.title(for: $0) } ?? ""),
+                animated: false)
     }
 
     private func presentTrailerDialog(trailerID: String) {
