@@ -1,3 +1,4 @@
+# Mirrors .github/workflows/build-ipa.yml. Keep the nine build scripts identical.
 workflows:
   hayase_unsigned_ipa:
     name: Build IPA
@@ -19,6 +20,13 @@ workflows:
         - $HOME/.hayase-spm
 
     scripts:
+      - name: Set GitHub-compatible workspace
+        script: |
+          set -euo pipefail
+
+          # Provider adapter only: subsequent build scripts are identical to GitHub's run blocks.
+          printf 'GITHUB_WORKSPACE=%s\n' "$CM_BUILD_DIR" >> "$CM_ENV"
+
       - name: Checkout submodules
         script: |
           set -euo pipefail
@@ -80,7 +88,7 @@ workflows:
               -scheme Hayase \
               -resolvePackageDependencies \
               -clonedSourcePackagesDirPath "$HOME/.hayase-spm" \
-              SYMROOT="$CM_BUILD_DIR/build/app"; then
+              SYMROOT="$GITHUB_WORKSPACE/build/app"; then
               RESOLVED=true
               break
             fi
@@ -114,7 +122,7 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="${VERSION##*.}" \
-            SYMROOT="$CM_BUILD_DIR/build/app" \
+            SYMROOT="$GITHUB_WORKSPACE/build/app" \
             clean build
 
       - name: Package IPA
